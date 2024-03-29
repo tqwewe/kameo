@@ -71,6 +71,7 @@ mod stop_reason;
 
 pub use actor::Actor;
 pub use actor_ref::ActorRef;
+pub use async_trait::async_trait;
 pub use error::{PanicError, SendError};
 pub use message::{Message, Query, Reply};
 pub use stop_reason::ActorStopReason;
