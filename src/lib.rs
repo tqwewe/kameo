@@ -11,6 +11,21 @@
 //!
 //! ---
 //!
+//! # Installing
+//!
+//! Stable
+//!
+//! ```toml
+//! [dependencies]
+//! kameo = "0.1"
+//! ```
+//!
+//! Nightly
+//!
+//! ```toml
+//! kameo = { version = "0.1", features = ["nightly"] }
+//! ```
+//!
 //! # `nightly` feature flag
 //!
 //! The `nightly` feature flag allows for any type to be used in a [Message] or [Query]'s reply.

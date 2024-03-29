@@ -11,6 +11,15 @@
 
 ---
 
+### Installing
+
+```toml
+[dependencies]
+kameo = "0.1" # Stable
+
+kameo = { version = "0.1", features = ["nightly"] } # Nightly
+```
+
 ### Defining an Actor
 
 ```rust
