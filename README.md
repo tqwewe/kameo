@@ -9,8 +9,6 @@
 - ✅ Concurrent Queries
 - ✅ Panic Safe
 
-> Unfortunately, **kameo requires unstable Rust**, as it depends on specialization for error handling in actors.
-
 ---
 
 ### Defining an Actor
@@ -28,11 +26,11 @@ struct Inc(u32);
 
 #[async_trait]
 impl Message<Counter> for Inc {
-    type Reply = i64;
+    type Reply = Result<i64, Infallible>;
 
     async fn handle(self, state: &mut Counter) -> Self::Reply {
         state.count += self.0 as i64;
-        state.count
+        Ok(state.count)
     }
 }
 ```
@@ -42,6 +40,8 @@ impl Message<Counter> for Inc {
  • 
 <a href="https://docs.rs/kameo/latest/kameo/trait.Message.html" target="_blank">Message</a>
 </sup>
+
+Note, with the `nightly` feature flag enabled, this reply type can be `i64` directly without the result.
 
 
 ### Starting an Actor & Messaging

@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use async_trait::async_trait;
 use criterion::BenchmarkId;
 use criterion::Criterion;
@@ -12,10 +14,10 @@ struct Fib(u64);
 
 #[async_trait]
 impl Query<FibActor> for Fib {
-    type Reply = u64;
+    type Reply = Result<u64, Infallible>;
 
     async fn handle(self, _state: &FibActor) -> Self::Reply {
-        fibonacci(self.0)
+        Ok(fibonacci(self.0))
     }
 }
 

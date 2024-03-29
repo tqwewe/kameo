@@ -22,6 +22,10 @@ criterion = { version = "0.4", features = ["async_tokio"] }
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[features]
+default = []
+nightly = []
+
 [[bench]]
 name = "concurrent_reads"
 harness = false

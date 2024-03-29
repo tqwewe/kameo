@@ -1,4 +1,4 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, convert::Infallible};
 
 use async_trait::async_trait;
 use kameo::*;
@@ -23,11 +23,11 @@ pub struct Inc {
 
 #[async_trait]
 impl Message<MyActor> for Inc {
-    type Reply = i64;
+    type Reply = Result<i64, Infallible>;
 
     async fn handle(self, state: &mut MyActor) -> Self::Reply {
         state.count += self.amount as i64;
-        state.count
+        Ok(state.count)
     }
 }
 
@@ -48,15 +48,15 @@ pub struct Count;
 
 #[async_trait]
 impl Query<MyActor> for Inc {
-    type Reply = i64;
+    type Reply = Result<i64, Infallible>;
 
     async fn handle(self, state: &MyActor) -> Self::Reply {
-        state.count
+        Ok(state.count)
     }
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter("trace".parse::<EnvFilter>().unwrap())
         .without_time()
@@ -66,19 +66,21 @@ async fn main() {
     let my_actor_ref = MyActor::default().start();
 
     // Increment the count by 3
-    let count = my_actor_ref.send(Inc { amount: 3 }).await.unwrap();
+    let count = my_actor_ref.send(Inc { amount: 3 }).await??;
     info!("Count is {count}");
 
     // Increment the count by 50 in the background
-    my_actor_ref.send_async(Inc { amount: 50 }).unwrap();
+    my_actor_ref.send_async(Inc { amount: 50 })?;
 
     // Increment the count by 2
-    let count = my_actor_ref.send(Inc { amount: 2 }).await.unwrap();
+    let count = my_actor_ref.send(Inc { amount: 2 }).await??;
     info!("Count is {count}");
 
     // Async messages that return an Err will cause the actor to panic
-    my_actor_ref.send_async(ForceErr).unwrap();
+    my_actor_ref.send_async(ForceErr)?;
 
     // Actor should be stopped, so we cannot send more messages to it
     assert!(my_actor_ref.send(Inc { amount: 2 }).await.is_err());
+
+    Ok(())
 }
