@@ -17,7 +17,7 @@
 //! This is done though specialization, which requires nightly rust.
 //!
 //! Without the nightly feature flag, all replies must be a `Result<T, E>`, where `E: Debug + Send + Sync + 'static`.
-//! This is to ensure that asyncronous messages force the actor to panic,
+//! This is to ensure that asyncronous messages that fail will cause the actor to panic,
 //! since otherwise the error would be silently ignored.
 //!
 //! # Defining an Actor
