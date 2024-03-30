@@ -1,7 +1,7 @@
 [package]
 name = "kameo"
 description = "Simple tokio actors - mpsc channels & no macros"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/tqwewe/kameo"
