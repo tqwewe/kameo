@@ -1,12 +1,14 @@
-# Kameo
+# Kameo 🧚🏻
 
-**Simple tokio actors**
+#### Fault-tolerant Async Actors Built on Tokio
 
-- ✅ Async Support
-- ✅ Links Between Actors (`spawn_link`/`spawn_child`)
-- ✅ MPSC Unbounded Channel for Messaging
-- ✅ Concurrent Queries
-- ✅ Panic Safe
+<img src="https://imgur.com/InQaU4a.png" width=600 />
+
+- **Async**: Built on tokio, actors run asyncronously in their own isolated spawned tasks.
+- **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
+- **MPSC Unbounded Channels**: Uses mpsc channels for messaging between actors.
+- **Concurrent Queries**: Support concurrent processing of queries when mutable state isn't necessary.
+- **Panic Safe**: Catches panics internally, allowing actors to be restarted.
 
 ---
 
