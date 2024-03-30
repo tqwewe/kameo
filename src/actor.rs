@@ -7,10 +7,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use async_trait::async_trait;
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
-    FutureExt,
+    Future, FutureExt,
 };
 use tokio::{
     sync::{mpsc, RwLock, Semaphore},
@@ -28,7 +27,6 @@ use crate::{
 ///
 /// Methods in this trait that return `BoxError` will stop the actor with the reason
 /// `ActorReason::Panicked` containing the error.
-#[async_trait]
 pub trait Actor: Send + Sync + Sized + 'static {
     /// Actor name, useful for logging.
     fn name(&self) -> Cow<'_, str> {
@@ -73,8 +71,8 @@ pub trait Actor: Send + Sync + Sized + 'static {
     ///
     /// # Returns
     /// A result indicating successful initialization or an error if initialization fails.
-    async fn on_start(&mut self) -> Result<(), BoxError> {
-        Ok(())
+    fn on_start(&mut self) -> impl Future<Output = Result<(), BoxError>> + Send {
+        async { Ok(()) }
     }
 
     /// Hook that is called when an actor panicked or returns an error during an async message.
@@ -87,8 +85,11 @@ pub trait Actor: Send + Sync + Sized + 'static {
     ///
     /// # Returns
     /// Whether the actor should continue processing, or be stopped by returning a stop reason.
-    async fn on_panic(&mut self, err: PanicError) -> Result<Option<ActorStopReason>, BoxError> {
-        Ok(Some(ActorStopReason::Panicked(err)))
+    fn on_panic(
+        &mut self,
+        err: PanicError,
+    ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
+        async move { Ok(Some(ActorStopReason::Panicked(err))) }
     }
 
     /// Hook that is called before the actor is stopped.
@@ -99,8 +100,11 @@ pub trait Actor: Send + Sync + Sized + 'static {
     ///
     /// # Parameters
     /// - `reason`: The reason why the actor is being stopped.
-    async fn on_stop(self, _reason: ActorStopReason) -> Result<(), BoxError> {
-        Ok(())
+    fn on_stop(
+        self,
+        _reason: ActorStopReason,
+    ) -> impl Future<Output = Result<(), BoxError>> + Send {
+        async { Ok(()) }
     }
 
     /// Hook that is called when a linked actor dies.
@@ -110,19 +114,21 @@ pub trait Actor: Send + Sync + Sized + 'static {
     /// # Returns
     /// Whether the actor should continue processing, or be stopped by returning a stop reason.
     #[allow(unused_variables)]
-    async fn on_link_died(
+    fn on_link_died(
         &mut self,
         id: u64,
         reason: ActorStopReason,
-    ) -> Result<Option<ActorStopReason>, BoxError> {
-        match &reason {
-            ActorStopReason::Normal => Ok(None),
-            ActorStopReason::Killed
-            | ActorStopReason::Panicked(_)
-            | ActorStopReason::LinkDied { .. } => Ok(Some(ActorStopReason::LinkDied {
-                id,
-                reason: Box::new(reason),
-            })),
+    ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
+        async move {
+            match &reason {
+                ActorStopReason::Normal => Ok(None),
+                ActorStopReason::Killed
+                | ActorStopReason::Panicked(_)
+                | ActorStopReason::LinkDied { .. } => Ok(Some(ActorStopReason::LinkDied {
+                    id,
+                    reason: Box::new(reason),
+                })),
+            }
         }
     }
 

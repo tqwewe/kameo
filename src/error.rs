@@ -8,6 +8,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{actor_ref::Signal, message::BoxDebug};
 
+/// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
 
 /// Error that can occur when sending a message to an actor.

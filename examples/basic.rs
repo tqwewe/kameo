@@ -1,6 +1,5 @@
 use std::{borrow::Cow, convert::Infallible};
 
-use async_trait::async_trait;
 use kameo::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -21,7 +20,6 @@ pub struct Inc {
     amount: u32,
 }
 
-#[async_trait]
 impl Message<MyActor> for Inc {
     type Reply = Result<i64, Infallible>;
 
@@ -34,7 +32,6 @@ impl Message<MyActor> for Inc {
 // Always returns an error
 pub struct ForceErr;
 
-#[async_trait]
 impl Message<MyActor> for ForceErr {
     type Reply = Result<(), i32>;
 
@@ -46,7 +43,6 @@ impl Message<MyActor> for ForceErr {
 // Queries the current count
 pub struct Count;
 
-#[async_trait]
 impl Query<MyActor> for Inc {
     type Reply = Result<i64, Infallible>;
 

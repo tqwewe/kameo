@@ -48,7 +48,6 @@
 //! // Define messages
 //! struct Inc(u32);
 //!
-//! #[async_trait]
 //! impl Message<Counter> for Inc {
 //!     type Reply = Result<i64, Infallible>;
 //!
@@ -86,7 +85,6 @@ mod stop_reason;
 
 pub use actor::Actor;
 pub use actor_ref::ActorRef;
-pub use async_trait::async_trait;
-pub use error::{PanicError, SendError};
+pub use error::{BoxError, PanicError, SendError};
 pub use message::{Message, Query, Reply};
 pub use stop_reason::ActorStopReason;

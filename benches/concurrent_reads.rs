@@ -1,6 +1,5 @@
 use std::convert::Infallible;
 
-use async_trait::async_trait;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
@@ -12,7 +11,6 @@ impl Actor for FibActor {}
 
 struct Fib(u64);
 
-#[async_trait]
 impl Query<FibActor> for Fib {
     type Reply = Result<u64, Infallible>;
 

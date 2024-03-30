@@ -13,11 +13,17 @@
 
 ### Installing
 
+Stable
+
 ```toml
 [dependencies]
-kameo = "0.1" # Stable
+kameo = "0.1"
+```
 
-kameo = { version = "0.1", features = ["nightly"] } # Nightly
+Nightly
+
+```toml
+kameo = { version = "0.1", features = ["nightly"] }
 ```
 
 ### Defining an Actor
@@ -33,7 +39,6 @@ impl Actor for Counter {}
 // Define messages
 struct Inc(u32);
 
-#[async_trait]
 impl Message<Counter> for Inc {
     type Reply = Result<i64, Infallible>;
 

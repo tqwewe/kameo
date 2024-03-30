@@ -1,6 +1,7 @@
 use std::{any, fmt};
 
 use async_trait::async_trait;
+use futures::Future;
 
 pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + Sync + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
@@ -11,13 +12,12 @@ pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 ///
 /// The reply type must implement [Reply], which has different implementations based on the `nightly` feature flag.
 /// See the Reply docs for more information on this.
-#[async_trait]
 pub trait Message<A>: Send + 'static {
     /// The reply sent back to the message caller.
     type Reply: Reply + Send + 'static;
 
     /// Handler for this message.
-    async fn handle(self, state: &mut A) -> Self::Reply;
+    fn handle(self, state: &mut A) -> impl Future<Output = Self::Reply> + Send;
 }
 
 /// Queries the actor for some data.
@@ -28,13 +28,12 @@ pub trait Message<A>: Send + 'static {
 ///
 /// The reply type must implement [Reply], which has different implementations based on the `nightly` feature flag.
 /// See the Reply docs for more information on this.
-#[async_trait]
 pub trait Query<A>: Send + 'static {
     /// The reply sent back to the query caller.
     type Reply: Reply + Send + 'static;
 
     /// Handler for this query.
-    async fn handle(self, state: &A) -> Self::Reply;
+    fn handle(self, state: &A) -> impl Future<Output = Self::Reply> + Send;
 }
 
 /// A reply value.
