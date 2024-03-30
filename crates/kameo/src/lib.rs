@@ -16,14 +16,14 @@
 //!
 //! ```toml
 //! [dependencies]
-//! kameo = "0.1"
+//! kameo = "*"
 //! ```
 //!
 //! Nightly
 //!
 //! ```toml
 //! [dependencies]
-//! kameo = { version = "0.1", features = ["nightly"] }
+//! kameo = { version = "*", features = ["nightly"] }
 //! ```
 //!
 //! # `nightly` feature flag
