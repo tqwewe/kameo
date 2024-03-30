@@ -8,7 +8,7 @@ pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 
 /// A message that can modify an actors state.
 ///
-/// Messages are processed sequentially one at a time.
+/// Messages are processed sequentially one at a time, with exclusive mutable access to the actors state.
 ///
 /// The reply type must implement [Reply], which has different implementations based on the `nightly` feature flag.
 /// See the Reply docs for more information on this.
@@ -23,7 +23,7 @@ pub trait Message<A>: Send + 'static {
 /// Queries the actor for some data.
 ///
 /// Unlike regular messages, queries can be processed by the actor in parallel
-/// if multiple queries are sent in sequence. This means we only have read access
+/// if multiple queries are sent in sequence. This means queries only have read access
 /// to the actors state.
 ///
 /// The reply type must implement [Reply], which has different implementations based on the `nightly` feature flag.
@@ -39,7 +39,7 @@ pub trait Query<A>: Send + 'static {
 /// A reply value.
 ///
 /// If an Err is returned by a handler, and is unhandled by the caller (ie, the message was sent async),
-/// then the actor error is treated as a panic in the actor.
+/// then the error is treated as a panic in the actor.
 ///
 /// ### On Stable
 ///

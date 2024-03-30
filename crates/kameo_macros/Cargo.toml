@@ -1,0 +1,17 @@
+[package]
+name = "kameo_macros"
+description = "Simple tokio actors macros"
+version = "0.2.0"
+readme = "../../README.md"
+repository = "https://github.com/tqwewe/kameo"
+license = "MIT OR Apache-2.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+heck = "0.4.1"
+proc-macro2 = "1.0.78"
+syn = { version = "2.0.52", features = ["extra-traits", "full"] }
+quote = "1.0.35"

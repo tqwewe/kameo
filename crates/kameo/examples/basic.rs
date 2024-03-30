@@ -1,6 +1,6 @@
 use std::{borrow::Cow, convert::Infallible};
 
-use kameo::*;
+use kameo::{Actor, Message, Query, Spawn};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -43,7 +43,7 @@ impl Message<MyActor> for ForceErr {
 // Queries the current count
 pub struct Count;
 
-impl Query<MyActor> for Inc {
+impl Query<MyActor> for Count {
     type Reply = Result<i64, Infallible>;
 
     async fn handle(self, state: &MyActor) -> Self::Reply {
@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let my_actor_ref = MyActor::default().start();
+    let my_actor_ref = MyActor::default().spawn();
 
     // Increment the count by 3
     let count = my_actor_ref.send(Inc { amount: 3 }).await??;

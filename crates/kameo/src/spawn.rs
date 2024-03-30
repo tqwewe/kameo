@@ -1,6 +1,4 @@
 use std::{
-    any,
-    borrow::Cow,
     collections::HashMap,
     convert,
     panic::AssertUnwindSafe,
@@ -9,7 +7,7 @@ use std::{
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
-    Future, FutureExt,
+    FutureExt,
 };
 use tokio::{
     sync::{mpsc, RwLock, Semaphore},
@@ -18,21 +16,23 @@ use tokio::{
 use tracing::{error, trace};
 
 use crate::{
+    actor::Actor,
     actor_ref::{ActorRef, Ctx, Links, Signal, CURRENT_CTX},
-    error::{BoxError, PanicError},
+    error::PanicError,
     stop_reason::ActorStopReason,
 };
 
-/// Functionality for an actor including lifecycle hooks.
+/// Functionality to spawn an actor.
 ///
-/// Methods in this trait that return `BoxError` will stop the actor with the reason
-/// `ActorReason::Panicked` containing the error.
-pub trait Actor: Send + Sync + Sized + 'static {
-    /// Actor name, useful for logging.
-    fn name(&self) -> Cow<'_, str> {
-        Cow::Borrowed(any::type_name::<Self>())
-    }
-
+/// # Example
+///
+/// ```
+/// use kameo::Spawn;
+///
+/// let actor = MyActor::new();
+/// let actor_ref = actor.spawn();
+/// ```
+pub trait Spawn: Sized {
     /// Retrieves a reference to the current actor.
     ///
     /// # Panics
@@ -41,6 +41,39 @@ pub trait Actor: Send + Sync + Sized + 'static {
     ///
     /// # Returns
     /// A reference to the actor of type `Self::Ref`.
+    fn actor_ref(&self) -> ActorRef<Self>;
+
+    /// Retrieves a reference to the current actor, if available.
+    ///
+    /// # Returns
+    /// An `Option` containing a reference to the actor of type `Self::Ref` if available,
+    /// or `None` if the actor reference is not available.
+    fn try_actor_ref() -> Option<ActorRef<Self>>;
+
+    /// Spawns the actor in a tokio::task.
+    ///
+    /// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
+    /// and finally calls the `Actor::on_stop` hook.
+    ///
+    /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
+    fn spawn(self) -> ActorRef<Self>;
+
+    /// Spawns the actor with a bidirectional link between the current actor and the one being spawned.
+    ///
+    /// If either actor dies, [Actor::on_link_died] will be called on the other actor.
+    fn spawn_link(self) -> ActorRef<Self>;
+
+    /// Spawns the actor with a unidirectional link between the current actor and the child.
+    ///
+    /// If the current actor dies, [Actor::on_link_died] will be called on the spawned one,
+    /// however if the spawned actor dies, Actor::on_link_died will not be called.
+    fn spawn_child(self) -> ActorRef<Self>;
+}
+
+impl<T> Spawn for T
+where
+    T: Actor + Send + Sync + Sized + 'static,
+{
     fn actor_ref(&self) -> ActorRef<Self> {
         match Self::try_actor_ref() {
             Some(actor_ref) => actor_ref,
@@ -48,97 +81,11 @@ pub trait Actor: Send + Sync + Sized + 'static {
         }
     }
 
-    /// Retrieves a reference to the current actor, if available.
-    ///
-    /// # Returns
-    /// An `Option` containing a reference to the actor of type `Self::Ref` if available,
-    /// or `None` if the actor reference is not available.
     fn try_actor_ref() -> Option<ActorRef<Self>> {
         ActorRef::current()
     }
 
-    /// The maximum number of concurrent queries to handle at a time.
-    ///
-    /// This defaults to the number of cpus on the system.
-    fn max_concurrent_queries() -> usize {
-        num_cpus::get()
-    }
-
-    /// Hook that is called before the actor starts processing messages.
-    ///
-    /// This asynchronous method allows for initialization tasks to be performed
-    /// before the actor starts receiving messages.
-    ///
-    /// # Returns
-    /// A result indicating successful initialization or an error if initialization fails.
-    fn on_start(&mut self) -> impl Future<Output = Result<(), BoxError>> + Send {
-        async { Ok(()) }
-    }
-
-    /// Hook that is called when an actor panicked or returns an error during an async message.
-    ///
-    /// This method provides an opportunity to clean up or reset state.
-    /// It can also determine whether the actor should be killed or if it should continue processing messages by returning `None`.
-    ///
-    /// # Parameters
-    /// - `err`: The error that occurred.
-    ///
-    /// # Returns
-    /// Whether the actor should continue processing, or be stopped by returning a stop reason.
-    fn on_panic(
-        &mut self,
-        err: PanicError,
-    ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
-        async move { Ok(Some(ActorStopReason::Panicked(err))) }
-    }
-
-    /// Hook that is called before the actor is stopped.
-    ///
-    /// This method allows for cleanup and finalization tasks to be performed before the
-    /// actor is fully stopped. It can be used to release resources, notify other actors,
-    /// or complete any final tasks.
-    ///
-    /// # Parameters
-    /// - `reason`: The reason why the actor is being stopped.
-    fn on_stop(
-        self,
-        _reason: ActorStopReason,
-    ) -> impl Future<Output = Result<(), BoxError>> + Send {
-        async { Ok(()) }
-    }
-
-    /// Hook that is called when a linked actor dies.
-    ///
-    /// By default, the current actor will be stopped if the reason is anything other than normal.
-    ///
-    /// # Returns
-    /// Whether the actor should continue processing, or be stopped by returning a stop reason.
-    #[allow(unused_variables)]
-    fn on_link_died(
-        &mut self,
-        id: u64,
-        reason: ActorStopReason,
-    ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
-        async move {
-            match &reason {
-                ActorStopReason::Normal => Ok(None),
-                ActorStopReason::Killed
-                | ActorStopReason::Panicked(_)
-                | ActorStopReason::LinkDied { .. } => Ok(Some(ActorStopReason::LinkDied {
-                    id,
-                    reason: Box::new(reason),
-                })),
-            }
-        }
-    }
-
-    /// Starts the actor in a tokio::task
-    ///
-    /// This called `Actor::on_start`, then processes messages/queries/signals in a loop,
-    /// and finally calls `Actor::on_stop`.
-    ///
-    /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
-    fn start(self) -> ActorRef<Self> {
+    fn spawn(self) -> ActorRef<Self> {
         let (mailbox, mailbox_rx) = mpsc::unbounded_channel::<Signal<Self>>();
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Arc::new(Mutex::new(HashMap::new()));
@@ -158,14 +105,11 @@ pub trait Actor: Send + Sync + Sized + 'static {
         actor_ref
     }
 
-    /// Starts the actor with a bidirectional link between the current actor and the one being spawned.
-    ///
-    /// If either actor dies, [Actor::on_link_died](crate::actor::Actor::on_link_died) will be called on the other actor.
-    fn start_link(self) -> ActorRef<Self> {
-        let actor_ref = self.start();
+    fn spawn_link(self) -> ActorRef<Self> {
+        let actor_ref = self.spawn();
         let (sibbling_id, sibbling_signal_mailbox, sibbling_links) = CURRENT_CTX
             .try_with(|ctx| (ctx.id, ctx.signal_mailbox.clone(), ctx.links.clone()))
-            .expect("start_link cannot be called outside any actors");
+            .expect("spawn_link cannot be called outside any actors");
 
         let actor_ref_links = actor_ref.links();
         let (mut this_links, mut sibbling_links) = (
@@ -178,15 +122,11 @@ pub trait Actor: Send + Sync + Sized + 'static {
         actor_ref
     }
 
-    /// Starts the actor with a unidirectional link between the current actor and the child.
-    ///
-    /// If the current actor dies, [Actor::on_link_died](crate::actor::Actor::on_link_died) will be called on the spawned one,
-    /// however if the spawned actor dies, Actor::on_link_died will not be called.
-    fn start_child(self) -> ActorRef<Self> {
-        let actor_ref = self.start();
+    fn spawn_child(self) -> ActorRef<Self> {
+        let actor_ref = self.spawn();
         let parent_links = CURRENT_CTX
             .try_with(|ctx| ctx.links.clone())
-            .expect("start_child cannot be called outside any actors");
+            .expect("spawn_child cannot be called outside any actors");
 
         parent_links
             .lock()

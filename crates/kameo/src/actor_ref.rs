@@ -117,7 +117,7 @@ where
     /// Sends a message to the actor, waiting for a reply.
     ///
     /// ```
-    /// let reply = actor_ref.send(Foo { ... }).await?;
+    /// let reply = actor_ref.send(msg).await?;
     /// ```
     pub async fn send<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
     where
@@ -136,7 +136,7 @@ where
     /// If the handler for this message returns an error, the actor will panic.
     ///
     /// ```
-    /// actor_ref.send_async(Foo { ... })?;
+    /// actor_ref.send_async(msg)?;
     /// ```
     pub fn send_async<M>(&self, msg: M) -> Result<(), SendError<M>>
     where
@@ -155,7 +155,7 @@ where
     /// If the handler for this message returns an error, the actor will panic.
     ///
     /// ```
-    /// actor_ref.send_after(Foo { ... }, Duration::from_secs(5));
+    /// actor_ref.send_after(msg, Duration::from_secs(5));
     /// ```
     pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
     where
@@ -174,7 +174,7 @@ where
     ///
     /// ```
     /// // Query from the actor
-    /// let reply = actor_ref.query(Foo { ... }).await?;
+    /// let reply = actor_ref.query(msg).await?;
     ///
     /// // Queries run concurrently if no `Message`'s are sent between them
     /// let (a, b, c) = tokio::try_join!(

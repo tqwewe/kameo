@@ -2,9 +2,8 @@
 //!
 //! **Simple tokio actors**
 //!
-//! - ✅ No Macros
 //! - ✅ Async Support
-//! - ✅ Links Between Actors (`start_link`/`start_child`)
+//! - ✅ Links Between Actors (`spawn_link`/`spawn_child`)
 //! - ✅ MPSC Unbounded Channel for Messaging
 //! - ✅ Concurrent Queries
 //! - ✅ Panic Safe
@@ -23,6 +22,7 @@
 //! Nightly
 //!
 //! ```toml
+//! [dependencies]
 //! kameo = { version = "0.1", features = ["nightly"] }
 //! ```
 //!
@@ -35,7 +35,7 @@
 //! This is to ensure that asyncronous messages that fail will cause the actor to panic,
 //! since otherwise the error would be silently ignored.
 //!
-//! # Defining an Actor
+//! # Defining an Actor without Macros
 //!
 //! ```
 //! // Define the actor state
@@ -60,10 +60,56 @@
 //!
 //! Note, with the `nightly` feature flag enabled, this reply type can be `i64` directly without the result.
 //!
-//! # Starting an Actor & Messaging
+//! # Defining an Actor with Macros
 //!
 //! ```
-//! let counter_ref: ActorRef<Counter> = Counter { count: 0 }.start();
+//! // Define the actor state
+//! #[derive(Actor)]
+//! struct Counter {
+//!     count: i64,
+//! }
+//!
+//! // Define messages
+//! #[actor]
+//! impl Counter {
+//!     #[message]
+//!     fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
+//!         self.count += amount as i64;
+//!         Ok(self.count)
+//!     }
+//! }
+//! ```
+//!
+//! <details>
+//!   <summary>See generated macro code</summary>
+//!
+//! ```rust
+//! // Derive Actor
+//! impl kameo::Actor for Counter {
+//!     fn name(&self) -> Cow<'_, str> {
+//!         Cow::Borrowed("Counter")
+//!     }
+//! }
+//!
+//! // Messages
+//! struct Inc { amount: u32 }
+//!
+//! impl kameo::Message<Counter> for Inc {
+//!     type Reply = Result<i64, Infallible>;
+//!
+//!     async fn handle(self, state: &mut Counter) -> Self::Reply {
+//!         state.inc(self.amount)
+//!     }
+//! }
+//! ```
+//! </details>
+//!
+//! # Spawning an Actor & Messaging
+//!
+//! ```
+//! use kameo::{Spawn, ActorRef};
+//!
+//! let counter_ref: ActorRef<Counter> = Counter { count: 0 }.spawn();
 //!
 //! let count = counter_ref.send(Inc(42)).await?;
 //! println!("Count is {count}");
@@ -81,10 +127,13 @@ mod actor;
 mod actor_ref;
 mod error;
 mod message;
+mod spawn;
 mod stop_reason;
 
 pub use actor::Actor;
 pub use actor_ref::ActorRef;
 pub use error::{BoxError, PanicError, SendError};
+pub use kameo_macros::{actor, Actor};
 pub use message::{Message, Query, Reply};
+pub use spawn::Spawn;
 pub use stop_reason::ActorStopReason;

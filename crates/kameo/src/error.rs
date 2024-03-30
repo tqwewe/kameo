@@ -16,7 +16,7 @@ pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
 pub enum SendError<E = ()> {
     /// The actor isn't running.
     ActorNotRunning(E),
-    /// The actor panicked or was stopped.
+    /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
 }
 
