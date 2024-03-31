@@ -1,7 +1,7 @@
 [package]
 name = "kameo"
 description = "Simple tokio actors - mpsc channels & no macros"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 readme = "../../README.md"
 repository = "https://github.com/tqwewe/kameo"
@@ -10,7 +10,7 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 keywords = ["actor", "tokio"]
 
 [dependencies]
-kameo_macros = { version = "0.3.1", path = "../kameo_macros" }
+kameo_macros = { version = "0.3.2", path = "../kameo_macros" }
 
 async-trait = "0.1"
 dyn-clone = "1.0"
