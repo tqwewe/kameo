@@ -4,13 +4,17 @@ use kameo::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Actor, Default)]
+#[derive(Actor)]
 pub struct MyActor {
     count: i64,
 }
 
 #[actor]
 impl MyActor {
+    fn new() -> Self {
+        MyActor { count: 0 }
+    }
+
     #[message(derive(Clone))]
     fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
         self.count += amount as i64;
@@ -48,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let my_actor_ref = MyActor::default().spawn();
+    let my_actor_ref = MyActor::new().spawn();
 
     // Increment the count by 3
     let count = my_actor_ref.send(Inc { amount: 3 }).await??;
