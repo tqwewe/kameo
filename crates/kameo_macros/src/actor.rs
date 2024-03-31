@@ -153,75 +153,59 @@ impl Actor {
                             }
                         });
 
-                        for input in &impl_item_fn.sig.inputs {
-                            if let FnArg::Typed(ty) = input {
-                                if let Err(err) = validate_param(&ty.ty) {
-                                    errors.push(err);
+                        if let Some(msg_type) = msg_type {
+                            for input in &impl_item_fn.sig.inputs {
+                                if let FnArg::Typed(ty) = input {
+                                    if let Err(err) = validate_param(&ty.ty) {
+                                        errors.push(err);
+                                    }
                                 }
                             }
-                        }
 
-                        match impl_item_fn.sig.inputs.first() {
-                            Some(FnArg::Receiver(recv))
-                                if matches!(msg_type, Some(MessageType::Query))
-                                    && recv.mutability.is_some() =>
-                            {
-                                errors.push(syn::Error::new(
-                                    recv.span(),
-                                    "queries cannot take mutable references to self",
-                                ));
-                                return None;
+                            match impl_item_fn.sig.inputs.first() {
+                                Some(FnArg::Receiver(recv))
+                                    if matches!(msg_type, MessageType::Query)
+                                        && recv.mutability.is_some() =>
+                                {
+                                    errors.push(syn::Error::new(
+                                        recv.span(),
+                                        "queries cannot take mutable references to self",
+                                    ));
+                                    return None;
+                                }
+                                Some(FnArg::Typed(_)) | None => {
+                                    errors.push(syn::Error::new(
+                                        impl_item_fn.sig.span(),
+                                        "messages must take &mut self or &self",
+                                    ));
+                                    return None;
+                                }
+                                _ => {}
                             }
-                            Some(FnArg::Typed(_)) | None => {
-                                errors.push(syn::Error::new(
-                                    impl_item_fn.sig.span(),
-                                    "messages must take &mut self or &self",
-                                ));
-                                return None;
-                            }
-                            _ => {}
-                        }
 
-                        // {
-                        //     let mut i = 0;
-                        //     while i < impl_item_fn.attrs.len() {
-                        //         let attr = &impl_item_fn.attrs[i];
-                        //         let is_derive_attr = matches!(
-                        //             &pat_type.attrs[i].meta,
-                        //             Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
-                        //         );
-                        //         if is_doc_attr {
-                        //             doc_attrs.push(pat_type.attrs.remove(i));
-                        //         } else {
-                        //             i += 1;
-                        //         }
-                        //     }
-                        // }
-                        let field_doc_attrs: Vec<_> = impl_item_fn.sig.inputs.iter_mut().map(|input| {
-                            match input {
-                                FnArg::Receiver(_) => vec![],
-                                FnArg::Typed(pat_type) => {
-                                    let mut doc_attrs = Vec::new();
-                                    let mut i = 0;
-                                    while i < pat_type.attrs.len() {
-                                        let is_doc_attr = matches!(
-                                            &pat_type.attrs[i].meta,
-                                            Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
-                                        );
-                                        if is_doc_attr {
-                                            doc_attrs.push(pat_type.attrs.remove(i));
-                                        } else {
-                                            i += 1;
+                            let field_doc_attrs: Vec<_> = impl_item_fn.sig.inputs.iter_mut().map(|input| {
+                                match input {
+                                    FnArg::Receiver(_) => vec![],
+                                    FnArg::Typed(pat_type) => {
+                                        let mut doc_attrs = Vec::new();
+                                        let mut i = 0;
+                                        while i < pat_type.attrs.len() {
+                                            let is_doc_attr = matches!(
+                                                &pat_type.attrs[i].meta,
+                                                Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
+                                            );
+                                            if is_doc_attr {
+                                                doc_attrs.push(pat_type.attrs.remove(i));
+                                            } else {
+                                                i += 1;
+                                            }
                                         }
-                                    }
 
-                                    doc_attrs
-                                },
-                            }
-                        }).collect();
+                                        doc_attrs
+                                    },
+                                }
+                            }).collect();
 
-
-                        if let Some(msg_type) = msg_type {
                             match Message::try_from((
                                 impl_item_fn.vis.clone(),
                                 impl_item_fn.sig.clone(),
