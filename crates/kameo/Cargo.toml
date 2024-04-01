@@ -29,5 +29,5 @@ default = []
 nightly = []
 
 [[bench]]
-name = "concurrent_reads"
+name = "fibonachi"
 harness = false
