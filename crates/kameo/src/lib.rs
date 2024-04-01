@@ -1,41 +1,40 @@
-//! # Kameo
+//! # Kameo 🧚🏻
 //!
-//! **Simple tokio actors**
+//! **Fault-tolerant Async Actors Built on Tokio**
 //!
-//! - ✅ Async Support
-//! - ✅ Links Between Actors (`spawn_link`/`spawn_child`)
-//! - ✅ MPSC Unbounded Channel for Messaging
-//! - ✅ Concurrent Queries
-//! - ✅ Panic Safe
+//! - **Async**: Built on tokio, actors run asyncronously in their own isolated spawned tasks.
+//! - **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
+//! - **MPSC Unbounded Channels**: Uses mpsc channels for messaging between actors.
+//! - **Concurrent Queries**: Support concurrent processing of queries when mutable state isn't necessary.
+//! - **Panic Safe**: Catches panics internally, allowing actors to be restarted.
 //!
-//! ---
+//! ## Installing
 //!
-//! # Installing
-//!
-//! Stable
+//! **Stable**
 //!
 //! ```toml
 //! [dependencies]
 //! kameo = "*"
 //! ```
 //!
-//! Nightly
+//! **Nightly**
 //!
 //! ```toml
 //! [dependencies]
 //! kameo = { version = "*", features = ["nightly"] }
 //! ```
 //!
-//! # `nightly` feature flag
+//! ## `nightly` feature flag
 //!
 //! The `nightly` feature flag allows for any type to be used in a [Message] or [Query]'s reply.
+//! It also removes the need for `spawn_unsend` and other `_unsend` methods, since actor "sendness" can be inferred.
 //! This is done though specialization, which requires nightly rust.
 //!
 //! Without the nightly feature flag, all replies must be a `Result<T, E>`, where `E: Debug + Send + Sync + 'static`.
 //! This is to ensure that asyncronous messages that fail will cause the actor to panic,
 //! since otherwise the error would be silently ignored.
 //!
-//! # Defining an Actor without Macros
+//! ## Defining an Actor without Macros
 //!
 //! ```
 //! // Define the actor state
@@ -60,7 +59,7 @@
 //!
 //! Note, with the `nightly` feature flag enabled, this reply type can be `i64` directly without the result.
 //!
-//! # Defining an Actor with Macros
+//! ## Defining an Actor with Macros
 //!
 //! ```
 //! // Define the actor state
@@ -104,7 +103,7 @@
 //! ```
 //! </details>
 //!
-//! # Spawning an Actor & Messaging
+//! ## Spawning an Actor & Messaging
 //!
 //! ```
 //! use kameo::{Spawn, ActorRef};

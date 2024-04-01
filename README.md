@@ -14,14 +14,22 @@
 
 ### Installing
 
-Stable
+**Stable**
 
 ```toml
 [dependencies]
 kameo = "*"
 ```
 
-Nightly
+**Nightly**
+
+Nightly allows for some cleaner apis thanks to specialization.
+
+Notably,
+
+- `Message::Reply` and `Query::Reply` can be any type, not just `Result` types.
+- `spawn_unsync` and other `_unsync` methods are not required - `!Sync` actors are inferred automatically.
+
 
 ```toml
 [dependencies]
