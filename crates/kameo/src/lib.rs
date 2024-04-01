@@ -124,16 +124,15 @@
 #![deny(unused_must_use)]
 
 mod actor;
+mod actor_kind;
 mod actor_ref;
 mod error;
 mod message;
 mod spawn;
-mod stop_reason;
 
 pub use actor::Actor;
 pub use actor_ref::ActorRef;
-pub use error::{BoxError, PanicError, SendError};
+pub use error::{ActorStopReason, BoxError, PanicError, SendError};
 pub use kameo_macros::{actor, Actor};
 pub use message::{Message, Query, Reply};
 pub use spawn::Spawn;
-pub use stop_reason::ActorStopReason;

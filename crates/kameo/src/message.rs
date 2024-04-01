@@ -1,7 +1,6 @@
 use std::{any, fmt};
 
-use async_trait::async_trait;
-use futures::Future;
+use futures::{future::BoxFuture, Future, FutureExt};
 
 pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + Sync + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
@@ -91,25 +90,32 @@ where
     }
 }
 
-#[async_trait]
 pub(crate) trait DynMessage<A>: Send {
-    async fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxReply;
-    async fn handle_dyn_async(self: Box<Self>, state: &mut A) -> Option<BoxDebug>;
+    fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxFuture<'_, BoxReply>
+    where
+        A: Send;
+    fn handle_dyn_async(self: Box<Self>, state: &mut A) -> BoxFuture<'_, Option<BoxDebug>>
+    where
+        A: Send;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
 }
 
-#[async_trait]
 impl<A, M> DynMessage<A> for M
 where
-    A: Send,
     M: Message<A>,
 {
-    async fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxReply {
-        Box::new((*self).handle(state).await)
+    fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxFuture<'_, BoxReply>
+    where
+        A: Send,
+    {
+        async move { Box::new((*self).handle(state).await) as BoxReply }.boxed()
     }
 
-    async fn handle_dyn_async(self: Box<Self>, state: &mut A) -> Option<BoxDebug> {
-        (*self).handle(state).await.into_boxed_err()
+    fn handle_dyn_async(self: Box<Self>, state: &mut A) -> BoxFuture<'_, Option<BoxDebug>>
+    where
+        A: Send,
+    {
+        async move { (*self).handle(state).await.into_boxed_err() }.boxed()
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
@@ -117,25 +123,32 @@ where
     }
 }
 
-#[async_trait]
 pub(crate) trait DynQuery<A>: Send {
-    async fn handle_dyn(self: Box<Self>, state: &A) -> BoxReply;
-    async fn handle_dyn_async(self: Box<Self>, state: &A) -> Option<BoxDebug>;
+    fn handle_dyn(self: Box<Self>, state: &A) -> BoxFuture<'_, BoxReply>
+    where
+        A: Send + Sync;
+    fn handle_dyn_async(self: Box<Self>, state: &A) -> BoxFuture<'_, Option<BoxDebug>>
+    where
+        A: Send + Sync;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
 }
 
-#[async_trait]
 impl<A, M> DynQuery<A> for M
 where
-    A: Send + Sync,
     M: Query<A>,
 {
-    async fn handle_dyn(self: Box<Self>, state: &A) -> BoxReply {
-        Box::new((*self).handle(state).await)
+    fn handle_dyn(self: Box<Self>, state: &A) -> BoxFuture<'_, BoxReply>
+    where
+        A: Send + Sync,
+    {
+        async move { Box::new((*self).handle(state).await) as BoxReply }.boxed()
     }
 
-    async fn handle_dyn_async(self: Box<Self>, state: &A) -> Option<BoxDebug> {
-        (*self).handle(state).await.into_boxed_err()
+    fn handle_dyn_async(self: Box<Self>, state: &A) -> BoxFuture<'_, Option<BoxDebug>>
+    where
+        A: Send + Sync,
+    {
+        async move { (*self).handle(state).await.into_boxed_err() }.boxed()
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {

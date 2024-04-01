@@ -118,6 +118,38 @@ println!("Count is {count}");
 <a href="https://docs.rs/kameo/latest/kameo/trait.ActorRef.html#method.send" target="_blank">ActorRef::send</a>
 </sup>
 
+## Benchmarks
+
+**13x higher throughput when compared with Actix**
+
+![benchmark](benchmark.svg)
+
+Above shows a basic benchmark for sending a message to an actor in Kameo and Actix.
+Always benchmark for yourself.
+
+<details>
+<summary>Benchmark results</summary>
+
+Sending a message to an actor
+
+| Benchmark            | Time      |
+|----------------------|-----------|
+| Kameo Unsync Message | 432.26 ns |
+| Kameo Sync Message   | 503.89 ns |
+| Kameo Query          | 1.3000 µs |
+| Actix Message        | 5.7545 µs |
+
+
+Processing fibonachi sequence in an actor up to 20
+
+| Benchmark            | Time      |
+|----------------------|-----------|
+| Kameo Unsync Message | 18.229 µs |
+| Kameo Sync Message   | 18.501 µs |
+| Kameo Query          | 19.257 µs |
+| Actix Message        | 27.442 µs |
+</details>
+
 ## Contributing
 
 Contributions are welcome! Feel free to submit pull requests, create issues, or suggest improvements.

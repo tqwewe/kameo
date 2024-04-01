@@ -12,12 +12,12 @@ keywords = ["actor", "tokio"]
 [dependencies]
 kameo_macros = { version = "0.3.2", path = "../kameo_macros" }
 
-async-trait = "0.1"
 dyn-clone = "1.0"
 futures = "0.3"
 num_cpus = "1.0"
 tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1"
+trait-variant = "0.1"
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["async_tokio"] }

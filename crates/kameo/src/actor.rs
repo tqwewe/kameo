@@ -2,10 +2,7 @@ use std::{any, borrow::Cow};
 
 use futures::Future;
 
-use crate::{
-    error::{BoxError, PanicError},
-    stop_reason::ActorStopReason,
-};
+use crate::error::{ActorStopReason, BoxError, PanicError};
 
 /// Functionality for an actor including lifecycle hooks.
 ///
@@ -34,7 +31,7 @@ use crate::{
 ///     }
 /// }
 /// ```
-pub trait Actor: Send + Sync + Sized + 'static {
+pub trait Actor: Sized {
     /// Actor name, useful for logging.
     fn name(&self) -> Cow<'_, str> {
         Cow::Borrowed(any::type_name::<Self>())

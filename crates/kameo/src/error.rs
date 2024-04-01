@@ -18,6 +18,8 @@ pub enum SendError<E = ()> {
     ActorNotRunning(E),
     /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
+    /// The actor was spawned as `!Sync`, meaning queries are not supported on the actor.
+    QueriesNotSupported,
 }
 
 impl<E> SendError<E> {
@@ -26,6 +28,7 @@ impl<E> SendError<E> {
         match self {
             SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 }
@@ -33,10 +36,9 @@ impl<E> SendError<E> {
 impl<E> fmt::Debug for SendError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SendError::ActorNotRunning(_) => {
-                write!(f, "ActorNotRunning")
-            }
+            SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
+            SendError::QueriesNotSupported => write!(f, "QueriesNotSupported"),
         }
     }
 }
@@ -46,6 +48,9 @@ impl<E> fmt::Display for SendError<E> {
         match self {
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
+            SendError::QueriesNotSupported => {
+                write!(f, "actor spawned as !Sync cannot handle queries")
+            }
         }
     }
 }
@@ -66,6 +71,52 @@ impl<M> From<oneshot::error::RecvError> for SendError<M> {
 }
 
 impl<E> error::Error for SendError<E> {}
+
+/// Reason for an actor being stopped.
+#[derive(Clone)]
+pub enum ActorStopReason {
+    /// Actor stopped normally.
+    Normal,
+    /// Actor was killed.
+    Killed,
+    /// Actor panicked.
+    Panicked(PanicError),
+    /// Link died.
+    LinkDied {
+        /// Actor ID.
+        id: u64,
+        /// Actor died reason.
+        reason: Box<ActorStopReason>,
+    },
+}
+
+impl fmt::Debug for ActorStopReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorStopReason::Normal => write!(f, "Normal"),
+            ActorStopReason::Killed => write!(f, "Killed"),
+            ActorStopReason::Panicked(_) => write!(f, "Panicked"),
+            ActorStopReason::LinkDied { id, reason } => f
+                .debug_struct("LinkDied")
+                .field("id", id)
+                .field("reason", &reason)
+                .finish(),
+        }
+    }
+}
+
+impl fmt::Display for ActorStopReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorStopReason::Normal => write!(f, "actor stopped normally"),
+            ActorStopReason::Killed => write!(f, "actor was killed"),
+            ActorStopReason::Panicked(err) => err.fmt(f),
+            ActorStopReason::LinkDied { id, reason: _ } => {
+                write!(f, "link {id} died")
+            }
+        }
+    }
+}
 
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor](crate::Actor) trait.
 #[derive(Clone)]
