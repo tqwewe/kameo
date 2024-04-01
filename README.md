@@ -2,7 +2,7 @@
 
 #### Fault-tolerant Async Actors Built on Tokio
 
-<img src="https://imgur.com/InQaU4a.png" width=600 />
+<img src="https://repository-images.githubusercontent.com/779318723/e0f57589-040e-4e4e-a50e-84c0670e6d70" width=600 />
 
 - **Async**: Built on tokio, actors run asyncronously in their own isolated spawned tasks.
 - **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
