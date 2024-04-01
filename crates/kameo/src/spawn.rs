@@ -53,9 +53,21 @@ pub trait Spawn: Sized {
     /// and finally calls the `Actor::on_stop` hook.
     ///
     /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
+    #[cfg(not(feature = "nightly"))]
     fn spawn(self) -> ActorRef<Self>
     where
         Self: Send + Sync;
+
+    /// Spawns an actor in a `tokio::task`.
+    ///
+    /// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
+    /// and finally calls the `Actor::on_stop` hook.
+    ///
+    /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
+    #[cfg(feature = "nightly")]
+    fn spawn(self) -> ActorRef<Self>
+    where
+        Self: Send;
 
     /// Spawns an `!Sync` actor in a `tokio::task`.
     ///
@@ -63,6 +75,7 @@ pub trait Spawn: Sized {
     /// and finally calls the `Actor::on_stop` hook.
     ///
     /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
+    #[cfg(not(feature = "nightly"))]
     fn spawn_unsync(self) -> ActorRef<Self>
     where
         Self: Send;
@@ -77,6 +90,7 @@ pub trait Spawn: Sized {
     /// Spawns an `!Sync` actor with a bidirectional link between the current actor and the one being spawned.
     ///
     /// If either actor dies, [Actor::on_link_died] will be called on the other actor.
+    #[cfg(not(feature = "nightly"))]
     fn spawn_unsync_link(self) -> ActorRef<Self>
     where
         Self: Send;
@@ -93,89 +107,126 @@ pub trait Spawn: Sized {
     ///
     /// If the current actor dies, [Actor::on_link_died] will be called on the spawned one,
     /// however if the spawned actor dies, Actor::on_link_died will not be called.
+    #[cfg(not(feature = "nightly"))]
     fn spawn_unsync_child(self) -> ActorRef<Self>
     where
         Self: Send;
 }
 
-impl<T: Actor + 'static> Spawn for T {
-    fn actor_ref(&self) -> ActorRef<Self> {
-        match Self::try_actor_ref() {
-            Some(actor_ref) => actor_ref,
-            None => panic!("actor_ref called outside the scope of an actor"),
+macro_rules! impl_spawn {
+    (
+        main_bounds = ($($main_bounds:tt)*),
+        spawn_bounds = ($($spawn_bounds:tt)?),
+        default = ($($default:tt)*),
+        kind = $kind:ident,
+    ) => {
+        impl<T> Spawn for T where T: Actor + 'static $(+ $main_bounds)* {
+            $($default)* fn actor_ref(&self) -> ActorRef<Self> {
+                match Self::try_actor_ref() {
+                    Some(actor_ref) => actor_ref,
+                    None => panic!("actor_ref called outside the scope of an actor"),
+                }
+            }
+
+            $($default)* fn try_actor_ref() -> Option<ActorRef<Self>> {
+                ActorRef::current()
+            }
+
+            $($default)* fn spawn(self) -> ActorRef<Self>
+            where
+                Self: Send $(+ $spawn_bounds)?,
+            {
+                spawn(|ctx, id, mailbox_rx, abort_registration, links| {
+                    tokio::spawn(CURRENT_CTX.scope(ctx, async move {
+                        run_actor_lifecycle(
+                            id,
+                            self,
+                            $kind::new,
+                            mailbox_rx,
+                            abort_registration,
+                            links,
+                        )
+                        .await
+                    }));
+                })
+            }
+
+            #[cfg(not(feature = "nightly"))]
+            fn spawn_unsync(self) -> ActorRef<Self>
+            where
+                Self: Send,
+            {
+                spawn(|ctx, id, mailbox_rx, abort_registration, links| {
+                    tokio::spawn(CURRENT_CTX.scope(ctx, async move {
+                        run_actor_lifecycle(
+                            id,
+                            self,
+                            UnsyncActor::new,
+                            mailbox_rx,
+                            abort_registration,
+                            links,
+                        )
+                        .await
+                    }));
+                })
+            }
+
+            $($default)* fn spawn_link(self) -> ActorRef<Self>
+            where
+                Self: Send $(+ $spawn_bounds)?,
+            {
+                spawn_link(|| self.spawn())
+            }
+
+            #[cfg(not(feature = "nightly"))]
+            fn spawn_unsync_link(self) -> ActorRef<Self>
+            where
+                Self: Send,
+            {
+                spawn_link(|| self.spawn_unsync())
+            }
+
+            $($default)* fn spawn_child(self) -> ActorRef<Self>
+            where
+                Self: Send $(+ $spawn_bounds)?,
+            {
+                spawn_child(|| self.spawn())
+            }
+
+            #[cfg(not(feature = "nightly"))]
+            fn spawn_unsync_child(self) -> ActorRef<Self>
+            where
+                Self: Send,
+            {
+                spawn_child(|| self.spawn_unsync())
+            }
         }
-    }
-
-    fn try_actor_ref() -> Option<ActorRef<Self>> {
-        ActorRef::current()
-    }
-
-    fn spawn(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync,
-    {
-        spawn(|ctx, id, mailbox_rx, abort_registration, links| {
-            tokio::spawn(CURRENT_CTX.scope(ctx, async move {
-                run_actor_lifecycle(
-                    id,
-                    self,
-                    SyncActor::new,
-                    mailbox_rx,
-                    abort_registration,
-                    links,
-                )
-                .await
-            }));
-        })
-    }
-
-    fn spawn_unsync(self) -> ActorRef<Self>
-    where
-        Self: Send,
-    {
-        spawn(|ctx, id, mailbox_rx, abort_registration, links| {
-            tokio::spawn(CURRENT_CTX.scope(ctx, async move {
-                run_actor_lifecycle(
-                    id,
-                    self,
-                    UnsyncActor::new,
-                    mailbox_rx,
-                    abort_registration,
-                    links,
-                )
-                .await
-            }));
-        })
-    }
-
-    fn spawn_link(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync,
-    {
-        spawn_link(|| self.spawn())
-    }
-
-    fn spawn_unsync_link(self) -> ActorRef<Self>
-    where
-        Self: Send,
-    {
-        spawn_link(|| self.spawn_unsync())
-    }
-
-    fn spawn_child(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync,
-    {
-        spawn_child(|| self.spawn())
-    }
-
-    fn spawn_unsync_child(self) -> ActorRef<Self>
-    where
-        Self: Send,
-    {
-        spawn_child(|| self.spawn_unsync())
-    }
+    };
 }
+
+#[cfg(not(feature = "nightly"))]
+impl_spawn!(
+    main_bounds = (),
+    spawn_bounds = (Sync),
+    default = (),
+    kind = SyncActor,
+);
+
+#[cfg(feature = "nightly")]
+impl_spawn!(
+    main_bounds = (),
+    spawn_bounds = (),
+    default = (default),
+    kind = UnsyncActor,
+);
+
+#[cfg(feature = "nightly")]
+impl_spawn!(
+    main_bounds = (Sync),
+    spawn_bounds = (),
+    default = (),
+    kind = SyncActor,
+);
 
 #[inline]
 fn spawn<A>(
