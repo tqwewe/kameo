@@ -28,20 +28,20 @@ fn fibonacci(n: u64) -> u64 {
 }
 
 fn concurrent_reads(c: &mut Criterion) {
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Builder::new_multi_thread().build().unwrap();
     let _guard = rt.enter();
     let size: usize = 1024;
     let actor_ref = FibActor {}.spawn();
 
     c.bench_with_input(BenchmarkId::new("concurrent_reads", size), &size, |b, _| {
         b.to_async(&rt)
-            .iter(|| async { actor_ref.query(Fib(20)).await.unwrap() });
+            .iter(|| async { actor_ref.query(Fib(30)).await.unwrap() });
     });
 
     c.bench_with_input(
         BenchmarkId::new("concurrent_reads_without_actor", size),
         &size,
-        |b, _| b.iter(|| fibonacci(20)),
+        |b, _| b.iter(|| fibonacci(30)),
     );
 }
 

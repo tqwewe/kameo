@@ -44,10 +44,7 @@ pub struct ActorRef<A> {
     links: Links,
 }
 
-impl<A> ActorRef<A>
-where
-    A: Send + Sync + 'static,
-{
+impl<A> ActorRef<A> {
     pub(crate) fn new(mailbox: Mailbox<A>, abort_handle: AbortHandle, links: Links) -> Self {
         ActorRef {
             id: ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed),
@@ -68,7 +65,10 @@ where
     }
 
     /// Returns the current actor ref if called within an actor.
-    pub fn current() -> Option<ActorRef<A>> {
+    pub fn current() -> Option<ActorRef<A>>
+    where
+        A: 'static,
+    {
         CURRENT_CTX.with(|ctx| ctx.actor_ref.downcast_ref().cloned())
     }
 
@@ -78,7 +78,10 @@ where
     /// that the actor will process all preceding messages before stopping. Any messages sent
     /// after this stop signal will be ignored and dropped. This approach allows for a graceful
     /// shutdown of the actor, ensuring all pending work is completed before termination.
-    pub fn stop_gracefully(&self) -> Result<(), SendError> {
+    pub fn stop_gracefully(&self) -> Result<(), SendError>
+    where
+        A: 'static,
+    {
         self.mailbox.signal_stop()
     }
 
@@ -121,7 +124,7 @@ where
     /// ```
     pub async fn send<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
     where
-        M: Message<A> + 'static,
+        M: Message<A>,
     {
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Message {
@@ -140,7 +143,7 @@ where
     /// ```
     pub fn send_async<M>(&self, msg: M) -> Result<(), SendError<M>>
     where
-        M: Message<A> + 'static,
+        M: Message<A>,
     {
         Ok(self.mailbox.send(Signal::Message {
             message: Box::new(msg),
@@ -159,10 +162,11 @@ where
     /// ```
     pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
     where
-        M: Message<A> + 'static,
+        A: 'static,
+        M: Message<A>,
     {
         let actor_ref = self.clone();
-        tokio::spawn(async move {
+        tokio::task::spawn_local(async move {
             tokio::time::sleep(delay).await;
             actor_ref.send_async(msg)
         })
@@ -185,7 +189,7 @@ where
     /// ```
     pub async fn query<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
     where
-        M: Query<A> + 'static,
+        M: Query<A>,
     {
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Query {
@@ -200,7 +204,7 @@ where
     /// If the parent dies, then the child will be notified with a link died signal.
     pub fn link_child<B>(&self, child: &ActorRef<B>)
     where
-        B: Send + Sync + 'static,
+        B: 'static,
     {
         if self.id == child.id() {
             return;
@@ -214,7 +218,7 @@ where
     /// Unlinks a previously linked child actor.
     pub fn unlink_child<B>(&self, child: &ActorRef<B>)
     where
-        B: Send + Sync + 'static,
+        B: 'static,
     {
         if self.id == child.id() {
             return;
@@ -226,7 +230,8 @@ where
     /// Links this actor with a sibbling, notifying eachother if either one dies.
     pub fn link_together<B>(&self, sibbling: &ActorRef<B>)
     where
-        B: Send + Sync + 'static,
+        A: 'static,
+        B: 'static,
     {
         if self.id == sibbling.id() {
             return;
@@ -241,7 +246,7 @@ where
     /// Unlinks previously linked processes from eachother.
     pub fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
     where
-        B: Send + Sync + 'static,
+        B: 'static,
     {
         if self.id == sibbling.id() {
             return;
@@ -253,7 +258,10 @@ where
         sibbling_links.remove(&self.id);
     }
 
-    pub(crate) fn signal_mailbox(&self) -> Box<dyn SignalMailbox> {
+    pub(crate) fn signal_mailbox(&self) -> Box<dyn SignalMailbox>
+    where
+        A: 'static,
+    {
         Box::new(self.mailbox.clone())
     }
 
@@ -280,7 +288,6 @@ impl<A> fmt::Debug for ActorRef<A> {
         match self.links.try_lock() {
             Ok(guard) => {
                 d.field("links", &guard.keys());
-                // d.field_with("links", |f| f.debug_list().entry(&guard.keys()).finish());
             }
             Err(TryLockError::Poisoned(_)) => {
                 d.field("links", &format_args!("<poisoned>"));
@@ -293,17 +300,14 @@ impl<A> fmt::Debug for ActorRef<A> {
     }
 }
 
-pub trait SignalMailbox: DynClone + Send {
+pub(crate) trait SignalMailbox: DynClone + Send {
     fn signal_link_died(&self, id: u64, reason: ActorStopReason) -> Result<(), SendError>;
     fn signal_stop(&self) -> Result<(), SendError>;
 }
 
 dyn_clone::clone_trait_object!(SignalMailbox);
 
-impl<A> SignalMailbox for Mailbox<A>
-where
-    A: 'static,
-{
+impl<A> SignalMailbox for Mailbox<A> {
     fn signal_link_died(&self, id: u64, reason: ActorStopReason) -> Result<(), SendError> {
         self.send(Signal::LinkDied { id, reason })
             .map_err(|_| SendError::ActorNotRunning(()))
