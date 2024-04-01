@@ -1,6 +1,6 @@
 [package]
 name = "kameo_macros"
-description = "Simple tokio actors macros"
+description = "Fault-tolerant Async Actors Built on Tokio macros"
 version = "0.3.2"
 readme = "../../README.md"
 repository = "https://github.com/tqwewe/kameo"

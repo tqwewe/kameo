@@ -1,6 +1,6 @@
 [package]
 name = "kameo"
-description = "Simple tokio actors - mpsc channels & no macros"
+description = "Fault-tolerant Async Actors Built on Tokio"
 version = "0.3.2"
 edition = "2021"
 readme = "../../README.md"
