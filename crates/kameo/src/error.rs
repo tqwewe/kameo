@@ -18,6 +18,8 @@ pub enum SendError<E = ()> {
     ActorNotRunning(E),
     /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
+    /// The actor was spawned as `!Sync`, meaning queries are not supported on the actor.
+    QueriesNotSupported,
 }
 
 impl<E> SendError<E> {
@@ -26,6 +28,7 @@ impl<E> SendError<E> {
         match self {
             SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 }
@@ -33,10 +36,9 @@ impl<E> SendError<E> {
 impl<E> fmt::Debug for SendError<E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SendError::ActorNotRunning(_) => {
-                write!(f, "ActorNotRunning")
-            }
+            SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
+            SendError::QueriesNotSupported => write!(f, "QueriesNotSupported"),
         }
     }
 }
@@ -46,6 +48,9 @@ impl<E> fmt::Display for SendError<E> {
         match self {
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
+            SendError::QueriesNotSupported => {
+                write!(f, "actor spawned as !Sync cannot handle queries")
+            }
         }
     }
 }

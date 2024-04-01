@@ -9,15 +9,12 @@ use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
     FutureExt,
 };
-use tokio::{
-    sync::{mpsc, RwLock, Semaphore},
-    task::JoinSet,
-};
+use tokio::sync::mpsc;
 use tracing::{error, trace};
 
 use crate::{
     actor::Actor,
-    actor_kind::{LocalActor, MessageActorKind, QueryActorKind, SendActor},
+    actor_kind::{ActorState, SyncActor, UnsyncActor},
     actor_ref::{ActorRef, Ctx, Links, Signal, CURRENT_CTX},
     error::{ActorStopReason, PanicError},
 };
@@ -50,7 +47,7 @@ pub trait Spawn: Sized {
     /// or `None` if the actor reference is not available.
     fn try_actor_ref() -> Option<ActorRef<Self>>;
 
-    /// Spawns the actor in a `tokio::task`.
+    /// Spawns an actor in a `tokio::task`.
     ///
     /// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
     /// and finally calls the `Actor::on_stop` hook.
@@ -60,31 +57,31 @@ pub trait Spawn: Sized {
     where
         Self: Send + Sync;
 
-    /// Spawns the actor in a local `tokio::task`.
-    ///
-    /// This actor will run on the same thread that called `spawn_local`.
+    /// Spawns an `!Sync` actor in a `tokio::task`.
     ///
     /// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
     /// and finally calls the `Actor::on_stop` hook.
     ///
     /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
-    fn spawn_local(self) -> ActorRef<Self>;
+    fn spawn_unsync(self) -> ActorRef<Self>
+    where
+        Self: Send;
 
-    /// Spawns the actor with a bidirectional link between the current actor and the one being spawned.
+    /// Spawns an actor with a bidirectional link between the current actor and the one being spawned.
     ///
     /// If either actor dies, [Actor::on_link_died] will be called on the other actor.
     fn spawn_link(self) -> ActorRef<Self>
     where
         Self: Send + Sync;
 
-    /// Spawns the actor in a local `tokio::task` with a bidirectional link between the current actor and the one being spawned.
-    ///
-    /// This actor will run on the same thread that called `spawn_local`.
+    /// Spawns an `!Sync` actor with a bidirectional link between the current actor and the one being spawned.
     ///
     /// If either actor dies, [Actor::on_link_died] will be called on the other actor.
-    fn spawn_local_link(self) -> ActorRef<Self>;
+    fn spawn_unsync_link(self) -> ActorRef<Self>
+    where
+        Self: Send;
 
-    /// Spawns the actor with a unidirectional link between the current actor and the child.
+    /// Spawns an actor with a unidirectional link between the current actor and the child.
     ///
     /// If the current actor dies, [Actor::on_link_died] will be called on the spawned one,
     /// however if the spawned actor dies, Actor::on_link_died will not be called.
@@ -92,13 +89,13 @@ pub trait Spawn: Sized {
     where
         Self: Send + Sync;
 
-    /// Spawns the actor in a local `tokio::task` with a unidirectional link between the current actor and the child.
-    ///
-    /// This actor will run on the same thread that called `spawn_local`.
+    /// Spawns an `!Sync` actor with a unidirectional link between the current actor and the child.
     ///
     /// If the current actor dies, [Actor::on_link_died] will be called on the spawned one,
     /// however if the spawned actor dies, Actor::on_link_died will not be called.
-    fn spawn_local_child(self) -> ActorRef<Self>;
+    fn spawn_unsync_child(self) -> ActorRef<Self>
+    where
+        Self: Send;
 }
 
 impl<T: Actor + 'static> Spawn for T {
@@ -119,9 +116,10 @@ impl<T: Actor + 'static> Spawn for T {
     {
         spawn(|ctx, id, mailbox_rx, abort_registration, links| {
             tokio::spawn(CURRENT_CTX.scope(ctx, async move {
-                run_actor_lifecycle::<Self, SendActor>(
+                run_actor_lifecycle(
                     id,
                     self,
+                    SyncActor::new,
                     mailbox_rx,
                     abort_registration,
                     links,
@@ -131,12 +129,16 @@ impl<T: Actor + 'static> Spawn for T {
         })
     }
 
-    fn spawn_local(self) -> ActorRef<Self> {
+    fn spawn_unsync(self) -> ActorRef<Self>
+    where
+        Self: Send,
+    {
         spawn(|ctx, id, mailbox_rx, abort_registration, links| {
-            tokio::task::spawn_local(CURRENT_CTX.scope(ctx, async move {
-                run_actor_lifecycle::<Self, LocalActor>(
+            tokio::spawn(CURRENT_CTX.scope(ctx, async move {
+                run_actor_lifecycle(
                     id,
                     self,
+                    UnsyncActor::new,
                     mailbox_rx,
                     abort_registration,
                     links,
@@ -153,8 +155,11 @@ impl<T: Actor + 'static> Spawn for T {
         spawn_link(|| self.spawn())
     }
 
-    fn spawn_local_link(self) -> ActorRef<Self> {
-        spawn_link(|| self.spawn_local())
+    fn spawn_unsync_link(self) -> ActorRef<Self>
+    where
+        Self: Send,
+    {
+        spawn_link(|| self.spawn_unsync())
     }
 
     fn spawn_child(self) -> ActorRef<Self>
@@ -164,8 +169,11 @@ impl<T: Actor + 'static> Spawn for T {
         spawn_child(|| self.spawn())
     }
 
-    fn spawn_local_child(self) -> ActorRef<Self> {
-        spawn_child(|| self.spawn_local())
+    fn spawn_unsync_child(self) -> ActorRef<Self>
+    where
+        Self: Send,
+    {
+        spawn_child(|| self.spawn_unsync())
     }
 }
 
@@ -232,15 +240,16 @@ where
     actor_ref
 }
 
-async fn run_actor_lifecycle<A, K>(
+async fn run_actor_lifecycle<A, S>(
     id: u64,
     mut actor: A,
+    new_state: impl Fn(A) -> S,
     mailbox_rx: mpsc::UnboundedReceiver<Signal<A>>,
     abort_registration: AbortRegistration,
     links: Links,
 ) where
-    A: Actor + 'static,
-    K: MessageActorKind<A> + QueryActorKind<A>,
+    A: Actor,
+    S: ActorState<A>,
 {
     let name = actor.name().into_owned();
     trace!(%id, %name, "actor started");
@@ -258,17 +267,16 @@ async fn run_actor_lifecycle<A, K>(
         return;
     }
 
-    let actor = Arc::new(RwLock::new(actor));
-    let mut concurrent_queries: JoinSet<Option<ActorStopReason>> = JoinSet::new();
+    let mut state = new_state(actor);
 
     let reason = Abortable::new(
-        abortable_actor_loop::<A, K>(&actor, mailbox_rx, &mut concurrent_queries),
+        abortable_actor_loop(&mut state, mailbox_rx),
         abort_registration,
     )
     .await
     .unwrap_or(ActorStopReason::Killed);
 
-    concurrent_queries.shutdown().await;
+    let actor = state.shutdown().await;
 
     if let Ok(mut links) = links.lock() {
         for (_, actor_ref) in links.drain() {
@@ -276,156 +284,60 @@ async fn run_actor_lifecycle<A, K>(
         }
     }
 
-    Arc::into_inner(actor)
-        .expect("actor's arc contains other strong references")
-        .into_inner()
-        .on_stop(reason.clone())
-        .await
-        .unwrap();
+    let on_stop_res = actor.on_stop(reason.clone()).await;
     log_actor_stop_reason(id, &name, &reason);
+    on_stop_res.unwrap();
 }
 
-async fn abortable_actor_loop<A, K>(
-    actor: &Arc<RwLock<A>>,
+async fn abortable_actor_loop<A, S>(
+    state: &mut S,
     mut mailbox_rx: mpsc::UnboundedReceiver<Signal<A>>,
-    concurrent_queries: &mut JoinSet<Option<ActorStopReason>>,
 ) -> ActorStopReason
 where
-    A: Actor + 'static,
-    K: MessageActorKind<A> + QueryActorKind<A>,
+    A: Actor,
+    S: ActorState<A>,
 {
     loop {
-        let res = recv_mailbox_loop::<A, K>(&actor, &mut mailbox_rx, concurrent_queries).await;
-
-        concurrent_queries.shutdown().await;
-
-        match res {
-            ActorStopReason::Normal => break ActorStopReason::Normal,
-            ActorStopReason::Killed => break ActorStopReason::Killed,
-            ActorStopReason::Panicked(err) => {
-                match actor.try_write().unwrap().on_panic(err).await {
-                    Ok(Some(reason)) => break reason,
-                    Ok(None) => {}
-                    Err(err) => break ActorStopReason::Panicked(PanicError::new(err)),
-                }
-            }
-            ActorStopReason::LinkDied { id, reason } => {
-                break ActorStopReason::LinkDied { id, reason }
-            }
+        let reason = recv_mailbox_loop(state, &mut mailbox_rx).await;
+        if let Some(reason) = state.on_shutdown(reason).await {
+            return reason;
         }
     }
 }
 
-async fn recv_mailbox_loop<A, K>(
-    actor: &Arc<RwLock<A>>,
+async fn recv_mailbox_loop<A, S>(
+    state: &mut S,
     mailbox_rx: &mut mpsc::UnboundedReceiver<Signal<A>>,
-    concurrent_queries: &mut JoinSet<Option<ActorStopReason>>,
 ) -> ActorStopReason
 where
-    A: Actor + 'static,
-    K: MessageActorKind<A> + QueryActorKind<A>,
+    A: Actor,
+    S: ActorState<A>,
 {
-    let semaphore = Arc::new(Semaphore::new(A::max_concurrent_queries()));
-    macro_rules! wait_concurrent_queries {
-        () => {
-            while let Some(res) = concurrent_queries.join_next().await {
-                match res {
-                    Ok(Some(reason)) => return reason,
-                    Ok(None) => {}
-                    Err(err) => {
-                        return ActorStopReason::Panicked(PanicError::new_boxed(err.into_panic()))
-                    }
-                }
-            }
-        };
-    }
-
     loop {
         tokio::select! {
             biased;
-            Some(res) = concurrent_queries.join_next() => {
-                match res {
-                    Ok(Some(reason)) => return reason,
-                    Ok(None) => {}
-                    Err(err) => {
-                        return ActorStopReason::Panicked(PanicError::new_boxed(err.into_panic()))
-                    }
-                }
+            Some(reason) = state.next_pending_task() => {
+                return reason
             }
             signal = mailbox_rx.recv() => match signal {
                 Some(Signal::Message { message, reply }) => {
-                    wait_concurrent_queries!();
-                    match reply {
-                        Some(reply) => {
-                            let res = AssertUnwindSafe(K::handle_message(message, &mut actor.try_write().unwrap())).catch_unwind().await;
-                            match res {
-                                Ok(res) => {
-                                    let _ = reply.send(res);
-                                }
-                                Err(err) => {
-                                    return ActorStopReason::Panicked(PanicError::new_boxed(err));
-                                }
-                            }
-
-                        }
-                        None => {
-                            let res = AssertUnwindSafe(K::handle_message_async(message, &mut actor.try_write().unwrap())).catch_unwind().await;
-                            match res {
-                                Ok(Some(err)) => {
-                                    return ActorStopReason::Panicked(PanicError::new(err))
-                                }
-                                Ok(None) => {}
-                                Err(err) => {
-                                    return ActorStopReason::Panicked(PanicError::new_boxed(err))
-                                }
-                            }
-                        }
+                    if let Some(reason) = state.handle_message(message, reply).await {
+                        return reason;
                     }
                 }
-                Some(Signal::Query { message, reply }) => {
-                    let permit = semaphore.clone().acquire_owned().await;
-                    let actor = actor.clone();
-                    concurrent_queries.spawn_local(async move {
-                        let _permit = permit;
-                        match reply {
-                            Some(reply) => {
-                                let res = AssertUnwindSafe(K::handle_query(message, &actor.try_read().unwrap())).catch_unwind().await;
-                                match res {
-                                    Ok(res) => {
-                                        let _ = reply.send(res);
-                                    }
-                                    Err(err) => {
-                                        return Some(ActorStopReason::Panicked(PanicError::new_boxed(err)))
-                                    }
-                                }
-                            }
-                            None => {
-                                let res = AssertUnwindSafe(K::handle_query_async(message, &actor.try_read().unwrap())).catch_unwind().await;
-                                match res {
-                                    Ok(Some(err)) => {
-                                        return Some(ActorStopReason::Panicked(PanicError::new(err)))
-                                    }
-                                    Ok(None) => {}
-                                    Err(err) => {
-                                        return Some(ActorStopReason::Panicked(PanicError::new_boxed(err)))
-                                    }
-                                }
-                            }
-                        }
-                        None
-                    });
-                }
-                Some(Signal::Stop) | None => {
-                    wait_concurrent_queries!();
-                    return ActorStopReason::Normal;
+                Some(Signal::Query { query, reply }) => {
+                    if let Some(reason) = state.handle_query(query, reply).await {
+                        return reason;
+                    }
                 }
                 Some(Signal::LinkDied { id, reason }) => {
-                    wait_concurrent_queries!();
-                    match AssertUnwindSafe(actor.try_write().unwrap().on_link_died(id, reason.clone())).catch_unwind().await {
-                        Ok(Ok(Some(reason))) => return reason,
-                        Ok(Ok(None)) => {}
-                        Ok(Err(err)) => return ActorStopReason::Panicked(PanicError::new(err)),
-                        Err(err) => return ActorStopReason::Panicked(PanicError::new_boxed(err)),
+                    if let Some(reason) = state.handle_link_died(id, reason).await {
+                        return reason;
+                    }
+                }
+                Some(Signal::Stop) | None => {
+                    if let Some(reason) = state.handle_stop().await {
+                        return reason;
                     }
                 }
             }

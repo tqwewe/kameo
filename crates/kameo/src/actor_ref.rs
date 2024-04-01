@@ -17,9 +17,8 @@ use tokio::{
 };
 
 use crate::{
-    error::SendError,
+    error::{ActorStopReason, SendError},
     message::{BoxReply, DynMessage, DynQuery, Message, Query},
-    ActorStopReason,
 };
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -166,7 +165,7 @@ impl<A> ActorRef<A> {
         M: Message<A>,
     {
         let actor_ref = self.clone();
-        tokio::task::spawn_local(async move {
+        tokio::spawn(async move {
             tokio::time::sleep(delay).await;
             actor_ref.send_async(msg)
         })
@@ -175,6 +174,9 @@ impl<A> ActorRef<A> {
     /// Queries the actor for some data.
     ///
     /// Queries can run in parallel if executed in sequence.
+    ///
+    /// If the actor was spawned as `!Sync` with `Spawn::spawn_unsync`, then queries will not be supported
+    /// and any query will return `Err(SendError::QueriesNotSupported)`.
     ///
     /// ```
     /// // Query from the actor
@@ -189,14 +191,23 @@ impl<A> ActorRef<A> {
     /// ```
     pub async fn query<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
     where
+        A: Sync,
         M: Query<A>,
     {
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Query {
-            message: Box::new(msg),
+            query: Box::new(msg),
             reply: Some(reply),
         })?;
-        Ok(rx.await.map(|val| *val.downcast().unwrap())?)
+        match rx.await {
+            Ok(Ok(val)) => Ok(*val.downcast().unwrap()),
+            Ok(Err(SendError::ActorNotRunning(err))) => {
+                Err(SendError::ActorNotRunning(*err.downcast().unwrap()))
+            }
+            Ok(Err(SendError::ActorStopped)) => Err(SendError::QueriesNotSupported),
+            Ok(Err(SendError::QueriesNotSupported)) => Err(SendError::QueriesNotSupported),
+            Err(err) => Err(err.into()),
+        }
     }
 
     /// Links this actor with a child, making this one the parent.
@@ -325,8 +336,8 @@ pub(crate) enum Signal<A> {
         reply: Option<oneshot::Sender<BoxReply>>,
     },
     Query {
-        message: Box<dyn DynQuery<A>>,
-        reply: Option<oneshot::Sender<BoxReply>>,
+        query: Box<dyn DynQuery<A>>,
+        reply: Option<oneshot::Sender<Result<BoxReply, SendError<Box<dyn any::Any + Send>>>>>,
     },
     LinkDied {
         id: u64,
@@ -342,7 +353,10 @@ impl<A> Signal<A> {
     {
         match self {
             Signal::Message { message, reply: _ } => message.as_any().downcast().ok().map(|v| *v),
-            Signal::Query { message, reply: _ } => message.as_any().downcast().ok().map(|v| *v),
+            Signal::Query {
+                query: message,
+                reply: _,
+            } => message.as_any().downcast().ok().map(|v| *v),
             _ => None,
         }
     }
