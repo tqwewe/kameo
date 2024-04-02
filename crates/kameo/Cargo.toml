@@ -29,5 +29,5 @@ default = []
 nightly = []
 
 [[bench]]
-name = "fibonachi"
+name = "fibonacci"
 harness = false
