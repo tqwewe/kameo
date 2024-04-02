@@ -68,7 +68,10 @@ impl<A> ActorRef<A> {
     where
         A: 'static,
     {
-        CURRENT_CTX.with(|ctx| ctx.actor_ref.downcast_ref().cloned())
+        CURRENT_CTX
+            .try_with(|ctx| ctx.actor_ref.downcast_ref().cloned())
+            .ok()
+            .flatten()
     }
 
     /// Signals the actor to stop after processing all messages currently in its mailbox.
@@ -123,8 +126,14 @@ impl<A> ActorRef<A> {
     /// ```
     pub async fn send<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
     where
+        A: 'static,
         M: Message<A>,
     {
+        debug_assert!(
+            Self::current().map(|actor_ref| actor_ref.id() != self.id()).unwrap_or(true),
+            "actors cannot send messages syncronously themselves as this would deadlock - use send_async instead\nthis assertion only occurs on debug builds, release builds will deadlock",
+        );
+
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Message {
             message: Box::new(msg),
