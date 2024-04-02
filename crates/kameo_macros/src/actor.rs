@@ -136,7 +136,7 @@ impl Actor {
                                         return true
                                     }
 
-                                    let args_res = Punctuated::<TokenStream, Token![,]>::parse_separated_nonempty.parse2(list.tokens.clone());
+                                    let args_res = Punctuated::<Meta, Token![,]>::parse_separated_nonempty.parse2(list.tokens.clone());
                                     match args_res {
                                         Ok(items) => {
                                             attrs.extend(items.into_iter().map(|attr| quote! { #[ #attr ] }));
