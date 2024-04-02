@@ -1,5 +1,10 @@
 # Kameo 🧚🏻
 
+![Crates.io Version](https://img.shields.io/crates/v/kameo)
+![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)
+![Crates.io License](https://img.shields.io/crates/l/kameo)
+![GitHub Repo stars](https://img.shields.io/github/stars/tqwewe/kameo)
+
 #### Fault-tolerant Async Actors Built on Tokio
 
 <img src="https://repository-images.githubusercontent.com/779318723/e0f57589-040e-4e4e-a50e-84c0670e6d70" width=600 />
