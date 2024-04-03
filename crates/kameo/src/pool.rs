@@ -35,7 +35,7 @@ use crate::{actor::Actor, actor_ref::ActorRef, error::SendError, message::Messag
 /// // Create a pool with 5 workers.
 /// let pool = ActorPool::new(5, || {
 ///     MyActor.spawn()
-/// }).spawn();
+/// });
 ///
 /// pool.send(MyMessage).await?;
 /// ```
