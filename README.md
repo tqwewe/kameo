@@ -54,12 +54,12 @@ impl Actor for Counter {}
 // Define messages
 struct Inc { amount: u32 }
 
-impl Message<Counter> for Inc {
+impl Message<Inc> for Counter {
     type Reply = Result<i64, Infallible>;
 
-    async fn handle(self, state: &mut Counter) -> Self::Reply {
-        state.count += self.0 as i64;
-        Ok(state.count)
+    async fn handle(&mut self, msg: Counter) -> Self::Reply {
+        self.count += msg.0 as i64;
+        Ok(self.count)
     }
 }
 ```
@@ -98,11 +98,11 @@ impl kameo::Actor for Counter {
 // Messages
 struct Inc { amount: u32 }
 
-impl kameo::Message<Counter> for Inc {
+impl kameo::Message<Inc> for Counter {
     type Reply = Result<i64, Infallible>;
 
-    async fn handle(self, state: &mut Counter) -> Self::Reply {
-        state.inc(self.amount)
+    async fn handle(&mut self, msg: &mut Inc) -> Self::Reply {
+        self.inc(msg.amount)
     }
 }
 ```
