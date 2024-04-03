@@ -124,10 +124,10 @@ impl<A> ActorRef<A> {
     /// ```
     /// let reply = actor_ref.send(msg).await?;
     /// ```
-    pub async fn send<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
+    pub async fn send<M>(&self, msg: M) -> Result<A::Reply, SendError<M>>
     where
-        A: 'static,
-        M: Message<A>,
+        A: Message<M>,
+        M: Send + 'static,
     {
         debug_assert!(
             Self::current().map(|actor_ref| actor_ref.id() != self.id()).unwrap_or(true),
@@ -151,7 +151,8 @@ impl<A> ActorRef<A> {
     /// ```
     pub fn send_async<M>(&self, msg: M) -> Result<(), SendError<M>>
     where
-        M: Message<A>,
+        A: Message<M>,
+        M: Send + 'static,
     {
         Ok(self.mailbox.send(Signal::Message {
             message: Box::new(msg),
@@ -170,8 +171,8 @@ impl<A> ActorRef<A> {
     /// ```
     pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
     where
-        A: 'static,
-        M: Message<A>,
+        A: Message<M>,
+        M: Send + 'static,
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
@@ -198,10 +199,10 @@ impl<A> ActorRef<A> {
     ///     actor_ref.query(Foo { ... }),
     /// )?;
     /// ```
-    pub async fn query<M>(&self, msg: M) -> Result<M::Reply, SendError<M>>
+    pub async fn query<M>(&self, msg: M) -> Result<A::Reply, SendError<M>>
     where
-        A: Sync,
-        M: Query<A>,
+        A: Query<M>,
+        M: Send + 'static,
     {
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Query {

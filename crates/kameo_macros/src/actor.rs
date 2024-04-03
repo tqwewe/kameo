@@ -318,10 +318,11 @@ impl Actor {
                         None
                     }
                 ).unwrap_or(Span::call_site());
-                let state = match msg_type {
-                    MessageType::Message => quote_spanned! {self_span=> state: &mut #actor_ident #actor_ty_generics },
-                    MessageType::Query => quote_spanned! {self_span=> state: &#actor_ident #actor_ty_generics },
+                let self_ref = match msg_type {
+                    MessageType::Message => quote! { &mut self },
+                    MessageType::Query => quote! { &self },
                 };
+                let msg = quote_spanned! {self_span=> msg: #msg_ident #msg_ty_generics };
                 let fn_ident = &sig.ident;
                 let reply = match sig.output.clone() {
                     ReturnType::Default => parse_quote_spanned! {sig.output.span()=>
@@ -336,21 +337,22 @@ impl Actor {
                 let params = fields.iter().map(|field| {
                     let ident = &field.ident;
                     quote_spanned! {field.span()=>
-                        self.#ident
+                        msg.#ident
                     }
                 });
 
                 let mut handle_body = quote_spanned! {sig.span()=>
-                    state.#fn_ident(#( #params ),*) #await_tokens
+                    self.#fn_ident(#( #params ),*) #await_tokens
                 };
                 if matches!(sig.output, ReturnType::Default) {
                     handle_body = quote! { Ok(#handle_body) }
                 }
                 quote_spanned! {sig.span()=>
-                    impl #impl_generics ::kameo::#trait_name<#actor_ident #actor_ty_generics> for #msg_ident #msg_ty_generics #where_clause {
+                    #[automatically_derived]
+                    impl #impl_generics ::kameo::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
                         type Reply = #reply;
 
-                        async fn handle(self, #state) -> Self::Reply {
+                        async fn handle(#self_ref, #[allow(unused_variables)] #msg) -> Self::Reply {
                             #handle_body
                         }
                     }
