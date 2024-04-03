@@ -16,8 +16,8 @@ impl ToTokens for DeriveActor {
         tokens.extend(quote! {
             #[automatically_derived]
             impl ::kameo::Actor for #ident {
-                fn name(&self) -> ::std::borrow::Cow<'_, str> {
-                    ::std::borrow::Cow::Borrowed(#name)
+                fn name() -> &'static str {
+                    #name
                 }
             }
         });

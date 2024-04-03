@@ -1,4 +1,4 @@
-use std::{any, borrow::Cow};
+use std::any;
 
 use futures::Future;
 
@@ -33,8 +33,8 @@ use crate::error::{ActorStopReason, BoxError, PanicError};
 /// ```
 pub trait Actor: Sized {
     /// Actor name, useful for logging.
-    fn name(&self) -> Cow<'_, str> {
-        Cow::Borrowed(any::type_name::<Self>())
+    fn name() -> &'static str {
+        any::type_name::<Self>()
     }
 
     /// The maximum number of concurrent queries to handle at a time.

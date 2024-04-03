@@ -302,7 +302,7 @@ async fn run_actor_lifecycle<A, S>(
     A: Actor,
     S: ActorState<A>,
 {
-    let name = actor.name().into_owned();
+    let name = A::name();
     trace!(%id, %name, "actor started");
 
     let start_res = AssertUnwindSafe(actor.on_start())

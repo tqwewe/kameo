@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::Infallible};
+use std::convert::Infallible;
 
 use kameo::{Actor, Message, Query, Spawn};
 use tracing::info;
@@ -10,8 +10,8 @@ pub struct MyActor {
 }
 
 impl Actor for MyActor {
-    fn name(&self) -> Cow<'_, str> {
-        "my_actor".into()
+    fn name() -> &'static str {
+        "MyActor"
     }
 }
 
