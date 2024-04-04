@@ -19,7 +19,7 @@ use std::{
 
 use futures::{future::BoxFuture, Future, FutureExt};
 
-use crate::SendError;
+use crate::error::SendError;
 
 pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + Sync + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;

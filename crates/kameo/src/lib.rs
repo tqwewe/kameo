@@ -85,9 +85,7 @@
 //! ## Spawning an Actor & Messaging
 //!
 //! ```
-//! use kameo::{Spawn, ActorRef};
-//!
-//! let counter_ref: ActorRef<Counter> = Counter { count: 0 }.spawn();
+//! let counter_ref = kameo::spawn(Counter { count: 0 });
 //!
 //! let count = counter_ref.send(Inc(42)).await?;
 //! println!("Count is {count}");
@@ -113,4 +111,4 @@ pub use error::{ActorStopReason, BoxError, PanicError, SendError};
 pub use kameo_macros::{actor, Actor, Reply};
 pub use message::{Message, Query, Reply};
 pub use pool::ActorPool;
-pub use spawn::Spawn;
+pub use spawn::{spawn, spawn_stateless, spawn_unsync};

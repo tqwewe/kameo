@@ -2,7 +2,11 @@ use std::any;
 
 use futures::Future;
 
-use crate::error::{ActorStopReason, BoxError, PanicError};
+use crate::{
+    actor_ref::ActorRef,
+    error::{ActorStopReason, BoxError, PanicError},
+    message::{Message, Reply},
+};
 
 /// Functionality for an actor including lifecycle hooks.
 ///
@@ -12,6 +16,8 @@ use crate::error::{ActorStopReason, BoxError, PanicError};
 /// # Example
 ///
 /// ```
+/// use kameo::{Actor, ActorStopReason, BoxError, PanicError};
+///
 /// struct MyActor;
 ///
 /// impl Actor for MyActor {
@@ -20,7 +26,7 @@ use crate::error::{ActorStopReason, BoxError, PanicError};
 ///         Ok(())
 ///     }
 ///
-///     async fn on_panic(&mut self, err: PanicErr) -> Result<Option<ActorStopReason>, BoxError> {
+///     async fn on_panic(&mut self, err: PanicError) -> Result<Option<ActorStopReason>, BoxError> {
 ///         println!("actor panicked");
 ///         Ok(Some(ActorStopReason::Panicked(err))) // Return some to stop the actor
 ///     }
@@ -42,6 +48,36 @@ pub trait Actor: Sized {
     /// This defaults to the number of cpus on the system.
     fn max_concurrent_queries() -> usize {
         num_cpus::get()
+    }
+
+    /// Retrieves a reference to the current actor.
+    ///
+    /// # Panics
+    ///
+    /// This function will panic if called outside the scope of an actor.
+    ///
+    /// # Returns
+    /// A reference to the actor of type `Self::Ref`.
+    fn actor_ref(&self) -> ActorRef<Self>
+    where
+        Self: 'static,
+    {
+        match Self::try_actor_ref() {
+            Some(actor_ref) => actor_ref,
+            None => panic!("actor_ref called outside the scope of an actor"),
+        }
+    }
+
+    /// Retrieves a reference to the current actor, if available.
+    ///
+    /// # Returns
+    /// An `Option` containing a reference to the actor of type `Self::Ref` if available,
+    /// or `None` if the actor reference is not available.
+    fn try_actor_ref() -> Option<ActorRef<Self>>
+    where
+        Self: 'static,
+    {
+        ActorRef::current()
     }
 
     /// Hook that is called before the actor starts processing messages.
@@ -107,5 +143,20 @@ pub trait Actor: Sized {
                 })),
             }
         }
+    }
+}
+
+impl<M, R> Actor for fn(M) -> R {}
+
+impl<M, Fu, R> Message<M> for fn(M) -> Fu
+where
+    M: Send + 'static,
+    Fu: Future<Output = R> + Send + 'static,
+    R: Reply + Send + 'static,
+{
+    type Reply = R;
+
+    async fn handle(&mut self, msg: M) -> Self::Reply {
+        self(msg).await
     }
 }

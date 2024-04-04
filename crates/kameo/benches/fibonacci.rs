@@ -1,7 +1,7 @@
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
-use kameo::{Actor, Message, Query, Spawn};
+use kameo::{Actor, Message, Query};
 
 struct FibActor {}
 
@@ -39,8 +39,8 @@ fn concurrent_reads(c: &mut Criterion) {
         .unwrap();
     let _guard = rt.enter();
     let size: usize = 1024;
-    let unsync_actor_ref = FibActor {}.spawn_unsync();
-    let sync_actor_ref = FibActor {}.spawn();
+    let unsync_actor_ref = kameo::spawn_unsync(FibActor {});
+    let sync_actor_ref = kameo::spawn(FibActor {});
 
     c.bench_with_input(
         BenchmarkId::new("unsync_messages_instant", size),
