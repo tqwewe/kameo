@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use kameo::{actor, Actor, ActorPool, Spawn};
+use kameo::{actor, Actor, ActorPool};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, Default)]
@@ -29,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let mut pool = ActorPool::new(5, || MyActor.spawn());
+    let mut pool = ActorPool::new(5, || kameo::spawn(MyActor));
     for _ in 0..10 {
         pool.send(PrintActorId).await?;
     }

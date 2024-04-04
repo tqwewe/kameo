@@ -15,238 +15,104 @@ use tracing::{error, trace};
 use crate::{
     actor::Actor,
     actor_kind::{ActorState, SyncActor, UnsyncActor},
-    actor_ref::{ActorRef, Ctx, Links, Signal, CURRENT_CTX},
+    actor_ref::{ActorRef, Links, Signal, CURRENT_ACTOR_REF},
     error::{ActorStopReason, PanicError},
 };
 
-/// Functionality to spawn an actor.
+/// Spawns an actor in a `tokio::task`.
+///
+/// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
+/// and finally calls the `Actor::on_stop` hook.
+///
+/// Messages are sent to the actor through a `mpsc::unbounded_channel`.
 ///
 /// # Example
 ///
-/// ```
-/// use kameo::Spawn;
+/// ```no_run
+/// use kameo::Actor;
 ///
-/// let actor = MyActor::new();
-/// let actor_ref = actor.spawn();
+/// #[derive(Actor)]
+/// struct MyActor;
+///
+/// kameo::spawn(MyActor);
 /// ```
-pub trait Spawn: Sized {
-    /// Retrieves a reference to the current actor.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if called outside the scope of an actor.
-    ///
-    /// # Returns
-    /// A reference to the actor of type `Self::Ref`.
-    fn actor_ref(&self) -> ActorRef<Self>;
-
-    /// Retrieves a reference to the current actor, if available.
-    ///
-    /// # Returns
-    /// An `Option` containing a reference to the actor of type `Self::Ref` if available,
-    /// or `None` if the actor reference is not available.
-    fn try_actor_ref() -> Option<ActorRef<Self>>;
-
-    /// Spawns an actor in a `tokio::task`.
-    ///
-    /// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
-    /// and finally calls the `Actor::on_stop` hook.
-    ///
-    /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
-    fn spawn(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync;
-
-    /// Spawns an `!Sync` actor in a `tokio::task`.
-    ///
-    /// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
-    /// and finally calls the `Actor::on_stop` hook.
-    ///
-    /// Messages are sent to the actor through a `mpsc::unbounded_channel`.
-    fn spawn_unsync(self) -> ActorRef<Self>
-    where
-        Self: Send;
-
-    /// Spawns an actor with a bidirectional link between the current actor and the one being spawned.
-    ///
-    /// If either actor dies, [Actor::on_link_died] will be called on the other actor.
-    fn spawn_link(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync;
-
-    /// Spawns an `!Sync` actor with a bidirectional link between the current actor and the one being spawned.
-    ///
-    /// If either actor dies, [Actor::on_link_died] will be called on the other actor.
-    fn spawn_unsync_link(self) -> ActorRef<Self>
-    where
-        Self: Send;
-
-    /// Spawns an actor with a unidirectional link between the current actor and the child.
-    ///
-    /// If the current actor dies, [Actor::on_link_died] will be called on the spawned one,
-    /// however if the spawned actor dies, Actor::on_link_died will not be called.
-    fn spawn_child(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync;
-
-    /// Spawns an `!Sync` actor with a unidirectional link between the current actor and the child.
-    ///
-    /// If the current actor dies, [Actor::on_link_died] will be called on the spawned one,
-    /// however if the spawned actor dies, Actor::on_link_died will not be called.
-    fn spawn_unsync_child(self) -> ActorRef<Self>
-    where
-        Self: Send;
+pub fn spawn<A>(actor: A) -> ActorRef<A>
+where
+    A: Actor + Send + Sync + 'static,
+{
+    spawn_inner::<A, SyncActor<A>>(actor)
 }
 
-impl<T> Spawn for T
+/// Spawns an `!Sync` actor in a `tokio::task`.
+///
+/// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
+/// and finally calls the `Actor::on_stop` hook.
+///
+/// Messages are sent to the actor through a `mpsc::unbounded_channel`.
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::Actor;
+///
+/// #[derive(Actor, Default)]
+/// struct MyUnsyncActor {
+///     data: RefCell<()>, // RefCell is !Sync
+/// }
+///
+/// kameo::spawn_unsync(MyUnsyncActor::default());
+/// ```
+pub fn spawn_unsync<A>(actor: A) -> ActorRef<A>
 where
-    T: Actor + 'static,
+    A: Actor + Send + 'static,
 {
-    fn actor_ref(&self) -> ActorRef<Self> {
-        match Self::try_actor_ref() {
-            Some(actor_ref) => actor_ref,
-            None => panic!("actor_ref called outside the scope of an actor"),
-        }
-    }
+    spawn_inner::<A, UnsyncActor<A>>(actor)
+}
 
-    fn try_actor_ref() -> Option<ActorRef<Self>> {
-        ActorRef::current()
-    }
-
-    fn spawn(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync,
-    {
-        spawn(|ctx, id, mailbox_rx, abort_registration, links| {
-            tokio::spawn(CURRENT_CTX.scope(ctx, async move {
-                run_actor_lifecycle(
-                    id,
-                    self,
-                    SyncActor::new,
-                    mailbox_rx,
-                    abort_registration,
-                    links,
-                )
-                .await
-            }));
-        })
-    }
-
-    fn spawn_unsync(self) -> ActorRef<Self>
-    where
-        Self: Send,
-    {
-        spawn(|ctx, id, mailbox_rx, abort_registration, links| {
-            tokio::spawn(CURRENT_CTX.scope(ctx, async move {
-                run_actor_lifecycle(
-                    id,
-                    self,
-                    UnsyncActor::new,
-                    mailbox_rx,
-                    abort_registration,
-                    links,
-                )
-                .await
-            }));
-        })
-    }
-
-    fn spawn_link(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync,
-    {
-        spawn_link(|| self.spawn())
-    }
-
-    fn spawn_unsync_link(self) -> ActorRef<Self>
-    where
-        Self: Send,
-    {
-        spawn_link(|| self.spawn_unsync())
-    }
-
-    fn spawn_child(self) -> ActorRef<Self>
-    where
-        Self: Send + Sync,
-    {
-        spawn_child(|| self.spawn())
-    }
-
-    fn spawn_unsync_child(self) -> ActorRef<Self>
-    where
-        Self: Send,
-    {
-        spawn_child(|| self.spawn_unsync())
-    }
+/// Spawns a stateless anonymous actor using a function which processes a single message.
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::spawn_stateless;
+///
+/// let actor_ref = spawn_stateless(|n: i32| async move { n * n });
+/// let res = actor_ref.send(10).await?;
+/// assert_eq!(res, 100);
+/// ```
+pub fn spawn_stateless<M, R>(f: fn(M) -> R) -> ActorRef<fn(M) -> R>
+where
+    M: 'static,
+    R: 'static,
+{
+    spawn_unsync(f as fn(_) -> _)
 }
 
 #[inline]
-fn spawn<A>(
-    spawn: impl FnOnce(Ctx, u64, mpsc::UnboundedReceiver<Signal<A>>, AbortRegistration, Links),
-) -> ActorRef<A>
+fn spawn_inner<A, S>(actor: A) -> ActorRef<A>
 where
-    A: Actor + 'static,
+    A: Actor + Send + 'static,
+    S: ActorState<A> + Send,
 {
     let (mailbox, mailbox_rx) = mpsc::unbounded_channel::<Signal<A>>();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let links = Arc::new(Mutex::new(HashMap::new()));
     let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
     let id = actor_ref.id();
-    let ctx = Ctx {
-        id,
-        actor_ref: Box::new(actor_ref.clone()),
-        signal_mailbox: actor_ref.signal_mailbox(),
-        links: links.clone(),
-    };
 
-    spawn(ctx, id, mailbox_rx, abort_registration, links);
-
-    actor_ref
-}
-
-#[inline]
-fn spawn_link<A>(spawn: impl FnOnce() -> ActorRef<A>) -> ActorRef<A>
-where
-    A: 'static,
-{
-    let actor_ref = spawn();
-    let (sibbling_id, sibbling_signal_mailbox, sibbling_links) = CURRENT_CTX
-        .try_with(|ctx| (ctx.id, ctx.signal_mailbox.clone(), ctx.links.clone()))
-        .expect("spawn_link cannot be called outside any actors");
-
-    let actor_ref_links = actor_ref.links();
-    let (mut this_links, mut sibbling_links) = (
-        actor_ref_links.lock().unwrap(),
-        sibbling_links.lock().unwrap(),
+    tokio::spawn(
+        CURRENT_ACTOR_REF.scope(Box::new(actor_ref.clone()), async move {
+            run_actor_lifecycle::<A, S>(id, actor, mailbox_rx, abort_registration, links).await
+        }),
     );
-    this_links.insert(sibbling_id, sibbling_signal_mailbox);
-    sibbling_links.insert(actor_ref.id(), actor_ref.signal_mailbox());
 
     actor_ref
 }
 
 #[inline]
-fn spawn_child<A>(spawn: impl FnOnce() -> ActorRef<A>) -> ActorRef<A>
-where
-    A: 'static,
-{
-    let actor_ref = spawn();
-    let parent_links = CURRENT_CTX
-        .try_with(|ctx| ctx.links.clone())
-        .expect("spawn_child cannot be called outside any actors");
-
-    parent_links
-        .lock()
-        .unwrap()
-        .insert(actor_ref.id(), actor_ref.signal_mailbox());
-
-    actor_ref
-}
-
 async fn run_actor_lifecycle<A, S>(
     id: u64,
     mut actor: A,
-    new_state: impl Fn(A) -> S,
     mailbox_rx: mpsc::UnboundedReceiver<Signal<A>>,
     abort_registration: AbortRegistration,
     links: Links,
@@ -270,7 +136,7 @@ async fn run_actor_lifecycle<A, S>(
         return;
     }
 
-    let mut state = new_state(actor);
+    let mut state = S::new_from_actor(actor);
 
     let reason = Abortable::new(
         abortable_actor_loop(&mut state, mailbox_rx),
@@ -348,6 +214,7 @@ where
     }
 }
 
+#[inline]
 fn log_actor_stop_reason(id: u64, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ ActorStopReason::Normal

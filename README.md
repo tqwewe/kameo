@@ -108,17 +108,13 @@ impl kameo::Message<Inc> for Counter {
 ### Spawning an Actor & Messaging
 
 ```rust
-use kameo::{Spawn, ActorRef};
-
-let counter_ref: ActorRef<Counter> = Counter { count: 0 }.spawn();
+let counter_ref = kameo::spawn(Counter { count: 0 });
 
 let count = counter_ref.send(Inc(42)).await?;
 println!("Count is {count}");
 ```
 
 <sup>
-<a href="https://docs.rs/kameo/latest/kameo/trait.Spawn.html#method.spawn" target="_blank">Spawn::spawn</a>
- • 
 <a href="https://docs.rs/kameo/latest/kameo/trait.ActorRef.html#method.send" target="_blank">ActorRef::send</a>
 </sup>
 

@@ -3,7 +3,12 @@ use std::fmt;
 use futures::future::join_all;
 use tracing::warn;
 
-use crate::{actor::Actor, actor_ref::ActorRef, error::SendError, message::Message, Reply};
+use crate::{
+    actor::Actor,
+    actor_ref::ActorRef,
+    error::SendError,
+    message::{Message, Reply},
+};
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
@@ -34,7 +39,7 @@ use crate::{actor::Actor, actor_ref::ActorRef, error::SendError, message::Messag
 ///
 /// // Create a pool with 5 workers.
 /// let pool = ActorPool::new(5, || {
-///     MyActor.spawn()
+///     kameo::spawn(MyActor)
 /// });
 ///
 /// pool.send(MyMessage).await?;

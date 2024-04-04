@@ -18,19 +18,12 @@ use tokio::{
 
 use crate::{
     error::{ActorStopReason, SendError},
-    message::{BoxReply, DynMessage, DynQuery, Message, Query},
-    Reply,
+    message::{BoxReply, DynMessage, DynQuery, Message, Query, Reply},
 };
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
-pub(crate) struct Ctx {
-    pub(crate) id: u64,
-    pub(crate) actor_ref: Box<dyn any::Any + Send>,
-    pub(crate) signal_mailbox: Box<dyn SignalMailbox>,
-    pub(crate) links: Links,
-}
 tokio::task_local! {
-    pub(crate) static CURRENT_CTX: Ctx;
+    pub(crate) static CURRENT_ACTOR_REF: Box<dyn any::Any + Send>;
 }
 
 type Mailbox<A> = mpsc::UnboundedSender<Signal<A>>;
@@ -69,8 +62,8 @@ impl<A> ActorRef<A> {
     where
         A: 'static,
     {
-        CURRENT_CTX
-            .try_with(|ctx| ctx.actor_ref.downcast_ref().cloned())
+        CURRENT_ACTOR_REF
+            .try_with(|actor_ref| actor_ref.downcast_ref().cloned())
             .ok()
             .flatten()
     }
@@ -121,10 +114,6 @@ impl<A> ActorRef<A> {
     }
 
     /// Sends a message to the actor, waiting for a reply.
-    ///
-    /// ```
-    /// let reply = actor_ref.send(msg).await?;
-    /// ```
     pub async fn send<M>(
         &self,
         msg: M,
@@ -150,10 +139,6 @@ impl<A> ActorRef<A> {
     /// Sends a message to the actor asyncronously without waiting for a reply.
     ///
     /// If the handler for this message returns an error, the actor will panic.
-    ///
-    /// ```
-    /// actor_ref.send_async(msg)?;
-    /// ```
     pub fn send_async<M>(&self, msg: M) -> Result<(), SendError<M>>
     where
         A: Message<M>,
@@ -170,10 +155,6 @@ impl<A> ActorRef<A> {
     /// This spawns a tokio::task and sleeps for the duration of `delay` before seding the message.
     ///
     /// If the handler for this message returns an error, the actor will panic.
-    ///
-    /// ```
-    /// actor_ref.send_after(msg, Duration::from_secs(5));
-    /// ```
     pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
     where
         A: Message<M>,
@@ -192,18 +173,6 @@ impl<A> ActorRef<A> {
     ///
     /// If the actor was spawned as `!Sync` with `Spawn::spawn_unsync`, then queries will not be supported
     /// and any query will return `Err(SendError::QueriesNotSupported)`.
-    ///
-    /// ```
-    /// // Query from the actor
-    /// let reply = actor_ref.query(msg).await?;
-    ///
-    /// // Queries run concurrently if no `Message`'s are sent between them
-    /// let (a, b, c) = tokio::try_join!(
-    ///     actor_ref.query(Foo { ... }),
-    ///     actor_ref.query(Foo { ... }),
-    ///     actor_ref.query(Foo { ... }),
-    /// )?;
-    /// ```
     pub async fn query<M>(
         &self,
         msg: M,
@@ -298,10 +267,6 @@ impl<A> ActorRef<A> {
         A: 'static,
     {
         Box::new(self.mailbox.clone())
-    }
-
-    pub(crate) fn links(&self) -> Links {
-        self.links.clone()
     }
 }
 

@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use futures::FutureExt;
+use futures::{Future, FutureExt};
 use tokio::{
     sync::{oneshot, RwLock, Semaphore},
     task::JoinSet,
@@ -17,13 +17,15 @@ use crate::{
 };
 
 pub(crate) trait ActorState<A: Actor>: Sized {
-    async fn handle_message(
+    fn new_from_actor(actor: A) -> Self;
+
+    fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
         reply: Option<oneshot::Sender<BoxReply>>,
-    ) -> Option<ActorStopReason>;
+    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
-    async fn handle_query(
+    fn handle_query(
         &mut self,
         query: Box<dyn DynQuery<A>>,
         reply: Option<
@@ -31,21 +33,25 @@ pub(crate) trait ActorState<A: Actor>: Sized {
                 Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
             >,
         >,
-    ) -> Option<ActorStopReason>;
+    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
-    async fn handle_link_died(
+    fn handle_link_died(
         &mut self,
         id: u64,
         reason: ActorStopReason,
-    ) -> Option<ActorStopReason>;
+    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
-    async fn handle_stop(&mut self) -> Option<ActorStopReason>;
+    fn handle_stop(&mut self) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
-    async fn on_shutdown(&mut self, reason: ActorStopReason) -> Option<ActorStopReason>;
-    async fn shutdown(self) -> A;
+    fn on_shutdown(
+        &mut self,
+        reason: ActorStopReason,
+    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
-    async fn next_pending_task(&mut self) -> Option<ActorStopReason> {
-        None
+    fn shutdown(self) -> impl Future<Output = A> + Send;
+
+    fn next_pending_task(&mut self) -> impl Future<Output = Option<ActorStopReason>> + Send {
+        async { None }
     }
 }
 
@@ -56,14 +62,6 @@ pub(crate) struct SyncActor<A> {
 }
 
 impl<A: Actor> SyncActor<A> {
-    pub(crate) fn new(state: A) -> Self {
-        SyncActor {
-            state: Arc::new(RwLock::new(state)),
-            semaphore: Arc::new(Semaphore::new(A::max_concurrent_queries())),
-            concurrent_queries: JoinSet::new(),
-        }
-    }
-
     #[inline]
     async fn wait_concurrent_queries(&mut self) -> Option<ActorStopReason> {
         while let Some(res) = self.concurrent_queries.join_next().await {
@@ -86,6 +84,15 @@ impl<A> ActorState<A> for SyncActor<A>
 where
     A: Actor + Send + Sync + 'static,
 {
+    #[inline]
+    fn new_from_actor(actor: A) -> Self {
+        SyncActor {
+            state: Arc::new(RwLock::new(actor)),
+            semaphore: Arc::new(Semaphore::new(A::max_concurrent_queries())),
+            concurrent_queries: JoinSet::new(),
+        }
+    }
+
     #[inline]
     async fn handle_message(
         &mut self,
@@ -256,16 +263,14 @@ pub(crate) struct UnsyncActor<A> {
     state: A,
 }
 
-impl<A> UnsyncActor<A> {
-    pub(crate) fn new(state: A) -> Self {
-        UnsyncActor { state }
-    }
-}
-
 impl<A> ActorState<A> for UnsyncActor<A>
 where
     A: Actor + Send,
 {
+    fn new_from_actor(actor: A) -> Self {
+        UnsyncActor { state: actor }
+    }
+
     async fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,

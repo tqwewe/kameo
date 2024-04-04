@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let my_actor_ref = MyActor::new().spawn();
+    let my_actor_ref = kameo::spawn(MyActor::new());
 
     // Increment the count by 3
     let count = my_actor_ref.send(Inc { amount: 3 }).await?;
