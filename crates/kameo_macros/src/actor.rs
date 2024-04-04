@@ -326,7 +326,7 @@ impl Actor {
                 let fn_ident = &sig.ident;
                 let reply = match sig.output.clone() {
                     ReturnType::Default => parse_quote_spanned! {sig.output.span()=>
-                        ::std::result::Result<(), ::std::convert::Infallible>
+                        ()
                     },
                     ReturnType::Type(_, ty) => ty,
                 };
@@ -341,19 +341,13 @@ impl Actor {
                     }
                 });
 
-                let mut handle_body = quote_spanned! {sig.span()=>
-                    self.#fn_ident(#( #params ),*) #await_tokens
-                };
-                if matches!(sig.output, ReturnType::Default) {
-                    handle_body = quote! { Ok(#handle_body) }
-                }
                 quote_spanned! {sig.span()=>
                     #[automatically_derived]
                     impl #impl_generics ::kameo::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
                         type Reply = #reply;
 
                         async fn handle(#self_ref, #[allow(unused_variables)] #msg) -> Self::Reply {
-                            #handle_body
+                            self.#fn_ident(#( #params ),*) #await_tokens
                         }
                     }
                 }

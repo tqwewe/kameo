@@ -1,5 +1,3 @@
-use std::convert::Infallible;
-
 use kameo::{Actor, Message, Query, Spawn};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -21,11 +19,11 @@ pub struct Inc {
 }
 
 impl Message<Inc> for MyActor {
-    type Reply = Result<i64, Infallible>;
+    type Reply = i64;
 
     async fn handle(&mut self, msg: Inc) -> Self::Reply {
         self.count += msg.amount as i64;
-        Ok(self.count)
+        self.count
     }
 }
 
@@ -44,10 +42,10 @@ impl Message<ForceErr> for MyActor {
 pub struct Count;
 
 impl Query<Count> for MyActor {
-    type Reply = Result<i64, Infallible>;
+    type Reply = i64;
 
     async fn handle(&self, _msg: Count) -> Self::Reply {
-        Ok(self.count)
+        self.count
     }
 }
 

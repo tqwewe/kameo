@@ -1,8 +1,10 @@
 mod actor;
 mod derive_actor;
+mod derive_reply;
 
 use actor::Actor;
 use derive_actor::DeriveActor;
+use derive_reply::DeriveReply;
 use proc_macro::TokenStream;
 use quote::ToTokens;
 use syn::parse_macro_input;
@@ -21,15 +23,15 @@ use syn::parse_macro_input;
 /// impl Counter {
 ///     /// Regular message
 ///     #[message]
-///     pub fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
+///     pub fn inc(&mut self, amount: u32) -> i64 {
 ///         self.count += amount as i64;
-///         Ok(self.count)
+///         self.count
 ///     }
 ///
 ///     /// Regular query
 ///     #[query]
-///     pub fn count(&self) -> Result<i64, Infallible> {
-///         Ok(self.count)
+///     pub fn count(&self) -> i64 {
+///         self.count
 ///     }
 ///
 ///     /// Derives on the message
@@ -53,7 +55,7 @@ use syn::parse_macro_input;
 /// }
 ///
 /// impl kameo::Message<Inc> for Counter {
-///     type Reply = Result<i64, Infallible>;
+///     type Reply = i64;
 ///
 ///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
 ///         self.inc(msg.amount)
@@ -63,7 +65,7 @@ use syn::parse_macro_input;
 /// pub struct Count;
 ///
 /// impl kameo::Query<Count> for Counter {
-///     type Reply = Result<i64, Infallible>;
+///     type Reply = i64;
 ///
 ///     async fn handle(&self, msg: Counter) -> Self::Reply {
 ///         self.count()
@@ -74,7 +76,7 @@ use syn::parse_macro_input;
 /// pub struct Dec;
 ///
 /// impl kameo::Message<Dec> for Counter {
-///     type Reply = Result<(), Infallible>;
+///     type Reply = ();
 ///
 ///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
 ///         self.dec(msg.amount)
@@ -106,4 +108,20 @@ pub fn actor(_attr: TokenStream, item: TokenStream) -> TokenStream {
 pub fn derive_actor(input: TokenStream) -> TokenStream {
     let derive_actor = parse_macro_input!(input as DeriveActor);
     TokenStream::from(derive_actor.into_token_stream())
+}
+
+/// Derive macro implementing the [Reply](https://docs.rs/kameo/latest/kameo/trait.Reply.html) trait as an infallible reply.
+///
+/// # Example
+///
+/// ```
+/// use kameo::Reply;
+///
+/// #[derive(Reply)]
+/// struct Foo { }
+/// ```
+#[proc_macro_derive(Reply)]
+pub fn derive_reply(input: TokenStream) -> TokenStream {
+    let derive_reply = parse_macro_input!(input as DeriveReply);
+    TokenStream::from(derive_reply.into_token_stream())
 }

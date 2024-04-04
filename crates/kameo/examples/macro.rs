@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt};
+use std::fmt;
 
 use kameo::*;
 use tracing::info;
@@ -16,9 +16,9 @@ impl MyActor {
     }
 
     #[message(derive(Clone))]
-    fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
+    fn inc(&mut self, amount: u32) -> i64 {
         self.count += amount as i64;
-        Ok(self.count)
+        self.count
     }
 
     #[message]
@@ -27,8 +27,8 @@ impl MyActor {
     }
 
     #[query]
-    fn count(&self) -> Result<i64, Infallible> {
-        Ok(self.count)
+    fn count(&self) -> i64 {
+        self.count
     }
 
     /// Prints a message
