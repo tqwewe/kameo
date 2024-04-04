@@ -14,13 +14,13 @@ pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
 /// Error that can occur when sending a message to an actor.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SendError<M = (), E = ()> {
-    /// An error returned by the actor's message handler.
-    HandlerError(E),
     /// The actor isn't running.
     ActorNotRunning(M),
     /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
-    /// The actor was spawned as `!Sync`, meaning queries are not supported on the actor.
+    /// An error returned by the actor's message handler.
+    HandlerError(E),
+    /// The actor was spawned as `!Sync`, which doesn't support queries.
     QueriesNotSupported,
 }
 
@@ -28,9 +28,9 @@ impl<M, E> SendError<M, E> {
     /// Clears in inner data back to `()`.
     pub fn reset(self) -> SendError<(), ()> {
         match self {
-            SendError::HandlerError(_) => SendError::HandlerError(()),
             SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::HandlerError(_) => SendError::HandlerError(()),
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -42,9 +42,9 @@ where
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SendError::HandlerError(err) => err.fmt(f),
             SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
+            SendError::HandlerError(err) => err.fmt(f),
             SendError::QueriesNotSupported => write!(f, "QueriesNotSupported"),
         }
     }
@@ -53,9 +53,9 @@ where
 impl<M, E> fmt::Display for SendError<M, E> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SendError::HandlerError(_) => write!(f, "actor replied with an error"),
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
+            SendError::HandlerError(_) => write!(f, "actor replied with an error"),
             SendError::QueriesNotSupported => {
                 write!(f, "actor spawned as !Sync cannot handle queries")
             }
