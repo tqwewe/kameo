@@ -31,14 +31,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut pool = ActorPool::new(5, || MyActor.spawn());
     for _ in 0..10 {
-        pool.send(PrintActorId).await??;
+        pool.send(PrintActorId).await?;
     }
 
     pool.broadcast(ForceStop).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     for _ in 0..10 {
-        pool.send(PrintActorId).await??;
+        pool.send(PrintActorId).await?;
     }
 
     Ok(())

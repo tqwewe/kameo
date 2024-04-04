@@ -3,7 +3,7 @@ use std::fmt;
 use futures::future::join_all;
 use tracing::warn;
 
-use crate::{actor::Actor, actor_ref::ActorRef, error::SendError, message::Message};
+use crate::{actor::Actor, actor_ref::ActorRef, error::SendError, message::Message, Reply};
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
@@ -81,7 +81,10 @@ impl<A> ActorPool<A> {
     }
 
     /// Sends a message to a worker in the pool, waiting for a reply.
-    pub async fn send<M>(&mut self, mut msg: M) -> Result<A::Reply, SendError<M>>
+    pub async fn send<M>(
+        &mut self,
+        mut msg: M,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
     where
         A: Actor + Message<M>,
         M: Send + 'static,
@@ -123,7 +126,10 @@ impl<A> ActorPool<A> {
     }
 
     /// Broadcasts a message to all workers.
-    pub async fn broadcast<M>(&mut self, msg: M) -> Vec<Result<A::Reply, SendError<M>>>
+    pub async fn broadcast<M>(
+        &mut self,
+        msg: M,
+    ) -> Vec<Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>>
     where
         A: Actor + Message<M>,
         M: Clone + Send + 'static,

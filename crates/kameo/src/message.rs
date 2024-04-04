@@ -2,6 +2,8 @@ use std::{any, fmt};
 
 use futures::{future::BoxFuture, Future, FutureExt};
 
+use crate::SendError;
+
 pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + Sync + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 
@@ -48,43 +50,29 @@ pub trait Query<T>: Send + 'static {
 ///
 /// This is implemented for all types, and uses specialization to recognize errors, which are any `Result` types.
 pub trait Reply {
+    /// The success type in the reply.
+    type Ok;
+    /// The error type in the reply.
+    type Error;
+
+    /// Converts a reply to a `SendError`, containing the `HandleError` if the reply is an error.
+    fn to_send_error<M>(self) -> Result<Self::Ok, SendError<M, Self::Error>>;
+
     /// Converts the reply into a `Box<fmt::Debug + Send + Sync + 'static>` if it's an Err, otherwise `None`.
     fn into_boxed_err(self) -> Option<BoxDebug>;
-}
-
-#[cfg(feature = "nightly")]
-impl<T> Reply for T {
-    default fn into_boxed_err(self) -> Option<BoxDebug> {
-        None
-    }
-}
-
-#[cfg(feature = "nightly")]
-#[derive(Debug)]
-struct UnknownError(&'static str);
-
-#[cfg(feature = "nightly")]
-impl fmt::Display for UnknownError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[cfg(feature = "nightly")]
-impl std::error::Error for UnknownError {}
-
-#[cfg(feature = "nightly")]
-impl<T, E> Reply for Result<T, E> {
-    default fn into_boxed_err(self) -> Option<BoxDebug> {
-        self.map_err(|err| Box::new(UnknownError(any::type_name_of_val(&err))) as BoxDebug)
-            .err()
-    }
 }
 
 impl<T, E> Reply for Result<T, E>
 where
     E: fmt::Debug + Send + Sync + 'static,
 {
+    type Ok = T;
+    type Error = E;
+
+    fn to_send_error<M>(self) -> Result<T, SendError<M, E>> {
+        self.map_err(SendError::HandlerError)
+    }
+
     fn into_boxed_err(self) -> Option<BoxDebug> {
         self.map_err(|err| Box::new(err) as BoxDebug).err()
     }

@@ -19,6 +19,7 @@ use tokio::{
 use crate::{
     error::{ActorStopReason, SendError},
     message::{BoxReply, DynMessage, DynQuery, Message, Query},
+    Reply,
 };
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -124,7 +125,10 @@ impl<A> ActorRef<A> {
     /// ```
     /// let reply = actor_ref.send(msg).await?;
     /// ```
-    pub async fn send<M>(&self, msg: M) -> Result<A::Reply, SendError<M>>
+    pub async fn send<M>(
+        &self,
+        msg: M,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -139,7 +143,8 @@ impl<A> ActorRef<A> {
             message: Box::new(msg),
             reply: Some(reply),
         })?;
-        Ok(rx.await.map(|val| *val.downcast().unwrap())?)
+        let res: A::Reply = *rx.await?.downcast().unwrap();
+        res.to_send_error::<M>()
     }
 
     /// Sends a message to the actor asyncronously without waiting for a reply.
@@ -199,7 +204,10 @@ impl<A> ActorRef<A> {
     ///     actor_ref.query(Foo { ... }),
     /// )?;
     /// ```
-    pub async fn query<M>(&self, msg: M) -> Result<A::Reply, SendError<M>>
+    pub async fn query<M>(
+        &self,
+        msg: M,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
     where
         A: Query<M>,
         M: Send + 'static,
@@ -210,7 +218,13 @@ impl<A> ActorRef<A> {
             reply: Some(reply),
         })?;
         match rx.await {
-            Ok(Ok(val)) => Ok(*val.downcast().unwrap()),
+            Ok(Ok(val)) => {
+                let reply: A::Reply = *val.downcast().unwrap();
+                reply.to_send_error()
+            }
+            Ok(Err(SendError::HandlerError(err))) => {
+                Err(SendError::HandlerError(*err.downcast().unwrap()))
+            }
             Ok(Err(SendError::ActorNotRunning(err))) => {
                 Err(SendError::ActorNotRunning(*err.downcast().unwrap()))
             }
@@ -347,7 +361,11 @@ pub(crate) enum Signal<A> {
     },
     Query {
         query: Box<dyn DynQuery<A>>,
-        reply: Option<oneshot::Sender<Result<BoxReply, SendError<Box<dyn any::Any + Send>>>>>,
+        reply: Option<
+            oneshot::Sender<
+                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
+            >,
+        >,
     },
     LinkDied {
         id: u64,

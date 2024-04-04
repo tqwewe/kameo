@@ -62,14 +62,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let my_actor_ref = MyActor::default().spawn();
 
     // Increment the count by 3
-    let count = my_actor_ref.send(Inc { amount: 3 }).await??;
+    let count = my_actor_ref.send(Inc { amount: 3 }).await?;
     info!("Count is {count}");
 
     // Increment the count by 50 in the background
     my_actor_ref.send_async(Inc { amount: 50 })?;
 
     // Increment the count by 2
-    let count = my_actor_ref.send(Inc { amount: 2 }).await??;
+    let count = my_actor_ref.send(Inc { amount: 2 }).await?;
     info!("Count is {count}");
 
     // Async messages that return an Err will cause the actor to panic
