@@ -26,7 +26,11 @@ pub(crate) trait ActorState<A: Actor>: Sized {
     async fn handle_query(
         &mut self,
         query: Box<dyn DynQuery<A>>,
-        reply: Option<oneshot::Sender<Result<BoxReply, SendError<Box<dyn any::Any + Send>>>>>,
+        reply: Option<
+            oneshot::Sender<
+                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
+            >,
+        >,
     ) -> Option<ActorStopReason>;
 
     async fn handle_link_died(
@@ -125,7 +129,11 @@ where
     async fn handle_query(
         &mut self,
         query: Box<dyn DynQuery<A>>,
-        reply: Option<oneshot::Sender<Result<BoxReply, SendError<Box<dyn any::Any + Send>>>>>,
+        reply: Option<
+            oneshot::Sender<
+                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
+            >,
+        >,
     ) -> Option<ActorStopReason> {
         let permit = self.semaphore.clone().acquire_owned().await;
         let state = self.state.clone();
@@ -292,14 +300,18 @@ where
     async fn handle_query(
         &mut self,
         _query: Box<dyn DynQuery<A>>,
-        reply: Option<oneshot::Sender<Result<BoxReply, SendError<Box<dyn any::Any + Send>>>>>,
+        reply: Option<
+            oneshot::Sender<
+                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
+            >,
+        >,
     ) -> Option<ActorStopReason> {
         match reply {
             Some(reply) => {
                 let _ = reply.send(Err(SendError::QueriesNotSupported));
                 None
             }
-            None => panic_any(SendError::<()>::QueriesNotSupported),
+            None => panic_any(SendError::<(), ()>::QueriesNotSupported),
         }
     }
 

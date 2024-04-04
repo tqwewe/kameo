@@ -10,29 +10,10 @@
 //!
 //! ## Installing
 //!
-//! **Stable**
-//!
 //! ```toml
 //! [dependencies]
 //! kameo = "*"
 //! ```
-//!
-//! **Nightly**
-//!
-//! ```toml
-//! [dependencies]
-//! kameo = { version = "*", features = ["nightly"] }
-//! ```
-//!
-//! ## `nightly` feature flag
-//!
-//! The `nightly` feature flag allows for any type to be used in a [Message] or [Query]'s reply.
-//! It also removes the need for `spawn_unsend` and other `_unsend` methods, since actor "sendness" can be inferred.
-//! This is done though specialization, which requires nightly rust.
-//!
-//! Without the nightly feature flag, all replies must be a `Result<T, E>`, where `E: Debug + Send + Sync + 'static`.
-//! This is to ensure that asyncronous messages that fail will cause the actor to panic,
-//! since otherwise the error would be silently ignored.
 //!
 //! ## Defining an Actor without Macros
 //!
@@ -48,16 +29,14 @@
 //! struct Inc(u32);
 //!
 //! impl Message<Inc> for Counter {
-//!     type Reply = Result<i64, Infallible>;
+//!     type Reply = i64;
 //!
 //!     async fn handle(&mut self, msg: Counter) -> Self::Reply {
 //!         self.count += msg.0 as i64;
-//!         Ok(self.count)
+//!         self.count
 //!     }
 //! }
 //! ```
-//!
-//! Note, with the `nightly` feature flag enabled, this reply type can be `i64` directly without the result.
 //!
 //! ## Defining an Actor with Macros
 //!
@@ -72,9 +51,9 @@
 //! #[actor]
 //! impl Counter {
 //!     #[message]
-//!     fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
+//!     fn inc(&mut self, amount: u32) -> i64 {
 //!         self.count += amount as i64;
-//!         Ok(self.count)
+//!         self.count
 //!     }
 //! }
 //! ```
@@ -94,7 +73,7 @@
 //! struct Inc { amount: u32 }
 //!
 //! impl kameo::Message<Inc> for Counter {
-//!     type Reply = Result<i64, Infallible>;
+//!     type Reply = i64;
 //!
 //!     async fn handle(&mut self, msg: Counter) -> Self::Reply {
 //!         self.inc(msg.amount)
@@ -114,8 +93,6 @@
 //! println!("Count is {count}");
 //! ```
 
-#![cfg_attr(feature = "nightly", feature(specialization))]
-#![cfg_attr(feature = "nightly", allow(incomplete_features))]
 #![warn(missing_docs)]
 #![warn(clippy::all)]
 #![warn(rust_2018_idioms)]
@@ -133,7 +110,7 @@ mod spawn;
 pub use actor::Actor;
 pub use actor_ref::ActorRef;
 pub use error::{ActorStopReason, BoxError, PanicError, SendError};
-pub use kameo_macros::{actor, Actor};
+pub use kameo_macros::{actor, Actor, Reply};
 pub use message::{Message, Query, Reply};
 pub use pool::ActorPool;
 pub use spawn::Spawn;

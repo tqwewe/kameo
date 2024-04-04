@@ -19,26 +19,17 @@
 
 ### Installing
 
-**Stable**
+Install using `cargo add`:
+
+```bash
+cargo add kameo
+```
+
+or adding to your dependencies manually:
 
 ```toml
 [dependencies]
 kameo = "*"
-```
-
-**Nightly**
-
-Nightly allows for some cleaner apis thanks to specialization.
-
-Notably,
-
-- `Message::Reply` and `Query::Reply` can be any type, not just `Result` types.
-- `spawn_unsync` and other `_unsync` methods are not required - `!Sync` actors are inferred automatically.
-
-
-```toml
-[dependencies]
-kameo = { version = "*", features = ["nightly"] }
 ```
 
 ### Defining an Actor without Macros
@@ -55,11 +46,11 @@ impl Actor for Counter {}
 struct Inc { amount: u32 }
 
 impl Message<Inc> for Counter {
-    type Reply = Result<i64, Infallible>;
+    type Reply = i64;
 
     async fn handle(&mut self, msg: Counter) -> Self::Reply {
         self.count += msg.0 as i64;
-        Ok(self.count)
+        self.count
     }
 }
 ```
@@ -77,9 +68,9 @@ struct Counter {
 #[actor]
 impl Counter {
     #[message]
-    fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
+    fn inc(&mut self, amount: u32) -> i64 {
         self.count += amount as i64;
-        Ok(self.count)
+        self.count
     }
 }
 ```
@@ -99,7 +90,7 @@ impl kameo::Actor for Counter {
 struct Inc { amount: u32 }
 
 impl kameo::Message<Inc> for Counter {
-    type Reply = Result<i64, Infallible>;
+    type Reply = i64;
 
     async fn handle(&mut self, msg: &mut Inc) -> Self::Reply {
         self.inc(msg.amount)

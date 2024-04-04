@@ -1,5 +1,3 @@
-use std::convert::Infallible;
-
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
@@ -12,18 +10,18 @@ impl Actor for FibActor {}
 struct Fib(u64);
 
 impl Message<Fib> for FibActor {
-    type Reply = Result<u64, Infallible>;
+    type Reply = u64;
 
     async fn handle(&mut self, msg: Fib) -> Self::Reply {
-        Ok(fibonacci(msg.0))
+        fibonacci(msg.0)
     }
 }
 
 impl Query<Fib> for FibActor {
-    type Reply = Result<u64, Infallible>;
+    type Reply = u64;
 
     async fn handle(&self, msg: Fib) -> Self::Reply {
-        Ok(fibonacci(msg.0))
+        fibonacci(msg.0)
     }
 }
 

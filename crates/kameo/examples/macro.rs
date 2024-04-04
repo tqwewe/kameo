@@ -1,4 +1,4 @@
-use std::{convert::Infallible, fmt};
+use std::fmt;
 
 use kameo::*;
 use tracing::info;
@@ -16,9 +16,9 @@ impl MyActor {
     }
 
     #[message(derive(Clone))]
-    fn inc(&mut self, amount: u32) -> Result<i64, Infallible> {
+    fn inc(&mut self, amount: u32) -> i64 {
         self.count += amount as i64;
-        Ok(self.count)
+        self.count
     }
 
     #[message]
@@ -27,8 +27,8 @@ impl MyActor {
     }
 
     #[query]
-    fn count(&self) -> Result<i64, Infallible> {
-        Ok(self.count)
+    fn count(&self) -> i64 {
+        self.count
     }
 
     /// Prints a message
@@ -55,14 +55,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let my_actor_ref = MyActor::new().spawn();
 
     // Increment the count by 3
-    let count = my_actor_ref.send(Inc { amount: 3 }).await??;
+    let count = my_actor_ref.send(Inc { amount: 3 }).await?;
     info!("Count is {count}");
 
     // Increment the count by 50 in the background
     my_actor_ref.send_async(Inc { amount: 50 })?;
 
     // Query the count
-    let count = my_actor_ref.query(Count).await??;
+    let count = my_actor_ref.query(Count).await?;
     info!("Count is {count}");
 
     // Generic message
@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .send(Print {
             msg: "Generics work!",
         })
-        .await??;
+        .await?;
 
     // Async messages that return an Err will cause the actor to panic
     my_actor_ref.send_async(ForceErr)?;
