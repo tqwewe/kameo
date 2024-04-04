@@ -21,11 +21,6 @@ use crate::{
 
 /// Spawns an actor in a `tokio::task`.
 ///
-/// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
-/// and finally calls the `Actor::on_stop` hook.
-///
-/// Messages are sent to the actor through a `mpsc::unbounded_channel`.
-///
 /// # Example
 ///
 /// ```no_run
@@ -45,10 +40,8 @@ where
 
 /// Spawns an `!Sync` actor in a `tokio::task`.
 ///
-/// This calls the `Actor::on_start` hook, then processes messages/queries/signals in a loop,
-/// and finally calls the `Actor::on_stop` hook.
-///
-/// Messages are sent to the actor through a `mpsc::unbounded_channel`.
+/// Unsync actors cannot handle queries, as this would require the actor be to `Sync` since queries are procesed
+/// concurrently.
 ///
 /// # Example
 ///
@@ -69,14 +62,14 @@ where
     spawn_inner::<A, UnsyncActor<A>>(actor)
 }
 
-/// Spawns a stateless anonymous actor using a function which processes a single message.
+/// Spawns a stateless anonymous actor in a `tokio::task` using a function which processes messages of a single type.
 ///
 /// # Example
 ///
 /// ```no_run
 /// use kameo::spawn_stateless;
 ///
-/// let actor_ref = spawn_stateless(|n: i32| async move { n * n });
+/// let actor_ref = kameo::spawn_stateless(|n: i32| async move { n * n });
 /// let res = actor_ref.send(10).await?;
 /// assert_eq!(res, 100);
 /// ```
