@@ -117,10 +117,10 @@ impl<A> ActorRef<A> {
     pub async fn send<M>(
         &self,
         msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    ) -> Result<<M::Reply as Reply>::Ok, SendError<M, <M::Reply as Reply>::Error>>
     where
-        A: Message<M>,
-        M: Send + 'static,
+        A: 'static,
+        M: Message<A>,
     {
         debug_assert!(
             Self::current().map(|actor_ref| actor_ref.id() != self.id()).unwrap_or(true),
@@ -132,7 +132,7 @@ impl<A> ActorRef<A> {
             message: Box::new(msg),
             reply: Some(reply),
         })?;
-        let res: A::Reply = *rx.await?.downcast().unwrap();
+        let res: M::Reply = *rx.await?.downcast().unwrap();
         res.to_send_error::<M>()
     }
 
@@ -141,8 +141,7 @@ impl<A> ActorRef<A> {
     /// If the handler for this message returns an error, the actor will panic.
     pub fn send_async<M>(&self, msg: M) -> Result<(), SendError<M>>
     where
-        A: Message<M>,
-        M: Send + 'static,
+        M: Message<A>,
     {
         Ok(self.mailbox.send(Signal::Message {
             message: Box::new(msg),
@@ -157,8 +156,8 @@ impl<A> ActorRef<A> {
     /// If the handler for this message returns an error, the actor will panic.
     pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
     where
-        A: Message<M>,
-        M: Send + 'static,
+        A: 'static,
+        M: Message<A>,
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
@@ -176,10 +175,9 @@ impl<A> ActorRef<A> {
     pub async fn query<M>(
         &self,
         msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    ) -> Result<<M::Reply as Reply>::Ok, SendError<M, <M::Reply as Reply>::Error>>
     where
-        A: Query<M>,
-        M: Send + 'static,
+        M: Query<A>,
     {
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Query {
@@ -188,7 +186,7 @@ impl<A> ActorRef<A> {
         })?;
         match rx.await {
             Ok(Ok(val)) => {
-                let reply: A::Reply = *val.downcast().unwrap();
+                let reply: M::Reply = *val.downcast().unwrap();
                 reply.to_send_error()
             }
             Ok(Err(SendError::HandlerError(err))) => {

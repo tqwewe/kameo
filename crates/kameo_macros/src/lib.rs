@@ -54,32 +54,32 @@ use syn::parse_macro_input;
 ///     pub amount: u32,
 /// }
 ///
-/// impl kameo::Message<Inc> for Counter {
+/// impl kameo::Message<Counter> for Inc {
 ///     type Reply = i64;
 ///
-///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
-///         self.inc(msg.amount)
+///     async fn handle(state: &mut Counter, msg: Inc) -> Self::Reply {
+///         state.inc(msg.amount)
 ///     }
 /// }
 ///
 /// pub struct Count;
 ///
-/// impl kameo::Query<Count> for Counter {
+/// impl kameo::Query<Counter> for Count {
 ///     type Reply = i64;
 ///
-///     async fn handle(&self, msg: Counter) -> Self::Reply {
-///         self.count()
+///     async fn handle(state: &Counter, msg: Count) -> Self::Reply {
+///         state.count()
 ///     }
 /// }
 ///
 /// #[derive(Clone, Copy)]
 /// pub struct Dec;
 ///
-/// impl kameo::Message<Dec> for Counter {
+/// impl kameo::Message<Counter> for Dec {
 ///     type Reply = ();
 ///
-///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
-///         self.dec(msg.amount)
+///     async fn handle(state: &mut Counter, msg: Dec) -> Self::Reply {
+///         state.dec(msg.amount)
 ///     }
 /// }
 /// ```

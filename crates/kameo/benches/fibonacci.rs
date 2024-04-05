@@ -9,18 +9,18 @@ impl Actor for FibActor {}
 
 struct Fib(u64);
 
-impl Message<Fib> for FibActor {
+impl Message<FibActor> for Fib {
     type Reply = u64;
 
-    async fn handle(&mut self, msg: Fib) -> Self::Reply {
+    async fn handle(_state: &mut FibActor, msg: Fib) -> Self::Reply {
         fibonacci(msg.0)
     }
 }
 
-impl Query<Fib> for FibActor {
+impl Query<FibActor> for Fib {
     type Reply = u64;
 
-    async fn handle(&self, msg: Fib) -> Self::Reply {
+    async fn handle(_state: &FibActor, msg: Fib) -> Self::Reply {
         fibonacci(msg.0)
     }
 }

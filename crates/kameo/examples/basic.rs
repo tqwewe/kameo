@@ -18,22 +18,22 @@ pub struct Inc {
     amount: u32,
 }
 
-impl Message<Inc> for MyActor {
+impl Message<MyActor> for Inc {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc) -> Self::Reply {
-        self.count += msg.amount as i64;
-        self.count
+    async fn handle(state: &mut MyActor, msg: Inc) -> Self::Reply {
+        state.count += msg.amount as i64;
+        state.count
     }
 }
 
 // Always returns an error
 pub struct ForceErr;
 
-impl Message<ForceErr> for MyActor {
+impl Message<MyActor> for ForceErr {
     type Reply = Result<(), i32>;
 
-    async fn handle(&mut self, _msg: ForceErr) -> Self::Reply {
+    async fn handle(_state: &mut MyActor, _msg: ForceErr) -> Self::Reply {
         Err(3)
     }
 }
@@ -41,11 +41,11 @@ impl Message<ForceErr> for MyActor {
 // Queries the current count
 pub struct Count;
 
-impl Query<Count> for MyActor {
+impl Query<MyActor> for Count {
     type Reply = i64;
 
-    async fn handle(&self, _msg: Count) -> Self::Reply {
-        self.count
+    async fn handle(state: &MyActor, _msg: Count) -> Self::Reply {
+        state.count
     }
 }
 
