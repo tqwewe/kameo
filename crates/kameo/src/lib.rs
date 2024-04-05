@@ -28,12 +28,12 @@
 //! // Define messages
 //! struct Inc(u32);
 //!
-//! impl Message<Inc> for Counter {
+//! impl Message<Counter> for Inc {
 //!     type Reply = i64;
 //!
-//!     async fn handle(&mut self, msg: Counter) -> Self::Reply {
-//!         self.count += msg.0 as i64;
-//!         self.count
+//!     async fn handle(state: &mut Counter, msg: Inc) -> Self::Reply {
+//!         state.count += msg.0 as i64;
+//!         state.count
 //!     }
 //! }
 //! ```
@@ -72,11 +72,11 @@
 //! // Messages
 //! struct Inc { amount: u32 }
 //!
-//! impl kameo::Message<Inc> for Counter {
+//! impl kameo::Message<Counter> for Inc {
 //!     type Reply = i64;
 //!
-//!     async fn handle(&mut self, msg: Counter) -> Self::Reply {
-//!         self.inc(msg.amount)
+//!     async fn handle(state: &mut Counter, msg: Inc) -> Self::Reply {
+//!         state.inc(msg.amount)
 //!     }
 //! }
 //! ```

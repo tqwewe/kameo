@@ -318,9 +318,9 @@ impl Actor {
                         None
                     }
                 ).unwrap_or(Span::call_site());
-                let self_ref = match msg_type {
-                    MessageType::Message => quote! { &mut self },
-                    MessageType::Query => quote! { &self },
+                let state = match msg_type {
+                    MessageType::Message => quote_spanned! {self_span=> state: &mut #actor_ident #actor_ty_generics },
+                    MessageType::Query => quote_spanned! {self_span=> state: &#actor_ident #actor_ty_generics },
                 };
                 let msg = quote_spanned! {self_span=> msg: #msg_ident #msg_ty_generics };
                 let fn_ident = &sig.ident;
@@ -343,11 +343,11 @@ impl Actor {
 
                 quote_spanned! {sig.span()=>
                     #[automatically_derived]
-                    impl #impl_generics ::kameo::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
+                    impl #impl_generics ::kameo::#trait_name<#actor_ident #actor_ty_generics> for #msg_ident #msg_ty_generics #where_clause {
                         type Reply = #reply;
 
-                        async fn handle(#self_ref, #[allow(unused_variables)] #msg) -> Self::Reply {
-                            self.#fn_ident(#( #params ),*) #await_tokens
+                        async fn handle(#state, #[allow(unused_variables)] #msg) -> Self::Reply {
+                            state.#fn_ident(#( #params ),*) #await_tokens
                         }
                     }
                 }

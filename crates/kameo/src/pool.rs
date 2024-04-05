@@ -33,7 +33,7 @@ use crate::{
 /// struct MyActor;
 ///
 /// struct MyMessage;
-/// impl Message<MyMessage> for MyActor {
+/// impl Message<MyActor> for MyMessage {
 ///     // ...
 /// }
 ///
@@ -89,10 +89,10 @@ impl<A> ActorPool<A> {
     pub async fn send<M>(
         &mut self,
         mut msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    ) -> Result<<M::Reply as Reply>::Ok, SendError<M, <M::Reply as Reply>::Error>>
     where
-        A: Actor + Message<M>,
-        M: Send + 'static,
+        A: Actor + 'static,
+        M: Message<A>,
     {
         for _ in 0..self.workers.len() * 2 {
             let (idx, worker) = self.next_worker();
@@ -112,8 +112,8 @@ impl<A> ActorPool<A> {
     /// Sends a message asyncronously to a worker in the pool.
     pub fn send_async<M>(&mut self, mut msg: M) -> Result<(), SendError<M>>
     where
-        A: Actor + Message<M>,
-        M: Send + 'static,
+        A: Actor,
+        M: Message<A>,
     {
         for _ in 0..self.workers.len() * 2 {
             let (idx, worker) = self.next_worker();
@@ -134,10 +134,10 @@ impl<A> ActorPool<A> {
     pub async fn broadcast<M>(
         &mut self,
         msg: M,
-    ) -> Vec<Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>>
+    ) -> Vec<Result<<M::Reply as Reply>::Ok, SendError<M, <M::Reply as Reply>::Error>>>
     where
-        A: Actor + Message<M>,
-        M: Clone + Send + 'static,
+        A: Actor + 'static,
+        M: Message<A> + Clone,
     {
         let results = join_all(self.workers.iter().map(|worker| worker.send(msg.clone()))).await;
         for (i, res) in results.iter().enumerate() {
@@ -153,8 +153,8 @@ impl<A> ActorPool<A> {
     /// Broadcasts a message to all workers.
     pub fn broadcast_async<M>(&mut self, msg: M) -> Vec<Result<(), SendError<M>>>
     where
-        A: Actor + Message<M>,
-        M: Clone + Send + 'static,
+        A: Actor,
+        M: Message<A> + Clone,
     {
         let results: Vec<_> = self
             .workers
