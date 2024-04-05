@@ -41,7 +41,7 @@ struct AddCacheReply<T, A, F, F2> {
     phantom: PhantomData<T>,
 }
 
-impl<T, A, F, F2> Message<AddCacheReply<T, A, F, F2>> for CacheRegistry
+impl<T, A, F, F2> Message<CacheRegistry> for AddCacheReply<T, A, F, F2>
 where
     T: Send + Sync + 'static,
     A: Actor + Send + 'static,
@@ -50,14 +50,14 @@ where
 {
     type Reply = Result<Receiver<AnyReceiverValue>, Infallible>;
 
-    async fn handle(&mut self, msg: AddCacheReply<T, A, F, F2>) -> Self::Reply {
+    async fn handle(state: &mut CacheRegistry, msg: AddCacheReply<T, A, F, F2>) -> Self::Reply {
         let key = (A::name(), msg.key);
-        let rx = match self.futures.get(&key).cloned() {
+        let rx = match state.futures.get(&key).cloned() {
             Some(rx) => rx,
             None => {
                 println!("insert pending cache reply for key {}", &key.1);
                 let (tx, rx) = watch::channel(None);
-                self.futures.insert(key.clone(), rx.clone());
+                state.futures.insert(key.clone(), rx.clone());
                 tokio::spawn({
                     let key = key.clone();
                     async move {
@@ -95,12 +95,12 @@ struct RemoveCacheReply {
     key: String,
 }
 
-impl Message<RemoveCacheReply> for CacheRegistry {
+impl Message<CacheRegistry> for RemoveCacheReply {
     type Reply = Result<Option<Receiver<AnyReceiverValue>>, Infallible>;
 
-    async fn handle(&mut self, msg: RemoveCacheReply) -> Self::Reply {
+    async fn handle(state: &mut CacheRegistry, msg: RemoveCacheReply) -> Self::Reply {
         println!("remove pending cache reply for key {}", &msg.key);
-        Ok(self.futures.remove(&(msg.actor, msg.key)))
+        Ok(state.futures.remove(&(msg.actor, msg.key)))
     }
 }
 
@@ -111,17 +111,15 @@ struct CacheReplyFinished<A, T> {
     f: Box<dyn for<'a> Fn(&'a mut A, &'a str, &'a T) -> BoxFuture<'a, ()> + Send>,
 }
 
-trait CacheActor {}
-
-impl<A, T> Message<CacheReplyFinished<A, T>> for A
+impl<A, T> Message<A> for CacheReplyFinished<A, T>
 where
     A: Actor + Send + 'static,
     T: Send + Sync + 'static,
 {
     type Reply = Result<(), ()>;
 
-    async fn handle(&mut self, msg: CacheReplyFinished<A, T>) -> Self::Reply {
-        (msg.f)(self, &msg.key, &msg.value).await;
+    async fn handle(state: &mut A, msg: CacheReplyFinished<A, T>) -> Self::Reply {
+        (msg.f)(state, &msg.key, &msg.value).await;
         let _ = CACHE_REGISTRY_ACTOR
             .send(RemoveCacheReply {
                 actor: A::name(),

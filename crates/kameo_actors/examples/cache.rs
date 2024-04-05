@@ -5,7 +5,8 @@ use std::{
 };
 
 use futures::FutureExt;
-use kameo::{actor, actor_cache::CacheReply, Actor};
+use kameo::{actor, Actor};
+use kameo_actors::cache::CacheReply;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, Default)]
