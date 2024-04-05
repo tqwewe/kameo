@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/kameo", "crates/kameo_macros"]
+members = [
+  "crates/kameo",
+  "crates/kameo_actors",
+  "crates/kameo_macros"
+]
 
 [profile.release]
 lto = true

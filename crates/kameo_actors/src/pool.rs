@@ -1,14 +1,8 @@
 use std::fmt;
 
 use futures::future::join_all;
+use kameo::{Actor, ActorRef, Message, Reply, SendError};
 use tracing::warn;
-
-use crate::{
-    actor::Actor,
-    actor_ref::ActorRef,
-    error::SendError,
-    message::{Message, Reply},
-};
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///

@@ -102,7 +102,6 @@ mod actor_kind;
 mod actor_ref;
 mod error;
 mod message;
-mod pool;
 mod spawn;
 
 pub use actor::Actor;
@@ -110,5 +109,4 @@ pub use actor_ref::ActorRef;
 pub use error::{ActorStopReason, BoxError, PanicError, SendError};
 pub use kameo_macros::{actor, Actor, Reply};
 pub use message::{Message, Query, Reply};
-pub use pool::ActorPool;
 pub use spawn::{spawn, spawn_stateless, spawn_unsync};

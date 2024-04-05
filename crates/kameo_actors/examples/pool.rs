@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use kameo::{actor, Actor, ActorPool};
+use kameo::{actor, Actor};
+use kameo_actors::pool::ActorPool;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, Default)]
