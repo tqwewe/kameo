@@ -18,10 +18,14 @@ use std::{
 };
 
 use futures::{future::BoxFuture, Future, FutureExt};
+use tokio::sync::oneshot;
 
-use crate::error::SendError;
+use crate::{
+    actor_ref::ActorRef,
+    error::{BoxSendError, SendError},
+};
 
-pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + Sync + 'static>;
+pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 
 /// A message that can modify an actors state.
@@ -64,23 +68,197 @@ pub trait Reply {
     type Ok;
     /// The error type in the reply.
     type Error;
+    /// The type returned to the oneshot channel.
+    ///
+    /// This is useful in cases where the type being returned differs from self.
+    /// Though in most cases, this will be `Self`.
+    type Return;
 
     /// Converts a reply to a `SendError`, containing the `HandleError` if the reply is an error.
-    fn to_send_error<M>(self) -> Result<Self::Ok, SendError<M, Self::Error>>;
+    fn to_send_error<M>(ret: Self::Return) -> Result<Self::Ok, SendError<M, Self::Error>>;
 
     /// Converts the reply into a `Box<fmt::Debug + Send + Sync + 'static>` if it's an Err, otherwise `None`.
     fn into_boxed_err(self) -> Option<BoxDebug>;
+
+    /// Sends the reply to the oneshot channel.
+    ///
+    /// It may be useful to overwrite this function in cases such as a reply is sent after awaiting a future,
+    /// or deligating the reply to another location.
+    fn reply(
+        self,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> Result<(), BoxDebug>
+    where
+        Self: Send + Sized + 'static,
+    {
+        match tx {
+            Some(tx) => {
+                let _ = tx.send(Ok(Box::new(self) as BoxReply));
+                Ok(())
+            }
+            None => match self.into_boxed_err() {
+                Some(err) => Err(err),
+                None => Ok(()),
+            },
+        }
+    }
+}
+
+/// A future returned by an actor.
+///
+/// The value returned by [ActorRef::send] will be the value returned by the future `R`.
+///
+/// If the message was called with [ActorRef::send_async] or [ActorRef::send_after] and the future resolves to an error,
+/// it will be signalled to the actor internally where [Actor::on_panic](crate::Actor::on_panic) will be called,
+/// possibly stopping the actor.
+///
+/// # Example
+///
+/// ```
+/// use std::io;
+/// use kameo::{Actor, Message, ReplyFuture};
+/// use tokio::fs::File;
+///
+/// #[derive(Actor, Default)]
+/// pub struct FileActor {
+///     files_seen: HashSet<PathBuf>,
+/// }
+///
+/// struct OpenFile {
+///     path: PathBuf,
+/// }
+///
+/// impl Message<FileActor> for OpenFile {
+///     type Reply = ReplyFuture<FileActor, io::Result<File>>;
+///
+///     async fn handle(state: &mut FileActor, msg: OpenFile) -> Self::Reply {
+///         state.files_seen.insert(msg.path.clone());
+///         
+///         ReplyFuture::new(state.actor_ref(), async move {
+///             File::open(msg.path).await
+///         })
+///     }
+/// }
+///
+/// let file_actor = FileActor::default();
+/// let file = file_actor.send(OpenFile { path: "./foo.txt".into() }).await?;
+/// // We have access to the file... and `FileActor` never blocked while opening it!
+/// ```
+#[allow(missing_debug_implementations)]
+pub struct ReplyFuture<A, R> {
+    actor_ref: ActorRef<A>,
+    fut: BoxFuture<'static, R>,
+    finally: Option<Box<dyn for<'a> FnOnce(&'a mut A, &'a R) -> BoxFuture<'a, ()> + Send>>,
+}
+
+impl<A, R> ReplyFuture<A, R> {
+    /// Constructs a new future to be returned as a reply by an actor.
+    pub fn new<F>(actor_ref: ActorRef<A>, fut: F) -> Self
+    where
+        F: Future<Output = R> + Send + 'static,
+    {
+        ReplyFuture {
+            actor_ref,
+            fut: fut.boxed(),
+            finally: None,
+        }
+    }
+
+    pub fn then(
+        mut self,
+        f: impl for<'a> FnOnce(&'a mut A, &'a R) -> BoxFuture<'a, ()> + Send + 'static,
+    ) -> Self {
+        self.finally = Some(Box::new(f));
+        self
+    }
+}
+
+impl<A, R> Reply for ReplyFuture<A, R>
+where
+    A: Send,
+    R: Reply<Return = R>,
+    R::Ok: Send,
+    R::Error: Send,
+{
+    type Ok = R::Ok;
+    type Error = R::Error;
+    type Return = R::Return;
+
+    fn to_send_error<M>(ret: Self::Return) -> Result<Self::Ok, SendError<M, Self::Error>> {
+        R::to_send_error(ret)
+    }
+
+    fn into_boxed_err(self) -> Option<BoxDebug> {
+        None
+    }
+
+    fn reply(
+        self,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> Result<(), BoxDebug>
+    where
+        Self: Send + Sized + 'static,
+    {
+        tokio::spawn(async move {
+            let reply = self.fut.await;
+            match tx {
+                Some(tx) => {
+                    let res = R::to_send_error::<Box<dyn any::Any + Send>>(reply)
+                        .map(|val| Box::new(val) as BoxReply)
+                        .map_err(SendError::boxed);
+                    let _ = tx.send(res);
+                }
+                None => {
+                    if let Some(err) = reply.into_boxed_err() {
+                        let _ = self.actor_ref.send_async(ReplyFutureFailed { err });
+                    }
+                }
+            }
+        });
+
+        Ok(())
+    }
+}
+
+/// Forwards the error to the actor to be handled in an async way.
+///
+/// By default, this causes the actor to panic and stop.
+struct ReplyFutureFinished<R> {
+    res: R,
+}
+
+impl<A, R> Message<A> for ReplyFutureFinished<A, R>
+where
+    A: Send,
+    R: Reply + Send,
+    R::Error: fmt::Debug + Send + 'static,
+{
+    type Reply = Result<(), BoxDebug>;
+
+    async fn handle(
+        state: &mut A,
+        ReplyFutureFinished { res, cb }: ReplyFutureFinished<A, R>,
+    ) -> Self::Reply {
+        if let Some(cb) = cb {
+            cb(state, &res).await;
+        }
+        match res.into_boxed_err() {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
 }
 
 impl<T, E> Reply for Result<T, E>
 where
-    E: fmt::Debug + Send + Sync + 'static,
+    E: fmt::Debug + Send + 'static,
 {
     type Ok = T;
     type Error = E;
+    type Return = Self;
 
-    fn to_send_error<M>(self) -> Result<T, SendError<M, E>> {
-        self.map_err(SendError::HandlerError)
+    fn to_send_error<M>(ret: Self::Return) -> Result<T, SendError<M, E>> {
+        ret.map_err(SendError::HandlerError)
     }
 
     fn into_boxed_err(self) -> Option<BoxDebug> {
@@ -115,9 +293,10 @@ macro_rules! impl_infallible_reply {
         impl $( < $($generics)* > )? Reply for $ty {
             type Ok = Self;
             type Error = ();
+            type Return = Self;
 
-            fn to_send_error<Msg>(self) -> Result<Self, SendError<Msg, ()>> {
-                Ok(self)
+            fn to_send_error<Msg>(ret: Self::Return) -> Result<Self, SendError<Msg, ()>> {
+                Ok(ret)
             }
 
             fn into_boxed_err(self) -> Option<BoxDebug> {
@@ -233,10 +412,11 @@ impl_infallible_reply!([
 ]);
 
 pub(crate) trait DynMessage<A>: Send {
-    fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxFuture<'_, BoxReply>
-    where
-        A: Send;
-    fn handle_dyn_async(self: Box<Self>, state: &mut A) -> BoxFuture<'_, Option<BoxDebug>>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &mut A,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Result<(), BoxDebug>>
     where
         A: Send;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -246,18 +426,19 @@ impl<A, M> DynMessage<A> for M
 where
     M: Message<A>,
 {
-    fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxFuture<'_, BoxReply>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &mut A,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Result<(), BoxDebug>>
     where
         A: Send,
     {
-        async move { Box::new(Message::handle(state, *self).await) as BoxReply }.boxed()
-    }
-
-    fn handle_dyn_async(self: Box<Self>, state: &mut A) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send,
-    {
-        async move { Message::handle(state, *self).await.into_boxed_err() }.boxed()
+        async move {
+            let reply = Message::handle(state, *self).await;
+            reply.reply(tx)
+        }
+        .boxed()
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
@@ -266,10 +447,11 @@ where
 }
 
 pub(crate) trait DynQuery<A>: Send {
-    fn handle_dyn(self: Box<Self>, state: &A) -> BoxFuture<'_, BoxReply>
-    where
-        A: Send + Sync;
-    fn handle_dyn_async(self: Box<Self>, state: &A) -> BoxFuture<'_, Option<BoxDebug>>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &A,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Result<(), BoxDebug>>
     where
         A: Send + Sync;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -279,18 +461,19 @@ impl<A, M> DynQuery<A> for M
 where
     M: Query<A>,
 {
-    fn handle_dyn(self: Box<Self>, state: &A) -> BoxFuture<'_, BoxReply>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &A,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Result<(), BoxDebug>>
     where
         A: Send + Sync,
     {
-        async move { Box::new(Query::handle(state, *self).await) as BoxReply }.boxed()
-    }
-
-    fn handle_dyn_async(self: Box<Self>, state: &A) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send + Sync,
-    {
-        async move { Query::handle(state, *self).await.into_boxed_err() }.boxed()
+        async move {
+            let reply = Query::handle(state, *self).await;
+            reply.reply(tx)
+        }
+        .boxed()
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {

@@ -1,4 +1,7 @@
-use kameo::{Actor, Message, Query};
+use std::time::Duration;
+
+use futures::future::BoxFuture;
+use kameo::{Actor, Message, Query, Reply, ReplyFuture};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -24,6 +27,22 @@ impl Message<MyActor> for Inc {
     async fn handle(state: &mut MyActor, msg: Inc) -> Self::Reply {
         state.count += msg.amount as i64;
         state.count
+    }
+}
+
+// A simple increment message, returning the new count
+pub struct DelayedReply;
+
+impl Message<MyActor> for DelayedReply {
+    type Reply = ReplyFuture<MyActor, Result<String, String>>;
+
+    async fn handle(state: &mut MyActor, _msg: DelayedReply) -> Self::Reply {
+        ReplyFuture::new(state.actor_ref(), async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            println!("done sleeping");
+            Ok("Hello!".to_string())
+            // Err("Nope!".to_string())
+        })
     }
 }
 
@@ -59,6 +78,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let my_actor_ref = kameo::spawn(MyActor::default());
 
+    let res = my_actor_ref.send(DelayedReply).await?;
+    // info!("{res}");
+
     // Increment the count by 3
     let count = my_actor_ref.send(Inc { amount: 3 }).await?;
     info!("Count is {count}");
@@ -71,10 +93,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Count is {count}");
 
     // Async messages that return an Err will cause the actor to panic
-    my_actor_ref.send_async(ForceErr)?;
+    // my_actor_ref.send_async(ForceErr)?;
 
     // Actor should be stopped, so we cannot send more messages to it
-    assert!(my_actor_ref.send(Inc { amount: 2 }).await.is_err());
+    // assert!(my_actor_ref.send(Inc { amount: 2 }).await.is_err());
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     Ok(())
 }

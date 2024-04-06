@@ -17,7 +17,7 @@ use tokio::{
 };
 
 use crate::{
-    error::{ActorStopReason, SendError},
+    error::{ActorStopReason, BoxSendError, SendError},
     message::{BoxReply, DynMessage, DynQuery, Message, Query, Reply},
 };
 
@@ -132,8 +132,13 @@ impl<A> ActorRef<A> {
             message: Box::new(msg),
             reply: Some(reply),
         })?;
-        let res: M::Reply = *rx.await?.downcast().unwrap();
-        res.to_send_error::<M>()
+        match rx.await? {
+            Ok(val) => {
+                let reply: <M::Reply as Reply>::Return = *val.downcast().unwrap();
+                M::Reply::to_send_error(reply)
+            }
+            Err(err) => Err(err.downcast::<M, <M::Reply as Reply>::Error>()),
+        }
     }
 
     /// Sends a message to the actor asyncronously without waiting for a reply.
@@ -184,20 +189,12 @@ impl<A> ActorRef<A> {
             query: Box::new(msg),
             reply: Some(reply),
         })?;
-        match rx.await {
-            Ok(Ok(val)) => {
-                let reply: M::Reply = *val.downcast().unwrap();
-                reply.to_send_error()
+        match rx.await? {
+            Ok(val) => {
+                let reply: <M::Reply as Reply>::Return = *val.downcast().unwrap();
+                M::Reply::to_send_error(reply)
             }
-            Ok(Err(SendError::HandlerError(err))) => {
-                Err(SendError::HandlerError(*err.downcast().unwrap()))
-            }
-            Ok(Err(SendError::ActorNotRunning(err))) => {
-                Err(SendError::ActorNotRunning(*err.downcast().unwrap()))
-            }
-            Ok(Err(SendError::ActorStopped)) => Err(SendError::QueriesNotSupported),
-            Ok(Err(SendError::QueriesNotSupported)) => Err(SendError::QueriesNotSupported),
-            Err(err) => Err(err.into()),
+            Err(err) => Err(err.downcast::<M, <M::Reply as Reply>::Error>()),
         }
     }
 
@@ -320,15 +317,11 @@ impl<A> SignalMailbox for Mailbox<A> {
 pub(crate) enum Signal<A> {
     Message {
         message: Box<dyn DynMessage<A>>,
-        reply: Option<oneshot::Sender<BoxReply>>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     },
     Query {
         query: Box<dyn DynQuery<A>>,
-        reply: Option<
-            oneshot::Sender<
-                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
-            >,
-        >,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     },
     LinkDied {
         id: u64,

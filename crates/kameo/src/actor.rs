@@ -5,7 +5,6 @@ use futures::Future;
 use crate::{
     actor_ref::ActorRef,
     error::{ActorStopReason, BoxError, PanicError},
-    message::{Message, Reply},
 };
 
 /// Functionality for an actor including lifecycle hooks.
@@ -146,17 +145,19 @@ pub trait Actor: Sized {
     }
 }
 
-impl<M, R> Actor for fn(M) -> R {}
+// struct StatelessActor<M, R>(fn(M) -> R);
 
-impl<M, Fu, R> Message<fn(M) -> Fu> for M
-where
-    M: Send + 'static,
-    Fu: Future<Output = R> + Send + 'static,
-    R: Reply + Send + 'static,
-{
-    type Reply = R;
+// impl<M, R> Actor for StatelessActor<M, R> {}
 
-    async fn handle(state: &mut fn(M) -> Fu, msg: M) -> Self::Reply {
-        state(msg).await
-    }
-}
+// impl<M, Fu, R> Message<StatelessActor<M, R>> for M
+// where
+//     M: Send + 'static,
+//     Fu: Future<Output = R> + Send + 'static,
+//     R: Reply + Send + 'static,
+// {
+//     type Reply = R;
+
+//     async fn handle(state: &mut fn(M) -> Fu, msg: M) -> Self::Reply {
+//         state(msg).await
+//     }
+// }
