@@ -19,13 +19,21 @@ impl ToTokens for DeriveReply {
             impl #impl_generics ::kameo::Reply for #ident #ty_generics #where_clause {
                 type Ok = Self;
                 type Error = ();
+                type Value = Self;
 
-                fn to_send_error<Msg>(self) -> ::std::result::Result<Self, ::kameo::SendError<Msg, ()>> {
+                #[inline]
+                fn to_result(self) -> ::std::result::Result<Self, ::kameo::SendError<Msg, ()>> {
                     ::std::result::Result::Ok(self)
                 }
 
+                #[inline]
                 fn into_boxed_err(self) -> ::std::option::Option<::std::boxed::Box<dyn ::std::fmt::Debug + ::std::marker::Send + ::std::marker::Sync + 'static>> {
                     ::std::option::Option::None
+                }
+
+                #[inline]
+                fn into_value(self) -> Self::Value {
+                    self
                 }
             }
         });

@@ -4,10 +4,10 @@ use futures::future::join_all;
 use tracing::warn;
 
 use crate::{
-    actor::Actor,
-    actor_ref::ActorRef,
+    actor::{Actor, ActorRef},
     error::SendError,
-    message::{Message, Reply},
+    message::Message,
+    reply::Reply,
 };
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.

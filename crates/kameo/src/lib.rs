@@ -97,18 +97,20 @@
 #![warn(missing_debug_implementations)]
 #![deny(unused_must_use)]
 
-mod actor;
+pub mod actor;
 mod actor_kind;
-mod actor_ref;
-mod error;
-mod message;
-mod pool;
-mod spawn;
+pub mod error;
+pub mod message;
+pub mod pool;
+pub mod reply;
+pub mod spawn;
 
-pub use actor::Actor;
-pub use actor_ref::ActorRef;
-pub use error::{ActorStopReason, BoxError, PanicError, SendError};
-pub use kameo_macros::{actor, Actor, Reply};
-pub use message::{Message, Query, Reply};
-pub use pool::ActorPool;
-pub use spawn::{spawn, spawn_stateless, spawn_unsync};
+// pub use actor::Actor;
+// pub use actor_ref::ActorRef;
+// pub use context::{Context, DelegatedReply, ReplySender};
+// pub use error::{ActorStopReason, BoxError, PanicError, SendError};
+// pub use kameo_macros::{actor, Actor, Reply};
+// pub use message::{Context, Message, Query};
+// pub use pool::ActorPool;
+// pub use reply::{Reply, ReplySender};
+pub use spawn::spawn;
