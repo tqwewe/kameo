@@ -1,4 +1,4 @@
-use kameo::spawn_stateless;
+use kameo::actor::spawn_stateless;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

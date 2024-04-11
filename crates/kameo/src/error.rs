@@ -1,15 +1,23 @@
+//! Defines error handling constructs for kameo.
+//!
+//! This module centralizes error types used throughout kameo, encapsulating common failure scenarios encountered
+//! in actor lifecycle management, message passing, and actor interaction. It simplifies error handling by providing
+//! a consistent set of errors that can occur in the operation of actors and their communications.
+
 use std::{
-    any::Any,
+    any::{self, Any},
     error, fmt,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{actor_ref::Signal, message::BoxDebug};
+use crate::{actor::Signal, message::BoxDebug};
 
 /// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
+/// A dyn boxed send error.
+pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
 
 /// Error that can occur when sending a message to an actor.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -31,6 +39,36 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::HandlerError(_) => SendError::HandlerError(()),
+            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
+        }
+    }
+
+    /// Converts the inner error types to `Box<dyn Any + Send>`.
+    pub fn boxed(self) -> BoxSendError
+    where
+        M: Send + 'static,
+        E: Send + 'static,
+    {
+        match self {
+            SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
+            SendError::ActorNotRunning(err) => SendError::ActorNotRunning(Box::new(err)),
+            SendError::ActorStopped => SendError::QueriesNotSupported,
+            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
+        }
+    }
+}
+
+impl BoxSendError {
+    /// Downcasts the inner error types to a concrete type.
+    pub fn downcast<M, E>(self) -> SendError<M, E>
+    where
+        M: 'static,
+        E: 'static,
+    {
+        match self {
+            SendError::HandlerError(err) => SendError::HandlerError(*err.downcast().unwrap()),
+            SendError::ActorNotRunning(err) => SendError::ActorNotRunning(*err.downcast().unwrap()),
+            SendError::ActorStopped => SendError::QueriesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -158,7 +196,7 @@ impl PanicError {
             any.downcast_ref::<&'static str>()
                 .copied()
                 .or_else(|| any.downcast_ref::<String>().map(String::as_str))
-                .map(|s| f(s))
+                .map(f)
         })
     }
 

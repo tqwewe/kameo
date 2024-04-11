@@ -1,4 +1,7 @@
-use kameo::{Actor, Message, Query};
+use kameo::{
+    message::{Context, Message, Query},
+    Actor,
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -21,7 +24,7 @@ pub struct Inc {
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc) -> Self::Reply {
+    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.count += msg.amount as i64;
         self.count
     }
@@ -33,7 +36,11 @@ pub struct ForceErr;
 impl Message<ForceErr> for MyActor {
     type Reply = Result<(), i32>;
 
-    async fn handle(&mut self, _msg: ForceErr) -> Self::Reply {
+    async fn handle(
+        &mut self,
+        _msg: ForceErr,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
         Err(3)
     }
 }
@@ -44,7 +51,7 @@ pub struct Count;
 impl Query<Count> for MyActor {
     type Reply = i64;
 
-    async fn handle(&self, _msg: Count) -> Self::Reply {
+    async fn handle(&self, _msg: Count, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.count
     }
 }

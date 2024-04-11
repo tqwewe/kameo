@@ -35,6 +35,9 @@ kameo = "*"
 ### Defining an Actor without Macros
 
 ```rust
+use kameo::Actor;
+use kameo::message::{Context, Message};
+
 // Define the actor state
 struct Counter {
     count: i64,
@@ -48,7 +51,7 @@ struct Inc { amount: u32 }
 impl Message<Inc> for Counter {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Counter) -> Self::Reply {
+    async fn handle(&mut self, msg: Counter, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.count += msg.0 as i64;
         self.count
     }
@@ -58,6 +61,8 @@ impl Message<Inc> for Counter {
 ### Defining an Actor with Macros
 
 ```rust
+use kameo::{messages, Actor};
+
 // Define the actor state
 #[derive(Actor)]
 struct Counter {
@@ -65,7 +70,7 @@ struct Counter {
 }
 
 // Define messages
-#[actor]
+#[messages]
 impl Counter {
     #[message]
     fn inc(&mut self, amount: u32) -> i64 {
@@ -80,7 +85,7 @@ impl Counter {
 
 ```rust
 // Derive Actor
-impl kameo::Actor for Counter {
+impl kameo::actor::Actor for Counter {
     fn name(&self) -> Cow<'_, str> {
         Cow::Borrowed("Counter")
     }
@@ -89,20 +94,21 @@ impl kameo::Actor for Counter {
 // Messages
 struct Inc { amount: u32 }
 
-impl kameo::Message<Inc> for Counter {
+impl kameo::message::Message<Inc> for Counter {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: &mut Inc) -> Self::Reply {
+    async fn handle(&mut self, msg: &mut Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.inc(msg.amount)
     }
 }
 ```
+
 </details>
 
 <sup>
 <a href="https://docs.rs/kameo/latest/kameo/derive.Actor.html" target="_blank">Actor</a>
  • 
-<a href="https://docs.rs/kameo/latest/kameo/attr.actor.html" target="_blank">#[actor]</a>
+<a href="https://docs.rs/kameo/latest/kameo/attr.messages.html" target="_blank">#[messages]</a>
 </sup>
 
 ### Spawning an Actor & Messaging
@@ -133,21 +139,21 @@ Always benchmark for yourself.
 Sending a message to an actor
 
 | Benchmark            | Time      |
-|----------------------|-----------|
+| -------------------- | --------- |
 | Kameo Unsync Message | 432.26 ns |
 | Kameo Sync Message   | 503.89 ns |
 | Kameo Query          | 1.3000 µs |
 | Actix Message        | 5.7545 µs |
 
-
 Processing fibonachi sequence in an actor up to 20
 
 | Benchmark            | Time      |
-|----------------------|-----------|
+| -------------------- | --------- |
 | Kameo Unsync Message | 18.229 µs |
 | Kameo Sync Message   | 18.501 µs |
 | Kameo Query          | 19.257 µs |
 | Actix Message        | 27.442 µs |
+
 </details>
 
 ## Contributing

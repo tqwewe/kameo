@@ -15,13 +15,19 @@ kameo_macros = { version = "0.5.0", path = "../kameo_macros" }
 dyn-clone = "1.0"
 futures = "0.3"
 num_cpus = "1.0"
-tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1.37", features = ["macros", "rt", "sync", "time"] }
 tracing = "0.1"
 trait-variant = "0.1"
 
 [dev-dependencies]
-criterion = { version = "0.4", features = ["async_tokio"] }
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
+tokio = { version = "1", features = [
+  "macros",
+  "rt",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[bench]]

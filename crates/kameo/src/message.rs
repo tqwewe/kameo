@@ -1,27 +1,31 @@
-use std::{
-    any,
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    fmt,
-    num::{
-        NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
-        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,
-    },
-    sync::{
-        atomic::{
-            AtomicBool, AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicIsize, AtomicPtr,
-            AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize,
-        },
-        Arc, Mutex, Once, RwLock,
-    },
-    thread::Thread,
-};
+//! Messaging infrastructure for actor communication in kameo.
+//!
+//! This module provides the constructs necessary for handling messages and queries within kameo,
+//! defining how actors communicate and interact. It equips actors with the ability to receive and respond
+//! to both commands that might change their internal state and requests for information which do not alter their state.
+//!
+//! A key component of this module is the [`Context`], which is passed to message and query handlers, offering them a
+//! reference to the current actor and a way to reply to messages. This enables actors to perform a wide range of
+//! actions in response to received messages, from altering their own state to querying other actors.
+//!
+//! The module distinguishes between two kinds of communication: messages, which are intended to modify an actor's
+//! state and might lead to side effects, and queries, which are read-only requests for information from an actor.
+//! This distinction helps in clearly separating commands from queries, aligning with the CQRS
+//! (Command Query Responsibility Segregation) principle and enhancing the clarity and maintainability of actor
+//! interactions. It also provides some performance benefits in that sequential queries can be processed concurrently.
+
+use std::{any, fmt};
 
 use futures::{future::BoxFuture, Future, FutureExt};
+use tokio::sync::oneshot;
 
-use crate::error::SendError;
+use crate::{
+    actor::ActorRef,
+    error::{BoxSendError, SendError},
+    reply::{DelegatedReply, ForwardedReply, Reply, ReplySender},
+};
 
-pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + Sync + 'static>;
+pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 
 /// A message that can modify an actors state.
@@ -34,7 +38,11 @@ pub trait Message<T>: Send + 'static {
     type Reply: Reply + Send + 'static;
 
     /// Handler for this message.
-    fn handle(&mut self, msg: T) -> impl Future<Output = Self::Reply> + Send;
+    fn handle(
+        &mut self,
+        msg: T,
+        ctx: Context<'_, Self, Self::Reply>,
+    ) -> impl Future<Output = Self::Reply> + Send;
 }
 
 /// Queries the actor for some data.
@@ -49,194 +57,121 @@ pub trait Query<T>: Send + 'static {
     type Reply: Reply + Send + 'static;
 
     /// Handler for this query.
-    fn handle(&self, query: T) -> impl Future<Output = Self::Reply> + Send;
+    fn handle(
+        &self,
+        query: T,
+        ctx: Context<'_, Self, Self::Reply>,
+    ) -> impl Future<Output = Self::Reply> + Send;
 }
 
-/// A reply value.
-///
-/// If an Err is returned by a hadler, and is unhandled by the caller (ie, the message was sent async),
-/// then the error is treated as a panic in the actor.
-///
-/// This is implemented for all many std lib types, and can be implemented on custom types manually or with the derive
-/// macro.
-pub trait Reply {
-    /// The success type in the reply.
-    type Ok;
-    /// The error type in the reply.
-    type Error;
-
-    /// Converts a reply to a `SendError`, containing the `HandleError` if the reply is an error.
-    fn to_send_error<M>(self) -> Result<Self::Ok, SendError<M, Self::Error>>;
-
-    /// Converts the reply into a `Box<fmt::Debug + Send + Sync + 'static>` if it's an Err, otherwise `None`.
-    fn into_boxed_err(self) -> Option<BoxDebug>;
-}
-
-impl<T, E> Reply for Result<T, E>
+/// A context provided to message and query handlers providing access
+/// to the current actor ref, and reply channel.
+#[derive(Debug)]
+pub struct Context<'r, A: ?Sized, R: ?Sized>
 where
-    E: fmt::Debug + Send + Sync + 'static,
+    R: Reply,
 {
-    type Ok = T;
-    type Error = E;
-
-    fn to_send_error<M>(self) -> Result<T, SendError<M, E>> {
-        self.map_err(SendError::HandlerError)
-    }
-
-    fn into_boxed_err(self) -> Option<BoxDebug> {
-        self.map_err(|err| Box::new(err) as BoxDebug).err()
-    }
+    actor_ref: ActorRef<A>,
+    reply: &'r mut Option<ReplySender<R::Value>>,
 }
 
-macro_rules! impl_infallible_reply {
-    ([
-        $(
-            $( {
-                $( $generics:tt )*
-             } )?
-            $ty:ty
-        ),* $(,)?
-    ]) => {
-        $(
-            impl_infallible_reply!(
-                $( {
-                    $( $generics )*
-                 } )?
-                $ty
-            );
-        )*
-    };
-    (
-        $( {
-            $( $generics:tt )*
-         } )?
-        $ty:ty
-    ) => {
-        impl $( < $($generics)* > )? Reply for $ty {
-            type Ok = Self;
-            type Error = ();
+impl<'r, A, R> Context<'r, A, R>
+where
+    R: Reply,
+{
+    pub(crate) fn new(
+        actor_ref: ActorRef<A>,
+        reply: &'r mut Option<ReplySender<R::Value>>,
+    ) -> Self {
+        Context { actor_ref, reply }
+    }
 
-            fn to_send_error<Msg>(self) -> Result<Self, SendError<Msg, ()>> {
-                Ok(self)
-            }
+    /// Returns the current actor's ref, allowing messages to be sent to itself.
+    pub fn actor_ref(&self) -> ActorRef<A> {
+        self.actor_ref.clone()
+    }
 
-            fn into_boxed_err(self) -> Option<BoxDebug> {
-                None
-            }
-        }
-    };
-}
+    /// Extracts the reply sender, providing a mechanism for delegated responses and an optional reply sender.
+    ///
+    /// This method is designed for scenarios where the response to a message is not immediate and needs to be
+    /// handled by another actor or elsewhere. Upon calling this method, if the reply sender exists (is `Some`),
+    /// it must be utilized through [ReplySender::send] to send the response back to the original requester.
+    ///
+    /// This method returns a tuple consisting of [DelegatedReply] and an optional [ReplySender]. The `DelegatedReply`
+    /// is a marker type indicating that the message handler will delegate the task of replying to another part of the
+    /// system. It should be returned by the message handler to signify this intention. The `ReplySender`, if present,
+    /// should be used to actually send the response back to the caller. The `ReplySender` will not be present if the
+    /// message was sent as async (no repsonse is needed by the caller).
+    ///
+    /// # Usage
+    ///
+    /// - The [DelegatedReply] marker should be returned by the handler to indicate that the response will be delegated.
+    /// - The [ReplySender], if not `None`, should be used by the delegated responder to send the actual reply.
+    ///
+    /// ```
+    /// use kameo::message::{Context, DelegatedReply, Message};
+    ///
+    /// impl Message<MyMsg> for MyActor {
+    ///     type Reply = DelegatedReply<String>;
+    ///
+    ///     async fn handle(&mut self, msg: MyMsg, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///         let (delegated_reply, reply_sender) = ctx.reply_sender();
+    ///
+    ///         if let Some(tx) = reply_sender {
+    ///             tokio::spawn(async move {
+    ///                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    ///                 tx.send("done!".to_string());
+    ///             });
+    ///         }
+    ///
+    ///         delegated_reply
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// It is important to ensure that [ReplySender::send] is called to complete the transaction and send the response
+    /// back to the requester. Failure to do so could result in the requester waiting indefinitely for a response.
+    pub fn reply_sender(&mut self) -> (DelegatedReply<R::Value>, Option<ReplySender<R::Value>>) {
+        (DelegatedReply::new(), self.reply.take())
+    }
 
-impl_infallible_reply!([
-    (),
-    usize,
-    u8,
-    u16,
-    u32,
-    u64,
-    u128,
-    isize,
-    i8,
-    i16,
-    i32,
-    i64,
-    i128,
-    f32,
-    f64,
-    char,
-    bool,
-    &'static str,
-    String,
-    {T} Option<T>,
-    {'a, T: Clone} Cow<'a, T>,
-    {T} Arc<T>,
-    {T} Mutex<T>,
-    {T} RwLock<T>,
-    {'a, const N: usize, T} &'a [T; N],
-    {const N: usize, T} [T; N],
-    {'a, T} &'a [T],
-    {'a, T} &'a mut T,
-    {T} Vec<T>,
-    {T} Box<T>,
-    {K, V} HashMap<K, V>,
-    {T} HashSet<T>,
-    NonZeroI8,
-    NonZeroI16,
-    NonZeroI32,
-    NonZeroI64,
-    NonZeroI128,
-    NonZeroIsize,
-    NonZeroU8,
-    NonZeroU16,
-    NonZeroU32,
-    NonZeroU64,
-    NonZeroU128,
-    NonZeroUsize,
-    AtomicBool,
-    AtomicI8,
-    AtomicI16,
-    AtomicI32,
-    AtomicI64,
-    AtomicIsize,
-    {T} AtomicPtr<T>,
-    AtomicU8,
-    AtomicU16,
-    AtomicU32,
-    AtomicU64,
-    AtomicUsize,
-    Once,
-    Thread,
-    {T} std::cell::OnceCell<T>,
-    {T} std::sync::mpsc::Sender<T>,
-    {T} std::sync::mpsc::Receiver<T>,
-    {T} tokio::sync::OnceCell<T>,
-    tokio::sync::Semaphore,
-    tokio::sync::Notify,
-    {T} tokio::sync::mpsc::Sender<T>,
-    {T} tokio::sync::mpsc::Receiver<T>,
-    {T} tokio::sync::mpsc::UnboundedSender<T>,
-    {T} tokio::sync::mpsc::UnboundedReceiver<T>,
-    {T} tokio::sync::watch::Sender<T>,
-    {T} tokio::sync::watch::Receiver<T>,
-    {T} tokio::sync::broadcast::Sender<T>,
-    {T} tokio::sync::broadcast::Receiver<T>,
-    {T} tokio::sync::oneshot::Sender<T>,
-    {T} tokio::sync::oneshot::Receiver<T>,
-    {T} tokio::sync::Mutex<T>,
-    {T} tokio::sync::RwLock<T>,
-    {A} (A,),
-    {A, B} (A, B),
-    {A, B, C} (A, B, C),
-    {A, B, C, D} (A, B, C, D),
-    {A, B, C, D, E} (A, B, C, D, E),
-    {A, B, C, D, E, F} (A, B, C, D, E, F),
-    {A, B, C, D, E, F, G} (A, B, C, D, E, F, G),
-    {A, B, C, D, E, F, G, H} (A, B, C, D, E, F, G, H),
-    {A, B, C, D, E, F, G, H, I} (A, B, C, D, E, F, G, H, I),
-    {A, B, C, D, E, F, G, H, I, J} (A, B, C, D, E, F, G, H, I, J),
-    {A, B, C, D, E, F, G, H, I, J, K} (A, B, C, D, E, F, G, H, I, J, K),
-    {A, B, C, D, E, F, G, H, I, J, K, L} (A, B, C, D, E, F, G, H, I, J, K, L),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M} (A, B, C, D, E, F, G, H, I, J, K, L, M),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N} (A, B, C, D, E, F, G, H, I, J, K, L, M, N),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y),
-    {A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z),
-]);
-
-pub(crate) trait DynMessage<A>: Send {
-    fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxFuture<'_, BoxReply>
+    /// Forwards the message to another actor, returning a [ForwardedReply].
+    ///
+    /// The message will be sent handled by another actor without blocking the current actor.
+    pub fn forward<B, M, R2, E>(
+        &mut self,
+        actor_ref: ActorRef<B>,
+        message: M,
+    ) -> ForwardedReply<R::Ok, M, E>
     where
-        A: Send;
-    fn handle_dyn_async(self: Box<Self>, state: &mut A) -> BoxFuture<'_, Option<BoxDebug>>
+        B: Message<M, Reply = R2>,
+        M: Send + Sync + 'static,
+        R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
+        R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
+        E: fmt::Debug + Send + Sync + 'static,
+    {
+        let (delegated_reply, reply_sender) = self.reply_sender();
+        tokio::spawn(async move {
+            let reply = actor_ref.send(message).await;
+            if let Some(reply_sender) = reply_sender {
+                reply_sender.send(reply);
+            }
+        });
+
+        delegated_reply
+    }
+}
+
+pub(crate) trait DynMessage<A>
+where
+    Self: Send,
+{
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &mut A,
+        actor_ref: ActorRef<A>,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Option<BoxDebug>>
     where
         A: Send;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -247,18 +182,28 @@ where
     A: Message<T>,
     T: Send + 'static,
 {
-    fn handle_dyn(self: Box<Self>, state: &mut A) -> BoxFuture<'_, BoxReply>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &mut A,
+        actor_ref: ActorRef<A>,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Option<BoxDebug>>
     where
         A: Send,
     {
-        async move { Box::new(state.handle(*self).await) as BoxReply }.boxed()
-    }
-
-    fn handle_dyn_async(self: Box<Self>, state: &mut A) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send,
-    {
-        async move { state.handle(*self).await.into_boxed_err() }.boxed()
+        async move {
+            let mut reply_sender = tx.map(ReplySender::new);
+            let ctx: Context<'_, A, <A as Message<T>>::Reply> =
+                Context::new(actor_ref, &mut reply_sender);
+            let reply = Message::handle(state, *self, ctx).await;
+            if let Some(tx) = reply_sender.take() {
+                tx.send(reply.into_value());
+                None
+            } else {
+                reply.into_boxed_err()
+            }
+        }
+        .boxed()
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
@@ -267,10 +212,12 @@ where
 }
 
 pub(crate) trait DynQuery<A>: Send {
-    fn handle_dyn(self: Box<Self>, state: &A) -> BoxFuture<'_, BoxReply>
-    where
-        A: Send + Sync;
-    fn handle_dyn_async(self: Box<Self>, state: &A) -> BoxFuture<'_, Option<BoxDebug>>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &A,
+        actor_ref: ActorRef<A>,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Option<BoxDebug>>
     where
         A: Send + Sync;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -281,18 +228,28 @@ where
     A: Query<T>,
     T: Send + 'static,
 {
-    fn handle_dyn(self: Box<Self>, state: &A) -> BoxFuture<'_, BoxReply>
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &A,
+        actor_ref: ActorRef<A>,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'_, Option<BoxDebug>>
     where
         A: Send + Sync,
     {
-        async move { Box::new(state.handle(*self).await) as BoxReply }.boxed()
-    }
-
-    fn handle_dyn_async(self: Box<Self>, state: &A) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send + Sync,
-    {
-        async move { state.handle(*self).await.into_boxed_err() }.boxed()
+        async move {
+            let mut reply_sender = tx.map(ReplySender::new);
+            let ctx: Context<'_, A, <A as Query<T>>::Reply> =
+                Context::new(actor_ref, &mut reply_sender);
+            let reply = Query::handle(state, *self, ctx).await;
+            if let Some(tx) = reply_sender.take() {
+                tx.send(reply.into_value());
+                None
+            } else {
+                reply.into_boxed_err()
+            }
+        }
+        .boxed()
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {

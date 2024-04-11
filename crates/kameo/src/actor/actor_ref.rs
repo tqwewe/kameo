@@ -1,5 +1,4 @@
 use std::{
-    any,
     collections::HashMap,
     fmt,
     sync::{
@@ -17,20 +16,22 @@ use tokio::{
 };
 
 use crate::{
-    error::{ActorStopReason, SendError},
-    message::{BoxReply, DynMessage, DynQuery, Message, Query, Reply},
+    error::{ActorStopReason, BoxSendError, SendError},
+    message::{BoxReply, DynMessage, DynQuery, Message, Query},
+    reply::Reply,
 };
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 tokio::task_local! {
-    pub(crate) static CURRENT_ACTOR_REF: Box<dyn any::Any + Send>;
+    pub(crate) static CURRENT_ACTOR_ID: u64;
 }
 
 type Mailbox<A> = mpsc::UnboundedSender<Signal<A>>;
+type WeakMailbox<A> = mpsc::WeakUnboundedSender<Signal<A>>;
 pub(crate) type Links = Arc<Mutex<HashMap<u64, Box<dyn SignalMailbox>>>>;
 
 /// A reference to an actor for sending messages/queries and managing the actor.
-pub struct ActorRef<A> {
+pub struct ActorRef<A: ?Sized> {
     id: u64,
     mailbox: Mailbox<A>,
     abort_handle: AbortHandle,
@@ -57,15 +58,28 @@ impl<A> ActorRef<A> {
         self.mailbox.is_closed()
     }
 
-    /// Returns the current actor ref if called within an actor.
-    pub fn current() -> Option<ActorRef<A>>
-    where
-        A: 'static,
-    {
-        CURRENT_ACTOR_REF
-            .try_with(|actor_ref| actor_ref.downcast_ref().cloned())
-            .ok()
-            .flatten()
+    /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
+    /// towards RAII semantics, i.e. if all `ActorRef` instances of the
+    /// actor were dropped and only `WeakActorRef` instances remain,
+    /// the actor is stopped.
+    #[must_use = "Downgrade creates a WeakActorRef without destroying the original non-weak actor ref."]
+    pub fn downgrade(&self) -> WeakActorRef<A> {
+        WeakActorRef {
+            id: self.id,
+            mailbox: self.mailbox.downgrade(),
+            abort_handle: self.abort_handle.clone(),
+            links: self.links.clone(),
+        }
+    }
+
+    /// Returns the number of [`ActorRef`] handles.
+    pub fn strong_count(&self) -> usize {
+        self.mailbox.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`] handles.
+    pub fn weak_count(&self) -> usize {
+        self.mailbox.weak_count()
     }
 
     /// Signals the actor to stop after processing all messages currently in its mailbox.
@@ -100,7 +114,7 @@ impl<A> ActorRef<A> {
     /// complete its final tasks before proceeding.
     ///
     /// Note: This method does not initiate the stop process; it only waits for the actor to
-    /// stop. You should signal the actor to stop using `stop_gracefully` or `kill`
+    /// stop. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
     /// before calling this method.
     ///
     /// # Examples
@@ -123,17 +137,20 @@ impl<A> ActorRef<A> {
         M: Send + 'static,
     {
         debug_assert!(
-            Self::current().map(|actor_ref| actor_ref.id() != self.id()).unwrap_or(true),
+            CURRENT_ACTOR_ID.try_with(Clone::clone).map(|current_actor_id| current_actor_id != self.id()).unwrap_or(true),
             "actors cannot send messages syncronously themselves as this would deadlock - use send_async instead\nthis assertion only occurs on debug builds, release builds will deadlock",
         );
 
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Message {
             message: Box::new(msg),
+            actor_ref: self.clone(),
             reply: Some(reply),
         })?;
-        let res: A::Reply = *rx.await?.downcast().unwrap();
-        res.to_send_error::<M>()
+        match rx.await? {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
+        }
     }
 
     /// Sends a message to the actor asyncronously without waiting for a reply.
@@ -146,6 +163,7 @@ impl<A> ActorRef<A> {
     {
         Ok(self.mailbox.send(Signal::Message {
             message: Box::new(msg),
+            actor_ref: self.clone(),
             reply: None,
         })?)
     }
@@ -171,8 +189,8 @@ impl<A> ActorRef<A> {
     ///
     /// Queries can run in parallel if executed in sequence.
     ///
-    /// If the actor was spawned as `!Sync` with `Spawn::spawn_unsync`, then queries will not be supported
-    /// and any query will return `Err(SendError::QueriesNotSupported)`.
+    /// If the actor was spawned as `!Sync` with [spawn_unsync](crate::actor::spawn_unsync),
+    /// then queries will not be supported and any query will return an error of [`SendError::QueriesNotSupported`].
     pub async fn query<M>(
         &self,
         msg: M,
@@ -184,22 +202,12 @@ impl<A> ActorRef<A> {
         let (reply, rx) = oneshot::channel();
         self.mailbox.send(Signal::Query {
             query: Box::new(msg),
+            actor_ref: self.clone(),
             reply: Some(reply),
         })?;
-        match rx.await {
-            Ok(Ok(val)) => {
-                let reply: A::Reply = *val.downcast().unwrap();
-                reply.to_send_error()
-            }
-            Ok(Err(SendError::HandlerError(err))) => {
-                Err(SendError::HandlerError(*err.downcast().unwrap()))
-            }
-            Ok(Err(SendError::ActorNotRunning(err))) => {
-                Err(SendError::ActorNotRunning(*err.downcast().unwrap()))
-            }
-            Ok(Err(SendError::ActorStopped)) => Err(SendError::QueriesNotSupported),
-            Ok(Err(SendError::QueriesNotSupported)) => Err(SendError::QueriesNotSupported),
-            Err(err) => Err(err.into()),
+        match rx.await? {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
         }
     }
 
@@ -270,7 +278,7 @@ impl<A> ActorRef<A> {
     }
 }
 
-impl<A> Clone for ActorRef<A> {
+impl<A: ?Sized> Clone for ActorRef<A> {
     fn clone(&self) -> Self {
         ActorRef {
             id: self.id,
@@ -281,9 +289,82 @@ impl<A> Clone for ActorRef<A> {
     }
 }
 
-impl<A> fmt::Debug for ActorRef<A> {
+impl<A: ?Sized> fmt::Debug for ActorRef<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("ActorRef");
+        d.field("id", &self.id);
+        match self.links.try_lock() {
+            Ok(guard) => {
+                d.field("links", &guard.keys());
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                d.field("links", &format_args!("<poisoned>"));
+            }
+            Err(TryLockError::WouldBlock) => {
+                d.field("links", &format_args!("<locked>"));
+            }
+        }
+        d.finish()
+    }
+}
+
+/// A actor ref that does not prevent the actor from being stopped.
+///
+/// If all [`ActorRef`] instances of an actor were dropped and only
+/// `WeakActorRef` instances remain, the actor is stopped.
+///
+/// In order to send messages to an actor, the `WeakActorRef` needs to be upgraded using
+/// [`WeakActorRef::upgrade`], which returns `Option<ActorRef>`. It returns `None`
+/// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
+pub struct WeakActorRef<A: ?Sized> {
+    id: u64,
+    mailbox: WeakMailbox<A>,
+    abort_handle: AbortHandle,
+    links: Links,
+}
+
+impl<A: ?Sized> WeakActorRef<A> {
+    /// Returns the actor identifier.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
+    /// Tries to convert a `WeakActorRef` into a [`ActorRef`]. This will return `Some`
+    /// if there are other `ActorRef` instances alive, otherwise `None` is returned.
+    pub fn upgrade(&self) -> Option<ActorRef<A>> {
+        self.mailbox.upgrade().map(|mailbox| ActorRef {
+            id: self.id,
+            mailbox,
+            abort_handle: self.abort_handle.clone(),
+            links: self.links.clone(),
+        })
+    }
+
+    /// Returns the number of [`ActorRef`] handles.
+    pub fn strong_count(&self) -> usize {
+        self.mailbox.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`] handles.
+    pub fn weak_count(&self) -> usize {
+        self.mailbox.weak_count()
+    }
+}
+
+impl<A: ?Sized> Clone for WeakActorRef<A> {
+    fn clone(&self) -> Self {
+        WeakActorRef {
+            id: self.id,
+            mailbox: self.mailbox.clone(),
+            abort_handle: self.abort_handle.clone(),
+            links: self.links.clone(),
+        }
+    }
+}
+
+impl<A: ?Sized> fmt::Debug for WeakActorRef<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("WeakActorRef");
         d.field("id", &self.id);
         match self.links.try_lock() {
             Ok(guard) => {
@@ -319,18 +400,16 @@ impl<A> SignalMailbox for Mailbox<A> {
     }
 }
 
-pub(crate) enum Signal<A> {
+pub(crate) enum Signal<A: ?Sized> {
     Message {
         message: Box<dyn DynMessage<A>>,
-        reply: Option<oneshot::Sender<BoxReply>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     },
     Query {
         query: Box<dyn DynQuery<A>>,
-        reply: Option<
-            oneshot::Sender<
-                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
-            >,
-        >,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     },
     LinkDied {
         id: u64,
@@ -345,9 +424,14 @@ impl<A> Signal<A> {
         M: 'static,
     {
         match self {
-            Signal::Message { message, reply: _ } => message.as_any().downcast().ok().map(|v| *v),
+            Signal::Message {
+                message,
+                actor_ref: _,
+                reply: _,
+            } => message.as_any().downcast().ok().map(|v| *v),
             Signal::Query {
                 query: message,
+                actor_ref: _,
                 reply: _,
             } => message.as_any().downcast().ok().map(|v| *v),
             _ => None,

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    convert,
+    convert, mem,
     panic::AssertUnwindSafe,
     sync::{Arc, Mutex},
 };
@@ -13,13 +13,12 @@ use tokio::sync::mpsc;
 use tracing::{error, trace};
 
 use crate::{
-    actor::Actor,
+    actor::{Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID},
     actor_kind::{ActorState, SyncActor, UnsyncActor},
-    actor_ref::{ActorRef, Links, Signal, CURRENT_ACTOR_REF},
     error::{ActorStopReason, PanicError},
 };
 
-/// Spawns an actor in a `tokio::task`.
+/// Spawns an actor in a tokio task.
 ///
 /// # Example
 ///
@@ -38,7 +37,7 @@ where
     spawn_inner::<A, SyncActor<A>>(actor)
 }
 
-/// Spawns an `!Sync` actor in a `tokio::task`.
+/// Spawns an `!Sync` actor in a tokio task.
 ///
 /// Unsync actors cannot handle queries, as this would require the actor be to `Sync` since queries are procesed
 /// concurrently.
@@ -47,13 +46,14 @@ where
 ///
 /// ```no_run
 /// use kameo::Actor;
+/// use kameo::actor::spawn_unsync;
 ///
 /// #[derive(Actor, Default)]
 /// struct MyUnsyncActor {
 ///     data: RefCell<()>, // RefCell is !Sync
 /// }
 ///
-/// kameo::spawn_unsync(MyUnsyncActor::default());
+/// spawn_unsync(MyUnsyncActor::default());
 /// ```
 pub fn spawn_unsync<A>(actor: A) -> ActorRef<A>
 where
@@ -62,14 +62,14 @@ where
     spawn_inner::<A, UnsyncActor<A>>(actor)
 }
 
-/// Spawns a stateless anonymous actor in a `tokio::task` using a function which processes messages of a single type.
+/// Spawns a stateless anonymous actor in a tokio task using a function which processes messages of a single type.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use kameo::spawn_stateless;
+/// use kameo::actor::spawn_stateless;
 ///
-/// let actor_ref = kameo::spawn_stateless(|n: i32| async move { n * n });
+/// let actor_ref = spawn_stateless(|n: i32| async move { n * n });
 /// let res = actor_ref.send(10).await?;
 /// assert_eq!(res, 100);
 /// ```
@@ -93,18 +93,20 @@ where
     let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
     let id = actor_ref.id();
 
-    tokio::spawn(
-        CURRENT_ACTOR_REF.scope(Box::new(actor_ref.clone()), async move {
-            run_actor_lifecycle::<A, S>(id, actor, mailbox_rx, abort_registration, links).await
-        }),
-    );
+    tokio::spawn(CURRENT_ACTOR_ID.scope(id, {
+        let actor_ref = actor_ref.clone();
+        async move {
+            run_actor_lifecycle::<A, S>(actor_ref, actor, mailbox_rx, abort_registration, links)
+                .await
+        }
+    }));
 
     actor_ref
 }
 
 #[inline]
 async fn run_actor_lifecycle<A, S>(
-    id: u64,
+    actor_ref: ActorRef<A>,
     mut actor: A,
     mailbox_rx: mpsc::UnboundedReceiver<Signal<A>>,
     abort_registration: AbortRegistration,
@@ -113,23 +115,34 @@ async fn run_actor_lifecycle<A, S>(
     A: Actor,
     S: ActorState<A>,
 {
+    let id = actor_ref.id();
     let name = A::name();
     trace!(%id, %name, "actor started");
 
-    let start_res = AssertUnwindSafe(actor.on_start())
+    let start_res = AssertUnwindSafe(actor.on_start(actor_ref.clone()))
         .catch_unwind()
         .await
-        .map(|res| res.map_err(|err| PanicError::new(err)))
+        .map(|res| res.map_err(PanicError::new))
         .map_err(PanicError::new_boxed)
         .and_then(convert::identity);
+    let actor_ref = {
+        // Downgrade actor ref
+        let weak_actor_ref = actor_ref.downgrade();
+        mem::drop(actor_ref);
+        weak_actor_ref
+    };
+
     if let Err(err) = start_res {
         let reason = ActorStopReason::Panicked(err);
-        actor.on_stop(reason.clone()).await.unwrap();
-        log_actor_stop_reason(id, &name, &reason);
+        actor
+            .on_stop(actor_ref.clone(), reason.clone())
+            .await
+            .unwrap();
+        log_actor_stop_reason(id, name, &reason);
         return;
     }
 
-    let mut state = S::new_from_actor(actor);
+    let mut state = S::new_from_actor(actor, actor_ref.clone());
 
     let reason = Abortable::new(
         abortable_actor_loop(&mut state, mailbox_rx),
@@ -146,8 +159,8 @@ async fn run_actor_lifecycle<A, S>(
         }
     }
 
-    let on_stop_res = actor.on_stop(reason.clone()).await;
-    log_actor_stop_reason(id, &name, &reason);
+    let on_stop_res = actor.on_stop(actor_ref, reason.clone()).await;
+    log_actor_stop_reason(id, name, &reason);
     on_stop_res.unwrap();
 }
 
@@ -182,13 +195,13 @@ where
                 return reason
             }
             signal = mailbox_rx.recv() => match signal {
-                Some(Signal::Message { message, reply }) => {
-                    if let Some(reason) = state.handle_message(message, reply).await {
+                Some(Signal::Message { message, actor_ref, reply }) => {
+                    if let Some(reason) = state.handle_message(message, actor_ref, reply).await {
                         return reason;
                     }
                 }
-                Some(Signal::Query { query, reply }) => {
-                    if let Some(reason) = state.handle_query(query, reply).await {
+                Some(Signal::Query { query, actor_ref, reply }) => {
+                    if let Some(reason) = state.handle_query(query, actor_ref, reply).await {
                         return reason;
                     }
                 }

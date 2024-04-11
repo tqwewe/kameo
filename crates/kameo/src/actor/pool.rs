@@ -4,10 +4,10 @@ use futures::future::join_all;
 use tracing::warn;
 
 use crate::{
-    actor::Actor,
-    actor_ref::ActorRef,
+    actor::{Actor, ActorRef},
     error::SendError,
-    message::{Message, Reply},
+    message::Message,
+    reply::Reply,
 };
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
@@ -19,7 +19,7 @@ use crate::{
 /// that stop due to errors or other reasons, maintaining the pool's resilience and reliability.
 ///
 /// The pool is generic over the type of actors it contains, allowing it to manage any actor
-/// that implements the `Actor` trait. This design provides flexibility in using the pool
+/// that implements the [Actor] trait. This design provides flexibility in using the pool
 /// with different types of actors for various tasks.
 ///
 /// `ActorPool` can handle any message that the worker actors can handle.
@@ -27,7 +27,9 @@ use crate::{
 /// # Examples
 ///
 /// ```no_run
-/// use kameo::{ActorPool, Actor, ActorRef};
+/// use kameo::Actor;
+/// use kameo::actor::{ActorPool, ActorRef};
+/// use kameo::message::Message;
 ///
 /// #[derive(Actor)]
 /// struct MyActor;
@@ -56,7 +58,7 @@ impl<A> ActorPool<A> {
     ///
     /// The `size` parameter determines the fixed number of workers in the pool. The `factory`
     /// function is used to instantiate new worker actors when the pool is initialized or when
-    /// replacing a stopped worker. Each worker is an `ActorRef<A>`, where `A` implements the `Actor` trait.
+    /// replacing a stopped worker. Each worker is an [`ActorRef<A>`], where `A` implements the [Actor] trait.
     ///
     /// # Arguments
     ///
@@ -169,6 +171,11 @@ impl<A> ActorPool<A> {
         }
 
         results
+    }
+
+    /// Gets the [ActorRef] for the next worker in the pool.
+    pub fn get_worker(&mut self) -> ActorRef<A> {
+        self.next_worker().1.clone()
     }
 
     fn next_worker(&mut self) -> (usize, &ActorRef<A>) {

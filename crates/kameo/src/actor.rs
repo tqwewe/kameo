@@ -1,22 +1,54 @@
+//! Actor abstractions and utilities for building concurrent, asynchronous systems.
+//!
+//! This module provides the core abstractions for spawning and managing actors in an
+//! asynchronous, concurrent application. Actors in kameo are independent units of
+//! computation that communicate through message passing, encapsulating state and behavior.
+//!
+//! Central to this module is the [Actor] trait, which defines the lifecycle hooks and
+//! functionalities every actor must implement. These hooks include initialization ([`on_start`](Actor::on_start)),
+//! cleanup ([`on_stop`](Actor::on_stop)), error handling ([`on_panic`](Actor::on_panic)), and managing relationships with other
+//! actors ([`on_link_died`](Actor::on_link_died)). Additionally, the [`name`](Actor::name) method provides a means to identify
+//! actors, facilitating debugging and tracing.
+//!
+//! To interact with and manage actors, this module introduces two key structures:
+//! - [ActorRef]: A strong reference to an actor, containing all necessary information for
+//!   sending messages, stopping the actor, and managing actor links. It serves as the primary
+//!   interface for external interactions with an actor.
+//! - [WeakActorRef]: Similar to `ActorRef`, but does not prevent the actor from being stopped.
+//!
+//! The design of this module emphasizes loose coupling and high cohesion among actors, promoting
+//! a scalable and maintainable architecture. By leveraging asynchronous message passing and
+//! lifecycle management, developers can create complex, responsive systems with high degrees
+//! of concurrency and parallelism.
+
+mod actor_ref;
+mod pool;
+mod spawn;
+
 use std::any;
 
 use futures::Future;
 
 use crate::{
-    actor_ref::ActorRef,
     error::{ActorStopReason, BoxError, PanicError},
-    message::{Message, Reply},
+    message::{Context, Message},
+    reply::Reply,
 };
+
+pub use actor_ref::*;
+pub use pool::*;
+pub use spawn::*;
 
 /// Functionality for an actor including lifecycle hooks.
 ///
-/// Methods in this trait that return `BoxError` will stop the actor with the reason
-/// `ActorReason::Panicked` containing the error.
+/// Methods in this trait that return [`BoxError`] will stop the actor with the reason
+/// [`ActorStopReason::Panicked`] containing the error.
 ///
 /// # Example
 ///
 /// ```
-/// use kameo::{Actor, ActorStopReason, BoxError, PanicError};
+/// use kameo::Actor;
+/// use kameo::error::{ActorStopReason, BoxError, PanicError};
 ///
 /// struct MyActor;
 ///
@@ -28,7 +60,7 @@ use crate::{
 ///
 ///     async fn on_panic(&mut self, err: PanicError) -> Result<Option<ActorStopReason>, BoxError> {
 ///         println!("actor panicked");
-///         Ok(Some(ActorStopReason::Panicked(err))) // Return some to stop the actor
+///         Ok(Some(ActorStopReason::Panicked(err))) // Return `Some` to stop the actor
 ///     }
 ///
 ///     async fn on_stop(&mut self, reason: ActorStopReason) -> Result<(), BoxError> {
@@ -50,41 +82,15 @@ pub trait Actor: Sized {
         num_cpus::get()
     }
 
-    /// Retrieves a reference to the current actor.
-    ///
-    /// # Panics
-    ///
-    /// This function will panic if called outside the scope of an actor.
-    ///
-    /// # Returns
-    /// A reference to the actor of type `Self::Ref`.
-    fn actor_ref(&self) -> ActorRef<Self>
-    where
-        Self: 'static,
-    {
-        match Self::try_actor_ref() {
-            Some(actor_ref) => actor_ref,
-            None => panic!("actor_ref called outside the scope of an actor"),
-        }
-    }
-
-    /// Retrieves a reference to the current actor, if available.
-    ///
-    /// # Returns
-    /// An `Option` containing a reference to the actor of type `Self::Ref` if available,
-    /// or `None` if the actor reference is not available.
-    fn try_actor_ref() -> Option<ActorRef<Self>>
-    where
-        Self: 'static,
-    {
-        ActorRef::current()
-    }
-
     /// Hook that is called before the actor starts processing messages.
     ///
     /// # Returns
     /// A result indicating successful initialization or an error if initialization fails.
-    fn on_start(&mut self) -> impl Future<Output = Result<(), BoxError>> + Send {
+    #[allow(unused_variables)]
+    fn on_start(
+        &mut self,
+        actor_ref: ActorRef<Self>,
+    ) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
     }
 
@@ -98,26 +104,13 @@ pub trait Actor: Sized {
     ///
     /// # Returns
     /// Whether the actor should continue processing, or be stopped by returning a stop reason.
+    #[allow(unused_variables)]
     fn on_panic(
         &mut self,
+        actor_ref: WeakActorRef<Self>,
         err: PanicError,
     ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
         async move { Ok(Some(ActorStopReason::Panicked(err))) }
-    }
-
-    /// Hook that is called before the actor is stopped.
-    ///
-    /// This method allows for cleanup and finalization tasks to be performed before the
-    /// actor is fully stopped. It can be used to release resources, notify other actors,
-    /// or complete any final tasks.
-    ///
-    /// # Parameters
-    /// - `reason`: The reason why the actor is being stopped.
-    fn on_stop(
-        self,
-        _reason: ActorStopReason,
-    ) -> impl Future<Output = Result<(), BoxError>> + Send {
-        async { Ok(()) }
     }
 
     /// Hook that is called when a linked actor dies.
@@ -129,6 +122,7 @@ pub trait Actor: Sized {
     #[allow(unused_variables)]
     fn on_link_died(
         &mut self,
+        actor_ref: WeakActorRef<Self>,
         id: u64,
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
@@ -144,6 +138,23 @@ pub trait Actor: Sized {
             }
         }
     }
+
+    /// Hook that is called before the actor is stopped.
+    ///
+    /// This method allows for cleanup and finalization tasks to be performed before the
+    /// actor is fully stopped. It can be used to release resources, notify other actors,
+    /// or complete any final tasks.
+    ///
+    /// # Parameters
+    /// - `reason`: The reason why the actor is being stopped.
+    #[allow(unused_variables)]
+    fn on_stop(
+        self,
+        actor_ref: WeakActorRef<Self>,
+        reason: ActorStopReason,
+    ) -> impl Future<Output = Result<(), BoxError>> + Send {
+        async { Ok(()) }
+    }
 }
 
 impl<M, R> Actor for fn(M) -> R {}
@@ -156,7 +167,7 @@ where
 {
     type Reply = R;
 
-    async fn handle(&mut self, msg: M) -> Self::Reply {
+    async fn handle(&mut self, msg: M, _ctx: Context<'_, Self, R>) -> Self::Reply {
         self(msg).await
     }
 }

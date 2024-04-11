@@ -1,5 +1,4 @@
 use std::{
-    any,
     panic::{panic_any, AssertUnwindSafe},
     sync::Arc,
 };
@@ -11,28 +10,26 @@ use tokio::{
 };
 
 use crate::{
-    actor::Actor,
-    error::{ActorStopReason, PanicError, SendError},
+    actor::{Actor, ActorRef, WeakActorRef},
+    error::{ActorStopReason, BoxSendError, PanicError, SendError},
     message::{BoxReply, DynMessage, DynQuery},
 };
 
 pub(crate) trait ActorState<A: Actor>: Sized {
-    fn new_from_actor(actor: A) -> Self;
+    fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
 
     fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
-        reply: Option<oneshot::Sender<BoxReply>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
     fn handle_query(
         &mut self,
         query: Box<dyn DynQuery<A>>,
-        reply: Option<
-            oneshot::Sender<
-                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
-            >,
-        >,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
     fn handle_link_died(
@@ -56,6 +53,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 }
 
 pub(crate) struct SyncActor<A> {
+    actor_ref: WeakActorRef<A>,
     state: Arc<RwLock<A>>,
     semaphore: Arc<Semaphore>,
     concurrent_queries: JoinSet<Option<ActorStopReason>>,
@@ -85,8 +83,9 @@ where
     A: Actor + Send + Sync + 'static,
 {
     #[inline]
-    fn new_from_actor(actor: A) -> Self {
+    fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self {
         SyncActor {
+            actor_ref,
             state: Arc::new(RwLock::new(actor)),
             semaphore: Arc::new(Semaphore::new(A::max_concurrent_queries())),
             concurrent_queries: JoinSet::new(),
@@ -97,38 +96,24 @@ where
     async fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
-        reply: Option<oneshot::Sender<BoxReply>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     ) -> Option<ActorStopReason> {
         if let Some(reason) = self.wait_concurrent_queries().await {
             return Some(reason);
         }
 
-        match reply {
-            Some(reply) => {
-                let res =
-                    AssertUnwindSafe(message.handle_dyn(&mut self.state.try_write().unwrap()))
-                        .catch_unwind()
-                        .await;
-                match res {
-                    Ok(res) => {
-                        let _ = reply.send(res);
-                        None
-                    }
-                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))),
-                }
-            }
-            None => {
-                let res = AssertUnwindSafe(
-                    message.handle_dyn_async(&mut self.state.try_write().unwrap()),
-                )
-                .catch_unwind()
-                .await;
-                match res {
-                    Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))),
-                    Ok(None) => None,
-                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))),
-                }
-            }
+        let res = AssertUnwindSafe(message.handle_dyn(
+            &mut self.state.try_write().unwrap(),
+            actor_ref,
+            reply,
+        ))
+        .catch_unwind()
+        .await;
+        match res {
+            Ok(None) => None,
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
         }
     }
 
@@ -136,46 +121,22 @@ where
     async fn handle_query(
         &mut self,
         query: Box<dyn DynQuery<A>>,
-        reply: Option<
-            oneshot::Sender<
-                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
-            >,
-        >,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     ) -> Option<ActorStopReason> {
         let permit = self.semaphore.clone().acquire_owned().await;
         let state = self.state.clone();
         self.concurrent_queries.spawn(async move {
             let _permit = permit;
-            match reply {
-                Some(reply) => {
-                    let res = AssertUnwindSafe(query.handle_dyn(&state.try_read().unwrap()))
-                        .catch_unwind()
-                        .await;
-                    match res {
-                        Ok(res) => {
-                            let _ = reply.send(Ok(res));
-                        }
-                        Err(err) => {
-                            return Some(ActorStopReason::Panicked(PanicError::new_boxed(err)))
-                        }
-                    }
-                }
-                None => {
-                    let res = AssertUnwindSafe(query.handle_dyn_async(&state.try_read().unwrap()))
-                        .catch_unwind()
-                        .await;
-                    match res {
-                        Ok(Some(err)) => {
-                            return Some(ActorStopReason::Panicked(PanicError::new(err)))
-                        }
-                        Ok(None) => {}
-                        Err(err) => {
-                            return Some(ActorStopReason::Panicked(PanicError::new_boxed(err)))
-                        }
-                    }
-                }
+            let res =
+                AssertUnwindSafe(query.handle_dyn(&state.try_write().unwrap(), actor_ref, reply))
+                    .catch_unwind()
+                    .await;
+            match res {
+                Ok(None) => None,
+                Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+                Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
             }
-            None
         });
 
         None
@@ -191,12 +152,11 @@ where
             return Some(reason);
         }
 
-        match AssertUnwindSafe(
-            self.state
-                .try_write()
-                .unwrap()
-                .on_link_died(id, reason.clone()),
-        )
+        match AssertUnwindSafe(self.state.try_write().unwrap().on_link_died(
+            self.actor_ref.clone(),
+            id,
+            reason.clone(),
+        ))
         .catch_unwind()
         .await
         {
@@ -224,7 +184,13 @@ where
             ActorStopReason::Normal => Some(ActorStopReason::Normal),
             ActorStopReason::Killed => Some(ActorStopReason::Killed),
             ActorStopReason::Panicked(err) => {
-                match self.state.try_write().unwrap().on_panic(err).await {
+                match self
+                    .state
+                    .try_write()
+                    .unwrap()
+                    .on_panic(self.actor_ref.clone(), err)
+                    .await
+                {
                     Ok(Some(reason)) => Some(reason),
                     Ok(None) => None,
                     Err(err) => Some(ActorStopReason::Panicked(PanicError::new(err))),
@@ -260,6 +226,7 @@ where
 }
 
 pub(crate) struct UnsyncActor<A> {
+    actor_ref: WeakActorRef<A>,
     state: A,
 }
 
@@ -267,49 +234,34 @@ impl<A> ActorState<A> for UnsyncActor<A>
 where
     A: Actor + Send,
 {
-    fn new_from_actor(actor: A) -> Self {
-        UnsyncActor { state: actor }
+    fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self {
+        UnsyncActor {
+            actor_ref,
+            state: actor,
+        }
     }
 
     async fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
-        reply: Option<oneshot::Sender<BoxReply>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     ) -> Option<ActorStopReason> {
-        match reply {
-            Some(reply) => {
-                let res = AssertUnwindSafe(message.handle_dyn(&mut self.state))
-                    .catch_unwind()
-                    .await;
-                match res {
-                    Ok(res) => {
-                        let _ = reply.send(res);
-                        None
-                    }
-                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))),
-                }
-            }
-            None => {
-                let res = AssertUnwindSafe(message.handle_dyn_async(&mut self.state))
-                    .catch_unwind()
-                    .await;
-                match res {
-                    Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))),
-                    Ok(None) => None,
-                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))),
-                }
-            }
+        let res = AssertUnwindSafe(message.handle_dyn(&mut self.state, actor_ref, reply))
+            .catch_unwind()
+            .await;
+        match res {
+            Ok(None) => None,
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
         }
     }
 
     async fn handle_query(
         &mut self,
         _query: Box<dyn DynQuery<A>>,
-        reply: Option<
-            oneshot::Sender<
-                Result<BoxReply, SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>>,
-            >,
-        >,
+        _actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
     ) -> Option<ActorStopReason> {
         match reply {
             Some(reply) => {
@@ -325,9 +277,12 @@ where
         id: u64,
         reason: ActorStopReason,
     ) -> Option<ActorStopReason> {
-        match AssertUnwindSafe(self.state.on_link_died(id, reason.clone()))
-            .catch_unwind()
-            .await
+        match AssertUnwindSafe(
+            self.state
+                .on_link_died(self.actor_ref.clone(), id, reason.clone()),
+        )
+        .catch_unwind()
+        .await
         {
             Ok(Ok(Some(reason))) => Some(reason),
             Ok(Ok(None)) => None,
@@ -344,11 +299,13 @@ where
         match reason {
             ActorStopReason::Normal => Some(ActorStopReason::Normal),
             ActorStopReason::Killed => Some(ActorStopReason::Killed),
-            ActorStopReason::Panicked(err) => match self.state.on_panic(err).await {
-                Ok(Some(reason)) => Some(reason),
-                Ok(None) => None,
-                Err(err) => Some(ActorStopReason::Panicked(PanicError::new(err))),
-            },
+            ActorStopReason::Panicked(err) => {
+                match self.state.on_panic(self.actor_ref.clone(), err).await {
+                    Ok(Some(reason)) => Some(reason),
+                    Ok(None) => None,
+                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new(err))),
+                }
+            }
             ActorStopReason::LinkDied { id, reason } => {
                 Some(ActorStopReason::LinkDied { id, reason })
             }

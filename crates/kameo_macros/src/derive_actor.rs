@@ -17,7 +17,7 @@ impl ToTokens for DeriveActor {
 
         tokens.extend(quote! {
             #[automatically_derived]
-            impl #impl_generics ::kameo::Actor for #ident #ty_generics #where_clause {
+            impl #impl_generics ::kameo::actor::Actor for #ident #ty_generics #where_clause {
                 fn name() -> &'static str {
                     #name
                 }

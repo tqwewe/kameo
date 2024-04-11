@@ -1,10 +1,10 @@
-mod actor;
 mod derive_actor;
 mod derive_reply;
+mod messages;
 
-use actor::Actor;
 use derive_actor::DeriveActor;
 use derive_reply::DeriveReply;
+use messages::Messages;
 use proc_macro::TokenStream;
 use quote::ToTokens;
 use syn::parse_macro_input;
@@ -17,9 +17,9 @@ use syn::parse_macro_input;
 /// # Example
 ///
 /// ```
-/// use kameo::actor;
+/// use kameo::messages;
 ///
-/// #[actor]
+/// #[messages]
 /// impl Counter {
 ///     /// Regular message
 ///     #[message]
@@ -54,17 +54,17 @@ use syn::parse_macro_input;
 ///     pub amount: u32,
 /// }
 ///
-/// impl kameo::Message<Inc> for Counter {
+/// impl kameo::message::Message<Inc> for Counter {
 ///     type Reply = i64;
 ///
-///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
+///     async fn handle(&mut self, msg: Counter, _ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply {
 ///         self.inc(msg.amount)
 ///     }
 /// }
 ///
 /// pub struct Count;
 ///
-/// impl kameo::Query<Count> for Counter {
+/// impl kameo::message::Query<Count> for Counter {
 ///     type Reply = i64;
 ///
 ///     async fn handle(&self, msg: Counter) -> Self::Reply {
@@ -75,24 +75,27 @@ use syn::parse_macro_input;
 /// #[derive(Clone, Copy)]
 /// pub struct Dec;
 ///
-/// impl kameo::Message<Dec> for Counter {
+/// impl kameo::message::Message<Dec> for Counter {
 ///     type Reply = ();
 ///
-///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
+///     async fn handle(&mut self, msg: Counter, _ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply {
 ///         self.dec(msg.amount)
 ///     }
 /// }
 /// ```
 /// </details>
 #[proc_macro_attribute]
-pub fn actor(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let actor = parse_macro_input!(item as Actor);
-    TokenStream::from(actor.into_token_stream())
+pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let messages = parse_macro_input!(item as Messages);
+    TokenStream::from(messages.into_token_stream())
 }
 
-/// Derive macro implementing the [Actor](https://docs.rs/kameo/latest/kameo/trait.Actor.html) trait with default behaviour.
+/// Derive macro implementing the [Actor](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html) trait with default behaviour.
 ///
-/// The [Actor::name](https://docs.rs/kameo/latest/kameo/trait.Actor.html#method.name) is implemented using the actor's ident.
+/// The [Actor::name](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html#method.name) is implemented using the actor's ident.
+///
+/// This trait has no customizability, and is only a convenience macro for implementing `Actor`.
+/// If you'd like to override the default behaviour, you should implement the `Actor` trait manually.
 ///
 /// # Example
 ///
@@ -110,7 +113,7 @@ pub fn derive_actor(input: TokenStream) -> TokenStream {
     TokenStream::from(derive_actor.into_token_stream())
 }
 
-/// Derive macro implementing the [Reply](https://docs.rs/kameo/latest/kameo/trait.Reply.html) trait as an infallible reply.
+/// Derive macro implementing the [Reply](https://docs.rs/kameo/latest/kameo/reply/trait.Reply.html) trait as an infallible reply.
 ///
 /// # Example
 ///
