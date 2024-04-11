@@ -94,6 +94,9 @@ pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// The [Actor::name](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html#method.name) is implemented using the actor's ident.
 ///
+/// This trait has no customizability, and is only a convenience macro for implementing `Actor`.
+/// If you'd like to override the default behaviour, you should implement the `Actor` trait manually.
+///
 /// # Example
 ///
 /// ```
