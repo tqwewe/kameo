@@ -1,6 +1,6 @@
 use std::fmt;
 
-use kameo::*;
+use kameo::{messages, Actor};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -9,7 +9,7 @@ pub struct MyActor {
     count: i64,
 }
 
-#[actor]
+#[messages]
 impl MyActor {
     fn new() -> Self {
         MyActor { count: 0 }

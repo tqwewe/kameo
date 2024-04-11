@@ -1,7 +1,10 @@
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
-use kameo::{Actor, Message, Query};
+use kameo::{
+    message::{Context, Message, Query},
+    Actor,
+};
 
 struct FibActor {}
 
@@ -12,7 +15,7 @@ struct Fib(u64);
 impl Message<Fib> for FibActor {
     type Reply = u64;
 
-    async fn handle(&mut self, msg: Fib) -> Self::Reply {
+    async fn handle(&mut self, msg: Fib, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         fibonacci(msg.0)
     }
 }
@@ -20,7 +23,7 @@ impl Message<Fib> for FibActor {
 impl Query<Fib> for FibActor {
     type Reply = u64;
 
-    async fn handle(&self, msg: Fib) -> Self::Reply {
+    async fn handle(&self, msg: Fib, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         fibonacci(msg.0)
     }
 }
@@ -39,7 +42,7 @@ fn concurrent_reads(c: &mut Criterion) {
         .unwrap();
     let _guard = rt.enter();
     let size: usize = 1024;
-    let unsync_actor_ref = kameo::spawn_unsync(FibActor {});
+    let unsync_actor_ref = kameo::actor::spawn_unsync(FibActor {});
     let sync_actor_ref = kameo::spawn(FibActor {});
 
     c.bench_with_input(

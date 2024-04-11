@@ -1,4 +1,29 @@
+//! Actor abstractions and utilities for building concurrent, asynchronous systems.
+//!
+//! This module provides the core abstractions for spawning and managing actors in an
+//! asynchronous, concurrent application. Actors in kameo are independent units of
+//! computation that communicate through message passing, encapsulating state and behavior.
+//!
+//! Central to this module is the [Actor] trait, which defines the lifecycle hooks and
+//! functionalities every actor must implement. These hooks include initialization ([`on_start`](Actor::on_start)),
+//! cleanup ([`on_stop`](Actor::on_stop)), error handling ([`on_panic`](Actor::on_panic)), and managing relationships with other
+//! actors ([`on_link_died`](Actor::on_link_died)). Additionally, the [`name`](Actor::name) method provides a means to identify
+//! actors, facilitating debugging and tracing.
+//!
+//! To interact with and manage actors, this module introduces two key structures:
+//! - [ActorRef]: A strong reference to an actor, containing all necessary information for
+//!   sending messages, stopping the actor, and managing actor links. It serves as the primary
+//!   interface for external interactions with an actor.
+//! - [WeakActorRef]: Similar to `ActorRef`, but does not prevent the actor from being stopped.
+//!
+//! The design of this module emphasizes loose coupling and high cohesion among actors, promoting
+//! a scalable and maintainable architecture. By leveraging asynchronous message passing and
+//! lifecycle management, developers can create complex, responsive systems with high degrees
+//! of concurrency and parallelism.
+
 mod actor_ref;
+mod pool;
+mod spawn;
 
 use std::any;
 
@@ -11,16 +36,19 @@ use crate::{
 };
 
 pub use actor_ref::*;
+pub use pool::*;
+pub use spawn::*;
 
 /// Functionality for an actor including lifecycle hooks.
 ///
-/// Methods in this trait that return `BoxError` will stop the actor with the reason
-/// `ActorReason::Panicked` containing the error.
+/// Methods in this trait that return [`BoxError`] will stop the actor with the reason
+/// [`ActorStopReason::Panicked`] containing the error.
 ///
 /// # Example
 ///
 /// ```
-/// use kameo::{Actor, ActorStopReason, BoxError, PanicError};
+/// use kameo::Actor;
+/// use kameo::error::{ActorStopReason, BoxError, PanicError};
 ///
 /// struct MyActor;
 ///
@@ -32,7 +60,7 @@ pub use actor_ref::*;
 ///
 ///     async fn on_panic(&mut self, err: PanicError) -> Result<Option<ActorStopReason>, BoxError> {
 ///         println!("actor panicked");
-///         Ok(Some(ActorStopReason::Panicked(err))) // Return some to stop the actor
+///         Ok(Some(ActorStopReason::Panicked(err))) // Return `Some` to stop the actor
 ///     }
 ///
 ///     async fn on_stop(&mut self, reason: ActorStopReason) -> Result<(), BoxError> {
@@ -61,7 +89,7 @@ pub trait Actor: Sized {
     #[allow(unused_variables)]
     fn on_start(
         &mut self,
-        actor_ref: WeakActorRef<Self>,
+        actor_ref: ActorRef<Self>,
     ) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
     }

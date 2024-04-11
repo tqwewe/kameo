@@ -1,3 +1,9 @@
+//! Defines error handling constructs for kameo.
+//!
+//! This module centralizes error types used throughout kameo, encapsulating common failure scenarios encountered
+//! in actor lifecycle management, message passing, and actor interaction. It simplifies error handling by providing
+//! a consistent set of errors that can occur in the operation of actors and their communications.
+
 use std::{
     any::{self, Any},
     error, fmt,

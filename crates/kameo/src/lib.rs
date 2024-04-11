@@ -18,6 +18,9 @@
 //! ## Defining an Actor without Macros
 //!
 //! ```
+//! use kameo::Actor;
+//! use kameo::message::{Context, Message};
+//!
 //! // Define the actor state
 //! struct Counter {
 //!   count: i64,
@@ -31,7 +34,7 @@
 //! impl Message<Inc> for Counter {
 //!     type Reply = i64;
 //!
-//!     async fn handle(&mut self, msg: Counter) -> Self::Reply {
+//!     async fn handle(&mut self, msg: Counter, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
 //!         self.count += msg.0 as i64;
 //!         self.count
 //!     }
@@ -41,6 +44,8 @@
 //! ## Defining an Actor with Macros
 //!
 //! ```
+//! use kameo::{Actor, messages};
+//!
 //! // Define the actor state
 //! #[derive(Actor)]
 //! struct Counter {
@@ -48,7 +53,7 @@
 //! }
 //!
 //! // Define messages
-//! #[actor]
+//! #[messages]
 //! impl Counter {
 //!     #[message]
 //!     fn inc(&mut self, amount: u32) -> i64 {
@@ -63,7 +68,7 @@
 //!
 //! ```rust
 //! // Derive Actor
-//! impl kameo::Actor for Counter {
+//! impl kameo::actor::Actor for Counter {
 //!     fn name(&self) -> Cow<'_, str> {
 //!         Cow::Borrowed("Counter")
 //!     }
@@ -101,16 +106,8 @@ pub mod actor;
 mod actor_kind;
 pub mod error;
 pub mod message;
-pub mod pool;
 pub mod reply;
-pub mod spawn;
 
-// pub use actor::Actor;
-// pub use actor_ref::ActorRef;
-// pub use context::{Context, DelegatedReply, ReplySender};
-// pub use error::{ActorStopReason, BoxError, PanicError, SendError};
-// pub use kameo_macros::{actor, Actor, Reply};
-// pub use message::{Context, Message, Query};
-// pub use pool::ActorPool;
-// pub use reply::{Reply, ReplySender};
-pub use spawn::spawn;
+pub use actor::{spawn, Actor};
+pub use kameo_macros::{messages, Actor, Reply};
+pub use reply::Reply;

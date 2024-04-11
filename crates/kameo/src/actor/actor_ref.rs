@@ -114,7 +114,7 @@ impl<A> ActorRef<A> {
     /// complete its final tasks before proceeding.
     ///
     /// Note: This method does not initiate the stop process; it only waits for the actor to
-    /// stop. You should signal the actor to stop using `stop_gracefully` or `kill`
+    /// stop. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
     /// before calling this method.
     ///
     /// # Examples
@@ -189,8 +189,8 @@ impl<A> ActorRef<A> {
     ///
     /// Queries can run in parallel if executed in sequence.
     ///
-    /// If the actor was spawned as `!Sync` with `Spawn::spawn_unsync`, then queries will not be supported
-    /// and any query will return `Err(SendError::QueriesNotSupported)`.
+    /// If the actor was spawned as `!Sync` with [spawn_unsync](crate::actor::spawn_unsync),
+    /// then queries will not be supported and any query will return an error of [`SendError::QueriesNotSupported`].
     pub async fn query<M>(
         &self,
         msg: M,
@@ -316,25 +316,6 @@ impl<A: ?Sized> fmt::Debug for ActorRef<A> {
 /// In order to send messages to an actor, the `WeakActorRef` needs to be upgraded using
 /// [`WeakActorRef::upgrade`], which returns `Option<ActorRef>`. It returns `None`
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
-///
-/// # Examples
-///
-/// ```
-/// use tokio::sync::mpsc::unbounded_channel;
-///
-/// #[tokio::main]
-/// async fn main() {
-///     let (tx, _rx) = unbounded_channel::<i32>();
-///     let tx_weak = tx.downgrade();
-///
-///     // Upgrading will succeed because `tx` still exists.
-///     assert!(tx_weak.upgrade().is_some());
-///
-///     // If we drop `tx`, then it will fail.
-///     drop(tx);
-///     assert!(tx_weak.clone().upgrade().is_none());
-/// }
-/// ```
 pub struct WeakActorRef<A: ?Sized> {
     id: u64,
     mailbox: WeakMailbox<A>,

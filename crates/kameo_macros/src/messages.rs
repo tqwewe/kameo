@@ -10,7 +10,7 @@ use syn::{
     Visibility,
 };
 
-pub struct Actor {
+pub struct Messages {
     item_impl: ItemImpl,
     ident: Ident,
     messages: Vec<Message>,
@@ -87,7 +87,7 @@ impl
     }
 }
 
-impl Actor {
+impl Messages {
     fn extract_messages(item_impl: &mut ItemImpl) -> (Vec<Message>, Option<syn::Error>) {
         let mut errors = Vec::new();
         let messages = item_impl
@@ -343,10 +343,10 @@ impl Actor {
 
                 quote_spanned! {sig.span()=>
                     #[automatically_derived]
-                    impl #impl_generics ::kameo::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
+                    impl #impl_generics ::kameo::message::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
                         type Reply = #reply;
 
-                        async fn handle(#self_ref, #[allow(unused_variables)] #msg) -> Self::Reply {
+                        async fn handle(#self_ref, #[allow(unused_variables)] #msg, _ctx: ::kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply {
                             self.#fn_ident(#( #params ),*) #await_tokens
                         }
                     }
@@ -360,7 +360,7 @@ impl Actor {
     }
 }
 
-impl ToTokens for Actor {
+impl ToTokens for Messages {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let item_impl = &self.item_impl;
         let msg_enum = self.expand_msgs();
@@ -377,7 +377,7 @@ impl ToTokens for Actor {
     }
 }
 
-impl Parse for Actor {
+impl Parse for Messages {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut item_impl: ItemImpl = input.parse()?;
 
@@ -397,9 +397,9 @@ impl Parse for Actor {
                 ))
             }
         };
-        let (messages, errors) = Actor::extract_messages(&mut item_impl);
+        let (messages, errors) = Messages::extract_messages(&mut item_impl);
 
-        Ok(Actor {
+        Ok(Messages {
             item_impl,
             ident,
             messages,

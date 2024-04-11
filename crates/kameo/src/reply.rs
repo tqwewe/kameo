@@ -1,3 +1,26 @@
+//! Constructs for handling replies and errors in kameo's actor communication.
+//!
+//! This module provides the [`Reply`] trait and associated structures for managing message replies within the actor
+//! system. It enables actors to communicate effectively, handling both successful outcomes and errors through a
+//! unified interface.
+//!
+//! **Reply Trait Overview**
+//!
+//! The `Reply` trait plays a crucial role in kameo by defining how actors respond to messages.
+//! It is implemented for a variety of common types, facilitating easy adoption and use.
+//! Special attention is given to the `Result` and [`DelegatedReply`] types:
+//! - Implementations for `Result` allow errors returned by actor handlers to be communicated back as
+//! [`SendError::HandlerError`], integrating closely with Rust’s error handling patterns.
+//! - The `DelegatedReply` type signifies that the actual reply will be managed by another part of the system,
+//! supporting asynchronous and decoupled communication workflows.
+//! - Importantly, when messages are sent asynchronously with [`send_async`](crate::actor::ActorRef::send_async) and an error is returned by the actor
+//! without a direct means for the caller to handle it (due to the absence of a reply expectation), the error is treated
+//! as a panic within the actor. This behavior will trigger the actor's [`on_panic`](crate::actor::Actor::on_panic) hook, which may result in the actor
+//! being restarted or stopped based on the [Actor](crate::Actor) implementation (which stops the actor by default).
+//!
+//! The `Reply` trait, by encompassing a broad range of types and defining specific behaviors for error handling,
+//! ensures that actors can manage their communication responsibilities efficiently and effectively.
+
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
@@ -20,9 +43,12 @@ use std::{
 use tokio::sync::oneshot;
 
 use crate::{
-    error::BoxSendError,
+    error::{BoxSendError, SendError},
     message::{BoxDebug, BoxReply},
 };
+
+/// A deligated reply that has been forwarded to another actor.
+pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>>>;
 
 /// A reply value.
 ///
@@ -60,7 +86,7 @@ pub trait Reply {
 /// signal to the actor system that the current handler will not directly respond to
 /// the message, and that the responsibility for sending the reply has been transferred.
 ///
-/// This type is returned by message handlers that invoke [Context::reply_sender]
+/// This type is returned by message handlers that invoke [Context::reply_sender](crate::message::Context::reply_sender)
 /// to delegate response duties. It is crucial in maintaining the clarity of message
 /// flow and ensuring that the system accurately tracks the delegation of response
 /// responsibilities.
@@ -68,12 +94,15 @@ pub trait Reply {
 /// # Examples
 ///
 /// A typical usage might involve a handler for a request that requires information
-/// from another part of the system. The handler would call `Context::reply_sender` to
-/// obtain a `DelegatedReply` and an optional `ReplySender`. The `DelegatedReply`
+/// from another part of the system. The handler would call [`Context::reply_sender`](crate::message::Context::reply_sender) to
+/// obtain a `DelegatedReply` and an optional [`ReplySender`]. The `DelegatedReply`
 /// would be returned by the handler to indicate that the reply will be delegated,
 /// and the `ReplySender`, if present, would be passed to the actual responder.
 ///
 /// ```
+/// use kameo::message::{Context, Message};
+/// use kameo::reply::DelegatedReply;
+///
 /// impl Message<Request> for MyActor {
 ///     type Reply = DelegatedReply<MyResponseType>;
 ///
@@ -144,18 +173,6 @@ where
 ///
 /// A `ReplySender` is obtained as part of the delegation process when handling a message. It should
 /// be used to send a reply once the requested data is available or the operation is complete.
-///
-/// # Example
-///
-/// Imagine a scenario in an actor system where an actor needs to query another actor for information
-/// and then reply to the original sender:
-///
-/// ```
-/// fn handle_query(sender: ReplySender<QueryResult>, query: Query) {
-///     let result = process_query(query);
-///     sender.send(result); // Completes the query by sending the result back
-/// }
-/// ```
 ///
 /// The `ReplySender` provides a clear and straightforward interface for completing the message handling cycle,
 /// facilitating efficient and organized communication within the system.

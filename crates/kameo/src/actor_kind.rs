@@ -111,7 +111,8 @@ where
         .catch_unwind()
         .await;
         match res {
-            Ok(()) => None,
+            Ok(None) => None,
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
         }
     }
@@ -132,7 +133,8 @@ where
                     .catch_unwind()
                     .await;
             match res {
-                Ok(_) => None,
+                Ok(None) => None,
+                Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
                 Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
             }
         });
@@ -249,7 +251,8 @@ where
             .catch_unwind()
             .await;
         match res {
-            Ok(()) => None,
+            Ok(None) => None,
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
         }
     }

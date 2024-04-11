@@ -22,7 +22,7 @@ impl ToTokens for DeriveReply {
                 type Value = Self;
 
                 #[inline]
-                fn to_result(self) -> ::std::result::Result<Self, ::kameo::SendError<Msg, ()>> {
+                fn to_result(self) -> ::std::result::Result<Self::Ok, Self::Error> {
                     ::std::result::Result::Ok(self)
                 }
 

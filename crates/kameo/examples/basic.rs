@@ -1,9 +1,6 @@
-use std::time::Duration;
-
 use kameo::{
-    actor::Actor,
-    message::{Context, Message},
-    reply::DelegatedReply,
+    message::{Context, Message, Query},
+    Actor,
 };
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -27,55 +24,37 @@ pub struct Inc {
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.count += msg.amount as i64;
         self.count
     }
 }
 
-struct Forward;
+// Always returns an error
+pub struct ForceErr;
 
-impl Message<Forward> for MyActor {
-    type Reply = DelegatedReply<String>;
+impl Message<ForceErr> for MyActor {
+    type Reply = Result<(), i32>;
 
     async fn handle(
         &mut self,
-        msg: Forward,
-        mut ctx: Context<'_, Self, Self::Reply>,
+        _msg: ForceErr,
+        _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
-        let (deligated, tx) = ctx.reply_sender();
-        if let Some(tx) = tx {
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                tx.send("Hii".to_string());
-            });
-        }
-
-        deligated
+        Err(3)
     }
 }
 
-// Always returns an error
-// pub struct ForceErr;
-
-// impl Message<ForceErr> for MyActor {
-//     type Reply = Result<(), i32>;
-
-//     async fn handle(&mut self, _msg: ForceErr) -> Self::Reply {
-//         Err(3)
-//     }
-// }
-
 // Queries the current count
-// pub struct Count;
+pub struct Count;
 
-// impl Query<Count> for MyActor {
-//     type Reply = i64;
+impl Query<Count> for MyActor {
+    type Reply = i64;
 
-//     async fn handle(&self, _msg: Count) -> Self::Reply {
-//         self.count
-//     }
-// }
+    async fn handle(&self, _msg: Count, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+        self.count
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -91,21 +70,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count = my_actor_ref.send(Inc { amount: 3 }).await?;
     info!("Count is {count}");
 
-    let count = my_actor_ref.send(Forward).await?;
+    // Increment the count by 50 in the background
+    my_actor_ref.send_async(Inc { amount: 50 })?;
+
+    // Increment the count by 2
+    let count = my_actor_ref.send(Inc { amount: 2 }).await?;
     info!("Count is {count}");
 
-    // // Increment the count by 50 in the background
-    // my_actor_ref.send_async(Inc { amount: 50 })?;
+    // Async messages that return an Err will cause the actor to panic
+    my_actor_ref.send_async(ForceErr)?;
 
-    // // Increment the count by 2
-    // let count = my_actor_ref.send(Inc { amount: 2 }).await?;
-    // info!("Count is {count}");
-
-    // // Async messages that return an Err will cause the actor to panic
-    // my_actor_ref.send_async(ForceErr)?;
-
-    // // Actor should be stopped, so we cannot send more messages to it
-    // assert!(my_actor_ref.send(Inc { amount: 2 }).await.is_err());
+    // Actor should be stopped, so we cannot send more messages to it
+    assert!(my_actor_ref.send(Inc { amount: 2 }).await.is_err());
 
     Ok(())
 }
