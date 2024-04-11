@@ -106,7 +106,7 @@ pub trait Reply {
 /// impl Message<Request> for MyActor {
 ///     type Reply = DelegatedReply<MyResponseType>;
 ///
-///     fn handle(&mut self, msg: Request, ctx: &mut Context<'_, Self, Self::Reply>) -> Self::Reply {
+///     fn handle(&mut self, msg: Request, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
 ///         let (delegated_reply, reply_sender) = ctx.reply_sender();
 ///    
 ///         // Logic to delegate the response, potentially involving other actors

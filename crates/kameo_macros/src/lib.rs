@@ -57,7 +57,7 @@ use syn::parse_macro_input;
 /// impl kameo::message::Message<Inc> for Counter {
 ///     type Reply = i64;
 ///
-///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
+///     async fn handle(&mut self, msg: Counter, _ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply {
 ///         self.inc(msg.amount)
 ///     }
 /// }
@@ -78,7 +78,7 @@ use syn::parse_macro_input;
 /// impl kameo::message::Message<Dec> for Counter {
 ///     type Reply = ();
 ///
-///     async fn handle(&mut self, msg: Counter) -> Self::Reply {
+///     async fn handle(&mut self, msg: Counter, _ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply {
 ///         self.dec(msg.amount)
 ///     }
 /// }

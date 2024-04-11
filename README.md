@@ -51,7 +51,7 @@ struct Inc { amount: u32 }
 impl Message<Inc> for Counter {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Counter) -> Self::Reply {
+    async fn handle(&mut self, msg: Counter, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.count += msg.0 as i64;
         self.count
     }
@@ -97,7 +97,7 @@ struct Inc { amount: u32 }
 impl kameo::message::Message<Inc> for Counter {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: &mut Inc) -> Self::Reply {
+    async fn handle(&mut self, msg: &mut Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.inc(msg.amount)
     }
 }
