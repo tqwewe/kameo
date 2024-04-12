@@ -29,11 +29,7 @@ use std::any;
 
 use futures::Future;
 
-use crate::{
-    error::{ActorStopReason, BoxError, PanicError},
-    message::{Context, Message},
-    reply::Reply,
-};
+use crate::error::{ActorStopReason, BoxError, PanicError};
 
 pub use actor_ref::*;
 pub use pool::*;
@@ -157,17 +153,17 @@ pub trait Actor: Sized {
     }
 }
 
-impl<M, R> Actor for fn(M) -> R {}
+// impl<M, R> Actor for fn(M) -> R {}
 
-impl<M, Fu, R> Message<M> for fn(M) -> Fu
-where
-    M: Send + 'static,
-    Fu: Future<Output = R> + Send + 'static,
-    R: Reply + Send + 'static,
-{
-    type Reply = R;
+// impl<M, Fu, R> Message<M> for fn(M) -> Fu
+// where
+//     M: Send + 'static,
+//     Fu: Future<Output = R> + Send + 'static,
+//     R: Reply + Send + 'static,
+// {
+//     type Reply = R;
 
-    async fn handle(&mut self, msg: M, _ctx: Context<'_, Self, R>) -> Self::Reply {
-        self(msg).await
-    }
-}
+//     async fn handle(&mut self, msg: M, _ctx: Context<'_, Self, R>) -> Self::Reply {
+//         self(msg).await
+//     }
+// }

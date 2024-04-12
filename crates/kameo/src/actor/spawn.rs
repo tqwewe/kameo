@@ -62,25 +62,6 @@ where
     spawn_inner::<A, UnsyncActor<A>>(actor)
 }
 
-/// Spawns a stateless anonymous actor in a tokio task using a function which processes messages of a single type.
-///
-/// # Example
-///
-/// ```no_run
-/// use kameo::actor::spawn_stateless;
-///
-/// let actor_ref = spawn_stateless(|n: i32| async move { n * n });
-/// let res = actor_ref.send(10).await?;
-/// assert_eq!(res, 100);
-/// ```
-pub fn spawn_stateless<M, R>(f: fn(M) -> R) -> ActorRef<fn(M) -> R>
-where
-    M: 'static,
-    R: 'static,
-{
-    spawn_unsync(f as fn(_) -> _)
-}
-
 #[inline]
 fn spawn_inner<A, S>(actor: A) -> ActorRef<A>
 where
