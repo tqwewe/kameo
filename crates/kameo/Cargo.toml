@@ -32,3 +32,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [[bench]]
 name = "fibonacci"
 harness = false
+
+[[bench]]
+name = "overhead"
+harness = false
