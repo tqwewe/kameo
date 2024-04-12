@@ -6,8 +6,8 @@ use syn::{
     parse_quote, parse_quote_spanned,
     punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, Field, FnArg, Ident, ImplItem, ItemImpl, Meta, ReturnType, Signature, Token, Type,
-    Visibility,
+    Attribute, Field, FnArg, GenericParam, Generics, Ident, ImplItem, ItemImpl, Meta, ReturnType,
+    Signature, Token, Type, Visibility,
 };
 
 pub struct Messages {
@@ -25,6 +25,7 @@ struct Message {
     fields: Punctuated<Field, Token![,]>,
     msg_type: MessageType,
     attrs: Vec<TokenStream>,
+    generics: Generics,
 }
 
 #[derive(Clone, Copy)]
@@ -40,17 +41,19 @@ impl
         MessageType,
         Vec<TokenStream>,
         Vec<Vec<Attribute>>,
+        Generics,
     )> for Message
 {
     type Error = syn::Error;
 
     fn try_from(
-        (vis, mut sig, msg_type, attrs, field_doc_attrs): (
+        (vis, mut sig, msg_type, attrs, field_doc_attrs, generics): (
             Visibility,
             Signature,
             MessageType,
             Vec<TokenStream>,
             Vec<Vec<Attribute>>,
+            Generics,
         ),
     ) -> Result<Self, Self::Error> {
         let ident = format_ident!("{}", sig.ident.to_string().to_upper_camel_case());
@@ -83,6 +86,7 @@ impl
             fields,
             msg_type,
             attrs,
+            generics,
         })
     }
 }
@@ -154,13 +158,52 @@ impl Messages {
                         });
 
                         if let Some(msg_type) = msg_type {
+                            let mut generics = vec![];
+                            let impl_item_generics: Vec<_> = item_impl.generics
+                                .lifetimes()
+                                .filter(|lifetime| !impl_item_fn.sig.generics.lifetimes().any(|lt| lt == *lifetime))
+                                .cloned()
+                                .map(GenericParam::Lifetime)
+                                .chain(
+                                    item_impl.generics
+                                        .type_params()
+                                        .filter(|type_param| !impl_item_fn.sig.generics.type_params().any(|tp| tp == *type_param))
+                                        .cloned()
+                                        .map(GenericParam::Type)
+                                ).collect();
                             for input in &impl_item_fn.sig.inputs {
                                 if let FnArg::Typed(ty) = input {
                                     if let Err(err) = validate_param(&ty.ty) {
                                         errors.push(err);
                                     }
+
+                                    generics.extend(contains_generic_in_param(&ty.ty, &impl_item_generics));
                                 }
                             }
+                            if let ReturnType::Type(_, ty) = &impl_item_fn.sig.output {
+                                generics.extend(contains_generic_in_param(ty, &impl_item_generics));
+                            }
+
+                            generics.dedup();
+                            let generics = if generics.is_empty() {
+                                impl_item_fn.sig.generics.clone()
+                            } else {
+                                let lifetimes = generics
+                                    .iter()
+                                    .filter(|param| matches!(param, GenericParam::Lifetime(_)))
+                                    .cloned()
+                                    .chain(
+                                        impl_item_fn.sig.generics.lifetimes().cloned().map(GenericParam::Lifetime)
+                                    );
+                                let types = generics
+                                    .iter()
+                                    .filter(|param| matches!(param, GenericParam::Type(_)))
+                                    .cloned()
+                                    .chain(
+                                        impl_item_fn.sig.generics.type_params().cloned().map(GenericParam::Type)
+                                    );
+                                parse_quote! { <#( #lifetimes ),* #( #types, )*> }
+                            };
 
                             match impl_item_fn.sig.inputs.first() {
                                 Some(FnArg::Receiver(recv))
@@ -212,6 +255,7 @@ impl Messages {
                                 msg_type,
                                 attrs,
                                 field_doc_attrs,
+                                generics,
                             )) {
                                 Ok(message) => Some(message),
                                 Err(err) => {
@@ -254,10 +298,10 @@ impl Messages {
         let msgs = messages.iter().map(
             |Message {
                  vis,
-                 sig,
                  ident,
                  fields,
                  attrs,
+                 generics,
                  ..
              }| {
                 if fields.is_empty() {
@@ -266,7 +310,6 @@ impl Messages {
                         #vis struct #ident;
                     }
                 } else {
-                    let generics = &sig.generics;
                     quote! {
                         #( #attrs )*
                         #vis struct #ident #generics {
@@ -297,6 +340,7 @@ impl Messages {
                  ident: msg_ident,
                  fields,
                  msg_type,
+                 generics,
                  ..
              }| {
                 let mut all_generics = item_impl.generics.clone();
@@ -304,7 +348,7 @@ impl Messages {
                 if let Some(where_clause) = sig.generics.where_clause.clone() {
                     all_generics.make_where_clause().predicates.extend(where_clause.predicates);
                 }
-                let (_, msg_ty_generics, _) = sig.generics.split_for_impl();
+                let (_, msg_ty_generics, _) = generics.split_for_impl();
                 let (impl_generics, _, where_clause) = all_generics.split_for_impl();
 
                 let trait_name = match msg_type {
@@ -425,5 +469,109 @@ fn validate_param(ty: &Type) -> syn::Result<()> {
         Type::Group(group) => validate_param(group.elem.as_ref()),
         Type::Paren(ty) => validate_param(&ty.elem),
         _ => Ok(()),
+    }
+}
+
+fn contains_generic_in_param(ty: &Type, generics: &[GenericParam]) -> Vec<GenericParam> {
+    match ty {
+        Type::Array(array) => contains_generic_in_param(&array.elem, generics),
+        Type::BareFn(bare_fn) => {
+            let mut params: Vec<_> = bare_fn
+                .inputs
+                .iter()
+                .flat_map(|input| contains_generic_in_param(&input.ty, generics))
+                .collect();
+            if let ReturnType::Type(_, ty) = &bare_fn.output {
+                params.extend(contains_generic_in_param(ty, generics));
+            }
+            params
+        }
+        Type::Group(group) => contains_generic_in_param(&group.elem, generics),
+        Type::ImplTrait(_) => vec![],
+        Type::Infer(_) => vec![],
+        Type::Macro(_) => vec![],
+        Type::Never(_) => vec![],
+        Type::Paren(paren) => contains_generic_in_param(&paren.elem, generics),
+        Type::Path(path) => {
+            if let Some(ident) = path.path.get_ident() {
+                let is_in_generics = generics
+                    .iter()
+                    .filter_map(|param| match param {
+                        GenericParam::Type(type_param) => Some(type_param),
+                        _ => None,
+                    })
+                    .any(|type_param| &type_param.ident == ident);
+                if is_in_generics {
+                    return vec![parse_quote! { #ident }];
+                }
+            }
+
+            vec![]
+        }
+        Type::Ptr(ptr) => contains_generic_in_param(&ptr.elem, generics),
+        Type::Reference(reference) => {
+            let mut params = Vec::new();
+            if let Some(lifetime) = &reference.lifetime {
+                let is_in_generics = generics
+                    .iter()
+                    .filter_map(|param| match param {
+                        GenericParam::Lifetime(lifetime) => Some(lifetime),
+                        _ => None,
+                    })
+                    .any(|lt| &lt.lifetime == lifetime);
+                if is_in_generics {
+                    params.push(parse_quote! { #lifetime });
+                }
+            }
+            params.extend(contains_generic_in_param(&reference.elem, generics));
+
+            params
+        }
+        Type::Slice(slice) => contains_generic_in_param(&slice.elem, generics),
+        Type::TraitObject(trait_obj) => trait_obj
+            .bounds
+            .iter()
+            .flat_map(|bound| match bound {
+                syn::TypeParamBound::Trait(trt) => {
+                    if let Some(ident) = trt.path.get_ident() {
+                        let is_in_generics = generics
+                            .iter()
+                            .filter_map(|param| match param {
+                                GenericParam::Type(type_param) => Some(type_param),
+                                _ => None,
+                            })
+                            .any(|type_param| &type_param.ident == ident);
+                        if is_in_generics {
+                            return vec![parse_quote! { #ident }];
+                        }
+                    }
+
+                    vec![]
+                }
+                syn::TypeParamBound::Lifetime(lifetime) => {
+                    let is_in_generics = generics
+                        .iter()
+                        .filter_map(|param| match param {
+                            GenericParam::Lifetime(lifetime) => Some(lifetime),
+                            _ => None,
+                        })
+                        .any(|lt| &lt.lifetime == lifetime);
+                    if is_in_generics {
+                        vec![parse_quote! { #lifetime }]
+                    } else {
+                        vec![]
+                    }
+                }
+                syn::TypeParamBound::Verbatim(_) => vec![],
+                _ => vec![],
+            })
+            .collect(),
+        Type::Tuple(tuple) => tuple
+            .elems
+            .iter()
+            .flat_map(|elem| contains_generic_in_param(elem, generics))
+            .collect(),
+        Type::Verbatim(_) => vec![],
+        _ => vec![],
     }
 }
