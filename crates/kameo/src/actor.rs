@@ -152,18 +152,3 @@ pub trait Actor: Sized {
         async { Ok(()) }
     }
 }
-
-// impl<M, R> Actor for fn(M) -> R {}
-
-// impl<M, Fu, R> Message<M> for fn(M) -> Fu
-// where
-//     M: Send + 'static,
-//     Fu: Future<Output = R> + Send + 'static,
-//     R: Reply + Send + 'static,
-// {
-//     type Reply = R;
-
-//     async fn handle(&mut self, msg: M, _ctx: Context<'_, Self, R>) -> Self::Reply {
-//         self(msg).await
-//     }
-// }
