@@ -43,6 +43,32 @@ impl<M, E> SendError<M, E> {
         }
     }
 
+    /// Maps the inner message to another type if the variant is [`ActorNotRunning`](SendError::ActorNotRunning).
+    pub fn map_msg<N, F>(self, mut f: F) -> SendError<N, E>
+    where
+        F: FnMut(M) -> N,
+    {
+        match self {
+            SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(f(msg)),
+            SendError::ActorStopped => SendError::ActorStopped,
+            SendError::HandlerError(err) => SendError::HandlerError(err),
+            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
+        }
+    }
+
+    /// Maps the inner error to another type if the variant is [`HandlerError`](SendError::HandlerError).
+    pub fn map_err<F, O>(self, mut op: O) -> SendError<M, F>
+    where
+        O: FnMut(E) -> F,
+    {
+        match self {
+            SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(msg),
+            SendError::ActorStopped => SendError::ActorStopped,
+            SendError::HandlerError(err) => SendError::HandlerError(op(err)),
+            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
+        }
+    }
+
     /// Converts the inner error types to `Box<dyn Any + Send>`.
     pub fn boxed(self) -> BoxSendError
     where
