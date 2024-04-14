@@ -9,7 +9,7 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::stream::AbortHandle;
+use futures::{stream::AbortHandle, Stream, StreamExt};
 use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
@@ -17,7 +17,9 @@ use tokio::{
 
 use crate::{
     error::{ActorStopReason, BoxSendError, SendError},
-    message::{BoxReply, DynMessage, DynQuery, Message, Query},
+    message::{
+        BoxReply, DynMessage, DynQuery, Message, Query, StreamMessage, StreamMessageEnvelope,
+    },
     reply::Reply,
 };
 
@@ -209,6 +211,32 @@ impl<A> ActorRef<A> {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
         }
+    }
+
+    /// Attaches a stream of messages to the actor.
+    ///
+    /// This spawns a tokio task which forwards the stream to the actor.
+    /// The returned `JoinHandle` can be aborted to stop the messages from being forwarded to the actor.
+    pub fn attach_stream<M, S>(&self, mut stream: S) -> JoinHandle<Result<(), SendError<M>>>
+    where
+        A: StreamMessage<M> + Send + 'static,
+        M: Send + 'static,
+        S: Stream<Item = M> + Send + Unpin + 'static,
+    {
+        let actor_ref = self.clone();
+        tokio::spawn(async move {
+            while let Some(msg) = stream.next().await {
+                actor_ref
+                    .send_async(StreamMessageEnvelope::Next(msg))
+                    .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
+            }
+
+            actor_ref
+                .send_async(StreamMessageEnvelope::Finished)
+                .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
+
+            Ok(())
+        })
     }
 
     /// Links this actor with a child, making this one the parent.

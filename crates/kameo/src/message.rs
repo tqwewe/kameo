@@ -64,6 +64,77 @@ pub trait Query<T>: Send + 'static {
     ) -> impl Future<Output = Self::Reply> + Send;
 }
 
+/// A trait for handling messages streamed to an actor.
+///
+/// Implementors of this trait can receive and process messages from a stream attached to the actor.
+/// This trait is designed to facilitate the integration of streaming data sources with actors, allowing
+/// actors to react and process each message as it arrives from the stream.
+///
+/// # Examples
+///
+/// ```
+/// impl StreamMessage<MyMessageType> for MyActor {
+///     async fn handle(&mut self, msg: MyMessageType, ctx: Context<'_, Self, ()>) {
+///         // Process each message here
+///     }
+///
+///     async fn finished(&mut self, ctx: Context<'_, Self, ()>) {
+///         // Handle the completion of the stream
+///     }
+/// }
+/// ```
+pub trait StreamMessage<T> {
+    /// Handles an individual message received from the stream.
+    ///
+    /// This method is called for each message that arrives from the attached stream, providing a way for the actor
+    /// to process streamed data. The method receives the message and a context allowing interaction with the actor system.
+    fn handle(&mut self, msg: T, ctx: Context<'_, Self, ()>) -> impl Future<Output = ()> + Send;
+
+    /// Called when the message stream attached to the actor is finished.
+    ///
+    /// This optional method can be implemented to perform cleanup or final actions once the stream has ended.
+    /// By default, it does nothing, but implementors can override it to add behavior specific to their actor's needs.
+    #[allow(unused_variables)]
+    fn finished(&mut self, ctx: Context<'_, Self, ()>) -> impl Future<Output = ()> + Send {
+        async {}
+    }
+}
+
+impl<A, T> Message<StreamMessageEnvelope<T>> for A
+where
+    A: StreamMessage<T> + Send + 'static,
+    T: Send,
+{
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        msg: StreamMessageEnvelope<T>,
+        ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        match msg {
+            StreamMessageEnvelope::Next(msg) => StreamMessage::handle(self, msg, ctx).await,
+            StreamMessageEnvelope::Finished => StreamMessage::finished(self, ctx).await,
+        }
+    }
+}
+
+pub(crate) enum StreamMessageEnvelope<T> {
+    Next(T),
+    Finished,
+}
+
+impl<T> StreamMessageEnvelope<T> {
+    pub(crate) fn unwrap(self) -> T {
+        match self {
+            StreamMessageEnvelope::Next(msg) => msg,
+            StreamMessageEnvelope::Finished => {
+                panic!("unwrap panicked during StreamMessageEnvelope::unwrap")
+            }
+        }
+    }
+}
+
 /// A context provided to message and query handlers providing access
 /// to the current actor ref, and reply channel.
 #[derive(Debug)]
