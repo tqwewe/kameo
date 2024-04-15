@@ -217,14 +217,28 @@ impl<A> ActorRef<A> {
     ///
     /// This spawns a tokio task which forwards the stream to the actor.
     /// The returned `JoinHandle` can be aborted to stop the messages from being forwarded to the actor.
-    pub fn attach_stream<M, S>(&self, mut stream: S) -> JoinHandle<Result<(), SendError<M>>>
+    ///
+    /// The `start_value` and `finish_value` can be provided to pass additional context when attaching the stream.
+    /// If there's no data to be sent, these can be set to `()`.
+    pub fn attach_stream<M, S, T, F>(
+        &self,
+        mut stream: S,
+        start_value: T,
+        finish_value: F,
+    ) -> JoinHandle<Result<(), SendError<M>>>
     where
-        A: StreamMessage<M> + Send + 'static,
-        M: Send + 'static,
+        A: StreamMessage<M, T, F> + Send + 'static,
         S: Stream<Item = M> + Send + Unpin + 'static,
+        M: Send + 'static,
+        T: Send + 'static,
+        F: Send + 'static,
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
+            actor_ref
+                .send_async(StreamMessageEnvelope::Started(start_value))
+                .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
+
             while let Some(msg) = stream.next().await {
                 actor_ref
                     .send_async(StreamMessageEnvelope::Next(msg))
@@ -232,7 +246,7 @@ impl<A> ActorRef<A> {
             }
 
             actor_ref
-                .send_async(StreamMessageEnvelope::Finished)
+                .send_async(StreamMessageEnvelope::Finished(finish_value))
                 .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
 
             Ok(())
