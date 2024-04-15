@@ -27,10 +27,9 @@ body = """
 {%- endfor -%}
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | upper_first }}
-    {% for commit in commits %}
-        - {% if commit.breaking %}*Breaking:* {% endif %}{{ commit.message | upper_first }}\
-        {% if commit.github.username %} by @{{ commit.github.username }}{%- endif %}\
-        {% if commit.github.pr_number %} in #{{ commit.github.pr_number }}{% else %} in {{ commit.id }}{%- endif %}\
+    {% for commit in commits | sort(attribute="author.timestamp") | reverse | sort(attribute="breaking") | reverse %}
+        - {% if commit.breaking %}**BREAKING:** {% endif %}{{ commit.message | upper_first }}\
+        {% if commit.github.pr_number %} #{{ commit.github.pr_number }}{% else %} [</>](https://github.com/tqwewe/kameo/commit/{{ commit.id }}){%- endif %}\
     {% endfor %}
 {% endfor %}\n
 """
@@ -60,22 +59,22 @@ conventional_commits = true
 filter_unconventional = true
 # process each line of a commit as an individual commit
 split_commits = false
-# regex for parsing and grouping commits
 commit_parsers = [
     { message = "^chore: bump version to .*", skip = true },
     { message = "^chore: bump to version .*", skip = true },
-    { message = "^chore: .*", group = "Misc" },
-    { message = "^feat: .*", group = "Added" },
-    { message = "^.*: add", group = "Added" },
-    { message = "^.*: support", group = "Added" },
-    { message = "^.*: remove", group = "Removed" },
-    { message = "^.*: delete", group = "Removed" },
-    { message = "^docs: .*", group = "Documentation" },
-    { message = "^test", group = "Fixed" },
-    { message = "^fix", group = "Fixed" },
-    { message = "^.*: fix", group = "Fixed" },
-    { message = "^.*", group = "Changed" },
-]
+    { message = "^.*\\(example(s)?\\):.*", skip = true },
+    { message = "^chore: .*", group = "<!-- 5 -->Misc" },
+    { message = "^feat: .*", group = "<!-- 0 -->Added" },
+    { message = "^docs: .*", group = "<!-- 4 -->Documentation" },
+    { message = "^.*: add", group = "<!-- 0 -->Added" },
+    { message = "^.*: support", group = "<!-- 0 -->Added" },
+    { message = "^.*: remove", group = "<!-- 2 -->Removed" },
+    { message = "^.*: delete", group = "<!-- 2 -->Removed" },
+    { message = "^test", group = "<!-- 3 -->Fixed" },
+    { message = "^fix", group = "<!-- 3 -->Fixed" },
+    { message = "^.*: fix", group = "<!-- 3 -->Fixed" },
+    { message = "^.*", group = "<!-- 1 -->Changed" },
+] # regex for parsing and grouping commits
 # protect breaking changes from being skipped due to matching a skipping commit_parser
 protect_breaking_commits = false
 # filter out the commits that are not matched by commit parsers
