@@ -23,23 +23,27 @@ impl Actor for MyActor {
                 .take(5)
                 .throttle(time::Duration::from_secs(1)),
         );
-        actor_ref.attach_stream(stream);
+        actor_ref.attach_stream(stream, "1st stream", "1st stream");
 
         let stream = stream::repeat(1).take(5);
-        actor_ref.attach_stream(stream);
+        actor_ref.attach_stream(stream, "2nd stream", "2nd stream");
 
         Ok(())
     }
 }
 
-impl StreamMessage<i64> for MyActor {
+impl StreamMessage<i64, &'static str, &'static str> for MyActor {
     async fn handle(&mut self, msg: i64, _ctx: Context<'_, Self, ()>) {
         self.count += msg;
         info!("Count is {}", self.count);
     }
 
-    async fn finished(&mut self, _ctx: Context<'_, Self, ()>) {
-        info!("Finished");
+    async fn on_start(&mut self, s: &'static str, _ctx: Context<'_, Self, ()>) {
+        info!("Started {s}");
+    }
+
+    async fn on_finish(&mut self, s: &'static str, _ctx: Context<'_, Self, ()>) {
+        info!("Finished {s}");
     }
 }
 
