@@ -13,8 +13,10 @@ use tokio::sync::mpsc;
 use tracing::{error, trace};
 
 use crate::{
-    actor::{Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID},
-    actor_kind::{ActorState, SyncActor, UnsyncActor},
+    actor::{
+        kind::{ActorState, SyncActor, UnsyncActor},
+        Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID,
+    },
     error::{ActorStopReason, PanicError},
 };
 
@@ -93,7 +95,7 @@ async fn run_actor_lifecycle<A, S>(
     abort_registration: AbortRegistration,
     links: Links,
 ) where
-    A: Actor,
+    A: Actor + 'static,
     S: ActorState<A>,
 {
     let id = actor_ref.id();
@@ -106,6 +108,8 @@ async fn run_actor_lifecycle<A, S>(
         .map(|res| res.map_err(PanicError::new))
         .map_err(PanicError::new_boxed)
         .and_then(convert::identity);
+
+    let _ = actor_ref.signal_mailbox().signal_startup_finished();
     let actor_ref = {
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
@@ -176,13 +180,18 @@ where
                 return reason
             }
             signal = mailbox_rx.recv() => match signal {
-                Some(Signal::Message { message, actor_ref, reply }) => {
-                    if let Some(reason) = state.handle_message(message, actor_ref, reply).await {
+                Some(Signal::StartupFinished) => {
+                    if let Some(reason) = state.handle_startup_finished().await {
                         return reason;
                     }
                 }
-                Some(Signal::Query { query, actor_ref, reply }) => {
-                    if let Some(reason) = state.handle_query(query, actor_ref, reply).await {
+                Some(Signal::Message { message, actor_ref, reply, sent_within_actor }) => {
+                    if let Some(reason) = state.handle_message(message, actor_ref, reply, sent_within_actor).await {
+                        return reason;
+                    }
+                }
+                Some(Signal::Query { query, actor_ref, reply, sent_within_actor }) => {
+                    if let Some(reason) = state.handle_query(query, actor_ref, reply, sent_within_actor).await {
                         return reason;
                     }
                 }

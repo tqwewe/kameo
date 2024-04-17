@@ -1,4 +1,6 @@
 use std::{
+    collections::VecDeque,
+    mem,
     panic::{panic_any, AssertUnwindSafe},
     sync::Arc,
 };
@@ -15,14 +17,19 @@ use crate::{
     message::{BoxReply, DynMessage, DynQuery},
 };
 
+use super::Signal;
+
 pub(crate) trait ActorState<A: Actor>: Sized {
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
+
+    fn handle_startup_finished(&mut self) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
     fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
     fn handle_query(
@@ -30,6 +37,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
         query: Box<dyn DynQuery<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
     fn handle_link_died(
@@ -55,6 +63,8 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 pub(crate) struct SyncActor<A> {
     actor_ref: WeakActorRef<A>,
     state: Arc<RwLock<A>>,
+    finished_startup: bool,
+    startup_buffer: VecDeque<Signal<A>>,
     semaphore: Arc<Semaphore>,
     concurrent_queries: JoinSet<Option<ActorStopReason>>,
 }
@@ -87,9 +97,40 @@ where
         SyncActor {
             actor_ref,
             state: Arc::new(RwLock::new(actor)),
+            finished_startup: false,
+            startup_buffer: VecDeque::new(),
             semaphore: Arc::new(Semaphore::new(A::max_concurrent_queries())),
             concurrent_queries: JoinSet::new(),
         }
+    }
+
+    async fn handle_startup_finished(&mut self) -> Option<ActorStopReason> {
+        self.finished_startup = true;
+        for signal in mem::take(&mut self.startup_buffer).drain(..) {
+            match signal {
+                Signal::Message {
+                    message,
+                    actor_ref,
+                    reply,
+                    sent_within_actor,
+                } => {
+                    self.handle_message(message, actor_ref, reply, sent_within_actor)
+                        .await?;
+                }
+                Signal::Query {
+                    query,
+                    actor_ref,
+                    reply,
+                    sent_within_actor,
+                } => {
+                    self.handle_query(query, actor_ref, reply, sent_within_actor)
+                        .await?;
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        None
     }
 
     #[inline]
@@ -98,7 +139,19 @@ where
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     ) -> Option<ActorStopReason> {
+        if !sent_within_actor && !self.finished_startup {
+            // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
+            self.startup_buffer.push_back(Signal::Message {
+                message,
+                actor_ref,
+                reply,
+                sent_within_actor,
+            });
+            return None;
+        }
+
         if let Some(reason) = self.wait_concurrent_queries().await {
             return Some(reason);
         }
@@ -123,7 +176,19 @@ where
         query: Box<dyn DynQuery<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     ) -> Option<ActorStopReason> {
+        if !sent_within_actor && !self.finished_startup {
+            // The actor is still starting up, so we'll push this query to a buffer to be processed upon startup
+            self.startup_buffer.push_back(Signal::Query {
+                query,
+                actor_ref,
+                reply,
+                sent_within_actor,
+            });
+            return None;
+        }
+
         let permit = self.semaphore.clone().acquire_owned().await;
         let state = self.state.clone();
         self.concurrent_queries.spawn(async move {
@@ -228,6 +293,8 @@ where
 pub(crate) struct UnsyncActor<A> {
     actor_ref: WeakActorRef<A>,
     state: A,
+    finished_startup: bool,
+    startup_buffer: VecDeque<Signal<A>>,
 }
 
 impl<A> ActorState<A> for UnsyncActor<A>
@@ -238,7 +305,38 @@ where
         UnsyncActor {
             actor_ref,
             state: actor,
+            finished_startup: false,
+            startup_buffer: VecDeque::new(),
         }
+    }
+
+    async fn handle_startup_finished(&mut self) -> Option<ActorStopReason> {
+        self.finished_startup = true;
+        for signal in mem::take(&mut self.startup_buffer).drain(..) {
+            match signal {
+                Signal::Message {
+                    message,
+                    actor_ref,
+                    reply,
+                    sent_within_actor,
+                } => {
+                    self.handle_message(message, actor_ref, reply, sent_within_actor)
+                        .await?;
+                }
+                Signal::Query {
+                    query,
+                    actor_ref,
+                    reply,
+                    sent_within_actor,
+                } => {
+                    self.handle_query(query, actor_ref, reply, sent_within_actor)
+                        .await?;
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        None
     }
 
     async fn handle_message(
@@ -246,7 +344,19 @@ where
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     ) -> Option<ActorStopReason> {
+        if !sent_within_actor && !self.finished_startup {
+            // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
+            self.startup_buffer.push_back(Signal::Message {
+                message,
+                actor_ref,
+                reply,
+                sent_within_actor,
+            });
+            return None;
+        }
+
         let res = AssertUnwindSafe(message.handle_dyn(&mut self.state, actor_ref, reply))
             .catch_unwind()
             .await;
@@ -262,6 +372,7 @@ where
         _query: Box<dyn DynQuery<A>>,
         _actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        _sent_within_actor: bool,
     ) -> Option<ActorStopReason> {
         match reply {
             Some(reply) => {

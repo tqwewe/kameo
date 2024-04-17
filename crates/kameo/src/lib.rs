@@ -103,7 +103,6 @@
 #![deny(unused_must_use)]
 
 pub mod actor;
-mod actor_kind;
 pub mod error;
 pub mod message;
 pub mod reply;
