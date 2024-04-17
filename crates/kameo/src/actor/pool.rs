@@ -186,6 +186,29 @@ impl<A> ActorPool<A> {
     }
 }
 
+impl<A> Actor for ActorPool<A> {
+    fn name() -> &'static str {
+        "ActorPool"
+    }
+}
+
+impl<A, M> Message<M> for ActorPool<A>
+where
+    A: Actor + Message<M>,
+    M: Send + Sync + 'static,
+    <A::Reply as Reply>::Error: fmt::Debug + Sync,
+{
+    type Reply = Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>;
+
+    async fn handle(
+        &mut self,
+        msg: M,
+        _ctx: crate::message::Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.send(msg).await
+    }
+}
+
 impl<A> fmt::Debug for ActorPool<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorPool")
