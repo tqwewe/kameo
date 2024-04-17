@@ -64,98 +64,21 @@ pub trait Query<T>: Send + 'static {
     ) -> impl Future<Output = Self::Reply> + Send;
 }
 
-/// A trait for handling messages streamed to an actor.
+/// A type for handling streams attached to an actor.
 ///
-/// Implementors of this trait can receive and process messages from a stream attached to the actor.
-/// This trait is designed to facilitate the integration of streaming data sources with actors, allowing
-/// actors to react and process each message as it arrives from the stream.
+/// Actors which implement handling messages of this type can receive and process messages from a stream attached to the actor.
+/// This type is designed to facilitate the integration of streaming data sources with actors,
+/// allowing actors to react and process each message as it arrives from the stream.
 ///
-/// The `S` and `F` generics allows additional data to be provided when attaching a stream.
-///
-/// # Examples
-///
-/// ```
-/// impl StreamMessage<MyMessageType, (), ()> for MyActor {
-///     async fn handle(&mut self, msg: MyMessageType, ctx: Context<'_, Self, ()>) {
-///         // Process each message here
-///     }
-///
-///     async fn on_start(&mut self, msg: (), ctx: Context<'_, Self, ()>) {
-///         // Handle the start of the stream
-///     }
-///
-///     async fn on_finish(&mut self, msg: (), ctx: Context<'_, Self, ()>) {
-///         // Handle the completion of the stream
-///     }
-/// }
-/// ```
-pub trait StreamMessage<T, S, F> {
-    /// Handles an individual message received from the stream.
-    ///
-    /// This method is called for each message that arrives from the attached stream, providing a way for the actor
-    /// to process streamed data. The method receives the message and a context allowing interaction with the actor system.
-    fn handle(&mut self, msg: T, ctx: Context<'_, Self, ()>) -> impl Future<Output = ()> + Send;
-
-    /// Called when a stream has been attached to the actor.
-    ///
-    /// This optional method can be implemented to perfom initialization for handling the stream. Additional data can be
-    /// provided through the `S` generic, which is received from the [`ActorRef::attach_stream`] method.
-    /// By default, it does nothing, but implementors can override it to add behavior specific to their actor's needs.
-    #[allow(unused_variables)]
-    fn on_start(&mut self, msg: S, ctx: Context<'_, Self, ()>) -> impl Future<Output = ()> + Send {
-        async {}
-    }
-
-    /// Called when the message stream attached to the actor is finished.
-    ///
-    /// This optional method can be implemented to perform cleanup or final actions once the stream has ended.
-    /// Additional data can be provided through the `F` generic, which is received from the [`ActorRef::attach_stream`] method.
-    /// By default, it does nothing, but implementors can override it to add behavior specific to their actor's needs.
-    #[allow(unused_variables)]
-    fn on_finish(&mut self, msg: F, ctx: Context<'_, Self, ()>) -> impl Future<Output = ()> + Send {
-        async {}
-    }
-}
-
-impl<A, T, S, F> Message<StreamMessageEnvelope<T, S, F>> for A
-where
-    A: StreamMessage<T, S, F> + Send + 'static,
-    T: Send,
-    S: Send,
-    F: Send,
-{
-    type Reply = ();
-
-    async fn handle(
-        &mut self,
-        msg: StreamMessageEnvelope<T, S, F>,
-        ctx: Context<'_, Self, Self::Reply>,
-    ) -> Self::Reply {
-        match msg {
-            StreamMessageEnvelope::Next(msg) => StreamMessage::handle(self, msg, ctx).await,
-            StreamMessageEnvelope::Started(value) => {
-                StreamMessage::on_start(self, value, ctx).await
-            }
-            StreamMessageEnvelope::Finished(value) => {
-                StreamMessage::on_finish(self, value, ctx).await
-            }
-        }
-    }
-}
-
-pub(crate) enum StreamMessageEnvelope<T, S, F> {
+/// It's typically used with [ActorRef::attach_stream] to attach a stream to an actor.
+#[derive(Clone, Debug)]
+pub enum StreamMessage<T, S, F> {
+    /// The next item in a stream.
     Next(T),
+    /// The stream has just been attached.
     Started(S),
+    /// The stream has finished, and no more items will be sent.
     Finished(F),
-}
-
-impl<T, S, F> StreamMessageEnvelope<T, S, F> {
-    pub(crate) fn unwrap(self) -> T {
-        match self {
-            StreamMessageEnvelope::Next(msg) => msg,
-            _ => panic!("unwrap panicked during StreamMessageEnvelope::unwrap"),
-        }
-    }
 }
 
 /// A context provided to message and query handlers providing access

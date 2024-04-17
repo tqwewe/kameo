@@ -4,7 +4,7 @@ use futures::stream;
 use kameo::{
     actor::ActorRef,
     error::BoxError,
-    message::{Context, StreamMessage},
+    message::{Context, Message, StreamMessage},
     Actor,
 };
 use tokio_stream::StreamExt;
@@ -32,18 +32,26 @@ impl Actor for MyActor {
     }
 }
 
-impl StreamMessage<i64, &'static str, &'static str> for MyActor {
-    async fn handle(&mut self, msg: i64, _ctx: Context<'_, Self, ()>) {
-        self.count += msg;
-        info!("Count is {}", self.count);
-    }
+impl Message<StreamMessage<i64, &'static str, &'static str>> for MyActor {
+    type Reply = ();
 
-    async fn on_start(&mut self, s: &'static str, _ctx: Context<'_, Self, ()>) {
-        info!("Started {s}");
-    }
-
-    async fn on_finish(&mut self, s: &'static str, _ctx: Context<'_, Self, ()>) {
-        info!("Finished {s}");
+    async fn handle(
+        &mut self,
+        msg: StreamMessage<i64, &'static str, &'static str>,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        match msg {
+            StreamMessage::Next(amount) => {
+                self.count += amount;
+                info!("Count is {}", self.count);
+            }
+            StreamMessage::Started(s) => {
+                info!("Started {s}");
+            }
+            StreamMessage::Finished(s) => {
+                info!("Finished {s}");
+            }
+        }
     }
 }
 

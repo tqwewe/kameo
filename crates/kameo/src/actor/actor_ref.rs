@@ -17,9 +17,7 @@ use tokio::{
 
 use crate::{
     error::{ActorStopReason, BoxSendError, SendError},
-    message::{
-        BoxReply, DynMessage, DynQuery, Message, Query, StreamMessage, StreamMessageEnvelope,
-    },
+    message::{BoxReply, DynMessage, DynQuery, Message, Query, StreamMessage},
     reply::Reply,
 };
 
@@ -220,14 +218,15 @@ impl<A> ActorRef<A> {
     ///
     /// The `start_value` and `finish_value` can be provided to pass additional context when attaching the stream.
     /// If there's no data to be sent, these can be set to `()`.
+    #[allow(clippy::type_complexity)]
     pub fn attach_stream<M, S, T, F>(
         &self,
         mut stream: S,
         start_value: T,
         finish_value: F,
-    ) -> JoinHandle<Result<(), SendError<M>>>
+    ) -> JoinHandle<Result<(), SendError<StreamMessage<M, T, F>>>>
     where
-        A: StreamMessage<M, T, F> + Send + 'static,
+        A: Message<StreamMessage<M, T, F>> + Send + 'static,
         S: Stream<Item = M> + Send + Unpin + 'static,
         M: Send + 'static,
         T: Send + 'static,
@@ -235,19 +234,13 @@ impl<A> ActorRef<A> {
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
-            actor_ref
-                .send_async(StreamMessageEnvelope::Started(start_value))
-                .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
+            actor_ref.send_async(StreamMessage::Started(start_value))?;
 
             while let Some(msg) = stream.next().await {
-                actor_ref
-                    .send_async(StreamMessageEnvelope::Next(msg))
-                    .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
+                actor_ref.send_async(StreamMessage::Next(msg))?;
             }
 
-            actor_ref
-                .send_async(StreamMessageEnvelope::Finished(finish_value))
-                .map_err(|err| err.map_msg(StreamMessageEnvelope::unwrap))?;
+            actor_ref.send_async(StreamMessage::Finished(finish_value))?;
 
             Ok(())
         })
