@@ -57,6 +57,15 @@ pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>
 ///
 /// This is implemented for all many std lib types, and can be implemented on custom types manually or with the derive
 /// macro.
+///
+/// # Example
+///
+/// ```
+/// use kameo::Reply;
+///
+/// #[derive(Reply)]
+/// pub struct Foo { }
+/// ```
 pub trait Reply {
     /// The success type in the reply.
     type Ok: Send + 'static;
