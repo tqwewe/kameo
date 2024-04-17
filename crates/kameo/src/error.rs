@@ -84,6 +84,26 @@ impl<M, E> SendError<M, E> {
     }
 }
 
+impl<M, E> SendError<M, SendError<M, E>> {
+    /// Flattens a nested SendError.
+    pub fn flatten(self) -> SendError<M, E> {
+        match self {
+            SendError::ActorNotRunning(msg)
+            | SendError::HandlerError(SendError::ActorNotRunning(msg)) => {
+                SendError::ActorNotRunning(msg)
+            }
+            SendError::ActorStopped | SendError::HandlerError(SendError::ActorStopped) => {
+                SendError::ActorStopped
+            }
+            SendError::HandlerError(SendError::HandlerError(err)) => SendError::HandlerError(err),
+            SendError::QueriesNotSupported
+            | SendError::HandlerError(SendError::QueriesNotSupported) => {
+                SendError::QueriesNotSupported
+            }
+        }
+    }
+}
+
 impl BoxSendError {
     /// Downcasts the inner error types to a concrete type.
     pub fn downcast<M, E>(self) -> SendError<M, E>
@@ -114,12 +134,15 @@ where
     }
 }
 
-impl<M, E> fmt::Display for SendError<M, E> {
+impl<M, E> fmt::Display for SendError<M, E>
+where
+    E: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
-            SendError::HandlerError(_) => write!(f, "actor replied with an error"),
+            SendError::HandlerError(err) => write!(f, "actor replied with an error: {err:?}"),
             SendError::QueriesNotSupported => {
                 write!(f, "actor spawned as !Sync cannot handle queries")
             }
