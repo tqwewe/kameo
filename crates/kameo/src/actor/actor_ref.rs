@@ -13,6 +13,7 @@ use futures::{stream::AbortHandle, Stream, StreamExt};
 use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
+    task_local,
 };
 
 use crate::{
@@ -22,7 +23,7 @@ use crate::{
 };
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
-tokio::task_local! {
+task_local! {
     pub(crate) static CURRENT_ACTOR_ID: u64;
 }
 
@@ -82,6 +83,14 @@ impl<A> ActorRef<A> {
         self.mailbox.weak_count()
     }
 
+    /// Returns true if called from within the actor.
+    pub fn is_current(&self) -> bool {
+        CURRENT_ACTOR_ID
+            .try_with(Clone::clone)
+            .map(|current_actor_id| current_actor_id == self.id())
+            .unwrap_or(false)
+    }
+
     /// Signals the actor to stop after processing all messages currently in its mailbox.
     ///
     /// This method sends a special stop message to the end of the actor's mailbox, ensuring
@@ -137,7 +146,7 @@ impl<A> ActorRef<A> {
         M: Send + 'static,
     {
         debug_assert!(
-            CURRENT_ACTOR_ID.try_with(Clone::clone).map(|current_actor_id| current_actor_id != self.id()).unwrap_or(true),
+            !self.is_current(),
             "actors cannot send messages syncronously themselves as this would deadlock - use send_async instead\nthis assertion only occurs on debug builds, release builds will deadlock",
         );
 
@@ -146,6 +155,7 @@ impl<A> ActorRef<A> {
             message: Box::new(msg),
             actor_ref: self.clone(),
             reply: Some(reply),
+            sent_within_actor: self.is_current(),
         })?;
         match rx.await? {
             Ok(val) => Ok(*val.downcast().unwrap()),
@@ -165,6 +175,7 @@ impl<A> ActorRef<A> {
             message: Box::new(msg),
             actor_ref: self.clone(),
             reply: None,
+            sent_within_actor: self.is_current(),
         })?)
     }
 
@@ -204,6 +215,7 @@ impl<A> ActorRef<A> {
             query: Box::new(msg),
             actor_ref: self.clone(),
             reply: Some(reply),
+            sent_within_actor: self.is_current(),
         })?;
         match rx.await? {
             Ok(val) => Ok(*val.downcast().unwrap()),
@@ -417,6 +429,7 @@ impl<A: ?Sized> fmt::Debug for WeakActorRef<A> {
 }
 
 pub(crate) trait SignalMailbox: DynClone + Send {
+    fn signal_startup_finished(&self) -> Result<(), SendError>;
     fn signal_link_died(&self, id: u64, reason: ActorStopReason) -> Result<(), SendError>;
     fn signal_stop(&self) -> Result<(), SendError>;
 }
@@ -424,6 +437,11 @@ pub(crate) trait SignalMailbox: DynClone + Send {
 dyn_clone::clone_trait_object!(SignalMailbox);
 
 impl<A> SignalMailbox for Mailbox<A> {
+    fn signal_startup_finished(&self) -> Result<(), SendError> {
+        self.send(Signal::StartupFinished)
+            .map_err(|_| SendError::ActorNotRunning(()))
+    }
+
     fn signal_link_died(&self, id: u64, reason: ActorStopReason) -> Result<(), SendError> {
         self.send(Signal::LinkDied { id, reason })
             .map_err(|_| SendError::ActorNotRunning(()))
@@ -436,15 +454,18 @@ impl<A> SignalMailbox for Mailbox<A> {
 }
 
 pub(crate) enum Signal<A: ?Sized> {
+    StartupFinished,
     Message {
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     },
     Query {
         query: Box<dyn DynQuery<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
     },
     LinkDied {
         id: u64,
@@ -459,16 +480,8 @@ impl<A> Signal<A> {
         M: 'static,
     {
         match self {
-            Signal::Message {
-                message,
-                actor_ref: _,
-                reply: _,
-            } => message.as_any().downcast().ok().map(|v| *v),
-            Signal::Query {
-                query: message,
-                actor_ref: _,
-                reply: _,
-            } => message.as_any().downcast().ok().map(|v| *v),
+            Signal::Message { message, .. } => message.as_any().downcast().ok().map(|v| *v),
+            Signal::Query { query: message, .. } => message.as_any().downcast().ok().map(|v| *v),
             _ => None,
         }
     }

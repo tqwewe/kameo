@@ -22,6 +22,7 @@
 //! of concurrency and parallelism.
 
 mod actor_ref;
+mod kind;
 mod pool;
 mod spawn;
 
@@ -79,6 +80,12 @@ pub trait Actor: Sized {
     }
 
     /// Hook that is called before the actor starts processing messages.
+    ///
+    /// # Guarantees
+    /// Messages sent internally by the actor during `on_start` are prioritized and processed before any externally
+    /// sent messages, even if external messages are received before `on_start` completes.
+    /// This is ensured by an internal buffering mechanism that holds external messages until after `on_start` has
+    /// finished executing.
     ///
     /// # Returns
     /// A result indicating successful initialization or an error if initialization fails.
