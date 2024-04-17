@@ -27,7 +27,7 @@ impl ToTokens for DeriveReply {
                 }
 
                 #[inline]
-                fn into_boxed_err(self) -> ::std::option::Option<::std::boxed::Box<dyn ::std::fmt::Debug + ::std::marker::Send + ::std::marker::Sync + 'static>> {
+                fn into_boxed_err(self) -> ::std::option::Option<::std::boxed::Box<dyn ::std::fmt::Debug + ::std::marker::Send + 'static>> {
                     ::std::option::Option::None
                 }
 
