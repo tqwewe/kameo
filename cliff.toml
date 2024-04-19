@@ -25,6 +25,8 @@ body = """
 {% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
   * @{{ contributor.username }} made their first contribution in #{{ contributor.pr_number }}
 {%- endfor -%}
+{%- if github.contributors | length > 0 %}
+{% endif -%}
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | upper_first }}
     {% for commit in commits | sort(attribute="author.timestamp") | reverse | sort(attribute="breaking") | reverse %}
