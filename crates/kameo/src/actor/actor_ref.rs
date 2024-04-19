@@ -56,7 +56,7 @@ impl<A> ActorRef<A> {
 
     /// Returns whether the actor is currently alive.
     pub fn is_alive(&self) -> bool {
-        self.mailbox.is_closed()
+        !self.mailbox.is_closed()
     }
 
     /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
