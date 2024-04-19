@@ -5,7 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2024-04-19
+
+* @liutaon made their first contribution in #21
+
+### <!-- 0 -->Added
+
+- Allow `ActorPool` itself to be spawned as an actor [</>](https://github.com/tqwewe/kameo/commit/deea594df98c620b562dd85af66efa123961ddf3)
+- Add `SendError::flatten` method [</>](https://github.com/tqwewe/kameo/commit/08edb344a78f5606c5b63f1c1147fb90a6a4b9c5)
+- Implement internal buffering whilst actor is starting up [</>](https://github.com/tqwewe/kameo/commit/c5b6fc228695caece1e260c51d9747a128c9e5f9)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Use `StreamMessage` enum instead of trait [</>](https://github.com/tqwewe/kameo/commit/720002221618c85ef95e0b81a280ca34d2180737)
+- **BREAKING:** Use `Display` implementation for handler errors [</>](https://github.com/tqwewe/kameo/commit/da888c08c72a5c506fb4b716d62f3011b34c1e2c)
+
+### <!-- 2 -->Removed
+
+- Remove `Sync` requirement from `Reply` macro #21
+
+### <!-- 3 -->Fixed
+
+- `is_alive` returning the opposite value [</>](https://github.com/tqwewe/kameo/commit/bb33aeab5ee76f9711c0fb2cac78e0b01d4cff80)
+
+### <!-- 4 -->Documentation
+
+- Add example to `Reply` trait code docs [</>](https://github.com/tqwewe/kameo/commit/9c52c46ab559a49fe4ba18deb2dbfcc74f1ad678)
+
+### <!-- 5 -->Misc
+
+- Add CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/a3ab7e589b5873cabf12583f3ca5b6b7d70c5538)
+- Update cliff.toml [</>](https://github.com/tqwewe/kameo/commit/ec2c66c21db16e1546592d2228e70481ddb57cd8)
+- Add newline for new contributors in cliff config [</>](https://github.com/tqwewe/kameo/commit/84f5f1ba253fe188a9a419255da871e111b024a4)
+
 ## [0.7.0] - 2024-04-15
+
 
 ### <!-- 0 -->Added
 
@@ -23,9 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add overhead benchmark [</>](https://github.com/tqwewe/kameo/commit/4aacfb7144cdded36e25c7a5d0f5f303c69c9ff4)
 - Remove commented stateless actor code [</>](https://github.com/tqwewe/kameo/commit/cb350f0d743ba6d8ab82cca30ef57d9e24fc8467)
 - Add git cliff integration [</>](https://github.com/tqwewe/kameo/commit/ff5b29b1b7bb984ded2f6555e7b53c2244f8688f)
-- Add CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/9a1664ab9be435db06bc904d73ac369bb5b435cb)
 
 ## [0.6.0] - 2024-04-11
+
 
 ### <!-- 0 -->Added
 
@@ -47,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.5.0] - 2024-04-04
 
+
 ### <!-- 0 -->Added
 
 - Add `HandlerError` to `SendError` to flatten actor errors [</>](https://github.com/tqwewe/kameo/commit/842957880e4c3183054486e1b1b560626477bcda)
@@ -61,6 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Improve docs for QueriesNotSupported error [</>](https://github.com/tqwewe/kameo/commit/bc8ff6a5e6b09bd114bcd218b90fd66b34905b4a)
 
 ## [0.4.0] - 2024-04-03
+
 
 ### <!-- 0 -->Added
 
@@ -82,11 +118,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.4] - 2024-04-02
 
+
 ### <!-- 3 -->Fixed
 
 - Parsing of message attributes [</>](https://github.com/tqwewe/kameo/commit/1cabf3d7df97800673df38796235befd7f89cf26)
 
 ## [0.3.3] - 2024-04-01
+
 
 ### <!-- 0 -->Added
 
@@ -106,6 +144,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.2] - 2024-03-31
 
+
 ### <!-- 3 -->Fixed
 
 - Only validate methods marked as message or query [</>](https://github.com/tqwewe/kameo/commit/5d92d80785cd9b76a322d83bfa018f38393af0b4)
@@ -122,11 +161,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.1] - 2024-03-30
 
+
 ### <!-- 4 -->Documentation
 
 - Update install version [</>](https://github.com/tqwewe/kameo/commit/f5a543ee69d527f0343f83aa881f2399f1b4e2a8)
 
 ## [0.3.0] - 2024-03-30
+
 
 ### <!-- 0 -->Added
 
@@ -134,11 +175,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2024-03-30
 
+
 ### <!-- 0 -->Added
 
 - Remove async_trait from public traits [</>](https://github.com/tqwewe/kameo/commit/569ad4418655a253b5ffbfb97d08e2240c1270c8)
 
 ## [0.1.2] - 2024-03-29
+
 
 ### <!-- 0 -->Added
 
@@ -151,10 +194,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.1] - 2024-03-29
 
+
 ### <!-- 0 -->Added
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.8.0]: https://github.com/tqwewe/kameo/compare/v0.7.0..v0.8.0
 [0.7.0]: https://github.com/tqwewe/kameo/compare/v0.6.0..v0.7.0
 [0.6.0]: https://github.com/tqwewe/kameo/compare/v0.5.0..v0.6.0
 [0.5.0]: https://github.com/tqwewe/kameo/compare/v0.4.0..v0.5.0
