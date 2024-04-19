@@ -288,10 +288,10 @@ macro_rules! impl_infallible_reply {
     ) => {
         impl $( < $($generics)* > )? Reply for $ty {
             type Ok = Self;
-            type Error = ();
+            type Error = ::std::convert::Infallible;
             type Value = Self;
 
-            fn to_result(self) -> Result<Self, ()> {
+            fn to_result(self) -> Result<Self, ::std::convert::Infallible> {
                 Ok(self)
             }
 

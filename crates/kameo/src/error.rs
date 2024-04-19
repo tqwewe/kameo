@@ -6,6 +6,7 @@
 
 use std::{
     any::{self, Any},
+    convert::Infallible,
     error, fmt,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
@@ -21,7 +22,7 @@ pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + S
 
 /// Error that can occur when sending a message to an actor.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SendError<M = (), E = ()> {
+pub enum SendError<M = (), E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning(M),
     /// The actor panicked or was stopped before a reply could be received.
@@ -136,13 +137,13 @@ where
 
 impl<M, E> fmt::Display for SendError<M, E>
 where
-    E: fmt::Debug,
+    E: fmt::Display,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
-            SendError::HandlerError(err) => write!(f, "actor replied with an error: {err:?}"),
+            SendError::HandlerError(err) => err.fmt(f),
             SendError::QueriesNotSupported => {
                 write!(f, "actor spawned as !Sync cannot handle queries")
             }
@@ -165,7 +166,7 @@ impl<M, E> From<oneshot::error::RecvError> for SendError<M, E> {
     }
 }
 
-impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug {}
+impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
 #[derive(Clone)]
