@@ -14,7 +14,7 @@
 //! (Command Query Responsibility Segregation) principle and enhancing the clarity and maintainability of actor
 //! interactions. It also provides some performance benefits in that sequential queries can be processed concurrently.
 
-use std::{any, fmt};
+use std::{any, fmt, mem};
 
 use futures::{future::BoxFuture, Future, FutureExt};
 use tokio::sync::oneshot;
@@ -106,6 +106,48 @@ where
     /// Returns the current actor's ref, allowing messages to be sent to itself.
     pub fn actor_ref(&self) -> ActorRef<A> {
         self.actor_ref.clone()
+    }
+
+    /// Runs blocking code in a tokio theadpool where blocking code is acceptable.
+    ///
+    /// Typically you want to yield back to the async runtime frequently, and blocking code
+    /// can often be an issue since it hogs the main thread. This function executes the closure
+    /// in a threadpool mitigating this issue.
+    ///
+    /// See <https://docs.rs/tokio/1/tokio/task/fn.spawn_blocking.html>.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// impl Message<Inc> for MyActor {
+    ///     type Reply = DelegatedReply<i64>;
+    ///
+    ///     async fn handle(&mut self, msg: Inc, mut ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///         ctx.blocking(self, move |state| {
+    ///             state.count += msg.amount as i64;
+    ///             state.count
+    ///         })
+    ///         .await
+    ///     }
+    /// }
+    /// ```
+    pub async fn blocking<F>(&mut self, state: &mut A, f: F) -> DelegatedReply<R::Value>
+    where
+        A: Send + 'static,
+        F: FnOnce(&mut A) -> R::Value + Send + 'static,
+    {
+        let (delegated_reply, reply_sender) = self.reply_sender();
+        /// SAFETY: Since we await the spawn_blocking task, we know the state
+        /// will not be disposed of whilst it's processing it.
+        let state: &'static mut A = unsafe { mem::transmute(state) };
+        let handle = tokio::task::spawn_blocking(move || {
+            let reply = f(state);
+            if let Some(tx) = reply_sender {
+                tx.send(reply);
+            }
+        });
+        let _ = handle.await;
+        delegated_reply
     }
 
     /// Extracts the reply sender, providing a mechanism for delegated responses and an optional reply sender.
