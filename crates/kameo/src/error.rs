@@ -29,6 +29,8 @@ pub enum SendError<M = (), E = Infallible> {
     ActorStopped,
     /// An error returned by the actor's message handler.
     HandlerError(E),
+    /// The actor was spawned as `!Sync`, which doesn't support blocking messages.
+    BlockingMessagesNotSupported,
     /// The actor was spawned as `!Sync`, which doesn't support queries.
     QueriesNotSupported,
 }
@@ -40,6 +42,7 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::HandlerError(_) => SendError::HandlerError(()),
+            SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -53,6 +56,7 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(f(msg)),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::HandlerError(err) => SendError::HandlerError(err),
+            SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -66,6 +70,7 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(msg),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::HandlerError(err) => SendError::HandlerError(op(err)),
+            SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -80,6 +85,7 @@ impl<M, E> SendError<M, E> {
             SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(Box::new(err)),
             SendError::ActorStopped => SendError::QueriesNotSupported,
+            SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -97,6 +103,10 @@ impl<M, E> SendError<M, SendError<M, E>> {
                 SendError::ActorStopped
             }
             SendError::HandlerError(SendError::HandlerError(err)) => SendError::HandlerError(err),
+            SendError::BlockingMessagesNotSupported
+            | SendError::HandlerError(SendError::BlockingMessagesNotSupported) => {
+                SendError::BlockingMessagesNotSupported
+            }
             SendError::QueriesNotSupported
             | SendError::HandlerError(SendError::QueriesNotSupported) => {
                 SendError::QueriesNotSupported
@@ -116,6 +126,7 @@ impl BoxSendError {
             SendError::HandlerError(err) => SendError::HandlerError(*err.downcast().unwrap()),
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(*err.downcast().unwrap()),
             SendError::ActorStopped => SendError::QueriesNotSupported,
+            SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
@@ -130,6 +141,7 @@ where
             SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
             SendError::HandlerError(err) => err.fmt(f),
+            SendError::BlockingMessagesNotSupported => write!(f, "BlockingMessagesNotSupported"),
             SendError::QueriesNotSupported => write!(f, "QueriesNotSupported"),
         }
     }
@@ -144,6 +156,9 @@ where
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
             SendError::HandlerError(err) => err.fmt(f),
+            SendError::BlockingMessagesNotSupported => {
+                write!(f, "actor spawned as !Sync cannot handle blocking messages")
+            }
             SendError::QueriesNotSupported => {
                 write!(f, "actor spawned as !Sync cannot handle queries")
             }

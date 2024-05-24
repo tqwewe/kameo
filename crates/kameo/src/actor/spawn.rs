@@ -190,6 +190,11 @@ where
                         return reason;
                     }
                 }
+                Some(Signal::BlockingMessage { message, actor_ref, reply, sent_within_actor }) => {
+                    if let Some(reason) = state.handle_blocking_message(message, actor_ref, reply, sent_within_actor).await {
+                        return reason;
+                    }
+                }
                 Some(Signal::Query { query, actor_ref, reply, sent_within_actor }) => {
                     if let Some(reason) = state.handle_query(query, actor_ref, reply, sent_within_actor).await {
                         return reason;

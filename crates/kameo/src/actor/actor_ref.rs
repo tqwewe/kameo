@@ -18,7 +18,10 @@ use tokio::{
 
 use crate::{
     error::{ActorStopReason, BoxSendError, SendError},
-    message::{BoxReply, DynMessage, DynQuery, Message, Query, StreamMessage},
+    message::{
+        BlockingMessage, BoxReply, DynBlockingMessage, DynMessage, DynQuery, Message, Query,
+        StreamMessage,
+    },
     reply::Reply,
 };
 
@@ -181,7 +184,7 @@ impl<A> ActorRef<A> {
 
     /// Sends a message to the actor after a delay.
     ///
-    /// This spawns a tokio::task and sleeps for the duration of `delay` before seding the message.
+    /// This spawns a tokio::task and sleeps for the duration of `delay` before sending the message.
     ///
     /// If the handler for this message returns an error, the actor will panic.
     pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
@@ -193,6 +196,70 @@ impl<A> ActorRef<A> {
         tokio::spawn(async move {
             tokio::time::sleep(delay).await;
             actor_ref.send_async(msg)
+        })
+    }
+
+    /// Sends a blocking message to the actor, waiting for a reply.
+    pub async fn send_blocking<M>(
+        &self,
+        msg: M,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    where
+        A: BlockingMessage<M> + Sync,
+        M: Send + 'static,
+    {
+        debug_assert!(
+            !self.is_current(),
+            "actors cannot send messages syncronously themselves as this would deadlock - use send_async instead\nthis assertion only occurs on debug builds, release builds will deadlock",
+        );
+
+        let (reply, rx) = oneshot::channel();
+        self.mailbox.send(Signal::BlockingMessage {
+            message: Box::new(msg),
+            actor_ref: self.clone(),
+            reply: Some(reply),
+            sent_within_actor: self.is_current(),
+        })?;
+        match rx.await? {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
+        }
+    }
+
+    /// Sends a blocking message to the actor asyncronously without waiting for a reply.
+    ///
+    /// If the handler for this message returns an error, the actor will panic.
+    pub fn send_blocking_async<M>(&self, msg: M) -> Result<(), SendError<M>>
+    where
+        A: BlockingMessage<M> + Sync,
+        M: Send + 'static,
+    {
+        Ok(self.mailbox.send(Signal::BlockingMessage {
+            message: Box::new(msg),
+            actor_ref: self.clone(),
+            reply: None,
+            sent_within_actor: self.is_current(),
+        })?)
+    }
+
+    /// Sends a blocking message to the actor after a delay.
+    ///
+    /// This spawns a tokio::task and sleeps for the duration of `delay` before sending the message.
+    ///
+    /// If the handler for this message returns an error, the actor will panic.
+    pub fn send_blocking_after<M>(
+        &self,
+        msg: M,
+        delay: Duration,
+    ) -> JoinHandle<Result<(), SendError<M>>>
+    where
+        A: BlockingMessage<M> + Sync,
+        M: Send + 'static,
+    {
+        let actor_ref = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            actor_ref.send_blocking_async(msg)
         })
     }
 
@@ -457,6 +524,12 @@ pub(crate) enum Signal<A: ?Sized> {
     StartupFinished,
     Message {
         message: Box<dyn DynMessage<A>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
+    },
+    BlockingMessage {
+        message: Box<dyn DynBlockingMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
         sent_within_actor: bool,

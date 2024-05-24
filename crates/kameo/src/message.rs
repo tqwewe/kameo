@@ -14,10 +14,10 @@
 //! (Command Query Responsibility Segregation) principle and enhancing the clarity and maintainability of actor
 //! interactions. It also provides some performance benefits in that sequential queries can be processed concurrently.
 
-use std::{any, fmt};
+use std::{any, fmt, ops::DerefMut};
 
 use futures::{future::BoxFuture, Future, FutureExt};
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, OwnedRwLockWriteGuard};
 
 use crate::{
     actor::ActorRef,
@@ -43,6 +43,20 @@ pub trait Message<T>: Send + 'static {
         msg: T,
         ctx: Context<'_, Self, Self::Reply>,
     ) -> impl Future<Output = Self::Reply> + Send;
+}
+
+/// A blocking message that can modify an actors state. This trait is for handling messages which are not async and may
+/// block the current thread.
+///
+/// Messages are processed sequentially one at a time, with exclusive mutable access to the actors state.
+///
+/// The reply type must implement [Reply].
+pub trait BlockingMessage<T>: Send + 'static {
+    /// The reply sent back to the message caller.
+    type Reply: Reply + Send + 'static;
+
+    /// Handler for this message.
+    fn handle(&mut self, msg: T, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply;
 }
 
 /// Queries the actor for some data.
@@ -213,6 +227,60 @@ where
             let ctx: Context<'_, A, <A as Message<T>>::Reply> =
                 Context::new(actor_ref, &mut reply_sender);
             let reply = Message::handle(state, *self, ctx).await;
+            if let Some(tx) = reply_sender.take() {
+                tx.send(reply.into_value());
+                None
+            } else {
+                reply.into_boxed_err()
+            }
+        }
+        .boxed()
+    }
+
+    fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
+        self
+    }
+}
+
+pub(crate) trait DynBlockingMessage<A>
+where
+    Self: Send,
+{
+    fn handle_dyn(
+        self: Box<Self>,
+        state: OwnedRwLockWriteGuard<A>,
+        actor_ref: ActorRef<A>,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'static, Option<BoxDebug>>
+    where
+        A: Send;
+    fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
+}
+
+impl<A, T> DynBlockingMessage<A> for T
+where
+    A: BlockingMessage<T> + Send + Sync,
+    T: Send + 'static,
+{
+    fn handle_dyn(
+        self: Box<Self>,
+        mut state: OwnedRwLockWriteGuard<A>,
+        actor_ref: ActorRef<A>,
+        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+    ) -> BoxFuture<'static, Option<BoxDebug>>
+    where
+        A: Send,
+    {
+        async move {
+            let (mut reply_sender, reply) = tokio::task::spawn_blocking(move || {
+                let mut reply_sender = tx.map(ReplySender::new);
+                let ctx: Context<'_, A, <A as BlockingMessage<T>>::Reply> =
+                    Context::new(actor_ref, &mut reply_sender);
+                let reply = BlockingMessage::handle(state.deref_mut(), *self, ctx);
+                (reply_sender, reply)
+            })
+            .await
+            .unwrap();
             if let Some(tx) = reply_sender.take() {
                 tx.send(reply.into_value());
                 None
