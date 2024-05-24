@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2024-05-24
+
+
+### <!-- 0 -->Added
+
+- Add `BlockingMessage` for blocking actor code (#26) #26
+
 ## [0.8.0] - 2024-04-19
 
 * @liutaon made their first contribution in #21
@@ -199,6 +206,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.8.1]: https://github.com/tqwewe/kameo/compare/v0.8.0..v0.8.1
 [0.8.0]: https://github.com/tqwewe/kameo/compare/v0.7.0..v0.8.0
 [0.7.0]: https://github.com/tqwewe/kameo/compare/v0.6.0..v0.7.0
 [0.6.0]: https://github.com/tqwewe/kameo/compare/v0.5.0..v0.6.0
