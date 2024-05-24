@@ -1,6 +1,5 @@
 use kameo::{
-    message::{Context, Message},
-    reply::DelegatedReply,
+    message::{BlockingMessage, Context},
     Actor,
 };
 use tracing_subscriber::EnvFilter;
@@ -21,15 +20,12 @@ pub struct Inc {
     amount: u32,
 }
 
-impl Message<Inc> for MyActor {
-    type Reply = DelegatedReply<i64>;
+impl BlockingMessage<Inc> for MyActor {
+    type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc, mut ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
-        ctx.blocking(self, move |state| {
-            state.count += msg.amount as i64;
-            state.count
-        })
-        .await
+    fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+        self.count += msg.amount as i64;
+        self.count
     }
 }
 
@@ -42,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let my_actor_ref = kameo::spawn(MyActor::default());
-    let res = my_actor_ref.send(Inc { amount: 10 }).await?;
+    let res = my_actor_ref.send_blocking(Inc { amount: 10 }).await?;
     dbg!(res);
 
     Ok(())

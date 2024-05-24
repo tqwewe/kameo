@@ -14,7 +14,7 @@ use tokio::{
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, BoxSendError, PanicError, SendError},
-    message::{BoxReply, DynMessage, DynQuery},
+    message::{BoxReply, DynBlockingMessage, DynMessage, DynQuery},
 };
 
 use super::Signal;
@@ -27,6 +27,14 @@ pub(crate) trait ActorState<A: Actor>: Sized {
     fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
+    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
+
+    fn handle_blocking_message(
+        &mut self,
+        message: Box<dyn DynBlockingMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
         sent_within_actor: bool,
@@ -117,6 +125,15 @@ where
                     self.handle_message(message, actor_ref, reply, sent_within_actor)
                         .await?;
                 }
+                Signal::BlockingMessage {
+                    message,
+                    actor_ref,
+                    reply,
+                    sent_within_actor,
+                } => {
+                    self.handle_blocking_message(message, actor_ref, reply, sent_within_actor)
+                        .await?;
+                }
                 Signal::Query {
                     query,
                     actor_ref,
@@ -163,6 +180,40 @@ where
         ))
         .catch_unwind()
         .await;
+        match res {
+            Ok(None) => None,
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
+        }
+    }
+
+    #[inline]
+    async fn handle_blocking_message(
+        &mut self,
+        message: Box<dyn DynBlockingMessage<A>>,
+        actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        sent_within_actor: bool,
+    ) -> Option<ActorStopReason> {
+        if !sent_within_actor && !self.finished_startup {
+            // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
+            self.startup_buffer.push_back(Signal::BlockingMessage {
+                message,
+                actor_ref,
+                reply,
+                sent_within_actor,
+            });
+            return None;
+        }
+
+        if let Some(reason) = self.wait_concurrent_queries().await {
+            return Some(reason);
+        }
+
+        let state = self.state.clone().try_write_owned().unwrap();
+        let res = AssertUnwindSafe(message.handle_dyn(state, actor_ref, reply))
+            .catch_unwind()
+            .await;
         match res {
             Ok(None) => None,
             Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
@@ -301,6 +352,7 @@ impl<A> ActorState<A> for UnsyncActor<A>
 where
     A: Actor + Send,
 {
+    #[inline]
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self {
         UnsyncActor {
             actor_ref,
@@ -339,6 +391,7 @@ where
         None
     }
 
+    #[inline]
     async fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
@@ -367,6 +420,24 @@ where
         }
     }
 
+    #[inline]
+    async fn handle_blocking_message(
+        &mut self,
+        _message: Box<dyn DynBlockingMessage<A>>,
+        _actor_ref: ActorRef<A>,
+        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        _sent_within_actor: bool,
+    ) -> Option<ActorStopReason> {
+        match reply {
+            Some(reply) => {
+                let _ = reply.send(Err(SendError::QueriesNotSupported));
+                None
+            }
+            None => panic_any(SendError::<(), ()>::QueriesNotSupported),
+        }
+    }
+
+    #[inline]
     async fn handle_query(
         &mut self,
         _query: Box<dyn DynQuery<A>>,
@@ -383,6 +454,7 @@ where
         }
     }
 
+    #[inline]
     async fn handle_link_died(
         &mut self,
         id: u64,
@@ -402,10 +474,12 @@ where
         }
     }
 
+    #[inline]
     async fn handle_stop(&mut self) -> Option<ActorStopReason> {
         Some(ActorStopReason::Normal)
     }
 
+    #[inline]
     async fn on_shutdown(&mut self, reason: ActorStopReason) -> Option<ActorStopReason> {
         match reason {
             ActorStopReason::Normal => Some(ActorStopReason::Normal),
@@ -423,6 +497,7 @@ where
         }
     }
 
+    #[inline]
     async fn shutdown(self) -> A {
         self.state
     }
