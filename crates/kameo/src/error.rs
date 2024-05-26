@@ -8,17 +8,87 @@ use std::{
     any::{self, Any},
     convert::Infallible,
     error, fmt,
+    pin::Pin,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
+    task::{self, Poll},
 };
 
+use futures::{Future, FutureExt};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::{actor::Signal, message::BoxDebug};
+use crate::{
+    actor::{MessageReceiver, Signal},
+    message::{BoxDebug, BoxReply},
+};
 
 /// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
 /// A dyn boxed send error.
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
+
+/// A result returned when sending a message to an actor, allowing it to be awaited asyncronously, or received
+/// in a blocking context with `SendResult::blocking_recv()`.
+#[derive(Debug)]
+pub struct SendResult<T, M, E> {
+    inner: SendResultInner<T, M, E>,
+}
+
+#[derive(Debug)]
+enum SendResultInner<T, M, E> {
+    Ok(MessageReceiver<T, M, E>),
+    Err(Option<SendError<M, E>>),
+}
+
+impl<T, M, E> SendResult<T, M, E>
+where
+    T: 'static,
+    M: 'static,
+    E: 'static,
+{
+    pub(crate) fn ok(rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>) -> SendResult<T, M, E> {
+        SendResult {
+            inner: SendResultInner::Ok(MessageReceiver::new(rx)),
+        }
+    }
+
+    pub(crate) fn err(err: SendError<M, E>) -> SendResult<T, M, E> {
+        SendResult {
+            inner: SendResultInner::Err(Some(err)),
+        }
+    }
+
+    /// Receives the message response outside an async context.
+    pub fn blocking_recv(self) -> Result<T, SendError<M, E>> {
+        match self.inner {
+            SendResultInner::Ok(rx) => rx.blocking_recv(),
+            SendResultInner::Err(mut err) => Err(err.take().unwrap()),
+        }
+    }
+
+    /// Converts the `SendResult` into a std `Result`.
+    pub fn into_result(self) -> Result<MessageReceiver<T, M, E>, SendError<M, E>> {
+        match self.inner {
+            SendResultInner::Ok(rx) => Ok(rx),
+            SendResultInner::Err(mut err) => Err(err.take().unwrap()),
+        }
+    }
+}
+
+impl<T, M, E> Future for SendResult<T, M, E>
+where
+    T: Unpin + 'static,
+    M: Unpin + 'static,
+    E: Unpin + 'static,
+{
+    type Output = Result<T, SendError<M, E>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        match &mut self.get_mut().inner {
+            SendResultInner::Ok(rx) => rx.poll_unpin(cx),
+            SendResultInner::Err(err) => Poll::Ready(Err(err.take().unwrap())),
+        }
+    }
+}
 
 /// Error that can occur when sending a message to an actor.
 #[derive(Clone, Copy, PartialEq, Eq)]

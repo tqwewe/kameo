@@ -94,11 +94,14 @@ impl<A> ActorPool<A> {
     ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
     where
         A: Actor + Message<M>,
-        M: Send + 'static,
+        M: Unpin + Send + 'static,
+        <A::Reply as Reply>::Ok: Unpin,
+        <A::Reply as Reply>::Error: Unpin,
     {
         for _ in 0..self.workers.len() * 2 {
             let (idx, worker) = self.next_worker();
-            match worker.send(msg).await {
+            let res = worker.send(msg).await;
+            match res {
                 Err(SendError::ActorNotRunning(v)) => {
                     msg = v;
                     warn!(id = %worker.id(), name = %A::name(), "restarting worker");
@@ -139,7 +142,9 @@ impl<A> ActorPool<A> {
     ) -> Vec<Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>>
     where
         A: Actor + Message<M>,
-        M: Clone + Send + 'static,
+        M: Clone + Unpin + Send + 'static,
+        <A::Reply as Reply>::Ok: Unpin,
+        <A::Reply as Reply>::Error: Unpin,
     {
         let results = join_all(self.workers.iter().map(|worker| worker.send(msg.clone()))).await;
         for (i, res) in results.iter().enumerate() {
@@ -195,8 +200,9 @@ impl<A> Actor for ActorPool<A> {
 impl<A, M> Message<M> for ActorPool<A>
 where
     A: Actor + Message<M>,
-    M: Send + Sync + 'static,
-    <A::Reply as Reply>::Error: fmt::Debug + Sync,
+    M: Unpin + Send + Sync + 'static,
+    <A::Reply as Reply>::Ok: Unpin,
+    <A::Reply as Reply>::Error: fmt::Debug + Unpin + Sync,
 {
     type Reply = Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>;
 

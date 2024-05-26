@@ -1,15 +1,19 @@
 use std::{
+    cell::Cell,
     collections::HashMap,
     fmt,
+    marker::PhantomData,
+    pin::Pin,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex, TryLockError,
     },
+    task::{self, ready, Poll},
     time::Duration,
 };
 
 use dyn_clone::DynClone;
-use futures::{stream::AbortHandle, Stream, StreamExt};
+use futures::{stream::AbortHandle, Future, Stream, StreamExt};
 use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
@@ -17,7 +21,7 @@ use tokio::{
 };
 
 use crate::{
-    error::{ActorStopReason, BoxSendError, SendError},
+    error::{ActorStopReason, BoxSendError, SendError, SendResult},
     message::{
         BlockingMessage, BoxReply, DynBlockingMessage, DynMessage, DynQuery, Message, Query,
         StreamMessage,
@@ -28,6 +32,9 @@ use crate::{
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: u64;
+}
+thread_local! {
+    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<u64>> = Cell::new(None);
 }
 
 type Mailbox<A> = mpsc::UnboundedSender<Signal<A>>;
@@ -140,10 +147,20 @@ impl<A> ActorRef<A> {
     }
 
     /// Sends a message to the actor, waiting for a reply.
-    pub async fn send<M>(
+    ///
+    /// The message reply can be awaited asyncronously, or in a blocking context either by awaiting it directly,
+    /// or calling [`SendResult::blocking_recv()`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// actor_ref.send(msg).await?; // Receive reply asyncronously
+    /// actor_ref.send(msg).blocking_recv()?; // Receive reply blocking
+    /// ```
+    pub fn send<M>(
         &self,
         msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    ) -> SendResult<<A::Reply as Reply>::Ok, M, <A::Reply as Reply>::Error>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -154,16 +171,16 @@ impl<A> ActorRef<A> {
         );
 
         let (reply, rx) = oneshot::channel();
-        self.mailbox.send(Signal::Message {
+        let res = self.mailbox.send(Signal::Message {
             message: Box::new(msg),
             actor_ref: self.clone(),
             reply: Some(reply),
             sent_within_actor: self.is_current(),
-        })?;
-        match rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+        });
+        if let Err(err) = res {
+            return SendResult::err(err.into());
         }
+        SendResult::ok(rx)
     }
 
     /// Sends a message to the actor asyncronously without waiting for a reply.
@@ -200,10 +217,20 @@ impl<A> ActorRef<A> {
     }
 
     /// Sends a blocking message to the actor, waiting for a reply.
-    pub async fn send_blocking<M>(
+    ///
+    /// The message reply can be awaited asyncronously, or in a blocking context either by awaiting it directly,
+    /// or calling [`SendResult::blocking_recv()`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// actor_ref.send_blocking(msg).await?; // Receive reply asyncronously
+    /// actor_ref.send_blocking(msg).blocking_recv()?; // Receive reply blocking
+    /// ```
+    pub fn send_blocking<M>(
         &self,
         msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    ) -> SendResult<<A::Reply as Reply>::Ok, M, <A::Reply as Reply>::Error>
     where
         A: BlockingMessage<M> + Sync,
         M: Send + 'static,
@@ -214,16 +241,16 @@ impl<A> ActorRef<A> {
         );
 
         let (reply, rx) = oneshot::channel();
-        self.mailbox.send(Signal::BlockingMessage {
+        let res = self.mailbox.send(Signal::BlockingMessage {
             message: Box::new(msg),
             actor_ref: self.clone(),
             reply: Some(reply),
             sent_within_actor: self.is_current(),
-        })?;
-        match rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+        });
+        if let Err(err) = res {
+            return SendResult::err(err.into());
         }
+        SendResult::ok(rx)
     }
 
     /// Sends a blocking message to the actor asyncronously without waiting for a reply.
@@ -269,25 +296,35 @@ impl<A> ActorRef<A> {
     ///
     /// If the actor was spawned as `!Sync` with [spawn_unsync](crate::actor::spawn_unsync),
     /// then queries will not be supported and any query will return an error of [`SendError::QueriesNotSupported`].
-    pub async fn query<M>(
+    ///
+    /// The query reply can be awaited asyncronously, or in a blocking context either by awaiting it directly,
+    /// or calling [`SendResult::blocking_recv()`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// actor_ref.query(msg).await?; // Receive reply asyncronously
+    /// actor_ref.query(msg).blocking_recv()?; // Receive reply blocking
+    /// ```
+    pub fn query<M>(
         &self,
         msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
+    ) -> SendResult<<A::Reply as Reply>::Ok, M, <A::Reply as Reply>::Error>
     where
         A: Query<M>,
         M: Send + 'static,
     {
         let (reply, rx) = oneshot::channel();
-        self.mailbox.send(Signal::Query {
+        let res = self.mailbox.send(Signal::Query {
             query: Box::new(msg),
             actor_ref: self.clone(),
             reply: Some(reply),
             sent_within_actor: self.is_current(),
-        })?;
-        match rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+        });
+        if let Err(err) = res {
+            return SendResult::err(err.into());
         }
+        SendResult::ok(rx)
     }
 
     /// Attaches a stream of messages to the actor.
@@ -492,6 +529,58 @@ impl<A: ?Sized> fmt::Debug for WeakActorRef<A> {
             }
         }
         d.finish()
+    }
+}
+
+/// A receiver for receiving a message response either asyncronously or blocking.
+///
+/// To receive the message asyncronously, simply `.await` the `MessageReceiver`.
+/// Or to receive in a blocking context, use [`MessageReceiver::blocking_recv()`].
+#[derive(Debug)]
+pub struct MessageReceiver<T, M, E> {
+    rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>,
+    phantom: PhantomData<(T, M, E)>,
+}
+
+impl<T, M, E> MessageReceiver<T, M, E>
+where
+    T: 'static,
+    M: 'static,
+    E: 'static,
+{
+    pub(crate) fn new(rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>) -> Self {
+        MessageReceiver {
+            rx,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Receives the message response outside an async context.
+    pub fn blocking_recv(self) -> Result<T, SendError<M, E>> {
+        let res = self.rx.blocking_recv()?;
+        match res {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
+        }
+    }
+}
+
+impl<T, M, E> Future for MessageReceiver<T, M, E>
+where
+    T: 'static,
+    M: 'static,
+    E: 'static,
+{
+    type Output = Result<T, SendError<M, E>>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
+        // Safety: `rx` is `Unpin` and we do not move `self`.
+        let rx = unsafe { self.map_unchecked_mut(|s| &mut s.rx) };
+        let res = ready!(rx.poll(cx));
+        match res? {
+            Ok(val) => Poll::Ready(Ok(*val.downcast().unwrap())),
+            Err(err) => Poll::Ready(Err(err.downcast())),
+        }
     }
 }
 
