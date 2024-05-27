@@ -176,10 +176,11 @@ where
     ) -> ForwardedReply<R::Ok, M, E>
     where
         B: Message<M, Reply = R2>,
-        M: Send + Sync + 'static,
+        M: Unpin + Send + Sync + 'static,
         R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
         R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
-        E: fmt::Debug + Send + Sync + 'static,
+        E: fmt::Debug + Unpin + Send + Sync + 'static,
+        R::Ok: Unpin,
     {
         let (delegated_reply, reply_sender) = self.reply_sender();
         tokio::spawn(async move {
