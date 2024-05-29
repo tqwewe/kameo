@@ -66,7 +66,7 @@ pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>
 /// #[derive(Reply)]
 /// pub struct Foo { }
 /// ```
-pub trait Reply {
+pub trait Reply: Send + 'static {
     /// The success type in the reply.
     type Ok: Send + 'static;
     /// The error type in the reply.
@@ -74,7 +74,7 @@ pub trait Reply {
     /// The type sent back to the receiver.
     ///
     /// In almost all cases this will be `Self`. The only exception is the `DeligatedReply` type.
-    type Value: Reply + Send + 'static;
+    type Value: Reply;
 
     /// Converts a reply to a `Result`.
     fn to_result(self) -> Result<Self::Ok, Self::Error>;

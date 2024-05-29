@@ -35,7 +35,7 @@ pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 /// The reply type must implement [Reply].
 pub trait Message<T>: Send + 'static {
     /// The reply sent back to the message caller.
-    type Reply: Reply + Send + 'static;
+    type Reply: Reply;
 
     /// Handler for this message.
     fn handle(
@@ -53,7 +53,7 @@ pub trait Message<T>: Send + 'static {
 /// The reply type must implement [Reply].
 pub trait BlockingMessage<T>: Send + 'static {
     /// The reply sent back to the message caller.
-    type Reply: Reply + Send + 'static;
+    type Reply: Reply;
 
     /// Handler for this message.
     fn handle(&mut self, msg: T, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply;
@@ -68,7 +68,7 @@ pub trait BlockingMessage<T>: Send + 'static {
 /// The reply type must implement [Reply].
 pub trait Query<T>: Send + 'static {
     /// The reply sent back to the query caller.
-    type Reply: Reply + Send + 'static;
+    type Reply: Reply;
 
     /// Handler for this query.
     fn handle(
