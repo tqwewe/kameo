@@ -14,7 +14,7 @@ use tokio::{
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, BoxSendError, PanicError, SendError},
-    message::{BoxReply, DynBlockingMessage, DynMessage, DynQuery},
+    message::{BoxReply, DynMessage, DynQuery},
 };
 
 use super::Signal;
@@ -27,14 +27,6 @@ pub(crate) trait ActorState<A: Actor>: Sized {
     fn handle_message(
         &mut self,
         message: Box<dyn DynMessage<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
-
-    fn handle_blocking_message(
-        &mut self,
-        message: Box<dyn DynBlockingMessage<A>>,
         actor_ref: ActorRef<A>,
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
         sent_within_actor: bool,
@@ -68,7 +60,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
     }
 }
 
-pub(crate) struct SyncActor<A> {
+pub(crate) struct SyncActor<A: Actor> {
     actor_ref: WeakActorRef<A>,
     state: Arc<RwLock<A>>,
     finished_startup: bool,
@@ -125,15 +117,6 @@ where
                     self.handle_message(message, actor_ref, reply, sent_within_actor)
                         .await?;
                 }
-                Signal::BlockingMessage {
-                    message,
-                    actor_ref,
-                    reply,
-                    sent_within_actor,
-                } => {
-                    self.handle_blocking_message(message, actor_ref, reply, sent_within_actor)
-                        .await?;
-                }
                 Signal::Query {
                     query,
                     actor_ref,
@@ -180,40 +163,6 @@ where
         ))
         .catch_unwind()
         .await;
-        match res {
-            Ok(None) => None,
-            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
-            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
-        }
-    }
-
-    #[inline]
-    async fn handle_blocking_message(
-        &mut self,
-        message: Box<dyn DynBlockingMessage<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    ) -> Option<ActorStopReason> {
-        if !sent_within_actor && !self.finished_startup {
-            // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
-            self.startup_buffer.push_back(Signal::BlockingMessage {
-                message,
-                actor_ref,
-                reply,
-                sent_within_actor,
-            });
-            return None;
-        }
-
-        if let Some(reason) = self.wait_concurrent_queries().await {
-            return Some(reason);
-        }
-
-        let state = self.state.clone().try_write_owned().unwrap();
-        let res = AssertUnwindSafe(message.handle_dyn(state, actor_ref, reply))
-            .catch_unwind()
-            .await;
         match res {
             Ok(None) => None,
             Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
@@ -341,7 +290,7 @@ where
     }
 }
 
-pub(crate) struct UnsyncActor<A> {
+pub(crate) struct UnsyncActor<A: Actor> {
     actor_ref: WeakActorRef<A>,
     state: A,
     finished_startup: bool,
@@ -417,23 +366,6 @@ where
             Ok(None) => None,
             Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
-        }
-    }
-
-    #[inline]
-    async fn handle_blocking_message(
-        &mut self,
-        _message: Box<dyn DynBlockingMessage<A>>,
-        _actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        _sent_within_actor: bool,
-    ) -> Option<ActorStopReason> {
-        match reply {
-            Some(reply) => {
-                let _ = reply.send(Err(SendError::QueriesNotSupported));
-                None
-            }
-            None => panic_any(SendError::<(), ()>::QueriesNotSupported),
         }
     }
 

@@ -8,87 +8,20 @@ use std::{
     any::{self, Any},
     convert::Infallible,
     error, fmt,
-    pin::Pin,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
-    task::{self, Poll},
 };
 
-use futures::{Future, FutureExt};
-use tokio::sync::{mpsc, oneshot};
-
-use crate::{
-    actor::{MessageReceiver, Signal},
-    message::{BoxDebug, BoxReply},
+use tokio::{
+    sync::{mpsc, oneshot},
+    time::error::Elapsed,
 };
+
+use crate::{actor::Signal, message::BoxDebug, Actor};
 
 /// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
 /// A dyn boxed send error.
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
-
-/// A result returned when sending a message to an actor, allowing it to be awaited asyncronously, or received
-/// in a blocking context with `SendResult::blocking_recv()`.
-#[derive(Debug)]
-pub struct SendResult<T, M, E> {
-    inner: SendResultInner<T, M, E>,
-}
-
-#[derive(Debug)]
-enum SendResultInner<T, M, E> {
-    Ok(MessageReceiver<T, M, E>),
-    Err(Option<SendError<M, E>>),
-}
-
-impl<T, M, E> SendResult<T, M, E>
-where
-    T: 'static,
-    M: 'static,
-    E: 'static,
-{
-    pub(crate) fn ok(rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>) -> SendResult<T, M, E> {
-        SendResult {
-            inner: SendResultInner::Ok(MessageReceiver::new(rx)),
-        }
-    }
-
-    pub(crate) fn err(err: SendError<M, E>) -> SendResult<T, M, E> {
-        SendResult {
-            inner: SendResultInner::Err(Some(err)),
-        }
-    }
-
-    /// Receives the message response outside an async context.
-    pub fn blocking_recv(self) -> Result<T, SendError<M, E>> {
-        match self.inner {
-            SendResultInner::Ok(rx) => rx.blocking_recv(),
-            SendResultInner::Err(mut err) => Err(err.take().unwrap()),
-        }
-    }
-
-    /// Converts the `SendResult` into a std `Result`.
-    pub fn into_result(self) -> Result<MessageReceiver<T, M, E>, SendError<M, E>> {
-        match self.inner {
-            SendResultInner::Ok(rx) => Ok(rx),
-            SendResultInner::Err(mut err) => Err(err.take().unwrap()),
-        }
-    }
-}
-
-impl<T, M, E> Future for SendResult<T, M, E>
-where
-    T: Unpin + 'static,
-    M: Unpin + 'static,
-    E: Unpin + 'static,
-{
-    type Output = Result<T, SendError<M, E>>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        match &mut self.get_mut().inner {
-            SendResultInner::Ok(rx) => rx.poll_unpin(cx),
-            SendResultInner::Err(err) => Poll::Ready(Err(err.take().unwrap())),
-        }
-    }
-}
 
 /// Error that can occur when sending a message to an actor.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -97,8 +30,12 @@ pub enum SendError<M = (), E = Infallible> {
     ActorNotRunning(M),
     /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
+    /// The actors mailbox is full.
+    MailboxFull(M),
     /// An error returned by the actor's message handler.
     HandlerError(E),
+    /// Timed out waiting for a reply.
+    Timeout(Option<M>),
     /// The actor was spawned as `!Sync`, which doesn't support blocking messages.
     BlockingMessagesNotSupported,
     /// The actor was spawned as `!Sync`, which doesn't support queries.
@@ -111,7 +48,9 @@ impl<M, E> SendError<M, E> {
         match self {
             SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MailboxFull(_) => SendError::MailboxFull(()),
             SendError::HandlerError(_) => SendError::HandlerError(()),
+            SendError::Timeout(_) => SendError::Timeout(None),
             SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
@@ -125,7 +64,9 @@ impl<M, E> SendError<M, E> {
         match self {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(f(msg)),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MailboxFull(msg) => SendError::MailboxFull(f(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(err),
+            SendError::Timeout(msg) => SendError::Timeout(msg.map(f)),
             SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
@@ -139,7 +80,9 @@ impl<M, E> SendError<M, E> {
         match self {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(msg),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MailboxFull(msg) => SendError::MailboxFull(msg),
             SendError::HandlerError(err) => SendError::HandlerError(op(err)),
+            SendError::Timeout(msg) => SendError::Timeout(msg),
             SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
@@ -152,9 +95,13 @@ impl<M, E> SendError<M, E> {
         E: Send + 'static,
     {
         match self {
-            SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(Box::new(err)),
             SendError::ActorStopped => SendError::QueriesNotSupported,
+            SendError::MailboxFull(msg) => SendError::MailboxFull(Box::new(msg)),
+            SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
+            SendError::Timeout(msg) => {
+                SendError::Timeout(msg.map(|msg| Box::new(msg) as Box<dyn any::Any + Send>))
+            }
             SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
@@ -172,7 +119,13 @@ impl<M, E> SendError<M, SendError<M, E>> {
             SendError::ActorStopped | SendError::HandlerError(SendError::ActorStopped) => {
                 SendError::ActorStopped
             }
+            SendError::MailboxFull(msg) | SendError::HandlerError(SendError::MailboxFull(msg)) => {
+                SendError::MailboxFull(msg)
+            }
             SendError::HandlerError(SendError::HandlerError(err)) => SendError::HandlerError(err),
+            SendError::Timeout(msg) | SendError::HandlerError(SendError::Timeout(msg)) => {
+                SendError::Timeout(msg)
+            }
             SendError::BlockingMessagesNotSupported
             | SendError::HandlerError(SendError::BlockingMessagesNotSupported) => {
                 SendError::BlockingMessagesNotSupported
@@ -193,9 +146,11 @@ impl BoxSendError {
         E: 'static,
     {
         match self {
-            SendError::HandlerError(err) => SendError::HandlerError(*err.downcast().unwrap()),
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(*err.downcast().unwrap()),
-            SendError::ActorStopped => SendError::QueriesNotSupported,
+            SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MailboxFull(err) => SendError::MailboxFull(*err.downcast().unwrap()),
+            SendError::HandlerError(err) => SendError::HandlerError(*err.downcast().unwrap()),
+            SendError::Timeout(err) => SendError::Timeout(err.map(|err| *err.downcast().unwrap())),
             SendError::BlockingMessagesNotSupported => SendError::BlockingMessagesNotSupported,
             SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
@@ -210,7 +165,9 @@ where
         match self {
             SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
+            SendError::MailboxFull(_) => write!(f, "MailboxFull"),
             SendError::HandlerError(err) => err.fmt(f),
+            SendError::Timeout(_) => write!(f, "Timeout"),
             SendError::BlockingMessagesNotSupported => write!(f, "BlockingMessagesNotSupported"),
             SendError::QueriesNotSupported => write!(f, "QueriesNotSupported"),
         }
@@ -225,7 +182,9 @@ where
         match self {
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
+            SendError::MailboxFull(_) => write!(f, "mailbox full"),
             SendError::HandlerError(err) => err.fmt(f),
+            SendError::Timeout(_) => write!(f, "timeout"),
             SendError::BlockingMessagesNotSupported => {
                 write!(f, "actor spawned as !Sync cannot handle blocking messages")
             }
@@ -238,6 +197,7 @@ where
 
 impl<A, M, E> From<mpsc::error::SendError<Signal<A>>> for SendError<M, E>
 where
+    A: Actor,
     M: 'static,
 {
     fn from(err: mpsc::error::SendError<Signal<A>>) -> Self {
@@ -245,9 +205,49 @@ where
     }
 }
 
+impl<A, M, E> From<mpsc::error::TrySendError<Signal<A>>> for SendError<M, E>
+where
+    A: Actor,
+    M: 'static,
+{
+    fn from(err: mpsc::error::TrySendError<Signal<A>>) -> Self {
+        match err {
+            mpsc::error::TrySendError::Full(signal) => {
+                SendError::MailboxFull(signal.downcast_message::<M>().unwrap())
+            }
+            mpsc::error::TrySendError::Closed(signal) => {
+                SendError::ActorNotRunning(signal.downcast_message::<M>().unwrap())
+            }
+        }
+    }
+}
+
 impl<M, E> From<oneshot::error::RecvError> for SendError<M, E> {
     fn from(_err: oneshot::error::RecvError) -> Self {
         SendError::ActorStopped
+    }
+}
+
+impl<A, M, E> From<mpsc::error::SendTimeoutError<Signal<A>>> for SendError<M, E>
+where
+    A: Actor,
+    M: 'static,
+{
+    fn from(err: mpsc::error::SendTimeoutError<Signal<A>>) -> Self {
+        match err {
+            mpsc::error::SendTimeoutError::Timeout(msg) => {
+                SendError::Timeout(Some(msg.downcast_message::<M>().unwrap()))
+            }
+            mpsc::error::SendTimeoutError::Closed(msg) => {
+                SendError::ActorNotRunning(msg.downcast_message::<M>().unwrap())
+            }
+        }
+    }
+}
+
+impl<M, E> From<Elapsed> for SendError<M, E> {
+    fn from(_: Elapsed) -> Self {
+        SendError::Timeout(None)
     }
 }
 
@@ -299,7 +299,7 @@ impl fmt::Display for ActorStopReason {
     }
 }
 
-/// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor](crate::Actor) trait.
+/// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
 pub struct PanicError(Arc<Mutex<Box<dyn Any + Send>>>);
@@ -376,7 +376,7 @@ impl fmt::Display for PanicError {
                 return write!(f, "panicked: {err}");
             }
 
-            // Types are `BoxDebug` if the panic occured as a result of a `send_async` message returning an error
+            // Types are `BoxDebug` if the panic occured as a result of a `tell` message returning an error
             let box_err = any.downcast_ref::<BoxDebug>();
             if let Some(err) = box_err {
                 return write!(f, "panicked: {:?}", Err::<(), _>(err));

@@ -1,7 +1,11 @@
+use std::time::Duration;
+
 use kameo::{
-    message::{BlockingMessage, Context},
+    actor::UnboundedMailbox,
+    message::{Context, Message},
     Actor,
 };
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Default)]
@@ -10,6 +14,8 @@ pub struct MyActor {
 }
 
 impl Actor for MyActor {
+    type Mailbox = UnboundedMailbox<Self>;
+
     fn name() -> &'static str {
         "MyActor"
     }
@@ -20,10 +26,10 @@ pub struct Inc {
     amount: u32,
 }
 
-impl BlockingMessage<Inc> for MyActor {
+impl Message<Inc> for MyActor {
     type Reply = i64;
 
-    fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
         self.count += msg.amount as i64;
         self.count
     }
@@ -38,8 +44,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let my_actor_ref = kameo::spawn(MyActor::default());
-    let res = my_actor_ref.send_blocking(Inc { amount: 10 }).await?;
-    dbg!(res);
+
+    my_actor_ref.tell(Inc { amount: 3 }).send()?;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Increment the count by 3
+    let count = my_actor_ref
+        .ask(Inc { amount: 3 })
+        .reply_timeout(Duration::from_millis(10))
+        .send()
+        .await?;
+    info!("Count is {count}");
 
     Ok(())
 }

@@ -1,15 +1,9 @@
-use std::{
-    collections::HashMap,
-    convert, mem,
-    panic::AssertUnwindSafe,
-    sync::{Arc, Mutex},
-};
+use std::{convert, mem, panic::AssertUnwindSafe};
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
     FutureExt,
 };
-use tokio::sync::mpsc;
 use tracing::{error, trace};
 
 use crate::{
@@ -19,6 +13,8 @@ use crate::{
     },
     error::{ActorStopReason, PanicError},
 };
+
+use super::MailboxReceiver;
 
 /// Spawns an actor in a tokio task.
 ///
@@ -70,9 +66,9 @@ where
     A: Actor + Send + 'static,
     S: ActorState<A> + Send,
 {
-    let (mailbox, mailbox_rx) = mpsc::unbounded_channel::<Signal<A>>();
+    let (mailbox, mailbox_rx) = actor.new_mailbox();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
-    let links = Arc::new(Mutex::new(HashMap::new()));
+    let links = Links::default();
     let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
     let id = actor_ref.id();
 
@@ -91,7 +87,7 @@ where
 async fn run_actor_lifecycle<A, S>(
     actor_ref: ActorRef<A>,
     mut actor: A,
-    mailbox_rx: mpsc::UnboundedReceiver<Signal<A>>,
+    mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
     links: Links,
 ) where
@@ -109,7 +105,7 @@ async fn run_actor_lifecycle<A, S>(
         .map_err(PanicError::new_boxed)
         .and_then(convert::identity);
 
-    let _ = actor_ref.signal_mailbox().signal_startup_finished();
+    let _ = actor_ref.signal_mailbox().signal_startup_finished().await;
     let actor_ref = {
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
@@ -138,9 +134,10 @@ async fn run_actor_lifecycle<A, S>(
 
     let actor = state.shutdown().await;
 
-    if let Ok(mut links) = links.lock() {
+    {
+        let mut links = links.lock().await;
         for (_, actor_ref) in links.drain() {
-            let _ = actor_ref.signal_link_died(id, reason.clone());
+            let _ = actor_ref.signal_link_died(id, reason.clone()).await;
         }
     }
 
@@ -151,7 +148,7 @@ async fn run_actor_lifecycle<A, S>(
 
 async fn abortable_actor_loop<A, S>(
     state: &mut S,
-    mut mailbox_rx: mpsc::UnboundedReceiver<Signal<A>>,
+    mut mailbox_rx: MailboxReceiver<A>,
 ) -> ActorStopReason
 where
     A: Actor,
@@ -167,7 +164,7 @@ where
 
 async fn recv_mailbox_loop<A, S>(
     state: &mut S,
-    mailbox_rx: &mut mpsc::UnboundedReceiver<Signal<A>>,
+    mailbox_rx: &mut MailboxReceiver<A>,
 ) -> ActorStopReason
 where
     A: Actor,
@@ -179,35 +176,32 @@ where
             Some(reason) = state.next_pending_task() => {
                 return reason
             }
-            signal = mailbox_rx.recv() => match signal {
-                Some(Signal::StartupFinished) => {
-                    if let Some(reason) = state.handle_startup_finished().await {
-                        return reason;
+            signal = mailbox_rx.recv() => {
+                match signal {
+                    Some(Signal::StartupFinished) => {
+                        if let Some(reason) = state.handle_startup_finished().await {
+                            return reason;
+                        }
                     }
-                }
-                Some(Signal::Message { message, actor_ref, reply, sent_within_actor }) => {
-                    if let Some(reason) = state.handle_message(message, actor_ref, reply, sent_within_actor).await {
-                        return reason;
+                    Some(Signal::Message { message, actor_ref, reply, sent_within_actor }) => {
+                        if let Some(reason) = state.handle_message(message, actor_ref, reply, sent_within_actor).await {
+                            return reason;
+                        }
                     }
-                }
-                Some(Signal::BlockingMessage { message, actor_ref, reply, sent_within_actor }) => {
-                    if let Some(reason) = state.handle_blocking_message(message, actor_ref, reply, sent_within_actor).await {
-                        return reason;
+                    Some(Signal::Query { query, actor_ref, reply, sent_within_actor }) => {
+                        if let Some(reason) = state.handle_query(query, actor_ref, reply, sent_within_actor).await {
+                            return reason;
+                        }
                     }
-                }
-                Some(Signal::Query { query, actor_ref, reply, sent_within_actor }) => {
-                    if let Some(reason) = state.handle_query(query, actor_ref, reply, sent_within_actor).await {
-                        return reason;
+                    Some(Signal::LinkDied { id, reason }) => {
+                        if let Some(reason) = state.handle_link_died(id, reason).await {
+                            return reason;
+                        }
                     }
-                }
-                Some(Signal::LinkDied { id, reason }) => {
-                    if let Some(reason) = state.handle_link_died(id, reason).await {
-                        return reason;
-                    }
-                }
-                Some(Signal::Stop) | None => {
-                    if let Some(reason) = state.handle_stop().await {
-                        return reason;
+                    Some(Signal::Stop) | None => {
+                        if let Some(reason) = state.handle_stop().await {
+                            return reason;
+                        }
                     }
                 }
             }

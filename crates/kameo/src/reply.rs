@@ -13,7 +13,7 @@
 //! [`SendError::HandlerError`], integrating closely with Rust’s error handling patterns.
 //! - The `DelegatedReply` type signifies that the actual reply will be managed by another part of the system,
 //! supporting asynchronous and decoupled communication workflows.
-//! - Importantly, when messages are sent asynchronously with [`send_async`](crate::actor::ActorRef::send_async) and an error is returned by the actor
+//! - Importantly, when messages are sent asynchronously with [`tell`](crate::actor::ActorRef::tell) and an error is returned by the actor
 //! without a direct means for the caller to handle it (due to the absence of a reply expectation), the error is treated
 //! as a panic within the actor. This behavior will trigger the actor's [`on_panic`](crate::actor::Actor::on_panic) hook, which may result in the actor
 //! being restarted or stopped based on the [Actor](crate::Actor) implementation (which stops the actor by default).
@@ -40,6 +40,7 @@ use std::{
     thread::Thread,
 };
 
+use futures::Future;
 use tokio::sync::oneshot;
 
 use crate::{
@@ -198,6 +199,10 @@ impl<R> ReplySender<R> {
             tx,
             phantom: PhantomData,
         }
+    }
+
+    pub(crate) fn box_sender(self) -> oneshot::Sender<Result<BoxReply, BoxSendError>> {
+        self.tx
     }
 
     /// Sends a reply using the current `ReplySender`.
@@ -369,6 +374,8 @@ impl_infallible_reply!([
     {T: 'static + Send} std::cell::OnceCell<T>,
     {T: 'static + Send} std::sync::mpsc::Sender<T>,
     {T: 'static + Send} std::sync::mpsc::Receiver<T>,
+    {T: 'static + Send + Future<Output = O>, O: Send} futures::stream::FuturesOrdered<T>,
+    {T: 'static + Send} futures::stream::FuturesUnordered<T>,
     {T: 'static + Send} tokio::sync::OnceCell<T>,
     tokio::sync::Semaphore,
     tokio::sync::Notify,
@@ -384,6 +391,7 @@ impl_infallible_reply!([
     {T: 'static + Send} tokio::sync::oneshot::Receiver<T>,
     {T: 'static + Send} tokio::sync::Mutex<T>,
     {T: 'static + Send} tokio::sync::RwLock<T>,
+    {T: 'static + Send} tokio_stream::wrappers::ReceiverStream<T>,
     {A: 'static + Send} (A,),
     {A: 'static + Send, B: 'static + Send} (A, B),
     {A: 'static + Send, B: 'static + Send, C: 'static + Send} (A, B, C),

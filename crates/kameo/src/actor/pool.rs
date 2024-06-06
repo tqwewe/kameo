@@ -1,14 +1,19 @@
 use std::fmt;
 
 use futures::future::join_all;
-use tracing::warn;
+use itertools::repeat_n;
 
 use crate::{
     actor::{Actor, ActorRef},
-    error::SendError,
-    message::Message,
+    error::{ActorStopReason, BoxError, SendError},
+    message::{BoxDebug, Context, Message},
     reply::Reply,
+    request::Request,
 };
+
+use super::{BoundedMailbox, WeakActorRef};
+
+type Factory<A> = Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>;
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
@@ -44,16 +49,20 @@ use crate::{
 ///     kameo::spawn(MyActor)
 /// });
 ///
-/// pool.send(MyMessage).await?;
+/// pool.ask(WorkerMsg(MyMessage)).send().await?;
 /// ```
-pub struct ActorPool<A> {
+pub struct ActorPool<A: Actor<Mailbox = Mb>, Mb> {
     workers: Vec<ActorRef<A>>,
     size: usize,
     next_idx: usize,
-    factory: Box<dyn FnMut() -> ActorRef<A> + Send + Sync>,
+    factory: Factory<A>,
 }
 
-impl<A> ActorPool<A> {
+impl<A, Mb> ActorPool<A, Mb>
+where
+    A: Actor<Mailbox = Mb> + 'static,
+    Mb: Send + 'static,
+{
     /// Creates a new `ActorPool` with the specified size and a factory function for creating workers.
     ///
     /// The `size` parameter determines the fixed number of workers in the pool. The `factory`
@@ -87,135 +96,192 @@ impl<A> ActorPool<A> {
         }
     }
 
-    /// Sends a message to a worker in the pool, waiting for a reply.
-    pub async fn send<M>(
-        &mut self,
-        mut msg: M,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>
-    where
-        A: Actor + Message<M>,
-        M: Unpin + Send + 'static,
-        <A::Reply as Reply>::Ok: Unpin,
-        <A::Reply as Reply>::Error: Unpin,
-    {
-        for _ in 0..self.workers.len() * 2 {
-            let (idx, worker) = self.next_worker();
-            let res = worker.send(msg).await;
-            match res {
-                Err(SendError::ActorNotRunning(v)) => {
-                    msg = v;
-                    warn!(id = %worker.id(), name = %A::name(), "restarting worker");
-                    self.workers[idx] = (self.factory)();
-                }
-                res => return res,
-            }
-        }
-
-        Err(SendError::ActorNotRunning(msg))
-    }
-
-    /// Sends a message asyncronously to a worker in the pool.
-    pub fn send_async<M>(&mut self, mut msg: M) -> Result<(), SendError<M>>
-    where
-        A: Actor + Message<M>,
-        M: Send + 'static,
-    {
-        for _ in 0..self.workers.len() * 2 {
-            let (idx, worker) = self.next_worker();
-            match worker.send_async(msg) {
-                Err(SendError::ActorNotRunning(v)) => {
-                    msg = v;
-                    warn!(id = %worker.id(), name = %A::name(), "restarting worker");
-                    self.workers[idx] = (self.factory)();
-                }
-                res => return res,
-            }
-        }
-
-        Err(SendError::ActorNotRunning(msg))
-    }
-
-    /// Broadcasts a message to all workers.
-    pub async fn broadcast<M>(
-        &mut self,
-        msg: M,
-    ) -> Vec<Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>>
-    where
-        A: Actor + Message<M>,
-        M: Clone + Unpin + Send + 'static,
-        <A::Reply as Reply>::Ok: Unpin,
-        <A::Reply as Reply>::Error: Unpin,
-    {
-        let results = join_all(self.workers.iter().map(|worker| worker.send(msg.clone()))).await;
-        for (i, res) in results.iter().enumerate() {
-            if let Err(SendError::ActorNotRunning(_)) = res {
-                warn!(id = %self.workers[i].id(), name = %A::name(), "restarting worker");
-                self.workers[i] = (self.factory)();
-            }
-        }
-
-        results
-    }
-
-    /// Broadcasts a message to all workers.
-    pub fn broadcast_async<M>(&mut self, msg: M) -> Vec<Result<(), SendError<M>>>
-    where
-        A: Actor + Message<M>,
-        M: Clone + Send + 'static,
-    {
-        let results: Vec<_> = self
-            .workers
-            .iter()
-            .map(|worker| worker.send_async(msg.clone()))
-            .collect();
-        for (i, res) in results.iter().enumerate() {
-            if let Err(SendError::ActorNotRunning(_)) = res {
-                warn!(id = %self.workers[i].id(), name = %A::name(), "restarting worker");
-                self.workers[i] = (self.factory)();
-            }
-        }
-
-        results
-    }
-
     /// Gets the [ActorRef] for the next worker in the pool.
-    pub fn get_worker(&mut self) -> ActorRef<A> {
-        self.next_worker().1.clone()
+    #[inline]
+    pub fn get_worker(&self) -> ActorRef<A> {
+        self.workers[self.next_idx].clone()
     }
 
+    #[inline]
     fn next_worker(&mut self) -> (usize, &ActorRef<A>) {
         let idx = self.next_idx;
-        let worker = &self.workers[self.next_idx];
-        self.next_idx = (self.next_idx + 1) % self.workers.len();
+        let worker = &self.workers[idx];
+        self.next_idx = (idx + 1) % self.workers.len();
         (idx, worker)
     }
 }
 
-impl<A> Actor for ActorPool<A> {
+impl<A, Mb> Actor for ActorPool<A, Mb>
+where
+    A: Actor<Mailbox = Mb> + 'static,
+    Mb: Send + Sync + 'static,
+{
+    type Mailbox = BoundedMailbox<Self>;
+
     fn name() -> &'static str {
         "ActorPool"
     }
-}
 
-impl<A, M> Message<M> for ActorPool<A>
-where
-    A: Actor + Message<M>,
-    M: Unpin + Send + Sync + 'static,
-    <A::Reply as Reply>::Ok: Unpin,
-    <A::Reply as Reply>::Error: fmt::Debug + Unpin + Sync,
-{
-    type Reply = Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>;
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+        for worker in &self.workers {
+            worker.link_child(&actor_ref).await;
+        }
 
-    async fn handle(
+        Ok(())
+    }
+
+    async fn on_link_died(
         &mut self,
-        msg: M,
-        _ctx: crate::message::Context<'_, Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.send(msg).await
+        actor_ref: WeakActorRef<Self>,
+        id: u64,
+        _reason: ActorStopReason,
+    ) -> Result<Option<ActorStopReason>, BoxError> {
+        let Some(actor_ref) = actor_ref.upgrade() else {
+            return Ok(None);
+        };
+        let Some((i, _)) = self
+            .workers
+            .iter()
+            .enumerate()
+            .find(|(_, worker)| worker.id() == id)
+        else {
+            return Ok(None);
+        };
+
+        self.workers[i] = (self.factory)();
+        self.workers[i].link_child(&actor_ref).await;
+
+        Ok(None)
     }
 }
 
-impl<A> fmt::Debug for ActorPool<A> {
+/// A reply from a worker message.
+#[allow(missing_debug_implementations)]
+pub enum WorkerReply<A, M>
+where
+    A: Actor + Message<M>,
+{
+    /// The message was forwarded to a worker.
+    Forwarded,
+    /// The message failed to be sent to a worker.
+    Err(SendError<M, <A::Reply as Reply>::Error>),
+}
+
+impl<A, M> Reply for WorkerReply<A, M>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    <A::Reply as Reply>::Error: fmt::Debug,
+{
+    type Ok = <A::Reply as Reply>::Ok;
+    type Error = SendError<M, <A::Reply as Reply>::Error>;
+    type Value = <A::Reply as Reply>::Value;
+
+    fn to_result(self) -> Result<Self::Ok, Self::Error> {
+        unimplemented!("a WorkerReply cannot be converted to a result and is only a marker type")
+    }
+
+    fn into_boxed_err(self) -> Option<BoxDebug> {
+        match self {
+            WorkerReply::Forwarded => None,
+            WorkerReply::Err(err) => Some(Box::new(err)),
+        }
+    }
+
+    fn into_value(self) -> Self::Value {
+        unimplemented!("a WorkerReply cannot be converted to a value and is only a marker type")
+    }
+}
+
+/// A message sent to a worker in an actor pool.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct WorkerMsg<M>(pub M);
+
+impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A, Mb>
+where
+    A: Actor<Mailbox = Mb> + Message<M, Reply = R>,
+    M: Send + Sync + 'static,
+    Mb: Send + Sync + 'static,
+    R: Reply<Value = R>,
+    <A::Reply as Reply>::Error: fmt::Debug + Sync,
+    ActorRef<A>: Request<A, M, Mb>,
+{
+    type Reply = WorkerReply<A, M>;
+
+    async fn handle(
+        &mut self,
+        WorkerMsg(mut msg): WorkerMsg<M>,
+        mut ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        let (_, mut reply_sender) = ctx.reply_sender();
+        for _ in 0..self.workers.len() {
+            let worker = self.next_worker().1.clone();
+            match reply_sender {
+                Some(tx) => {
+                    if let Err(err) = Request::ask_forwarded(&worker, msg, tx).await {
+                        match err {
+                            SendError::ActorNotRunning((m, tx)) => {
+                                msg = m;
+                                reply_sender = Some(tx);
+                            },
+                            _ => unreachable!("message was forwarded, so the only error should be if the actor is not running")
+                        }
+                        continue;
+                    }
+
+                    return WorkerReply::Forwarded;
+                }
+                None => {
+                    if let Err(err) = Request::tell(&worker, msg).await {
+                        match err {
+                            SendError::ActorNotRunning(m) => {
+                                msg = m;
+                                reply_sender = None;
+                            },
+                            _ => unreachable!("message was sent with `tell`, so the only error should be if the actor is not running")
+                        }
+                        continue;
+                    }
+
+                    return WorkerReply::Forwarded;
+                }
+            }
+        }
+
+        return WorkerReply::Err(SendError::ActorNotRunning(msg));
+    }
+}
+
+/// A message broadcasted to all workers in an actor pool.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BroadcastMsg<M>(pub M);
+
+impl<A, M, Mb> Message<BroadcastMsg<M>> for ActorPool<A, Mb>
+where
+    A: Actor<Mailbox = Mb> + Message<M>,
+    M: Clone + Send + Sync + 'static,
+    Mb: Send + Sync + 'static,
+    <A::Reply as Reply>::Error: fmt::Debug + Sync,
+    ActorRef<A>: Request<A, M, Mb>,
+{
+    type Reply = Vec<Result<(), SendError<M, <A::Reply as Reply>::Error>>>;
+
+    async fn handle(
+        &mut self,
+        BroadcastMsg(msg): BroadcastMsg<M>,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        join_all(
+            self.workers
+                .iter()
+                .zip(repeat_n(msg, self.workers.len())) // Avoids unnecessary clone of msg on last iteration
+                .map(|(worker, msg)| Request::tell(worker, msg)),
+        )
+        .await
+    }
+}
+
+impl<A: Actor<Mailbox = Mb>, Mb> fmt::Debug for ActorPool<A, Mb> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorPool")
             .field("workers", &self.workers)

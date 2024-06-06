@@ -1,6 +1,7 @@
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
+use kameo::actor::BoundedMailbox;
 use kameo::{
     message::{Context, Message, Query},
     Actor,
@@ -8,7 +9,9 @@ use kameo::{
 
 struct FibActor {}
 
-impl Actor for FibActor {}
+impl Actor for FibActor {
+    type Mailbox = BoundedMailbox<Self>;
+}
 
 struct Fib(u64);
 
@@ -50,7 +53,7 @@ fn concurrent_reads(c: &mut Criterion) {
         &size,
         |b, _| {
             b.to_async(&rt)
-                .iter(|| async { unsync_actor_ref.send(Fib(0)).await.unwrap() });
+                .iter(|| async { unsync_actor_ref.ask(Fib(0)).send().await.unwrap() });
         },
     );
 
@@ -59,13 +62,13 @@ fn concurrent_reads(c: &mut Criterion) {
         &size,
         |b, _| {
             b.to_async(&rt)
-                .iter(|| async { sync_actor_ref.send(Fib(0)).await.unwrap() });
+                .iter(|| async { sync_actor_ref.ask(Fib(0)).send().await.unwrap() });
         },
     );
 
     c.bench_with_input(BenchmarkId::new("queries_instant", size), &size, |b, _| {
         b.to_async(&rt)
-            .iter(|| async { sync_actor_ref.query(Fib(0)).await.unwrap() });
+            .iter(|| async { sync_actor_ref.query(Fib(0)).send().await.unwrap() });
     });
 
     c.bench_with_input(
@@ -73,7 +76,7 @@ fn concurrent_reads(c: &mut Criterion) {
         &size,
         |b, _| {
             b.to_async(&rt)
-                .iter(|| async { unsync_actor_ref.send(Fib(20)).await.unwrap() });
+                .iter(|| async { unsync_actor_ref.ask(Fib(20)).send().await.unwrap() });
         },
     );
 
@@ -82,13 +85,13 @@ fn concurrent_reads(c: &mut Criterion) {
         &size,
         |b, _| {
             b.to_async(&rt)
-                .iter(|| async { sync_actor_ref.send(Fib(20)).await.unwrap() });
+                .iter(|| async { sync_actor_ref.ask(Fib(20)).send().await.unwrap() });
         },
     );
 
     c.bench_with_input(BenchmarkId::new("queries_fast", size), &size, |b, _| {
         b.to_async(&rt)
-            .iter(|| async { sync_actor_ref.query(Fib(20)).await.unwrap() });
+            .iter(|| async { sync_actor_ref.query(Fib(20)).send().await.unwrap() });
     });
 
     c.bench_with_input(
@@ -96,7 +99,7 @@ fn concurrent_reads(c: &mut Criterion) {
         &size,
         |b, _| {
             b.to_async(&rt)
-                .iter(|| async { unsync_actor_ref.send(Fib(30)).await.unwrap() });
+                .iter(|| async { unsync_actor_ref.ask(Fib(30)).send().await.unwrap() });
         },
     );
 
@@ -105,13 +108,13 @@ fn concurrent_reads(c: &mut Criterion) {
         &size,
         |b, _| {
             b.to_async(&rt)
-                .iter(|| async { sync_actor_ref.send(Fib(30)).await.unwrap() });
+                .iter(|| async { sync_actor_ref.ask(Fib(30)).send().await.unwrap() });
         },
     );
 
     c.bench_with_input(BenchmarkId::new("queries_slow", size), &size, |b, _| {
         b.to_async(&rt)
-            .iter(|| async { sync_actor_ref.query(Fib(30)).await.unwrap() });
+            .iter(|| async { sync_actor_ref.query(Fib(30)).send().await.unwrap() });
     });
 }
 
