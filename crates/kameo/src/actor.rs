@@ -23,6 +23,7 @@
 
 mod actor_ref;
 mod kind;
+mod mailbox;
 mod pool;
 mod spawn;
 
@@ -33,6 +34,7 @@ use futures::Future;
 use crate::error::{ActorStopReason, BoxError, PanicError};
 
 pub use actor_ref::*;
+pub use mailbox::*;
 pub use pool::*;
 pub use spawn::*;
 
@@ -67,9 +69,22 @@ pub use spawn::*;
 /// }
 /// ```
 pub trait Actor: Sized {
+    /// The mailbox used for the actor.
+    ///
+    /// This can either be `BoundedMailbox<Self>` or `UnboundedMailbox<Self>.`
+    ///
+    /// Bounded mailboxes enable backpressure to prevent the queued messages from growing indefinitely,
+    /// whilst unbounded mailboxes have no backpressure and can grow infinitely until the system runs out of memory.
+    type Mailbox: Mailbox<Self>;
+
     /// Actor name, useful for logging.
     fn name() -> &'static str {
         any::type_name::<Self>()
+    }
+
+    /// Creates a new mailbox.
+    fn new_mailbox(&self) -> (Self::Mailbox, MailboxReceiver<Self>) {
+        Self::Mailbox::default_mailbox()
     }
 
     /// The maximum number of concurrent queries to handle at a time.

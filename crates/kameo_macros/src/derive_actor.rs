@@ -18,6 +18,8 @@ impl ToTokens for DeriveActor {
         tokens.extend(quote! {
             #[automatically_derived]
             impl #impl_generics ::kameo::actor::Actor for #ident #ty_generics #where_clause {
+                type Mailbox = ::kameo::actor::UnboundedMailbox<Self>;
+
                 fn name() -> &'static str {
                     #name
                 }

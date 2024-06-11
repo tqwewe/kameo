@@ -11,7 +11,7 @@
 
 - **Async**: Built on tokio, actors run asyncronously in their own isolated spawned tasks.
 - **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
-- **MPSC Unbounded Channels**: Uses mpsc channels for messaging between actors.
+- **MPSC Bounded/Unbounded Channels**: Uses mpsc channels for messaging between actors with boundedness configurable.
 - **Concurrent Queries**: Support concurrent processing of queries when mutable state isn't necessary.
 - **Panic Safe**: Catches panics internally, allowing actors to be restarted.
 
@@ -86,6 +86,8 @@ impl Counter {
 ```rust
 // Derive Actor
 impl kameo::actor::Actor for Counter {
+    type Mailbox = kameo::actor::UnboundedMailbox<Self>;
+
     fn name(&self) -> Cow<'_, str> {
         Cow::Borrowed("Counter")
     }
@@ -116,12 +118,12 @@ impl kameo::message::Message<Inc> for Counter {
 ```rust
 let counter_ref = kameo::spawn(Counter { count: 0 });
 
-let count = counter_ref.send(Inc(42)).await?;
+let count = counter_ref.ask(Inc(42)).send().await?;
 println!("Count is {count}");
 ```
 
 <sup>
-<a href="https://docs.rs/kameo/latest/kameo/trait.ActorRef.html#method.send" target="_blank">ActorRef::send</a>
+<a href="https://docs.rs/kameo/latest/kameo/trait.ActorRef.html#method.ask" target="_blank">ActorRef::ask</a>
 </sup>
 
 ## Benchmarks

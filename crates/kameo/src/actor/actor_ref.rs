@@ -1,33 +1,25 @@
 use std::{
     cell::Cell,
     collections::HashMap,
-    fmt,
-    marker::PhantomData,
-    pin::Pin,
+    fmt, ops,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex, TryLockError,
+        Arc,
     },
-    task::{self, ready, Poll},
-    time::Duration,
 };
 
-use dyn_clone::DynClone;
-use futures::{stream::AbortHandle, Future, Stream, StreamExt};
-use tokio::{
-    sync::{mpsc, oneshot},
-    task::JoinHandle,
-    task_local,
-};
+use futures::{stream::AbortHandle, Stream, StreamExt};
+use tokio::{sync::Mutex, task::JoinHandle, task_local};
 
 use crate::{
-    error::{ActorStopReason, BoxSendError, SendError, SendResult},
-    message::{
-        BlockingMessage, BoxReply, DynBlockingMessage, DynMessage, DynQuery, Message, Query,
-        StreamMessage,
-    },
+    error::SendError,
+    message::{Message, Query, StreamMessage},
     reply::Reply,
+    request::{AskRequest, QueryRequest, TellRequest, WithoutRequestTimeout},
+    Actor,
 };
+
+use super::{Mailbox, Signal, SignalMailbox, WeakMailbox};
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 task_local! {
@@ -37,20 +29,19 @@ thread_local! {
     pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<u64>> = Cell::new(None);
 }
 
-type Mailbox<A> = mpsc::UnboundedSender<Signal<A>>;
-type WeakMailbox<A> = mpsc::WeakUnboundedSender<Signal<A>>;
-pub(crate) type Links = Arc<Mutex<HashMap<u64, Box<dyn SignalMailbox>>>>;
-
 /// A reference to an actor for sending messages/queries and managing the actor.
-pub struct ActorRef<A: ?Sized> {
+pub struct ActorRef<A: Actor> {
     id: u64,
-    mailbox: Mailbox<A>,
+    mailbox: A::Mailbox,
     abort_handle: AbortHandle,
     links: Links,
 }
 
-impl<A> ActorRef<A> {
-    pub(crate) fn new(mailbox: Mailbox<A>, abort_handle: AbortHandle, links: Links) -> Self {
+impl<A> ActorRef<A>
+where
+    A: Actor,
+{
+    pub(crate) fn new(mailbox: A::Mailbox, abort_handle: AbortHandle, links: Links) -> Self {
         ActorRef {
             id: ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed),
             mailbox,
@@ -107,11 +98,11 @@ impl<A> ActorRef<A> {
     /// that the actor will process all preceding messages before stopping. Any messages sent
     /// after this stop signal will be ignored and dropped. This approach allows for a graceful
     /// shutdown of the actor, ensuring all pending work is completed before termination.
-    pub fn stop_gracefully(&self) -> Result<(), SendError>
+    pub async fn stop_gracefully(&self) -> Result<(), SendError>
     where
         A: 'static,
     {
-        self.mailbox.signal_stop()
+        self.mailbox.signal_stop().await
     }
 
     /// Kills the actor immediately.
@@ -148,146 +139,40 @@ impl<A> ActorRef<A> {
 
     /// Sends a message to the actor, waiting for a reply.
     ///
-    /// The message reply can be awaited asyncronously, or in a blocking context either by awaiting it directly,
-    /// or calling [`SendResult::blocking_recv()`].
-    ///
     /// # Example
     ///
     /// ```
-    /// actor_ref.send(msg).await?; // Receive reply asyncronously
-    /// actor_ref.send(msg).blocking_recv()?; // Receive reply blocking
+    /// actor_ref.ask(msg).send().await?; // Receive reply asyncronously
+    /// actor_ref.ask(msg).blocking_send()?; // Receive reply blocking
+    /// actor_ref.ask(msg).mailbox_timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
     /// ```
-    pub fn send<M>(
+    #[inline]
+    pub fn ask<M>(
         &self,
         msg: M,
-    ) -> SendResult<<A::Reply as Reply>::Ok, M, <A::Reply as Reply>::Error>
+    ) -> AskRequest<A, A::Mailbox, M, WithoutRequestTimeout, WithoutRequestTimeout>
     where
         A: Message<M>,
         M: Send + 'static,
     {
-        debug_assert!(
-            !self.is_current(),
-            "actors cannot send messages syncronously themselves as this would deadlock - use send_async instead\nthis assertion only occurs on debug builds, release builds will deadlock",
-        );
-
-        let (reply, rx) = oneshot::channel();
-        let res = self.mailbox.send(Signal::Message {
-            message: Box::new(msg),
-            actor_ref: self.clone(),
-            reply: Some(reply),
-            sent_within_actor: self.is_current(),
-        });
-        if let Err(err) = res {
-            return SendResult::err(err.into());
-        }
-        SendResult::ok(rx)
+        AskRequest::new(self, msg)
     }
 
     /// Sends a message to the actor asyncronously without waiting for a reply.
     ///
-    /// If the handler for this message returns an error, the actor will panic.
-    pub fn send_async<M>(&self, msg: M) -> Result<(), SendError<M>>
-    where
-        A: Message<M>,
-        M: Send + 'static,
-    {
-        Ok(self.mailbox.send(Signal::Message {
-            message: Box::new(msg),
-            actor_ref: self.clone(),
-            reply: None,
-            sent_within_actor: self.is_current(),
-        })?)
-    }
-
-    /// Sends a message to the actor after a delay.
-    ///
-    /// This spawns a tokio::task and sleeps for the duration of `delay` before sending the message.
-    ///
-    /// If the handler for this message returns an error, the actor will panic.
-    pub fn send_after<M>(&self, msg: M, delay: Duration) -> JoinHandle<Result<(), SendError<M>>>
-    where
-        A: Message<M>,
-        M: Send + 'static,
-    {
-        let actor_ref = self.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            actor_ref.send_async(msg)
-        })
-    }
-
-    /// Sends a blocking message to the actor, waiting for a reply.
-    ///
-    /// The message reply can be awaited asyncronously, or in a blocking context either by awaiting it directly,
-    /// or calling [`SendResult::blocking_recv()`].
-    ///
     /// # Example
     ///
     /// ```
-    /// actor_ref.send_blocking(msg).await?; // Receive reply asyncronously
-    /// actor_ref.send_blocking(msg).blocking_recv()?; // Receive reply blocking
+    /// actor_ref.tell(msg).send().await?; // Send message
+    /// actor_ref.tell(msg).timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
     /// ```
-    pub fn send_blocking<M>(
-        &self,
-        msg: M,
-    ) -> SendResult<<A::Reply as Reply>::Ok, M, <A::Reply as Reply>::Error>
+    #[inline]
+    pub fn tell<M>(&self, msg: M) -> TellRequest<A, A::Mailbox, M, WithoutRequestTimeout>
     where
-        A: BlockingMessage<M> + Sync,
+        A: Message<M>,
         M: Send + 'static,
     {
-        debug_assert!(
-            !self.is_current(),
-            "actors cannot send messages syncronously themselves as this would deadlock - use send_async instead\nthis assertion only occurs on debug builds, release builds will deadlock",
-        );
-
-        let (reply, rx) = oneshot::channel();
-        let res = self.mailbox.send(Signal::BlockingMessage {
-            message: Box::new(msg),
-            actor_ref: self.clone(),
-            reply: Some(reply),
-            sent_within_actor: self.is_current(),
-        });
-        if let Err(err) = res {
-            return SendResult::err(err.into());
-        }
-        SendResult::ok(rx)
-    }
-
-    /// Sends a blocking message to the actor asyncronously without waiting for a reply.
-    ///
-    /// If the handler for this message returns an error, the actor will panic.
-    pub fn send_blocking_async<M>(&self, msg: M) -> Result<(), SendError<M>>
-    where
-        A: BlockingMessage<M> + Sync,
-        M: Send + 'static,
-    {
-        Ok(self.mailbox.send(Signal::BlockingMessage {
-            message: Box::new(msg),
-            actor_ref: self.clone(),
-            reply: None,
-            sent_within_actor: self.is_current(),
-        })?)
-    }
-
-    /// Sends a blocking message to the actor after a delay.
-    ///
-    /// This spawns a tokio::task and sleeps for the duration of `delay` before sending the message.
-    ///
-    /// If the handler for this message returns an error, the actor will panic.
-    pub fn send_blocking_after<M>(
-        &self,
-        msg: M,
-        delay: Duration,
-    ) -> JoinHandle<Result<(), SendError<M>>>
-    where
-        A: BlockingMessage<M> + Sync,
-        M: Send + 'static,
-    {
-        let actor_ref = self.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            actor_ref.send_blocking_async(msg)
-        })
+        TellRequest::new(self, msg)
     }
 
     /// Queries the actor for some data.
@@ -297,34 +182,23 @@ impl<A> ActorRef<A> {
     /// If the actor was spawned as `!Sync` with [spawn_unsync](crate::actor::spawn_unsync),
     /// then queries will not be supported and any query will return an error of [`SendError::QueriesNotSupported`].
     ///
-    /// The query reply can be awaited asyncronously, or in a blocking context either by awaiting it directly,
-    /// or calling [`SendResult::blocking_recv()`].
-    ///
     /// # Example
     ///
     /// ```
-    /// actor_ref.query(msg).await?; // Receive reply asyncronously
-    /// actor_ref.query(msg).blocking_recv()?; // Receive reply blocking
+    /// actor_ref.query(msg).send().await?; // Receive reply asyncronously
+    /// actor_ref.query(msg).blocking_send()?; // Receive reply blocking
+    /// actor_ref.query(msg).mailbox_timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
     /// ```
+    #[inline]
     pub fn query<M>(
         &self,
         msg: M,
-    ) -> SendResult<<A::Reply as Reply>::Ok, M, <A::Reply as Reply>::Error>
+    ) -> QueryRequest<A, A::Mailbox, M, WithoutRequestTimeout, WithoutRequestTimeout>
     where
         A: Query<M>,
         M: Send + 'static,
     {
-        let (reply, rx) = oneshot::channel();
-        let res = self.mailbox.send(Signal::Query {
-            query: Box::new(msg),
-            actor_ref: self.clone(),
-            reply: Some(reply),
-            sent_within_actor: self.is_current(),
-        });
-        if let Err(err) = res {
-            return SendResult::err(err.into());
-        }
-        SendResult::ok(rx)
+        QueryRequest::new(self, msg)
     }
 
     /// Attaches a stream of messages to the actor.
@@ -340,9 +214,10 @@ impl<A> ActorRef<A> {
         mut stream: S,
         start_value: T,
         finish_value: F,
-    ) -> JoinHandle<Result<(), SendError<StreamMessage<M, T, F>>>>
+    ) -> JoinHandle<Result<(), SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>>>
     where
         A: Message<StreamMessage<M, T, F>> + Send + 'static,
+        A::Mailbox: Send + Sync,
         S: Stream<Item = M> + Send + Unpin + 'static,
         M: Send + 'static,
         T: Send + 'static,
@@ -350,13 +225,17 @@ impl<A> ActorRef<A> {
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
-            actor_ref.send_async(StreamMessage::Started(start_value))?;
+            actor_ref
+                .send_msg(StreamMessage::Started(start_value))
+                .await?;
 
             while let Some(msg) = stream.next().await {
-                actor_ref.send_async(StreamMessage::Next(msg))?;
+                actor_ref.send_msg(StreamMessage::Next(msg)).await?;
             }
 
-            actor_ref.send_async(StreamMessage::Finished(finish_value))?;
+            actor_ref
+                .send_msg(StreamMessage::Finished(finish_value))
+                .await?;
 
             Ok(())
         })
@@ -365,71 +244,91 @@ impl<A> ActorRef<A> {
     /// Links this actor with a child, making this one the parent.
     ///
     /// If the parent dies, then the child will be notified with a link died signal.
-    pub fn link_child<B>(&self, child: &ActorRef<B>)
+    pub async fn link_child<B>(&self, child: &ActorRef<B>)
     where
-        B: 'static,
+        B: Actor + 'static,
     {
         if self.id == child.id() {
             return;
         }
 
         let child_id = child.id();
-        let child: Box<dyn SignalMailbox> = child.signal_mailbox();
-        self.links.lock().unwrap().insert(child_id, child);
+        let child: Box<dyn SignalMailbox> = child.weak_signal_mailbox();
+        self.links.lock().await.insert(child_id, child);
     }
 
     /// Unlinks a previously linked child actor.
-    pub fn unlink_child<B>(&self, child: &ActorRef<B>)
+    pub async fn unlink_child<B>(&self, child: &ActorRef<B>)
     where
-        B: 'static,
+        B: Actor + 'static,
     {
         if self.id == child.id() {
             return;
         }
 
-        self.links.lock().unwrap().remove(&child.id());
+        self.links.lock().await.remove(&child.id());
     }
 
     /// Links this actor with a sibbling, notifying eachother if either one dies.
-    pub fn link_together<B>(&self, sibbling: &ActorRef<B>)
+    pub async fn link_together<B>(&self, sibbling: &ActorRef<B>)
     where
         A: 'static,
-        B: 'static,
+        B: Actor + 'static,
     {
         if self.id == sibbling.id() {
             return;
         }
 
         let (mut this_links, mut sibbling_links) =
-            (self.links.lock().unwrap(), sibbling.links.lock().unwrap());
-        this_links.insert(sibbling.id(), sibbling.signal_mailbox());
-        sibbling_links.insert(self.id, self.signal_mailbox());
+            tokio::join!(self.links.lock(), sibbling.links.lock());
+        this_links.insert(sibbling.id(), sibbling.weak_signal_mailbox());
+        sibbling_links.insert(self.id, self.weak_signal_mailbox());
     }
 
     /// Unlinks previously linked processes from eachother.
-    pub fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
+    pub async fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
     where
-        B: 'static,
+        B: Actor + 'static,
     {
         if self.id == sibbling.id() {
             return;
         }
 
         let (mut this_links, mut sibbling_links) =
-            (self.links.lock().unwrap(), sibbling.links.lock().unwrap());
+            tokio::join!(self.links.lock(), sibbling.links.lock());
         this_links.remove(&sibbling.id());
         sibbling_links.remove(&self.id);
     }
 
-    pub(crate) fn signal_mailbox(&self) -> Box<dyn SignalMailbox>
+    pub(crate) fn mailbox(&self) -> &A::Mailbox {
+        &self.mailbox
+    }
+
+    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox>
     where
         A: 'static,
     {
-        Box::new(self.mailbox.clone())
+        Box::new(self.mailbox.downgrade())
+    }
+
+    async fn send_msg<M>(&self, msg: M) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
+    where
+        A: Message<M>,
+        M: Send + 'static,
+    {
+        self.mailbox
+            .send(Signal::Message {
+                message: Box::new(msg),
+                actor_ref: self.clone(),
+                reply: None,
+                sent_within_actor: false,
+            })
+            .await?;
+        Ok(())
     }
 }
 
-impl<A: ?Sized> Clone for ActorRef<A> {
+impl<A: Actor> Clone for ActorRef<A> {
     fn clone(&self) -> Self {
         ActorRef {
             id: self.id,
@@ -440,7 +339,7 @@ impl<A: ?Sized> Clone for ActorRef<A> {
     }
 }
 
-impl<A: ?Sized> fmt::Debug for ActorRef<A> {
+impl<A: Actor> fmt::Debug for ActorRef<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("ActorRef");
         d.field("id", &self.id);
@@ -448,14 +347,17 @@ impl<A: ?Sized> fmt::Debug for ActorRef<A> {
             Ok(guard) => {
                 d.field("links", &guard.keys());
             }
-            Err(TryLockError::Poisoned(_)) => {
-                d.field("links", &format_args!("<poisoned>"));
-            }
-            Err(TryLockError::WouldBlock) => {
+            Err(_) => {
                 d.field("links", &format_args!("<locked>"));
             }
         }
         d.finish()
+    }
+}
+
+impl<A: Actor> AsRef<Links> for ActorRef<A> {
+    fn as_ref(&self) -> &Links {
+        &self.links
     }
 }
 
@@ -467,14 +369,14 @@ impl<A: ?Sized> fmt::Debug for ActorRef<A> {
 /// In order to send messages to an actor, the `WeakActorRef` needs to be upgraded using
 /// [`WeakActorRef::upgrade`], which returns `Option<ActorRef>`. It returns `None`
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
-pub struct WeakActorRef<A: ?Sized> {
+pub struct WeakActorRef<A: Actor> {
     id: u64,
-    mailbox: WeakMailbox<A>,
+    mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
     abort_handle: AbortHandle,
     links: Links,
 }
 
-impl<A: ?Sized> WeakActorRef<A> {
+impl<A: Actor> WeakActorRef<A> {
     /// Returns the actor identifier.
     pub fn id(&self) -> u64 {
         self.id
@@ -502,7 +404,7 @@ impl<A: ?Sized> WeakActorRef<A> {
     }
 }
 
-impl<A: ?Sized> Clone for WeakActorRef<A> {
+impl<A: Actor> Clone for WeakActorRef<A> {
     fn clone(&self) -> Self {
         WeakActorRef {
             id: self.id,
@@ -513,7 +415,7 @@ impl<A: ?Sized> Clone for WeakActorRef<A> {
     }
 }
 
-impl<A: ?Sized> fmt::Debug for WeakActorRef<A> {
+impl<A: Actor> fmt::Debug for WeakActorRef<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("WeakActorRef");
         d.field("id", &self.id);
@@ -521,10 +423,7 @@ impl<A: ?Sized> fmt::Debug for WeakActorRef<A> {
             Ok(guard) => {
                 d.field("links", &guard.keys());
             }
-            Err(TryLockError::Poisoned(_)) => {
-                d.field("links", &format_args!("<poisoned>"));
-            }
-            Err(TryLockError::WouldBlock) => {
+            Err(_) => {
                 d.field("links", &format_args!("<locked>"));
             }
         }
@@ -532,119 +431,15 @@ impl<A: ?Sized> fmt::Debug for WeakActorRef<A> {
     }
 }
 
-/// A receiver for receiving a message response either asyncronously or blocking.
-///
-/// To receive the message asyncronously, simply `.await` the `MessageReceiver`.
-/// Or to receive in a blocking context, use [`MessageReceiver::blocking_recv()`].
-#[derive(Debug)]
-pub struct MessageReceiver<T, M, E> {
-    rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>,
-    phantom: PhantomData<(T, M, E)>,
-}
+/// A hashmap of linked actors to be notified when the actor dies.
+#[derive(Clone, Default)]
+#[allow(missing_debug_implementations)]
+pub struct Links(Arc<Mutex<HashMap<u64, Box<dyn SignalMailbox>>>>);
 
-impl<T, M, E> MessageReceiver<T, M, E>
-where
-    T: 'static,
-    M: 'static,
-    E: 'static,
-{
-    pub(crate) fn new(rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>) -> Self {
-        MessageReceiver {
-            rx,
-            phantom: PhantomData,
-        }
-    }
+impl ops::Deref for Links {
+    type Target = Mutex<HashMap<u64, Box<dyn SignalMailbox>>>;
 
-    /// Receives the message response outside an async context.
-    pub fn blocking_recv(self) -> Result<T, SendError<M, E>> {
-        let res = self.rx.blocking_recv()?;
-        match res {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
-        }
-    }
-}
-
-impl<T, M, E> Future for MessageReceiver<T, M, E>
-where
-    T: 'static,
-    M: 'static,
-    E: 'static,
-{
-    type Output = Result<T, SendError<M, E>>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        // Safety: `rx` is `Unpin` and we do not move `self`.
-        let rx = unsafe { self.map_unchecked_mut(|s| &mut s.rx) };
-        let res = ready!(rx.poll(cx));
-        match res? {
-            Ok(val) => Poll::Ready(Ok(*val.downcast().unwrap())),
-            Err(err) => Poll::Ready(Err(err.downcast())),
-        }
-    }
-}
-
-pub(crate) trait SignalMailbox: DynClone + Send {
-    fn signal_startup_finished(&self) -> Result<(), SendError>;
-    fn signal_link_died(&self, id: u64, reason: ActorStopReason) -> Result<(), SendError>;
-    fn signal_stop(&self) -> Result<(), SendError>;
-}
-
-dyn_clone::clone_trait_object!(SignalMailbox);
-
-impl<A> SignalMailbox for Mailbox<A> {
-    fn signal_startup_finished(&self) -> Result<(), SendError> {
-        self.send(Signal::StartupFinished)
-            .map_err(|_| SendError::ActorNotRunning(()))
-    }
-
-    fn signal_link_died(&self, id: u64, reason: ActorStopReason) -> Result<(), SendError> {
-        self.send(Signal::LinkDied { id, reason })
-            .map_err(|_| SendError::ActorNotRunning(()))
-    }
-
-    fn signal_stop(&self) -> Result<(), SendError> {
-        self.send(Signal::Stop)
-            .map_err(|_| SendError::ActorNotRunning(()))
-    }
-}
-
-pub(crate) enum Signal<A: ?Sized> {
-    StartupFinished,
-    Message {
-        message: Box<dyn DynMessage<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    },
-    BlockingMessage {
-        message: Box<dyn DynBlockingMessage<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    },
-    Query {
-        query: Box<dyn DynQuery<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    },
-    LinkDied {
-        id: u64,
-        reason: ActorStopReason,
-    },
-    Stop,
-}
-
-impl<A> Signal<A> {
-    pub(crate) fn downcast_message<M>(self) -> Option<M>
-    where
-        M: 'static,
-    {
-        match self {
-            Signal::Message { message, .. } => message.as_any().downcast().ok().map(|v| *v),
-            Signal::Query { query: message, .. } => message.as_any().downcast().ok().map(|v| *v),
-            _ => None,
-        }
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }

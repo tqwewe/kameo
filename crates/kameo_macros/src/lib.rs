@@ -41,9 +41,9 @@ use syn::parse_macro_input;
 ///     }
 /// }
 ///
-/// counter_ref.send(Inc { amount: 5 }).await?;
-/// counter_ref.query(Count).await?;
-/// counter_ref.send(Dec { amount: 2 }.clone()).await?;
+/// counter_ref.ask(Inc { amount: 5 }).send().await?;
+/// counter_ref.query(Count).send().await?;
+/// counter_ref.ask(Dec { amount: 2 }.clone()).send().await?;
 /// ```
 ///
 /// <details>

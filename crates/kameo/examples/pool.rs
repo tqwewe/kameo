@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use kameo::{
-    actor::ActorPool,
+    actor::{ActorPool, BroadcastMsg, WorkerMsg},
     message::{Context, Message},
     Actor,
 };
@@ -44,16 +44,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let mut pool = ActorPool::new(5, || kameo::spawn(MyActor));
-    for _ in 0..10 {
-        pool.send(PrintActorID).await?;
+    let pool = kameo::spawn(ActorPool::new(5, || kameo::spawn(MyActor)));
+
+    // Print IDs from 0..=4
+    for _ in 0..5 {
+        pool.ask(WorkerMsg(PrintActorID)).send().await?;
     }
 
-    pool.broadcast(ForceStop).await;
+    // Force all workers to stop, causing them to be restarted
+    pool.ask(BroadcastMsg(ForceStop)).send().await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    for _ in 0..10 {
-        pool.send(PrintActorID).await?;
+    println!("Restarted all workers");
+
+    // New IDs from 6..=10 will be printed
+    for _ in 0..5 {
+        pool.ask(WorkerMsg(PrintActorID)).send().await?;
     }
 
     Ok(())

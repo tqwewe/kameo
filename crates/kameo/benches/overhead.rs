@@ -1,5 +1,6 @@
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
+use kameo::actor::UnboundedMailbox;
 use kameo::{
     message::{Context, Message},
     Actor,
@@ -16,7 +17,9 @@ fn actor(c: &mut Criterion) {
 
     struct BenchActor;
 
-    impl Actor for BenchActor {}
+    impl Actor for BenchActor {
+        type Mailbox = UnboundedMailbox<Self>;
+    }
 
     impl Message<u32> for BenchActor {
         type Reply = u32;
@@ -29,7 +32,7 @@ fn actor(c: &mut Criterion) {
 
     c.bench_function("actor_sync_messages", |b| {
         b.to_async(&rt).iter(|| async {
-            actor_ref.send(0).await.unwrap();
+            actor_ref.ask(0).send().await.unwrap();
         });
     });
 }

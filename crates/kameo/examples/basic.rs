@@ -1,4 +1,5 @@
 use kameo::{
+    actor::UnboundedMailbox,
     message::{Context, Message, Query},
     Actor,
 };
@@ -11,6 +12,8 @@ pub struct MyActor {
 }
 
 impl Actor for MyActor {
+    type Mailbox = UnboundedMailbox<Self>;
+
     fn name() -> &'static str {
         "MyActor"
     }
@@ -67,21 +70,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let my_actor_ref = kameo::spawn(MyActor::default());
 
     // Increment the count by 3
-    let count = my_actor_ref.send(Inc { amount: 3 }).await?;
+    let count = my_actor_ref.ask(Inc { amount: 3 }).send().await?;
     info!("Count is {count}");
 
     // Increment the count by 50 in the background
-    my_actor_ref.send_async(Inc { amount: 50 })?;
+    my_actor_ref.tell(Inc { amount: 50 }).send()?;
 
     // Increment the count by 2
-    let count = my_actor_ref.send(Inc { amount: 2 }).await?;
+    let count = my_actor_ref.ask(Inc { amount: 2 }).send().await?;
     info!("Count is {count}");
 
     // Async messages that return an Err will cause the actor to panic
-    my_actor_ref.send_async(ForceErr)?;
+    my_actor_ref.tell(ForceErr).send()?;
 
     // Actor should be stopped, so we cannot send more messages to it
-    assert!(my_actor_ref.send(Inc { amount: 2 }).await.is_err());
+    assert!(my_actor_ref.ask(Inc { amount: 2 }).send().await.is_err());
 
     Ok(())
 }
