@@ -74,7 +74,7 @@ pub trait Reply: Send + 'static {
     type Error: Send + 'static;
     /// The type sent back to the receiver.
     ///
-    /// In almost all cases this will be `Self`. The only exception is the `DeligatedReply` type.
+    /// In almost all cases this will be `Self`. The only exception is the `DelegatedReply` type.
     type Value: Reply;
 
     /// Converts a reply to a `Result`.
