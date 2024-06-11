@@ -210,7 +210,10 @@ async fn run_actor_lifecycle<A, S>(
         .map_err(PanicError::new_boxed)
         .and_then(convert::identity);
 
-    let _ = actor_ref.signal_mailbox().signal_startup_finished().await;
+    let _ = actor_ref
+        .weak_signal_mailbox()
+        .signal_startup_finished()
+        .await;
     let actor_ref = {
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();

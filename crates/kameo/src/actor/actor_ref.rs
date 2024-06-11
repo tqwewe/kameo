@@ -253,7 +253,7 @@ where
         }
 
         let child_id = child.id();
-        let child: Box<dyn SignalMailbox> = child.signal_mailbox();
+        let child: Box<dyn SignalMailbox> = child.weak_signal_mailbox();
         self.links.lock().await.insert(child_id, child);
     }
 
@@ -281,8 +281,8 @@ where
 
         let (mut this_links, mut sibbling_links) =
             tokio::join!(self.links.lock(), sibbling.links.lock());
-        this_links.insert(sibbling.id(), sibbling.signal_mailbox());
-        sibbling_links.insert(self.id, self.signal_mailbox());
+        this_links.insert(sibbling.id(), sibbling.weak_signal_mailbox());
+        sibbling_links.insert(self.id, self.weak_signal_mailbox());
     }
 
     /// Unlinks previously linked processes from eachother.
@@ -304,11 +304,11 @@ where
         &self.mailbox
     }
 
-    pub(crate) fn signal_mailbox(&self) -> Box<dyn SignalMailbox>
+    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox>
     where
         A: 'static,
     {
-        Box::new(self.mailbox.clone())
+        Box::new(self.mailbox.downgrade())
     }
 
     async fn send_msg<M>(&self, msg: M) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>

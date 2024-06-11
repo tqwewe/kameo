@@ -11,7 +11,7 @@ use crate::{
 use super::ActorRef;
 
 #[doc(hidden)]
-pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync + Sized {
+pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
     type WeakMailbox: WeakMailbox<StrongMailbox = Self>;
 
     fn default_mailbox() -> (Self, MailboxReceiver<A>);
@@ -27,7 +27,7 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync + Sized {
 }
 
 #[doc(hidden)]
-pub trait WeakMailbox: Clone + Send {
+pub trait WeakMailbox: SignalMailbox + Clone + Send {
     type StrongMailbox;
 
     fn upgrade(&self) -> Option<Self::StrongMailbox>;
@@ -316,6 +316,45 @@ where
     }
 }
 
+impl<A> SignalMailbox for WeakBoundedMailbox<A>
+where
+    A: Actor,
+{
+    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(mb) => mb.signal_startup_finished().await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
+        }
+        .boxed()
+    }
+
+    fn signal_link_died(
+        &self,
+        id: u64,
+        reason: ActorStopReason,
+    ) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(mb) => mb.signal_link_died(id, reason).await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
+        }
+        .boxed()
+    }
+
+    fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(mb) => mb.signal_stop().await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
+        }
+        .boxed()
+    }
+}
+
 impl<A> SignalMailbox for UnboundedMailbox<A>
 where
     A: Actor,
@@ -347,6 +386,45 @@ where
             self.0
                 .send(Signal::Stop)
                 .map_err(|_| SendError::ActorNotRunning(()))
+        }
+        .boxed()
+    }
+}
+
+impl<A> SignalMailbox for WeakUnboundedMailbox<A>
+where
+    A: Actor,
+{
+    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(mb) => mb.signal_startup_finished().await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
+        }
+        .boxed()
+    }
+
+    fn signal_link_died(
+        &self,
+        id: u64,
+        reason: ActorStopReason,
+    ) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(mb) => mb.signal_link_died(id, reason).await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
+        }
+        .boxed()
+    }
+
+    fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(mb) => mb.signal_stop().await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
         }
         .boxed()
     }
