@@ -84,6 +84,12 @@ where
         Ok(())
     }
 
+    /// Tries to send the message if the mailbox is not full.
+    pub fn try_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+        self.mailbox.0.try_send(self.signal)?;
+        Ok(())
+    }
+
     /// Sends the message after the given delay.
     ///
     /// If reserve is true, then a permit will be reserved in

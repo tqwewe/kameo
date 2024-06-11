@@ -165,6 +165,17 @@ where
             Err(err) => Err(err.downcast()),
         }
     }
+
+    /// Tries to send the message if the mailbox is not full, waiting for a reply up to the timeout set.
+    pub async fn try_send(
+        self,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
+        self.mailbox.0.try_send(self.signal)?;
+        match timeout(self.reply_timeout.0, self.rx).await?? {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
+        }
+    }
 }
 
 impl<A, M> AskRequest<A, BoundedMailbox<A>, M, WithoutRequestTimeout, WithoutRequestTimeout>
@@ -188,6 +199,28 @@ where
         self,
     ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
         self.mailbox.0.blocking_send(self.signal)?;
+        match self.rx.blocking_recv()? {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
+        }
+    }
+
+    /// Tries to send the message if the mailbox is not full, waiting for a reply.
+    pub async fn try_send(
+        self,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
+        self.mailbox.0.try_send(self.signal)?;
+        match self.rx.await? {
+            Ok(val) => Ok(*val.downcast().unwrap()),
+            Err(err) => Err(err.downcast()),
+        }
+    }
+
+    /// Tries to send the message if the mailbox is not full from outside the async runtime, waiting for a reply.
+    pub fn try_blocking_send(
+        self,
+    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
+        self.mailbox.0.try_send(self.signal)?;
         match self.rx.blocking_recv()? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
