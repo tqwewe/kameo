@@ -51,17 +51,16 @@ type Factory<A> = Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>;
 ///
 /// pool.ask(WorkerMsg(MyMessage)).send().await?;
 /// ```
-pub struct ActorPool<A: Actor<Mailbox = Mb>, Mb> {
+pub struct ActorPool<A: Actor> {
     workers: Vec<ActorRef<A>>,
     size: usize,
     next_idx: usize,
     factory: Factory<A>,
 }
 
-impl<A, Mb> ActorPool<A, Mb>
+impl<A> ActorPool<A>
 where
-    A: Actor<Mailbox = Mb> + 'static,
-    Mb: Send + 'static,
+    A: Actor + 'static,
 {
     /// Creates a new `ActorPool` with the specified size and a factory function for creating workers.
     ///
@@ -111,10 +110,9 @@ where
     }
 }
 
-impl<A, Mb> Actor for ActorPool<A, Mb>
+impl<A> Actor for ActorPool<A>
 where
-    A: Actor<Mailbox = Mb> + 'static,
-    Mb: Send + Sync + 'static,
+    A: Actor + 'static,
 {
     type Mailbox = BoundedMailbox<Self>;
 
@@ -174,7 +172,7 @@ where
     <A::Reply as Reply>::Error: fmt::Debug,
 {
     type Ok = <A::Reply as Reply>::Ok;
-    type Error = SendError<M, <A::Reply as Reply>::Error>;
+    type Error = <A::Reply as Reply>::Error;
     type Value = <A::Reply as Reply>::Value;
 
     fn to_result(self) -> Result<Self::Ok, Self::Error> {
@@ -197,13 +195,13 @@ where
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WorkerMsg<M>(pub M);
 
-impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A, Mb>
+impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A>
 where
     A: Actor<Mailbox = Mb> + Message<M, Reply = R>,
-    M: Send + Sync + 'static,
-    Mb: Send + Sync + 'static,
-    R: Reply<Value = R>,
-    <A::Reply as Reply>::Error: fmt::Debug + Sync,
+    M: Send + 'static,
+    Mb: Send + 'static,
+    R: Reply,
+    <A::Reply as Reply>::Error: fmt::Debug,
     ActorRef<A>: Request<A, M, Mb>,
 {
     type Reply = WorkerReply<A, M>;
@@ -256,13 +254,12 @@ where
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct BroadcastMsg<M>(pub M);
 
-impl<A, M, Mb> Message<BroadcastMsg<M>> for ActorPool<A, Mb>
+impl<A, M> Message<BroadcastMsg<M>> for ActorPool<A>
 where
-    A: Actor<Mailbox = Mb> + Message<M>,
-    M: Clone + Send + Sync + 'static,
-    Mb: Send + Sync + 'static,
-    <A::Reply as Reply>::Error: fmt::Debug + Sync,
-    ActorRef<A>: Request<A, M, Mb>,
+    A: Actor + Message<M>,
+    M: Clone + Send + 'static,
+    <A::Reply as Reply>::Error: fmt::Debug,
+    ActorRef<A>: Request<A, M, A::Mailbox>,
 {
     type Reply = Vec<Result<(), SendError<M, <A::Reply as Reply>::Error>>>;
 
@@ -281,7 +278,7 @@ where
     }
 }
 
-impl<A: Actor<Mailbox = Mb>, Mb> fmt::Debug for ActorPool<A, Mb> {
+impl<A: Actor> fmt::Debug for ActorPool<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ActorPool")
             .field("workers", &self.workers)
