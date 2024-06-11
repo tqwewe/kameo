@@ -4,6 +4,7 @@ use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
     FutureExt,
 };
+use tokio::runtime::{Handle, RuntimeFlavor};
 use tracing::{error, trace};
 
 use crate::{
@@ -35,6 +36,40 @@ where
     spawn_inner::<A, SyncActor<A>>(actor)
 }
 
+/// Spawns an actor in its own dedicated thread where blocking is acceptable.
+///
+/// This is useful for actors which require or may benefit from using blocking operations rather than async,
+/// whilst still enabling asyncronous functionality.
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::Actor;
+///
+/// #[derive(Actor)]
+/// struct MyActor {
+///     file: std::fs::File,
+/// }
+///
+/// struct Flush;
+/// impl Message<Flush> for Actor {
+///     type Reply = std::io::Result<()>;
+///
+///     fn handle(&mut self, _: Flush, _ctx: Context<Self, Self::Reply>) -> Self::Reply {
+///         self.file.flush() // This operation is blocking, but acceptable since we're spawning in a thread
+///     }
+/// }
+///
+/// let actor_ref = kameo::actor::spawn_in_thread(MyActor { ... });
+/// actor_ref.tell(Flush).send()?;
+/// ```
+pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
+where
+    A: Actor + Send + Sync + 'static,
+{
+    spawn_in_thread_inner::<A, SyncActor<A>>(actor)
+}
+
 /// Spawns an `!Sync` actor in a tokio task.
 ///
 /// Unsync actors cannot handle queries, as this would require the actor be to `Sync` since queries are procesed
@@ -60,6 +95,40 @@ where
     spawn_inner::<A, UnsyncActor<A>>(actor)
 }
 
+/// Spawns an `!Sync` actor in its own dedicated thread where blocking is acceptable.
+///
+/// This is useful for actors which require or may benefit from using blocking operations rather than async,
+/// whilst still enabling asyncronous functionality.
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::Actor;
+///
+/// #[derive(Actor)]
+/// struct MyActor {
+///     file: RefCell<std::fs::File>, // RefCell is !Sync
+/// }
+///
+/// struct Flush;
+/// impl Message<Flush> for Actor {
+///     type Reply = std::io::Result<()>;
+///
+///     fn handle(&mut self, _: Flush, _ctx: Context<Self, Self::Reply>) -> Self::Reply {
+///         self.file.borrow_mut().flush() // This operation is blocking, but acceptable since we're spawning in a thread
+///     }
+/// }
+///
+/// let actor_ref = kameo::actor::spawn_unsync_in_thread(MyActor { ... });
+/// actor_ref.tell(Flush).send()?;
+/// ```
+pub fn spawn_unsync_in_thread<A>(actor: A) -> ActorRef<A>
+where
+    A: Actor + Send + 'static,
+{
+    spawn_in_thread_inner::<A, UnsyncActor<A>>(actor)
+}
+
 #[inline]
 fn spawn_inner<A, S>(actor: A) -> ActorRef<A>
 where
@@ -79,6 +148,42 @@ where
                 .await
         }
     }));
+
+    actor_ref
+}
+
+#[inline]
+fn spawn_in_thread_inner<A, S>(actor: A) -> ActorRef<A>
+where
+    A: Actor + Send + 'static,
+    S: ActorState<A> + Send,
+{
+    let handle = Handle::current();
+    if matches!(handle.runtime_flavor(), RuntimeFlavor::CurrentThread) {
+        panic!("threaded actors are not supported in a single threaded tokio runtime");
+    }
+
+    let (mailbox, mailbox_rx) = actor.new_mailbox();
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    let links = Links::default();
+    let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
+    let id = actor_ref.id();
+
+    std::thread::spawn({
+        let actor_ref = actor_ref.clone();
+        move || {
+            handle.block_on(CURRENT_ACTOR_ID.scope(
+                id,
+                run_actor_lifecycle::<A, S>(
+                    actor_ref,
+                    actor,
+                    mailbox_rx,
+                    abort_registration,
+                    links,
+                ),
+            ));
+        }
+    });
 
     actor_ref
 }
