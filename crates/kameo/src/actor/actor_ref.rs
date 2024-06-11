@@ -8,23 +8,18 @@ use std::{
     },
 };
 
-use dyn_clone::DynClone;
-use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt};
-use tokio::{
-    sync::{mpsc, oneshot, Mutex},
-    task::JoinHandle,
-    task_local,
-};
+use futures::{stream::AbortHandle, Stream, StreamExt};
+use tokio::{sync::Mutex, task::JoinHandle, task_local};
 
 use crate::{
-    error::{ActorStopReason, BoxSendError, SendError},
-    message::{BoxReply, DynMessage, DynQuery, Message, Query, StreamMessage},
+    error::SendError,
+    message::{Message, Query, StreamMessage},
     reply::Reply,
     request::{AskRequest, QueryRequest, TellRequest, WithoutRequestTimeout},
     Actor,
 };
 
-use super::{BoundedMailbox, MailboxBehaviour, UnboundedMailbox, WeakMailboxBehaviour};
+use super::{Mailbox, Signal, SignalMailbox, WeakMailbox};
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 task_local! {
@@ -376,7 +371,7 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
 pub struct WeakActorRef<A: Actor> {
     id: u64,
-    mailbox: <A::Mailbox as MailboxBehaviour<A>>::WeakMailbox,
+    mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
     abort_handle: AbortHandle,
     links: Links,
 }
@@ -446,147 +441,5 @@ impl ops::Deref for Links {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-/// A mailbox receiver, either bounded or unbounded.
-#[allow(missing_debug_implementations)]
-pub enum MailboxReceiver<A: Actor> {
-    /// A bounded mailbox receiver.
-    Bounded(mpsc::Receiver<Signal<A>>),
-    /// An unbounded mailbox receiver.
-    Unbounded(mpsc::UnboundedReceiver<Signal<A>>),
-}
-
-impl<A: Actor> MailboxReceiver<A> {
-    pub(crate) async fn recv(&mut self) -> Option<Signal<A>> {
-        match self {
-            MailboxReceiver::Bounded(rx) => rx.recv().await,
-            MailboxReceiver::Unbounded(rx) => rx.recv().await,
-        }
-    }
-}
-
-#[doc(hidden)]
-pub trait SignalMailbox: DynClone + Send {
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>>;
-    fn signal_link_died(
-        &self,
-        id: u64,
-        reason: ActorStopReason,
-    ) -> BoxFuture<'_, Result<(), SendError>>;
-    fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
-}
-
-dyn_clone::clone_trait_object!(SignalMailbox);
-
-impl<A> SignalMailbox for BoundedMailbox<A>
-where
-    A: Actor,
-{
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::StartupFinished)
-                .await
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
-    }
-
-    fn signal_link_died(
-        &self,
-        id: u64,
-        reason: ActorStopReason,
-    ) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::LinkDied { id, reason })
-                .await
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
-    }
-
-    fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::Stop)
-                .await
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
-    }
-}
-
-impl<A> SignalMailbox for UnboundedMailbox<A>
-where
-    A: Actor,
-{
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::StartupFinished)
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
-    }
-
-    fn signal_link_died(
-        &self,
-        id: u64,
-        reason: ActorStopReason,
-    ) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::LinkDied { id, reason })
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
-    }
-
-    fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::Stop)
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
-    }
-}
-
-#[allow(missing_debug_implementations)]
-#[doc(hidden)]
-pub enum Signal<A: Actor> {
-    StartupFinished,
-    Message {
-        message: Box<dyn DynMessage<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    },
-    Query {
-        query: Box<dyn DynQuery<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    },
-    LinkDied {
-        id: u64,
-        reason: ActorStopReason,
-    },
-    Stop,
-}
-
-impl<A: Actor> Signal<A> {
-    pub(crate) fn downcast_message<M>(self) -> Option<M>
-    where
-        M: 'static,
-    {
-        match self {
-            Signal::Message { message, .. } => message.as_any().downcast().ok().map(|v| *v),
-            Signal::Query { query: message, .. } => message.as_any().downcast().ok().map(|v| *v),
-            _ => None,
-        }
     }
 }

@@ -23,17 +23,18 @@
 
 mod actor_ref;
 mod kind;
+mod mailbox;
 mod pool;
 mod spawn;
 
 use std::any;
 
 use futures::Future;
-use tokio::sync::mpsc;
 
 use crate::error::{ActorStopReason, BoxError, PanicError};
 
 pub use actor_ref::*;
+pub use mailbox::*;
 pub use pool::*;
 pub use spawn::*;
 
@@ -74,14 +75,14 @@ pub trait Actor: Sized {
     ///
     /// Bounded mailboxes enable backpressure to prevent the queued messages from growing indefinitely,
     /// whilst unbounded mailboxes have no backpressure and can grow infinitely until the system runs out of memory.
-    type Mailbox: MailboxBehaviour<Self> + SignalMailbox + Clone + Send + Sync;
+    type Mailbox: Mailbox<Self>;
 
     /// Actor name, useful for logging.
     fn name() -> &'static str {
         any::type_name::<Self>()
     }
 
-    /// The capacity of the actors mailbox.
+    /// Creates a new mailbox.
     fn new_mailbox(&self) -> (Self::Mailbox, MailboxReceiver<Self>) {
         Self::Mailbox::default_mailbox()
     }
@@ -171,188 +172,5 @@ pub trait Actor: Sized {
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
-    }
-}
-
-#[doc(hidden)]
-pub trait MailboxBehaviour<A: Actor>: Sized {
-    type WeakMailbox: WeakMailboxBehaviour<StrongMailbox = Self> + Clone + Send;
-
-    fn default_mailbox() -> (Self, MailboxReceiver<A>);
-    fn send(
-        &self,
-        signal: Signal<A>,
-    ) -> impl Future<Output = Result<(), mpsc::error::SendError<Signal<A>>>> + Send + '_;
-    fn closed(&self) -> impl Future<Output = ()> + '_;
-    fn is_closed(&self) -> bool;
-    fn downgrade(&self) -> Self::WeakMailbox;
-    fn strong_count(&self) -> usize;
-    fn weak_count(&self) -> usize;
-}
-
-#[doc(hidden)]
-pub trait WeakMailboxBehaviour {
-    type StrongMailbox;
-
-    fn upgrade(&self) -> Option<Self::StrongMailbox>;
-    fn strong_count(&self) -> usize;
-    fn weak_count(&self) -> usize;
-}
-
-/// An unbounded mailbox, where the sending messages to a full mailbox causes backpressure.
-#[allow(missing_debug_implementations)]
-pub struct BoundedMailbox<A: Actor>(pub(crate) mpsc::Sender<Signal<A>>);
-
-impl<A: Actor> MailboxBehaviour<A> for BoundedMailbox<A> {
-    type WeakMailbox = WeakBoundedMailbox<A>;
-
-    #[inline]
-    fn default_mailbox() -> (Self, MailboxReceiver<A>) {
-        let (tx, rx) = mpsc::channel(1000);
-        (BoundedMailbox(tx), MailboxReceiver::Bounded(rx))
-    }
-
-    #[inline]
-    async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
-        self.0.send(signal).await
-    }
-
-    #[inline]
-    async fn closed(&self) {
-        self.0.closed().await
-    }
-
-    #[inline]
-    fn is_closed(&self) -> bool {
-        self.0.is_closed()
-    }
-
-    #[inline]
-    fn downgrade(&self) -> Self::WeakMailbox {
-        WeakBoundedMailbox(self.0.downgrade())
-    }
-
-    #[inline]
-    fn strong_count(&self) -> usize {
-        self.0.strong_count()
-    }
-
-    #[inline]
-    fn weak_count(&self) -> usize {
-        self.0.weak_count()
-    }
-}
-
-impl<A: Actor> Clone for BoundedMailbox<A> {
-    fn clone(&self) -> Self {
-        BoundedMailbox(self.0.clone())
-    }
-}
-
-/// A weak bounded mailbox that does not prevent the actor from being stopped.
-#[allow(missing_debug_implementations)]
-pub struct WeakBoundedMailbox<A: Actor>(pub(crate) mpsc::WeakSender<Signal<A>>);
-
-impl<A: Actor> WeakMailboxBehaviour for WeakBoundedMailbox<A> {
-    type StrongMailbox = BoundedMailbox<A>;
-
-    #[inline]
-    fn upgrade(&self) -> Option<Self::StrongMailbox> {
-        self.0.upgrade().map(BoundedMailbox)
-    }
-
-    #[inline]
-    fn strong_count(&self) -> usize {
-        self.0.strong_count()
-    }
-
-    #[inline]
-    fn weak_count(&self) -> usize {
-        self.0.weak_count()
-    }
-}
-
-impl<A: Actor> Clone for WeakBoundedMailbox<A> {
-    fn clone(&self) -> Self {
-        WeakBoundedMailbox(self.0.clone())
-    }
-}
-
-/// An unbounded mailbox, where the number of messages queued can grow infinitely.
-#[allow(missing_debug_implementations)]
-pub struct UnboundedMailbox<A: Actor>(pub(crate) mpsc::UnboundedSender<Signal<A>>);
-
-impl<A: Actor> MailboxBehaviour<A> for UnboundedMailbox<A> {
-    type WeakMailbox = WeakUnboundedMailbox<A>;
-
-    #[inline]
-    fn default_mailbox() -> (Self, MailboxReceiver<A>) {
-        let (tx, rx) = mpsc::unbounded_channel();
-        (UnboundedMailbox(tx), MailboxReceiver::Unbounded(rx))
-    }
-
-    #[inline]
-    async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
-        self.0.send(signal)
-    }
-
-    #[inline]
-    async fn closed(&self) {
-        self.0.closed().await
-    }
-
-    #[inline]
-    fn is_closed(&self) -> bool {
-        self.0.is_closed()
-    }
-
-    #[inline]
-    fn downgrade(&self) -> Self::WeakMailbox {
-        WeakUnboundedMailbox(self.0.downgrade())
-    }
-
-    #[inline]
-    fn strong_count(&self) -> usize {
-        self.0.strong_count()
-    }
-
-    #[inline]
-    fn weak_count(&self) -> usize {
-        self.0.weak_count()
-    }
-}
-
-impl<A: Actor> Clone for UnboundedMailbox<A> {
-    fn clone(&self) -> Self {
-        UnboundedMailbox(self.0.clone())
-    }
-}
-
-/// A weak unbounded mailbox that does not prevent the actor from being stopped.
-#[allow(missing_debug_implementations)]
-pub struct WeakUnboundedMailbox<A: Actor>(pub(crate) mpsc::WeakUnboundedSender<Signal<A>>);
-
-impl<A: Actor> WeakMailboxBehaviour for WeakUnboundedMailbox<A> {
-    type StrongMailbox = UnboundedMailbox<A>;
-
-    #[inline]
-    fn upgrade(&self) -> Option<Self::StrongMailbox> {
-        self.0.upgrade().map(UnboundedMailbox)
-    }
-
-    #[inline]
-    fn strong_count(&self) -> usize {
-        self.0.strong_count()
-    }
-
-    #[inline]
-    fn weak_count(&self) -> usize {
-        self.0.weak_count()
-    }
-}
-
-impl<A: Actor> Clone for WeakUnboundedMailbox<A> {
-    fn clone(&self) -> Self {
-        WeakUnboundedMailbox(self.0.clone())
     }
 }
