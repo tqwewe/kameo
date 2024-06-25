@@ -1,6 +1,9 @@
 use std::fmt;
 
-use futures::future::join_all;
+use futures::{
+    future::{join_all, BoxFuture},
+    Future,
+};
 use itertools::repeat_n;
 
 use crate::{
@@ -13,7 +16,10 @@ use crate::{
 
 use super::{BoundedMailbox, WeakActorRef};
 
-type Factory<A> = Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>;
+enum Factory<A: Actor> {
+    Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
+    Async(Box<dyn FnMut() -> BoxFuture<'static, ActorRef<A>> + Send + Sync + 'static>),
+}
 
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
@@ -91,7 +97,31 @@ where
             workers,
             size,
             next_idx: 0,
-            factory: Box::new(factory),
+            factory: Factory::Sync(Box::new(factory)),
+        }
+    }
+
+    /// Creates a new `ActorPool` with the specified size and an async factory function for creating workers.
+    ///
+    /// This is the same as [ActorPool::new], but allows the factory function to be async.
+    pub async fn new_async<F, Fu>(size: usize, mut factory: F) -> Self
+    where
+        A: Actor + Send + Sync + 'static,
+        F: FnMut() -> Fu + Clone + Send + Sync + 'static,
+        Fu: Future<Output = ActorRef<A>> + Send,
+    {
+        assert_ne!(size, 0);
+
+        let workers = join_all((0..size).map(|_| factory())).await;
+
+        ActorPool {
+            workers,
+            size,
+            next_idx: 0,
+            factory: Factory::Async(Box::new(move || {
+                let mut factory = factory.clone();
+                Box::pin(async move { factory().await })
+            })),
         }
     }
 
@@ -146,7 +176,10 @@ where
             return Ok(None);
         };
 
-        self.workers[i] = (self.factory)();
+        self.workers[i] = match &mut self.factory {
+            Factory::Sync(f) => f(),
+            Factory::Async(f) => f().await,
+        };
         self.workers[i].link_child(&actor_ref).await;
 
         Ok(None)
