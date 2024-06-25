@@ -85,7 +85,7 @@ pub trait Actor: Sized {
     }
 
     /// Creates a new mailbox.
-    fn new_mailbox(&self) -> (Self::Mailbox, MailboxReceiver<Self>) {
+    fn new_mailbox() -> (Self::Mailbox, MailboxReceiver<Self>) {
         Self::Mailbox::default_mailbox()
     }
 
