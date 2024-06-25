@@ -5,7 +5,7 @@ use kameo::{
 };
 use tracing_subscriber::EnvFilter;
 
-// #[derive(Clone)] // <- uncomment this to fix it
+#[derive(Clone)]
 struct PrintActorID;
 
 #[derive(Actor, Default)]

@@ -11,37 +11,21 @@ use crate::{
 
 use super::{ActorRef, BoundedMailbox};
 
-trait MessageSubscriber<M> {
-    fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>>;
-}
-
-impl<A, M, Mb> MessageSubscriber<M> for ActorRef<A>
-where
-    A: Actor<Mailbox = Mb> + Message<M>,
-    M: Send + 'static,
-    Mb: Sync,
-    ActorRef<A>: Request<A, M, Mb>,
-{
-    fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
-        Box::pin(async move {
-            Request::tell(self, msg)
-                .await
-                .map_err(|err| err.map_err(|_| ()))
-        })
-    }
-}
-
+/// A mpsc-like pubsub actor.
+#[allow(missing_debug_implementations)]
 pub struct PubSub<M> {
     subscribers: HashMap<u64, Box<dyn MessageSubscriber<M> + Send + Sync>>,
 }
 
 impl<M> PubSub<M> {
+    /// Creates a new pubsub instance.
     pub fn new() -> Self {
         PubSub {
             subscribers: HashMap::new(),
         }
     }
 
+    /// Publishes a message to all subscribers.
     pub async fn publish(&mut self, msg: M)
     where
         M: Clone + Send + 'static,
@@ -65,6 +49,7 @@ impl<M> PubSub<M> {
         }
     }
 
+    /// Subscribes an actor receive all messages published.
     #[inline]
     pub fn subscribe<A>(&mut self, actor_ref: ActorRef<A>)
     where
@@ -86,6 +71,8 @@ impl<M> Default for PubSub<M> {
     }
 }
 
+/// Publishes a message to a pubsub actor.
+#[derive(Clone, Debug)]
 pub struct Publish<M>(pub M);
 
 impl<M> Message<Publish<M>> for PubSub<M>
@@ -103,6 +90,8 @@ where
     }
 }
 
+/// Subscribes an actor to a pubsub actor.
+#[derive(Clone, Debug)]
 pub struct Subscribe<A: Actor>(pub ActorRef<A>);
 
 impl<A, M> Message<Subscribe<A>> for PubSub<M>
@@ -119,5 +108,25 @@ where
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe(actor_ref)
+    }
+}
+
+trait MessageSubscriber<M> {
+    fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>>;
+}
+
+impl<A, M, Mb> MessageSubscriber<M> for ActorRef<A>
+where
+    A: Actor<Mailbox = Mb> + Message<M>,
+    M: Send + 'static,
+    Mb: Sync,
+    ActorRef<A>: Request<A, M, Mb>,
+{
+    fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
+        Box::pin(async move {
+            Request::tell(self, msg)
+                .await
+                .map_err(|err| err.map_err(|_| ()))
+        })
     }
 }
