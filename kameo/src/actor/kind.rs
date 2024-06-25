@@ -114,8 +114,12 @@ where
                     reply,
                     sent_within_actor,
                 } => {
-                    self.handle_message(message, actor_ref, reply, sent_within_actor)
-                        .await?;
+                    if let Some(reason) = self
+                        .handle_message(message, actor_ref, reply, sent_within_actor)
+                        .await
+                    {
+                        return Some(reason);
+                    }
                 }
                 Signal::Query {
                     query,
@@ -123,8 +127,12 @@ where
                     reply,
                     sent_within_actor,
                 } => {
-                    self.handle_query(query, actor_ref, reply, sent_within_actor)
-                        .await?;
+                    if let Some(reason) = self
+                        .handle_query(query, actor_ref, reply, sent_within_actor)
+                        .await
+                    {
+                        return Some(reason);
+                    }
                 }
                 _ => unreachable!(),
             }
@@ -321,8 +329,12 @@ where
                     reply,
                     sent_within_actor,
                 } => {
-                    self.handle_message(message, actor_ref, reply, sent_within_actor)
-                        .await?;
+                    if let Some(reason) = self
+                        .handle_message(message, actor_ref, reply, sent_within_actor)
+                        .await
+                    {
+                        return Some(reason);
+                    }
                 }
                 Signal::Query {
                     query,
@@ -330,8 +342,12 @@ where
                     reply,
                     sent_within_actor,
                 } => {
-                    self.handle_query(query, actor_ref, reply, sent_within_actor)
-                        .await?;
+                    if let Some(reason) = self
+                        .handle_query(query, actor_ref, reply, sent_within_actor)
+                        .await
+                    {
+                        return Some(reason);
+                    }
                 }
                 _ => unreachable!(),
             }
