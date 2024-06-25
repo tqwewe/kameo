@@ -1,7 +1,7 @@
 [package]
 name = "kameo"
 description = "Fault-tolerant Async Actors Built on Tokio"
-version = "0.8.1"
+version = "0.9.0"
 edition = "2021"
 readme = "../../README.md"
 repository = "https://github.com/tqwewe/kameo"
@@ -10,7 +10,7 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 keywords = ["actor", "tokio"]
 
 [dependencies]
-kameo_macros = { version = "0.8.1", path = "../kameo_macros" }
+kameo_macros = { version = "0.9.0", path = "../kameo_macros" }
 
 dyn-clone = "1.0"
 futures = "0.3"

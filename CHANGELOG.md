@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2024-06-25
+
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add support for bounded/unbounded mailboxes (#29) #29
+- Add `Send + 'static` bounds to `Reply` trait [</>](https://github.com/tqwewe/kameo/commit/382a118966308697bfa4ca72dedacadc83107554)
+- Add pubsub actor (#31) [</>](https://github.com/tqwewe/kameo/commit/27533843726f787c042425bacc2306a28e3f96b6)
+- Add support for async pool factory functions (#33) #33
+- Add async spawn_with function (#34) #34
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Return `SendError` from send methods allowing replies to be received blocking (#27) #27
+
+### <!-- 3 -->Fixed
+
+- Buffered messages not being applied correctly (#32) #32
+
+### <!-- 5 -->Misc
+
+- Update CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/b059d59d4708d86ae00c5987fe682d8a36020b2f)
+- Move crates out of nested `crates` dir [</>](https://github.com/tqwewe/kameo/commit/4d668657e26df2afde0a6acd44fe2f9f083e7453)
+
 ## [0.8.1] - 2024-05-24
 
 
@@ -206,6 +230,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.9.0]: https://github.com/tqwewe/kameo/compare/v0.8.1..v0.9.0
 [0.8.1]: https://github.com/tqwewe/kameo/compare/v0.8.0..v0.8.1
 [0.8.0]: https://github.com/tqwewe/kameo/compare/v0.7.0..v0.8.0
 [0.7.0]: https://github.com/tqwewe/kameo/compare/v0.6.0..v0.7.0
