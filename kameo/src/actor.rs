@@ -25,6 +25,7 @@ mod actor_ref;
 mod kind;
 mod mailbox;
 mod pool;
+mod pubsub;
 mod spawn;
 
 use std::any;
@@ -36,6 +37,7 @@ use crate::error::{ActorStopReason, BoxError, PanicError};
 pub use actor_ref::*;
 pub use mailbox::*;
 pub use pool::*;
+pub use pubsub::*;
 pub use spawn::*;
 
 /// Functionality for an actor including lifecycle hooks.
