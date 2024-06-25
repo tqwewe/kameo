@@ -15,7 +15,7 @@ kameo_macros = { version = "0.8.1", path = "../kameo_macros" }
 dyn-clone = "1.0"
 futures = "0.3"
 num_cpus = "1.0"
-tokio = { version = "1.37", features = ["macros", "rt", "sync", "time"] }
+tokio = { version = "1.37", features = ["macros", "rt", "sync", "time", "tracing"] }
 tokio-stream = "0.1"
 tracing = "0.1"
 itertools = "0.13.0"

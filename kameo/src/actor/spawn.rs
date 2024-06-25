@@ -2,7 +2,7 @@ use std::{convert, mem, panic::AssertUnwindSafe};
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
-    FutureExt,
+    Future, FutureExt,
 };
 use tokio::runtime::{Handle, RuntimeFlavor};
 use tracing::{error, trace};
@@ -33,7 +33,30 @@ pub fn spawn<A>(actor: A) -> ActorRef<A>
 where
     A: Actor + Send + Sync + 'static,
 {
-    spawn_inner::<A, SyncActor<A>>(actor)
+    spawn_inner::<A, SyncActor<A>, _, _>(|_| async move { actor })
+        .now_or_never()
+        .unwrap()
+}
+
+/// Spawns an actor in a tokio task.
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::Actor;
+///
+/// #[derive(Actor)]
+/// struct MyActor;
+///
+/// kameo::spawn(MyActor);
+/// ```
+pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
+where
+    A: Actor + Send + Sync + 'static,
+    F: FnOnce(&ActorRef<A>) -> Fu,
+    Fu: Future<Output = A>,
+{
+    spawn_inner::<A, SyncActor<A>, _, _>(f).await
 }
 
 /// Spawns an actor in its own dedicated thread where blocking is acceptable.
@@ -92,7 +115,9 @@ pub fn spawn_unsync<A>(actor: A) -> ActorRef<A>
 where
     A: Actor + Send + 'static,
 {
-    spawn_inner::<A, UnsyncActor<A>>(actor)
+    spawn_inner::<A, UnsyncActor<A>, _, _>(|_| async move { actor })
+        .now_or_never()
+        .unwrap()
 }
 
 /// Spawns an `!Sync` actor in its own dedicated thread where blocking is acceptable.
@@ -130,24 +155,50 @@ where
 }
 
 #[inline]
-fn spawn_inner<A, S>(actor: A) -> ActorRef<A>
+async fn spawn_inner<A, S, F, Fu>(f: F) -> ActorRef<A>
 where
     A: Actor + Send + 'static,
     S: ActorState<A> + Send,
+    F: FnOnce(&ActorRef<A>) -> Fu,
+    Fu: Future<Output = A>,
 {
-    let (mailbox, mailbox_rx) = actor.new_mailbox();
+    let (mailbox, mailbox_rx) = A::new_mailbox();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let links = Links::default();
     let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
     let id = actor_ref.id();
+    let actor = f(&actor_ref).await;
 
-    tokio::spawn(CURRENT_ACTOR_ID.scope(id, {
-        let actor_ref = actor_ref.clone();
-        async move {
-            run_actor_lifecycle::<A, S>(actor_ref, actor, mailbox_rx, abort_registration, links)
-                .await
-        }
-    }));
+    #[cfg(not(tokio_unstable))]
+    {
+        tokio::spawn(CURRENT_ACTOR_ID.scope(id, {
+            let actor_ref = actor_ref.clone();
+            async move {
+                run_actor_lifecycle::<A, S>(actor_ref, actor, mailbox_rx, abort_registration, links)
+                    .await
+            }
+        }));
+    }
+
+    #[cfg(tokio_unstable)]
+    {
+        tokio::task::Builder::new()
+            .name(A::name())
+            .spawn(CURRENT_ACTOR_ID.scope(id, {
+                let actor_ref = actor_ref.clone();
+                async move {
+                    run_actor_lifecycle::<A, S>(
+                        actor_ref,
+                        actor,
+                        mailbox_rx,
+                        abort_registration,
+                        links,
+                    )
+                    .await
+                }
+            }))
+            .unwrap();
+    }
 
     actor_ref
 }
@@ -163,27 +214,30 @@ where
         panic!("threaded actors are not supported in a single threaded tokio runtime");
     }
 
-    let (mailbox, mailbox_rx) = actor.new_mailbox();
+    let (mailbox, mailbox_rx) = A::new_mailbox();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let links = Links::default();
     let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
     let id = actor_ref.id();
 
-    std::thread::spawn({
-        let actor_ref = actor_ref.clone();
-        move || {
-            handle.block_on(CURRENT_ACTOR_ID.scope(
-                id,
-                run_actor_lifecycle::<A, S>(
-                    actor_ref,
-                    actor,
-                    mailbox_rx,
-                    abort_registration,
-                    links,
-                ),
-            ));
-        }
-    });
+    std::thread::Builder::new()
+        .name(A::name().to_string())
+        .spawn({
+            let actor_ref = actor_ref.clone();
+            move || {
+                handle.block_on(CURRENT_ACTOR_ID.scope(
+                    id,
+                    run_actor_lifecycle::<A, S>(
+                        actor_ref,
+                        actor,
+                        mailbox_rx,
+                        abort_registration,
+                        links,
+                    ),
+                ))
+            }
+        })
+        .unwrap();
 
     actor_ref
 }
