@@ -90,7 +90,7 @@ where
         Ok(())
     }
 
-    /// Sends the message after the given delay.
+    /// Sends the message after the given delay in the background.
     ///
     /// If reserve is true, then a permit will be reserved in
     /// the actors mailbox before waiting for the delay.
@@ -141,7 +141,7 @@ where
         Ok(())
     }
 
-    /// Sends the message after the given delay with the timeout set.
+    /// Sends the message after the given delay in the background with the timeout set.
     ///
     /// If reserve is true, then a permit will be reserved in
     /// the actors mailbox before waiting for the delay.
@@ -199,5 +199,21 @@ where
     pub fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
         self.mailbox.0.send(self.signal)?;
         Ok(())
+    }
+
+    /// Sends the message after the given delay in the background.
+    pub fn delayed_send(
+        self,
+        delay: Duration,
+    ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
+    where
+        A: 'static,
+        M: Send,
+    {
+        tokio::spawn(async move {
+            tokio::time::sleep(delay).await;
+            self.mailbox.0.send(self.signal)?;
+            Ok(())
+        })
     }
 }
