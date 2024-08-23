@@ -11,7 +11,6 @@ use _internal::{
     REMOTE_ACTORS, REMOTE_MESSAGES,
 };
 use futures::future::BoxFuture;
-pub use linkme::distributed_slice;
 use once_cell::sync::Lazy;
 use serde::de::DeserializeOwned;
 use tokio::sync::Mutex;
@@ -70,7 +69,7 @@ macro_rules! register_actor {
         }
 
         const _: () = {
-            #[$crate::actor::remote::distributed_slice(
+            #[$crate::actor::remote::_internal::distributed_slice(
                 $crate::actor::remote::_internal::REMOTE_ACTORS
             )]
             static REG: (
@@ -98,7 +97,7 @@ macro_rules! register_message {
         }
 
         const _: () = {
-            #[$crate::actor::remote::distributed_slice(
+            #[$crate::actor::remote::_internal::distributed_slice(
                 $crate::actor::remote::_internal::REMOTE_MESSAGES
             )]
             static REG: (
@@ -370,7 +369,7 @@ impl From<RemoteSendError<Vec<u8>>> for rpc::RemoteSendError {
 
 #[doc(hidden)]
 pub mod _internal {
-    use linkme::distributed_slice;
+    pub use linkme::distributed_slice;
     use serde::Serialize;
 
     use crate::error::{RemoteSendError, RemoteSpawnError};
