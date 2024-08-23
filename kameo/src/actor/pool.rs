@@ -14,7 +14,7 @@ use crate::{
     request::Request,
 };
 
-use super::{BoundedMailbox, WeakActorRef};
+use super::{ActorID, BoundedMailbox, WeakActorRef};
 
 enum Factory<A: Actor> {
     Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
@@ -161,7 +161,7 @@ where
     async fn on_link_died(
         &mut self,
         actor_ref: WeakActorRef<Self>,
-        id: u64,
+        id: ActorID,
         _reason: ActorStopReason,
     ) -> Result<Option<ActorStopReason>, BoxError> {
         let Some(actor_ref) = actor_ref.upgrade() else {
@@ -263,7 +263,7 @@ where
                     return WorkerReply::Forwarded;
                 }
                 None => {
-                    if let Err(err) = Request::tell(&worker, msg).await {
+                    if let Err(err) = Request::tell(&worker, msg, None, false).await {
                         match err {
                             SendError::ActorNotRunning(m) => {
                                 msg = m;
@@ -305,7 +305,7 @@ where
             self.workers
                 .iter()
                 .zip(repeat_n(msg, self.workers.len())) // Avoids unnecessary clone of msg on last iteration
-                .map(|(worker, msg)| Request::tell(worker, msg)),
+                .map(|(worker, msg)| Request::tell(worker, msg, None, false)),
         )
         .await
     }

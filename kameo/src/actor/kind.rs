@@ -17,7 +17,7 @@ use crate::{
     message::{BoxReply, DynMessage, DynQuery},
 };
 
-use super::Signal;
+use super::{ActorID, Signal};
 
 pub(crate) trait ActorState<A: Actor>: Sized {
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
@@ -42,7 +42,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 
     fn handle_link_died(
         &mut self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
@@ -218,7 +218,7 @@ where
     #[inline]
     async fn handle_link_died(
         &mut self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> Option<ActorStopReason> {
         if let Some(reason) = self.wait_concurrent_queries().await {
@@ -405,7 +405,7 @@ where
     #[inline]
     async fn handle_link_died(
         &mut self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> Option<ActorStopReason> {
         match AssertUnwindSafe(

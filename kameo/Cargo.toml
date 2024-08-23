@@ -14,11 +14,23 @@ kameo_macros = { version = "0.9.0", path = "../kameo_macros" }
 
 dyn-clone = "1.0"
 futures = "0.3"
+inventory = "0.3.15"
+itertools = "0.13.0"
+linkme = "0.3.28"
 num_cpus = "1.0"
+once_cell = "1.19"
+serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.37", features = ["macros", "rt", "sync", "time", "tracing"] }
 tokio-stream = "0.1"
+tonic = "0.12"
 tracing = "0.1"
-itertools = "0.13.0"
+typetag = "0.2"
+prost = "0.13"
+prost-types = "0.13"
+rmp-serde = "1.3.0"
+
+[build-dependencies]
+tonic-build = "0.12"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
@@ -39,3 +51,6 @@ harness = false
 [[bench]]
 name = "overhead"
 harness = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

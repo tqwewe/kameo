@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package kameo.remote;
+
+import "google/protobuf/empty.proto";
+
+message SpawnRequest {
+  string actor_name = 1;
+  bytes payload = 2;
+}
+
+message SpawnResponse {
+  oneof result {
+    uint64 id = 1;
+    RemoteSpawnError error = 2;
+  }
+}
+
+message RemoteSpawnError {
+  oneof error {
+    DeserializeActor deserialize_actor = 1;
+    UnknownActor unknown_actor = 2;
+  }
+}
+
+// Generic request message to be sent to an actor
+message ActorMessage {
+  uint64 actor_id = 1;
+  string actor_name = 2;
+  string message_name = 3;
+  bytes payload = 4;
+  int64 mailbox_timeout = 5;
+  int64 reply_timeout = 6;
+  bool immediate = 7;
+}
+
+// Response message from an actor
+message AskResponse {
+  oneof result {
+    bytes reply = 1;
+    RemoteSendError error = 2;
+  }
+}
+
+message TellResponse {
+  oneof result {
+    google.protobuf.Empty ok = 1;
+    RemoteSendError error = 2;
+  }
+}
+
+message RemoteSendError {
+  oneof error {
+    ActorNotRunning actor_not_running = 1;
+    ActorStopped actor_stopped = 2;
+    UnknownActor unknown_actor = 3;
+    UnknownMessage unknown_message = 4;
+    BadActorType bad_actor_type = 5;
+    MailboxFull mailbox_full = 6;
+    Timeout timeout = 7;
+    HandlerError handler_error = 8;
+    DeserializeMessage deserialize_message = 9;
+    SerializeReply serialize_reply = 10;
+    SerializeHandlerError serialize_handler_error = 11;
+  }
+}
+
+message ActorNotRunning {}
+message ActorStopped {}
+message DeserializeActor {
+  string err = 1;
+}
+message UnknownActor {
+  string actor_name = 1;
+}
+message UnknownMessage {
+  string actor_name = 1;
+  string message_name = 2;
+}
+message BadActorType {}
+message MailboxFull {}
+message Timeout {}
+message HandlerError {
+  bytes payload = 1;
+}
+message DeserializeMessage {
+  string err = 1;
+}
+message SerializeReply {
+  string err = 1;
+}
+message SerializeHandlerError {
+  string err = 1;
+}
+
+// A service for interacting with remote actors
+service ActorService {
+  /// Spawns an actor and gets the actor ID
+  rpc Spawn(SpawnRequest) returns (SpawnResponse);
+  
+  // Sends a message to a remote actor and gets a response
+  rpc Ask(ActorMessage) returns (AskResponse);
+  
+  // Fire-and-forget message, does not expect a response
+  rpc Tell(ActorMessage) returns (TellResponse);
+}

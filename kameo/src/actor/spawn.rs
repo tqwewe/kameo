@@ -4,18 +4,24 @@ use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
     Future, FutureExt,
 };
+use serde::Serialize;
 use tokio::runtime::{Handle, RuntimeFlavor};
+use tonic::transport::Channel;
 use tracing::{error, trace};
 
 use crate::{
     actor::{
         kind::{ActorState, SyncActor, UnsyncActor},
+        remote::rpc,
         Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID,
     },
-    error::{ActorStopReason, PanicError},
+    error::{ActorStopReason, PanicError, RemoteSpawnError},
 };
 
-use super::MailboxReceiver;
+use super::{
+    remote::{self, ActorServiceClient, RemoteActor},
+    ActorID, MailboxReceiver, RemoteActorRef,
+};
 
 /// Spawns an actor in a tokio task.
 ///
@@ -91,6 +97,36 @@ where
     A: Actor + Send + Sync + 'static,
 {
     spawn_in_thread_inner::<A, SyncActor<A>>(actor)
+}
+
+/// Spawns an actor which runs remotely on another node.
+pub async fn spawn_remote<A>(
+    mut client: ActorServiceClient<Channel>,
+    actor: &A,
+) -> Result<RemoteActorRef<A>, RemoteSpawnError>
+where
+    A: Actor + RemoteActor + Serialize,
+{
+    let rpc::SpawnResponse { result } = client
+        .spawn(rpc::SpawnRequest {
+            actor_name: <A as remote::RemoteActor>::REMOTE_ID.to_string(),
+            payload: rmp_serde::to_vec_named(&actor)?,
+        })
+        .await?
+        .into_inner();
+    match result.unwrap() {
+        rpc::spawn_response::Result::Id(id) => Ok(RemoteActorRef::new(ActorID::new(id), client)),
+        rpc::spawn_response::Result::Error(rpc::RemoteSpawnError { error }) => {
+            match error.unwrap() {
+                rpc::remote_spawn_error::Error::DeserializeActor(rpc::DeserializeActor { err }) => {
+                    Err(RemoteSpawnError::DeserializeActor(err))
+                }
+                rpc::remote_spawn_error::Error::UnknownActor(rpc::UnknownActor { actor_name }) => {
+                    Err(RemoteSpawnError::UnknownActor(actor_name))
+                }
+            }
+        }
+    }
 }
 
 /// Spawns an `!Sync` actor in a tokio task.
@@ -375,7 +411,7 @@ where
 }
 
 #[inline]
-fn log_actor_stop_reason(id: u64, name: &str, reason: &ActorStopReason) {
+fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ ActorStopReason::Normal
         | reason @ ActorStopReason::Killed

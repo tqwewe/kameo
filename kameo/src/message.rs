@@ -20,7 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 use tokio::sync::oneshot;
 
 use crate::{
-    actor::ActorRef,
+    actor::{remote::RemoteMessage, ActorRef},
     error::{BoxSendError, SendError},
     reply::{DelegatedReply, ForwardedReply, Reply, ReplySender},
     request::Request,
@@ -81,6 +81,10 @@ pub enum StreamMessage<T, S, F> {
     Started(S),
     /// The stream has finished, and no more items will be sent.
     Finished(F),
+}
+
+impl<T, S, F> RemoteMessage for StreamMessage<T, S, F> {
+    const REMOTE_ID: &'static str = "kameo_StreamMessage";
 }
 
 /// A context provided to message and query handlers providing access
@@ -174,7 +178,7 @@ where
     {
         let (delegated_reply, reply_sender) = self.reply_sender();
         tokio::spawn(async move {
-            let reply = Request::ask(&actor_ref, message).await;
+            let reply = Request::ask(&actor_ref, message, None, None, false).await;
             if let Some(reply_sender) = reply_sender {
                 reply_sender.send(reply);
             }
