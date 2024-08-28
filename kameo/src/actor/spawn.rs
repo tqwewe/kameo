@@ -5,21 +5,24 @@ use futures::{
     Future, FutureExt,
 };
 use serde::Serialize;
-use tokio::runtime::{Handle, RuntimeFlavor};
+use tokio::{
+    runtime::{Handle, RuntimeFlavor},
+    sync::mpsc,
+};
 use tonic::transport::Channel;
 use tracing::{error, trace};
 
 use crate::{
     actor::{
         kind::{ActorState, SyncActor, UnsyncActor},
-        remote::rpc,
         Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError, RemoteSpawnError},
+    registry::SwarmMessage,
 };
 
 use super::{
-    remote::{self, ActorServiceClient, RemoteActor},
+    remote::{self, RemoteActor},
     ActorID, MailboxReceiver, RemoteActorRef,
 };
 
@@ -100,34 +103,37 @@ where
 }
 
 /// Spawns an actor which runs remotely on another node.
-pub async fn spawn_remote<A>(
-    mut client: ActorServiceClient<Channel>,
-    actor: &A,
-) -> Result<RemoteActorRef<A>, RemoteSpawnError>
-where
-    A: Actor + RemoteActor + Serialize,
-{
-    let rpc::SpawnResponse { result } = client
-        .spawn(rpc::SpawnRequest {
-            actor_name: <A as remote::RemoteActor>::REMOTE_ID.to_string(),
-            payload: rmp_serde::to_vec_named(&actor)?,
-        })
-        .await?
-        .into_inner();
-    match result.unwrap() {
-        rpc::spawn_response::Result::Id(id) => Ok(RemoteActorRef::new(ActorID::new(id), client)),
-        rpc::spawn_response::Result::Error(rpc::RemoteSpawnError { error }) => {
-            match error.unwrap() {
-                rpc::remote_spawn_error::Error::DeserializeActor(rpc::DeserializeActor { err }) => {
-                    Err(RemoteSpawnError::DeserializeActor(err))
-                }
-                rpc::remote_spawn_error::Error::UnknownActor(rpc::UnknownActor { actor_name }) => {
-                    Err(RemoteSpawnError::UnknownActor(actor_name))
-                }
-            }
-        }
-    }
-}
+// pub async fn spawn_remote<A>(
+//     swarm_tx: mpsc::Sender<SwarmMessage>,
+//     actor: &A,
+// ) -> Result<RemoteActorRef<A>, RemoteSpawnError>
+// where
+//     A: Actor + RemoteActor + Serialize,
+// {
+//     let rpc::SpawnResponse { result } = client
+//         .spawn(rpc::SpawnRequest {
+//             actor_name: <A as remote::RemoteActor>::REMOTE_ID.to_string(),
+//             payload: rmp_serde::to_vec_named(&actor)?,
+//         })
+//         .await?
+//         .into_inner();
+//     match result.unwrap() {
+//         rpc::spawn_response::Result::Id(id) => Ok(RemoteActorRef::new(
+//             ActorID::from_bytes(&id).unwrap(),
+//             client,
+//         )),
+//         rpc::spawn_response::Result::Error(rpc::RemoteSpawnError { error }) => {
+//             match error.unwrap() {
+//                 rpc::remote_spawn_error::Error::DeserializeActor(rpc::DeserializeActor { err }) => {
+//                     Err(RemoteSpawnError::DeserializeActor(err))
+//                 }
+//                 rpc::remote_spawn_error::Error::UnknownActor(rpc::UnknownActor { actor_name }) => {
+//                     Err(RemoteSpawnError::UnknownActor(actor_name))
+//                 }
+//             }
+//         }
+//     }
+// }
 
 /// Spawns an `!Sync` actor in a tokio task.
 ///

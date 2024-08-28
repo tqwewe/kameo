@@ -1,16 +1,12 @@
 use std::time::Duration;
 
 use kameo::{
-    actor::{
-        remote::{ActorServiceClient, ActorServiceServer, DefaultActorService},
-        spawn_remote,
-    },
     message::{Context, Message},
-    register_actor, register_message, Actor,
+    register_actor, register_message,
+    registry::ActorRegistry,
+    Actor,
 };
 use serde::{Deserialize, Serialize};
-use tonic::transport::Server;
-use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, Default, Serialize, Deserialize)]
@@ -44,39 +40,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let server_addr = std::env::args()
-        .nth(1)
-        .unwrap_or("[::1]:50051".to_string())
-        .parse()?;
-    let client_addr = std::env::args().nth(2).unwrap_or("[::1]:50052".to_string());
+    let is_main = std::env::args().count() >= 2;
+    if !is_main {
+        println!("sleeping...");
+        tokio::time::sleep(Duration::from_secs(3)).await;
+    }
 
-    info!("listening on {server_addr}");
+    println!("bootstrapping");
+    let reg = ActorRegistry::bootstrap();
+    if is_main {
+        println!("sleeping...");
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
 
-    tokio::spawn(async move {
-        let client = loop {
-            let res = ActorServiceClient::connect(format!("http://{client_addr}")).await;
-            match res {
-                Ok(client) => break client,
-                Err(_) => {
-                    // error!("failed to connect to client http://{client_addr}");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
+    if is_main {
+        let actor_ref = kameo::spawn(MyActor { count: 0 });
+        println!("registering");
+        reg.register::<MyActor>(actor_ref, "hi".to_string()).await;
+    } else {
+        println!("sleeping...");
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+
+    loop {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        if !is_main {
+            println!("looking up...");
+            let remote_actor_ref = reg.lookup::<MyActor>("hi".to_string()).await;
+            match remote_actor_ref {
+                Some(remote_actor_ref) => {
+                    let count = remote_actor_ref
+                        .ask(&Inc { amount: 10 })
+                        .send()
+                        .await
+                        .unwrap();
+                    println!("Incremented! Count is {count}");
                 }
-            };
-        };
 
-        let remote_actor_ref = spawn_remote(client, &MyActor { count: 0 }).await?;
-        let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
-
-        dbg!(count);
-
-        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
-    });
-
-    Server::builder()
-        .add_service(ActorServiceServer::new(DefaultActorService::default()))
-        .serve(server_addr)
-        .await?;
-
-    Ok(())
+                None => {
+                    println!("None");
+                }
+            }
+        }
+    }
 }

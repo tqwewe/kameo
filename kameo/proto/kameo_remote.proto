@@ -11,7 +11,7 @@ message SpawnRequest {
 
 message SpawnResponse {
   oneof result {
-    uint64 id = 1;
+    bytes id = 1;
     RemoteSpawnError error = 2;
   }
 }
@@ -25,7 +25,7 @@ message RemoteSpawnError {
 
 // Generic request message to be sent to an actor
 message ActorMessage {
-  uint64 actor_id = 1;
+  bytes actor_id = 1;
   string actor_name = 2;
   string message_name = 3;
   bytes payload = 4;

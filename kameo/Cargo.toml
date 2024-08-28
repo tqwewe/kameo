@@ -15,10 +15,12 @@ kameo_macros = { version = "0.9.0", path = "../kameo_macros" }
 dyn-clone = "1.0"
 futures = "0.3"
 itertools = "0.13.0"
+libp2p = { version = "0.54.1", features = [ "cbor", "dns", "kad", "mdns", "macros", "noise", "request-response", "serde", "tcp", "tokio", "yamux"] }
 linkme = "0.3.28"
 num_cpus = "1.0"
 once_cell = "1.19"
 serde = { version = "1.0", features = ["derive"] }
+tarpc = "0.27.0"
 tokio = { version = "1.37", features = ["macros", "rt", "sync", "time", "tracing"] }
 tokio-stream = "0.1"
 tonic = "0.12"

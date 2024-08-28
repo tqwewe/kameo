@@ -563,34 +563,19 @@ impl fmt::Display for PanicError {
 }
 
 /// Errors that can occur when spawning a remote actor.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum RemoteSpawnError {
-    /// Rpc error.
-    Rpc(tonic::Status),
     /// Failed to serialize actor state.
-    SerializeActor(rmp_serde::encode::Error),
+    SerializeActor(String),
     /// Failed to deserialize actor state.
     DeserializeActor(String),
     /// Unknown actor.
     UnknownActor(String),
 }
 
-impl From<tonic::Status> for RemoteSpawnError {
-    fn from(err: tonic::Status) -> Self {
-        RemoteSpawnError::Rpc(err)
-    }
-}
-
-impl From<rmp_serde::encode::Error> for RemoteSpawnError {
-    fn from(err: rmp_serde::encode::Error) -> Self {
-        RemoteSpawnError::SerializeActor(err)
-    }
-}
-
 impl fmt::Display for RemoteSpawnError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RemoteSpawnError::Rpc(err) => err.fmt(f),
             RemoteSpawnError::SerializeActor(err) => write!(f, "failed to serialize actor: {err}"),
             RemoteSpawnError::DeserializeActor(err) => {
                 write!(f, "failed to deserialize actor: {err}")

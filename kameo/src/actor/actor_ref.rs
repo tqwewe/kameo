@@ -2,12 +2,16 @@ use std::{cell::Cell, collections::HashMap, fmt, marker::PhantomData, ops, sync:
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::{sync::Mutex, task::JoinHandle, task_local};
-use tonic::transport::Channel;
+use tokio::{
+    sync::{mpsc, Mutex},
+    task::JoinHandle,
+    task_local,
+};
 
 use crate::{
     error::SendError,
     message::{Message, Query, StreamMessage},
+    registry::SwarmMessage,
     reply::Reply,
     request::{
         AskRequest, LocalAskRequest, LocalTellRequest, QueryRequest, RemoteAskRequest,
@@ -18,7 +22,7 @@ use crate::{
 
 use super::{
     id::ActorID,
-    remote::{ActorServiceClient, RemoteActor, RemoteMessage},
+    remote::{RemoteActor, RemoteMessage},
     Mailbox, Signal, SignalMailbox, WeakMailbox,
 };
 
@@ -373,15 +377,15 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 /// A reference to an actor running remotely.
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
-    client: ActorServiceClient<Channel>,
+    swarm_tx: mpsc::Sender<SwarmMessage>,
     phantom: PhantomData<A>,
 }
 
 impl<A: Actor> RemoteActorRef<A> {
-    pub(crate) fn new(id: ActorID, client: ActorServiceClient<Channel>) -> Self {
+    pub(crate) fn new(id: ActorID, swarm_tx: mpsc::Sender<SwarmMessage>) -> Self {
         RemoteActorRef {
             id,
-            client,
+            swarm_tx,
             phantom: PhantomData,
         }
     }
@@ -425,8 +429,8 @@ impl<A: Actor> RemoteActorRef<A> {
         TellRequest::new_remote(self, msg)
     }
 
-    pub(crate) fn client(&self) -> ActorServiceClient<Channel> {
-        self.client.clone()
+    pub(crate) async fn send_to_swarm(&self, msg: SwarmMessage) {
+        self.swarm_tx.send(msg).await.unwrap()
     }
 }
 
@@ -434,7 +438,7 @@ impl<A: Actor> Clone for RemoteActorRef<A> {
     fn clone(&self) -> Self {
         RemoteActorRef {
             id: self.id.clone(),
-            client: self.client.clone(),
+            swarm_tx: self.swarm_tx.clone(),
             phantom: PhantomData,
         }
     }

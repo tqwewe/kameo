@@ -5,11 +5,12 @@ use tokio::{sync::oneshot, time::timeout};
 
 use crate::{
     actor::{
-        remote::{rpc, RemoteActor, RemoteMessage},
+        remote::{RemoteActor, RemoteMessage},
         ActorRef, BoundedMailbox, RemoteActorRef, Signal, UnboundedMailbox,
     },
     error::{BoxSendError, RemoteSendError, SendError},
     message::{BoxReply, Message},
+    registry::{ActorRegistry, Req, Resp, SwarmMessage},
     reply::ReplySender,
     Actor, Reply,
 };
@@ -700,70 +701,38 @@ where
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
-    let rpc::AskResponse { result } = actor_ref
-        .client()
-        .ask(rpc::ActorMessage {
-            actor_id: actor_ref.id().raw(),
-            actor_name: A::REMOTE_ID.to_string(),
-            message_name: M::REMOTE_ID.to_string(),
-            payload: rmp_serde::to_vec_named(msg)
-                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
-            mailbox_timeout: mailbox_timeout
-                .map(|t| t.as_millis().try_into().unwrap_or(i64::MAX))
-                .unwrap_or(-1),
-            reply_timeout: reply_timeout
-                .map(|t| t.as_millis().try_into().unwrap_or(i64::MAX))
-                .unwrap_or(-1),
-            immediate,
+    let actor_id = actor_ref.id();
+    let (reply_tx, reply_rx) = oneshot::channel();
+    actor_ref
+        .send_to_swarm(SwarmMessage::Req {
+            peer_id: actor_id
+                .peer_id()
+                .unwrap_or_else(|| *ActorRegistry::get().unwrap().local_peer_id()),
+            req: Req::Ask {
+                actor_id,
+                actor_name: A::REMOTE_ID.to_string(),
+                message_name: M::REMOTE_ID.to_string(),
+                payload: rmp_serde::to_vec_named(msg)
+                    .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
+                mailbox_timeout,
+                reply_timeout,
+                immediate,
+            },
+            reply: reply_tx,
         })
-        .await?
-        .into_inner();
+        .await;
 
-    match result.unwrap() {
-        rpc::ask_response::Result::Reply(payload) => Ok(rmp_serde::decode::from_slice(&payload)
-            .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?),
-        rpc::ask_response::Result::Error(rpc::RemoteSendError { error }) => {
-            Err(match error.unwrap() {
-                rpc::remote_send_error::Error::ActorNotRunning(rpc::ActorNotRunning {}) => {
-                    RemoteSendError::ActorNotRunning
-                }
-                rpc::remote_send_error::Error::ActorStopped(rpc::ActorStopped {}) => {
-                    RemoteSendError::ActorStopped
-                }
-                rpc::remote_send_error::Error::UnknownActor(rpc::UnknownActor { actor_name }) => {
-                    RemoteSendError::UnknownActor { actor_name }
-                }
-                rpc::remote_send_error::Error::UnknownMessage(rpc::UnknownMessage {
-                    actor_name,
-                    message_name,
-                }) => RemoteSendError::UnknownMessage {
-                    actor_name,
-                    message_name,
-                },
-                rpc::remote_send_error::Error::BadActorType(rpc::BadActorType {}) => {
-                    RemoteSendError::BadActorType
-                }
-                rpc::remote_send_error::Error::MailboxFull(rpc::MailboxFull {}) => {
-                    RemoteSendError::MailboxFull
-                }
-                rpc::remote_send_error::Error::Timeout(rpc::Timeout {}) => RemoteSendError::Timeout,
-                rpc::remote_send_error::Error::HandlerError(rpc::HandlerError { payload }) => {
-                    RemoteSendError::HandlerError(
-                        rmp_serde::decode::from_slice(&payload).map_err(|err| {
-                            RemoteSendError::DeserializeHandlerError(err.to_string())
-                        })?,
-                    )
-                }
-                rpc::remote_send_error::Error::DeserializeMessage(rpc::DeserializeMessage {
-                    err,
-                }) => RemoteSendError::DeserializeMessage(err),
-                rpc::remote_send_error::Error::SerializeReply(rpc::SerializeReply { err }) => {
-                    RemoteSendError::SerializeReply(err)
-                }
-                rpc::remote_send_error::Error::SerializeHandlerError(
-                    rpc::SerializeHandlerError { err },
-                ) => RemoteSendError::SerializeHandlerError(err),
-            })
-        }
+    match reply_rx.await.unwrap() {
+        Resp::Ask(res) => match res {
+            Ok(payload) => Ok(rmp_serde::decode::from_slice(&payload)
+                .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?),
+            Err(err) => Err(err
+                .map_err(|err| match rmp_serde::decode::from_slice(&err) {
+                    Ok(err) => RemoteSendError::HandlerError(err),
+                    Err(err) => RemoteSendError::DeserializeHandlerError(err.to_string()),
+                })
+                .flatten()),
+        },
+        _ => panic!("unexpected response"),
     }
 }
