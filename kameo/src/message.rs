@@ -20,8 +20,9 @@ use futures::{future::BoxFuture, Future, FutureExt};
 use tokio::sync::oneshot;
 
 use crate::{
-    actor::{remote::RemoteMessage, ActorRef},
+    actor::ActorRef,
     error::{BoxSendError, SendError},
+    remote::RemoteMessage,
     reply::{DelegatedReply, ForwardedReply, Reply, ReplySender},
     request::Request,
     Actor,

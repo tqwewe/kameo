@@ -1,12 +1,14 @@
 use std::time::Duration;
 
 use kameo::{
+    actor::RemoteActorRef,
     message::{Context, Message},
     register_actor, register_message,
-    registry::ActorRegistry,
+    remote::ActorSwarm,
     Actor,
 };
 use serde::{Deserialize, Serialize};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, Default, Serialize, Deserialize)]
@@ -40,47 +42,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let is_main = std::env::args().count() >= 2;
-    if !is_main {
-        println!("sleeping...");
-        tokio::time::sleep(Duration::from_secs(3)).await;
-    }
+    let is_host = match std::env::args().nth(1).as_deref() {
+        Some("guest") => false,
+        Some("host") => true,
+        Some(_) | None => {
+            error!("expected either 'host' or 'guest' argument");
+            return Ok(());
+        }
+    };
 
-    println!("bootstrapping");
-    let reg = ActorRegistry::bootstrap();
-    if is_main {
-        println!("sleeping...");
-        tokio::time::sleep(Duration::from_secs(5)).await;
-    }
+    // Bootstrap the actor swarm
+    ActorSwarm::bootstrap()?;
 
-    if is_main {
+    if is_host {
         let actor_ref = kameo::spawn(MyActor { count: 0 });
-        println!("registering");
-        reg.register::<MyActor>(actor_ref, "hi".to_string()).await;
+        info!("registering actor");
+        actor_ref.register("my_actor").await?;
     } else {
-        println!("sleeping...");
+        // Wait for registry to sync
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
     loop {
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        if !is_main {
-            println!("looking up...");
-            let remote_actor_ref = reg.lookup::<MyActor>("hi".to_string()).await;
+        if !is_host {
+            let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
             match remote_actor_ref {
                 Some(remote_actor_ref) => {
-                    let count = remote_actor_ref
-                        .ask(&Inc { amount: 10 })
-                        .send()
-                        .await
-                        .unwrap();
+                    let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
                     println!("Incremented! Count is {count}");
                 }
-
                 None => {
-                    println!("None");
+                    println!("actor not found");
                 }
             }
         }
+
+        tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }

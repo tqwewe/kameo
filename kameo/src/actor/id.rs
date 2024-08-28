@@ -6,7 +6,7 @@ use libp2p::identity::ParseError;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
-use crate::registry::ActorRegistry;
+use crate::remote::ActorSwarm;
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -31,13 +31,14 @@ impl ActorID {
         ActorID::new(ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
+    /// Returns the peer ID associated with the actor ID.
     pub fn peer_id(&self) -> Option<PeerId> {
         self.peer_id
     }
 
     pub(crate) fn with_hydrate_peer_id(mut self) -> ActorID {
         if self.peer_id.is_none() {
-            self.peer_id = Some(*ActorRegistry::get().unwrap().local_peer_id());
+            self.peer_id = Some(*ActorSwarm::get().unwrap().local_peer_id());
         }
         self
     }
@@ -84,7 +85,7 @@ impl fmt::Debug for ActorID {
 }
 
 #[derive(Debug)]
-pub enum ActorIDFromBytesError {
+pub(crate) enum ActorIDFromBytesError {
     MissingInstanceID,
     ParsePeerID(ParseError),
 }

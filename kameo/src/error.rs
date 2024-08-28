@@ -8,9 +8,12 @@ use std::{
     any::{self, Any},
     cmp, error, fmt,
     hash::{Hash, Hasher},
+    io,
+    num::NonZero,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
+use libp2p::{noise, TransportError};
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -243,8 +246,74 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
+/// An error that can occur when bootstrapping the actor swarm.
+#[derive(Debug)]
+pub enum BootstrapError {
+    /// Behaviour error.
+    BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
+    /// Noise error.
+    Noise(noise::Error),
+    /// An error during listening on a Transport.
+    Transport(TransportError<io::Error>),
+}
+
+impl From<noise::Error> for BootstrapError {
+    fn from(err: noise::Error) -> Self {
+        BootstrapError::Noise(err)
+    }
+}
+
+impl From<TransportError<io::Error>> for BootstrapError {
+    fn from(err: TransportError<io::Error>) -> Self {
+        BootstrapError::Transport(err)
+    }
+}
+
+impl fmt::Display for BootstrapError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BootstrapError::BehaviourError(err) => err.fmt(f),
+            BootstrapError::Noise(err) => err.fmt(f),
+            BootstrapError::Transport(err) => err.fmt(f),
+        }
+    }
+}
+
+impl error::Error for BootstrapError {}
+
+/// An error that can occur when registering & looking up actors by name.
+#[derive(Clone, Debug)]
+pub enum RegistrationError {
+    /// The actor swarm has not been bootstrapped.
+    SwarmNotBootstrapped,
+    /// The remote actor was found given the ID, but was not the correct type.
+    BadActorType,
+    /// Quorum failed.
+    QuorumFailed {
+        /// Required quorum.
+        quorum: NonZero<usize>,
+    },
+    /// Timeout.
+    Timeout,
+}
+
+impl fmt::Display for RegistrationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegistrationError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
+            RegistrationError::BadActorType => write!(f, "bad actor type"),
+            RegistrationError::QuorumFailed { quorum } => {
+                write!(f, "the quorum failed; needed {quorum} peers")
+            }
+            RegistrationError::Timeout => write!(f, "the request timed out"),
+        }
+    }
+}
+
+impl error::Error for RegistrationError {}
+
 /// Error that can occur when sending a message to an actor.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum RemoteSendError<E> {
     /// The actor isn't running.
     ActorNotRunning,
@@ -267,7 +336,7 @@ pub enum RemoteSendError<E> {
     /// The actors mailbox is full.
     MailboxFull,
     /// Timed out waiting for a reply.
-    Timeout,
+    ReplyTimeout,
     /// An error returned by the actor's message handler.
     HandlerError(E),
     /// Failed to serialize the message.
@@ -280,9 +349,22 @@ pub enum RemoteSendError<E> {
     SerializeHandlerError(String),
     /// Failed to deserialize the handler error.
     DeserializeHandlerError(String),
-    /// Rpc error.
+
+    /// The request could not be sent because a dialing attempt failed.
+    DialFailure,
+    /// The request timed out before a response was received.
+    ///
+    /// It is not known whether the request may have been
+    /// received (and processed) by the remote peer.
+    NetworkTimeout,
+    /// The connection closed before a response was received.
+    ///
+    /// It is not known whether the request may have been
+    /// received (and processed) by the remote peer.
+    ConnectionClosed,
+    /// An IO failure happened on an outbound stream.
     #[serde(skip)]
-    Rpc(tonic::Status),
+    Io(Option<io::Error>),
 }
 
 impl<E> RemoteSendError<E> {
@@ -306,7 +388,7 @@ impl<E> RemoteSendError<E> {
             },
             RemoteSendError::BadActorType => RemoteSendError::BadActorType,
             RemoteSendError::MailboxFull => RemoteSendError::MailboxFull,
-            RemoteSendError::Timeout => RemoteSendError::Timeout,
+            RemoteSendError::ReplyTimeout => RemoteSendError::ReplyTimeout,
             RemoteSendError::HandlerError(err) => RemoteSendError::HandlerError(op(err)),
             RemoteSendError::SerializeMessage(err) => RemoteSendError::SerializeMessage(err),
             RemoteSendError::DeserializeMessage(err) => RemoteSendError::DeserializeMessage(err),
@@ -317,7 +399,10 @@ impl<E> RemoteSendError<E> {
             RemoteSendError::DeserializeHandlerError(err) => {
                 RemoteSendError::DeserializeHandlerError(err)
             }
-            RemoteSendError::Rpc(err) => RemoteSendError::Rpc(err),
+            RemoteSendError::DialFailure => RemoteSendError::DialFailure,
+            RemoteSendError::NetworkTimeout => RemoteSendError::NetworkTimeout,
+            RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
+            RemoteSendError::Io(err) => RemoteSendError::Io(err),
         }
     }
 }
@@ -345,7 +430,7 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
             },
             BadActorType | HandlerError(BadActorType) => BadActorType,
             MailboxFull | HandlerError(MailboxFull) => MailboxFull,
-            Timeout | HandlerError(Timeout) => Timeout,
+            ReplyTimeout | HandlerError(ReplyTimeout) => ReplyTimeout,
             HandlerError(HandlerError(err)) => HandlerError(err),
             SerializeMessage(err) | HandlerError(SerializeMessage(err)) => SerializeMessage(err),
             DeserializeMessage(err) | HandlerError(DeserializeMessage(err)) => {
@@ -358,7 +443,10 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
             DeserializeHandlerError(err) | HandlerError(DeserializeHandlerError(err)) => {
                 RemoteSendError::DeserializeHandlerError(err)
             }
-            Rpc(err) | HandlerError(Rpc(err)) => Rpc(err),
+            DialFailure | HandlerError(DialFailure) => DialFailure,
+            NetworkTimeout | HandlerError(NetworkTimeout) => NetworkTimeout,
+            ConnectionClosed | HandlerError(ConnectionClosed) => ConnectionClosed,
+            Io(err) | HandlerError(Io(err)) => Io(err),
         }
     }
 }
@@ -370,15 +458,9 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
             SendError::ActorStopped => RemoteSendError::ActorStopped,
             SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
             SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
-            SendError::Timeout(_) => RemoteSendError::Timeout,
+            SendError::Timeout(_) => RemoteSendError::ReplyTimeout,
             SendError::QueriesNotSupported => unimplemented!(),
         }
-    }
-}
-
-impl<E> From<tonic::Status> for RemoteSendError<E> {
-    fn from(err: tonic::Status) -> Self {
-        RemoteSendError::Rpc(err)
     }
 }
 
@@ -402,7 +484,7 @@ where
             ),
             RemoteSendError::BadActorType => write!(f, "bad actor type"),
             RemoteSendError::MailboxFull => write!(f, "mailbox full"),
-            RemoteSendError::Timeout => write!(f, "timeout"),
+            RemoteSendError::ReplyTimeout => write!(f, "timeout"),
             RemoteSendError::HandlerError(err) => err.fmt(f),
             RemoteSendError::SerializeMessage(err) => {
                 write!(f, "failed to serialize message: {err}")
@@ -419,7 +501,11 @@ where
             RemoteSendError::DeserializeHandlerError(err) => {
                 write!(f, "failed to deserialize handler error: {err}")
             }
-            RemoteSendError::Rpc(err) => err.fmt(f),
+            RemoteSendError::DialFailure => write!(f, "dial failure"),
+            RemoteSendError::NetworkTimeout => write!(f, "network timeout"),
+            RemoteSendError::ConnectionClosed => write!(f, "connection closed"),
+            RemoteSendError::Io(Some(err)) => err.fmt(f),
+            RemoteSendError::Io(None) => write!(f, "io error"),
         }
     }
 }

@@ -9,9 +9,9 @@ use tokio::{
 };
 
 use crate::{
-    error::SendError,
+    error::{RegistrationError, SendError},
     message::{Message, Query, StreamMessage},
-    registry::SwarmMessage,
+    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand},
     reply::Reply,
     request::{
         AskRequest, LocalAskRequest, LocalTellRequest, QueryRequest, RemoteAskRequest,
@@ -20,11 +20,7 @@ use crate::{
     Actor,
 };
 
-use super::{
-    id::ActorID,
-    remote::{RemoteActor, RemoteMessage},
-    Mailbox, Signal, SignalMailbox, WeakMailbox,
-};
+use super::{id::ActorID, Mailbox, Signal, SignalMailbox, WeakMailbox};
 
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorID;
@@ -62,6 +58,28 @@ where
     /// Returns whether the actor is currently alive.
     pub fn is_alive(&self) -> bool {
         !self.mailbox.is_closed()
+    }
+
+    /// Registers the actor under a given name within the actor swarm.
+    pub async fn register(&self, name: &str) -> Result<(), RegistrationError>
+    where
+        A: RemoteActor + 'static,
+    {
+        ActorSwarm::get()
+            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+            .register(self.clone(), name.to_string())
+            .await
+    }
+
+    /// Looks up an actor registered locally.
+    pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
+    where
+        A: RemoteActor + 'static,
+    {
+        ActorSwarm::get()
+            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+            .lookup_local(name.to_string())
+            .await
     }
 
     /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
@@ -377,12 +395,12 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 /// A reference to an actor running remotely.
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
-    swarm_tx: mpsc::Sender<SwarmMessage>,
+    swarm_tx: mpsc::Sender<SwarmCommand>,
     phantom: PhantomData<A>,
 }
 
 impl<A: Actor> RemoteActorRef<A> {
-    pub(crate) fn new(id: ActorID, swarm_tx: mpsc::Sender<SwarmMessage>) -> Self {
+    pub(crate) fn new(id: ActorID, swarm_tx: mpsc::Sender<SwarmCommand>) -> Self {
         RemoteActorRef {
             id,
             swarm_tx,
@@ -393,6 +411,17 @@ impl<A: Actor> RemoteActorRef<A> {
     /// Returns the actor identifier.
     pub fn id(&self) -> ActorID {
         self.id
+    }
+
+    /// Looks up an actor registered locally.
+    pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
+    where
+        A: RemoteActor + 'static,
+    {
+        ActorSwarm::get()
+            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+            .lookup(name.to_string())
+            .await
     }
 
     /// Sends a message to the remote actor, waiting for a reply.
@@ -429,7 +458,7 @@ impl<A: Actor> RemoteActorRef<A> {
         TellRequest::new_remote(self, msg)
     }
 
-    pub(crate) async fn send_to_swarm(&self, msg: SwarmMessage) {
+    pub(crate) async fn send_to_swarm(&self, msg: SwarmCommand) {
         self.swarm_tx.send(msg).await.unwrap()
     }
 }

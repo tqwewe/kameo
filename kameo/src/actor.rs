@@ -27,7 +27,6 @@ mod kind;
 mod mailbox;
 mod pool;
 mod pubsub;
-pub mod remote;
 mod spawn;
 
 use std::any;

@@ -27,7 +27,7 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
 }
 
 #[doc(hidden)]
-pub trait WeakMailbox: SignalMailbox + Clone + Send {
+pub trait WeakMailbox: SignalMailbox + Clone + Send + Sync {
     type StrongMailbox;
 
     fn upgrade(&self) -> Option<Self::StrongMailbox>;

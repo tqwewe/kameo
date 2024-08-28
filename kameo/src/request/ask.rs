@@ -4,13 +4,10 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::{sync::oneshot, time::timeout};
 
 use crate::{
-    actor::{
-        remote::{RemoteActor, RemoteMessage},
-        ActorRef, BoundedMailbox, RemoteActorRef, Signal, UnboundedMailbox,
-    },
+    actor::{ActorRef, BoundedMailbox, RemoteActorRef, Signal, UnboundedMailbox},
     error::{BoxSendError, RemoteSendError, SendError},
     message::{BoxReply, Message},
-    registry::{ActorRegistry, Req, Resp, SwarmMessage},
+    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmReq, SwarmResp},
     reply::ReplySender,
     Actor, Reply,
 };
@@ -704,11 +701,11 @@ where
     let actor_id = actor_ref.id();
     let (reply_tx, reply_rx) = oneshot::channel();
     actor_ref
-        .send_to_swarm(SwarmMessage::Req {
+        .send_to_swarm(SwarmCommand::Req {
             peer_id: actor_id
                 .peer_id()
-                .unwrap_or_else(|| *ActorRegistry::get().unwrap().local_peer_id()),
-            req: Req::Ask {
+                .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id()),
+            req: SwarmReq::Ask {
                 actor_id,
                 actor_name: A::REMOTE_ID.to_string(),
                 message_name: M::REMOTE_ID.to_string(),
@@ -723,7 +720,7 @@ where
         .await;
 
     match reply_rx.await.unwrap() {
-        Resp::Ask(res) => match res {
+        SwarmResp::Ask(res) => match res {
             Ok(payload) => Ok(rmp_serde::decode::from_slice(&payload)
                 .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?),
             Err(err) => Err(err
@@ -733,6 +730,9 @@ where
                 })
                 .flatten()),
         },
+        SwarmResp::OutboundFailure(err) => {
+            Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
+        }
         _ => panic!("unexpected response"),
     }
 }
