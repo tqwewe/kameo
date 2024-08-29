@@ -437,8 +437,8 @@ impl<A: Actor> RemoteActorRef<A> {
         WithoutRequestTimeout,
     >
     where
-        A: RemoteActor + Message<M>,
-        M: RemoteMessage + Serialize,
+        A: RemoteActor + Message<M> + RemoteMessage<M>,
+        M: Serialize,
         <A::Reply as Reply>::Ok: DeserializeOwned,
     {
         AskRequest::new_remote(self, msg)

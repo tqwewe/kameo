@@ -41,8 +41,8 @@ pub type TellRemoteMessageFn = fn(
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct RemoteMessageRegistrationID<'a> {
-    pub actor_name: &'a str,
-    pub message_name: &'a str,
+    pub actor_remote_id: &'a str,
+    pub message_remote_id: &'a str,
 }
 
 pub async fn spawn_remote<A>(actor: Vec<u8>) -> Result<ActorID, RemoteSpawnError>

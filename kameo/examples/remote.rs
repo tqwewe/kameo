@@ -3,16 +3,16 @@ use std::time::Duration;
 use kameo::{
     actor::RemoteActorRef,
     message::{Context, Message},
-    register_actor, register_message,
     remote::ActorSwarm,
     Actor,
 };
+use kameo_macros::{remote_message, RemoteActor};
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-#[derive(Actor, Default, Serialize, Deserialize)]
+#[derive(Actor, RemoteActor, Default, Serialize, Deserialize)]
 pub struct MyActor {
     count: i64,
 }
@@ -22,6 +22,7 @@ pub struct Inc {
     amount: u32,
 }
 
+#[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
@@ -32,8 +33,24 @@ impl Message<Inc> for MyActor {
     }
 }
 
-register_actor!(MyActor);
-register_message!(MyActor, Inc);
+#[derive(Serialize, Deserialize)]
+pub struct Dec {
+    amount: u32,
+}
+
+#[remote_message("20185b42-8645-47d2-8d65-2d1c68d26823")]
+impl Message<Dec> for MyActor {
+    type Reply = i64;
+
+    async fn handle(&mut self, msg: Dec, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+        println!("decrementing");
+        self.count -= msg.amount as i64;
+        self.count
+    }
+}
+
+// register_actor!(MyActor);
+// register_message!(MyActor, Inc);
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

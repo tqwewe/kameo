@@ -1,5 +1,5 @@
 use core::panic;
-use std::{marker::PhantomData, mem, time::Duration};
+use std::{borrow::Cow, marker::PhantomData, mem, time::Duration};
 
 use futures::TryFutureExt;
 use serde::{de::DeserializeOwned, Serialize};
@@ -164,8 +164,8 @@ where
 
 impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, BoundedMailbox<A>, M, WithoutRequestTimeout>
 where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
     /// Sends the message.
@@ -247,8 +247,8 @@ where
 
 impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, BoundedMailbox<A>, M, WithRequestTimeout>
 where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
     /// Sends the message with the timeout set.
@@ -300,8 +300,8 @@ where
 impl<'a, A, M>
     TellRequest<RemoteTellRequest<'a, A, M>, UnboundedMailbox<A>, M, WithoutRequestTimeout>
 where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
     /// Sends the message.
@@ -337,8 +337,8 @@ async fn remote_tell<A, M>(
     immediate: bool,
 ) -> Result<(), RemoteSendError<<A::Reply as Reply>::Error>>
 where
-    A: Actor + Message<M> + RemoteActor,
-    M: RemoteMessage + Serialize,
+    A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
     let actor_id = actor_ref.id();
@@ -350,8 +350,8 @@ where
                 .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id()),
             req: SwarmReq::Tell {
                 actor_id,
-                actor_name: A::REMOTE_ID.to_string(),
-                message_name: M::REMOTE_ID.to_string(),
+                actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
+                message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
                 payload: rmp_serde::to_vec_named(msg)
                     .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
                 mailbox_timeout,

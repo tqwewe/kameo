@@ -6,6 +6,7 @@
 
 use std::{
     any::{self, Any},
+    borrow::Cow,
     cmp, error, fmt,
     hash::{Hash, Hasher},
     io,
@@ -322,14 +323,14 @@ pub enum RemoteSendError<E> {
     /// The actor's remote ID was not found.
     UnknownActor {
         /// The remote ID of the actor.
-        actor_name: String,
+        actor_remote_id: String,
     },
     /// The message remote ID was not found for the actor.
     UnknownMessage {
         /// The remote ID of the actor.
-        actor_name: String,
+        actor_remote_id: Cow<'static, str>,
         /// The remote ID of the message.
-        message_name: String,
+        message_remote_id: Cow<'static, str>,
     },
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
@@ -376,15 +377,15 @@ impl<E> RemoteSendError<E> {
         match self {
             RemoteSendError::ActorNotRunning => RemoteSendError::ActorNotRunning,
             RemoteSendError::ActorStopped => RemoteSendError::ActorStopped,
-            RemoteSendError::UnknownActor { actor_name } => {
-                RemoteSendError::UnknownActor { actor_name }
+            RemoteSendError::UnknownActor { actor_remote_id } => {
+                RemoteSendError::UnknownActor { actor_remote_id }
             }
             RemoteSendError::UnknownMessage {
-                actor_name,
-                message_name,
+                actor_remote_id,
+                message_remote_id,
             } => RemoteSendError::UnknownMessage {
-                actor_name,
-                message_name,
+                actor_remote_id,
+                message_remote_id,
             },
             RemoteSendError::BadActorType => RemoteSendError::BadActorType,
             RemoteSendError::MailboxFull => RemoteSendError::MailboxFull,
@@ -414,19 +415,19 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
         match self {
             ActorNotRunning | HandlerError(ActorNotRunning) => ActorNotRunning,
             ActorStopped | HandlerError(ActorStopped) => ActorStopped,
-            UnknownActor { actor_name } | HandlerError(UnknownActor { actor_name }) => {
-                UnknownActor { actor_name }
+            UnknownActor { actor_remote_id } | HandlerError(UnknownActor { actor_remote_id }) => {
+                UnknownActor { actor_remote_id }
             }
             UnknownMessage {
-                actor_name,
-                message_name,
+                actor_remote_id,
+                message_remote_id,
             }
             | HandlerError(UnknownMessage {
-                actor_name,
-                message_name,
+                actor_remote_id,
+                message_remote_id,
             }) => UnknownMessage {
-                actor_name,
-                message_name,
+                actor_remote_id,
+                message_remote_id,
             },
             BadActorType | HandlerError(BadActorType) => BadActorType,
             MailboxFull | HandlerError(MailboxFull) => MailboxFull,
@@ -472,15 +473,15 @@ where
         match self {
             RemoteSendError::ActorNotRunning => write!(f, "actor not running"),
             RemoteSendError::ActorStopped => write!(f, "actor stopped"),
-            RemoteSendError::UnknownActor { actor_name } => {
-                write!(f, "unknown actor '{actor_name}'")
+            RemoteSendError::UnknownActor { actor_remote_id } => {
+                write!(f, "unknown actor '{actor_remote_id}'")
             }
             RemoteSendError::UnknownMessage {
-                actor_name,
-                message_name,
+                actor_remote_id,
+                message_remote_id,
             } => write!(
                 f,
-                "unknown message '{message_name}' for actor '{actor_name}'"
+                "unknown message '{message_remote_id}' for actor '{actor_remote_id}'"
             ),
             RemoteSendError::BadActorType => write!(f, "bad actor type"),
             RemoteSendError::MailboxFull => write!(f, "mailbox full"),
@@ -666,7 +667,9 @@ impl fmt::Display for RemoteSpawnError {
             RemoteSpawnError::DeserializeActor(err) => {
                 write!(f, "failed to deserialize actor: {err}")
             }
-            RemoteSpawnError::UnknownActor(actor_name) => write!(f, "unknown actor '{actor_name}'"),
+            RemoteSpawnError::UnknownActor(actor_remote_id) => {
+                write!(f, "unknown actor '{actor_remote_id}'")
+            }
         }
     }
 }

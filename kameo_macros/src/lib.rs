@@ -1,16 +1,16 @@
 mod derive_actor;
 mod derive_remote_actor;
-mod derive_remote_message;
 mod derive_reply;
 mod messages;
+mod remote_message;
 
 use derive_actor::DeriveActor;
 use derive_remote_actor::DeriveRemoteActor;
-use derive_remote_message::DeriveRemoteMessage;
 use derive_reply::DeriveReply;
 use messages::Messages;
 use proc_macro::TokenStream;
 use quote::ToTokens;
+use remote_message::{RemoteMessage, RemoteMessageAttrs};
 use syn::parse_macro_input;
 
 /// Attribute macro placed on `impl` blocks of actors to define messages.
@@ -152,38 +152,22 @@ pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
     TokenStream::from(derive_remote_actor.into_token_stream())
 }
 
-/// Derive macro implementing the [RemoteMessage](https://docs.rs/kameo/latest/kameo/actor/remote/trait.RemoteMessage.html)
-/// trait with a default remote ID being the full path of the type being implemented.
+/// Registers an actor message to be supported with remote messages.
 ///
 /// # Example
 ///
 /// ```
-/// use kameo::RemoteMessage;
+/// use kameo::{remote_message, message::Message};
 ///
-/// #[derive(RemoteMessage)]
+/// struct MyActor { }
 /// struct MyMessage { }
 ///
-/// assert_eq!(MyMessage::REMOTE_ID, "my_crate::module::MyMessage");
+/// #[remote_message("c6fa9f76-8818-4000-96f4-50c2ebd52408")]
+/// impl Message<MyMessage> for MyActor { ... }
 /// ```
-#[proc_macro_derive(RemoteMessage)]
-pub fn derive_remote_message(input: TokenStream) -> TokenStream {
-    let derive_remote_actor = parse_macro_input!(input as DeriveRemoteMessage);
-    TokenStream::from(derive_remote_actor.into_token_stream())
+#[proc_macro_attribute]
+pub fn remote_message(attrs: TokenStream, input: TokenStream) -> TokenStream {
+    let remote_actor_attrs = parse_macro_input!(attrs as RemoteMessageAttrs);
+    let remote_actor = parse_macro_input!(input as RemoteMessage);
+    TokenStream::from(remote_actor.into_tokens(remote_actor_attrs))
 }
-
-// /// Registers an actor message to be supported with remote messages.
-// ///
-// /// # Example
-// ///
-// /// ```
-// /// use kameo::remote_message;
-// ///
-// /// #[derive(RemoteMessage)]
-// /// struct MyMessage { }
-// ///
-// /// ```
-// #[proc_macro_attribute]
-// pub fn remote_message(_attrs: TokenStream, input: TokenStream) -> TokenStream {
-//     let derive_remote_actor = parse_macro_input!(input as AttrRemoteMessage);
-//     TokenStream::from(derive_remote_actor.into_token_stream())
-// }

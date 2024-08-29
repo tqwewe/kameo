@@ -22,7 +22,6 @@ use tokio::sync::oneshot;
 use crate::{
     actor::ActorRef,
     error::{BoxSendError, SendError},
-    remote::RemoteMessage,
     reply::{DelegatedReply, ForwardedReply, Reply, ReplySender},
     request::Request,
     Actor,
@@ -82,10 +81,6 @@ pub enum StreamMessage<T, S, F> {
     Started(S),
     /// The stream has finished, and no more items will be sent.
     Finished(F),
-}
-
-impl<T, S, F> RemoteMessage for StreamMessage<T, S, F> {
-    const REMOTE_ID: &'static str = "kameo_StreamMessage";
 }
 
 /// A context provided to message and query handlers providing access

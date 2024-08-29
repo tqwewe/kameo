@@ -14,25 +14,25 @@ impl ToTokens for DeriveRemoteActor {
 
         tokens.extend(quote! {
             #[automatically_derived]
-            impl ::kameo::actor::remote::RemoteActor for #ident {
+            impl ::kameo::remote::RemoteActor for #ident {
                 const REMOTE_ID: &'static str =
                     ::std::concat!(::std::module_path!(), "::", ::std::stringify!(#ident));
             }
 
             const _: () = {
-                #[::kameo::actor::remote::_internal::distributed_slice(
-                    ::kameo::actor::remote::_internal::REMOTE_ACTORS
+                #[::kameo::remote::_internal::distributed_slice(
+                    ::kameo::remote::_internal::REMOTE_ACTORS
                 )]
                 static REG: (
                     &'static str,
-                    ::kameo::actor::remote::_internal::RemoteSpawnFn,
+                    ::kameo::remote::_internal::RemoteSpawnFn,
                 ) = (
-                    <#ident as ::kameo::actor::remote::RemoteActor>::REMOTE_ID,
+                    <#ident as ::kameo::remote::RemoteActor>::REMOTE_ID,
                     (|actor: ::std::vec::Vec<u8>| {
-                        ::std::boxed::Box::pin(::kameo::actor::remote::_internal::spawn_remote::<
+                        ::std::boxed::Box::pin(::kameo::remote::_internal::spawn_remote::<
                             #ident,
                         >(actor))
-                    }) as ::kameo::actor::remote::_internal::RemoteSpawnFn,
+                    }) as ::kameo::remote::_internal::RemoteSpawnFn,
                 );
             };
         });

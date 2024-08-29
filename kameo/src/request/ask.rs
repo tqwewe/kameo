@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, time::Duration};
+use std::{borrow::Cow, marker::PhantomData, time::Duration};
 
 use serde::{de::DeserializeOwned, Serialize};
 use tokio::{sync::oneshot, time::timeout};
@@ -197,8 +197,8 @@ impl<'a, A, M>
         WithRequestTimeout,
     >
 where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -273,8 +273,8 @@ impl<'a, A, M>
         WithoutRequestTimeout,
     >
 where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -337,8 +337,8 @@ impl<'a, A, M>
         WithRequestTimeout,
     >
 where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -476,8 +476,8 @@ impl<'a, A, M>
         WithoutRequestTimeout,
     >
 where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -545,8 +545,8 @@ impl<'a, A, M>
         WithRequestTimeout,
     >
 where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -644,8 +644,8 @@ impl<'a, A, M>
         WithoutRequestTimeout,
     >
 where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor,
-    M: Serialize + RemoteMessage,
+    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -693,8 +693,8 @@ async fn remote_ask<A, M>(
     immediate: bool,
 ) -> Result<<A::Reply as Reply>::Ok, RemoteSendError<<A::Reply as Reply>::Error>>
 where
-    A: Actor + Message<M> + RemoteActor,
-    M: RemoteMessage + Serialize,
+    A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Serialize,
     <A::Reply as Reply>::Ok: DeserializeOwned,
     <A::Reply as Reply>::Error: DeserializeOwned,
 {
@@ -707,8 +707,8 @@ where
                 .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id()),
             req: SwarmReq::Ask {
                 actor_id,
-                actor_name: A::REMOTE_ID.to_string(),
-                message_name: M::REMOTE_ID.to_string(),
+                actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
+                message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
                 payload: rmp_serde::to_vec_named(msg)
                     .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
                 mailbox_timeout,

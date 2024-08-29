@@ -326,18 +326,18 @@ impl SwarmActor {
                 if self.swarm.network_info().num_peers() == 0 {
                     match req {
                         SwarmReq::Spawn {
-                            actor_name,
+                            actor_remote_id,
                             payload,
                         } => {
                             tokio::spawn(async move {
-                                let result = remote::spawn(actor_name, payload).await;
+                                let result = remote::spawn(actor_remote_id, payload).await;
                                 let _ = reply.send(SwarmResp::Spawn(result));
                             });
                         }
                         SwarmReq::Ask {
                             actor_id,
-                            actor_name,
-                            message_name,
+                            actor_remote_id,
+                            message_remote_id,
                             payload,
                             mailbox_timeout,
                             reply_timeout,
@@ -346,8 +346,8 @@ impl SwarmActor {
                             tokio::spawn(async move {
                                 let result = remote::ask(
                                     actor_id,
-                                    actor_name,
-                                    message_name,
+                                    actor_remote_id,
+                                    message_remote_id,
                                     payload,
                                     mailbox_timeout,
                                     reply_timeout,
@@ -359,8 +359,8 @@ impl SwarmActor {
                         }
                         SwarmReq::Tell {
                             actor_id,
-                            actor_name,
-                            message_name,
+                            actor_remote_id,
+                            message_remote_id,
                             payload,
                             mailbox_timeout,
                             immediate,
@@ -368,8 +368,8 @@ impl SwarmActor {
                             tokio::spawn(async move {
                                 let result = remote::tell(
                                     actor_id,
-                                    actor_name,
-                                    message_name,
+                                    actor_remote_id,
+                                    message_remote_id,
                                     payload,
                                     mailbox_timeout,
                                     immediate,
@@ -468,12 +468,12 @@ impl SwarmActor {
                 },
             )) => match request {
                 SwarmReq::Spawn {
-                    actor_name,
+                    actor_remote_id,
                     payload,
                 } => {
                     let tx = self.cmd_tx.clone();
                     tokio::spawn(async move {
-                        let result = remote::spawn(actor_name, payload).await;
+                        let result = remote::spawn(actor_remote_id, payload).await;
                         let _ = tx
                             .send(SwarmCommand::SendSpawnResponse { result, channel })
                             .await;
@@ -481,8 +481,8 @@ impl SwarmActor {
                 }
                 SwarmReq::Ask {
                     actor_id,
-                    actor_name,
-                    message_name,
+                    actor_remote_id,
+                    message_remote_id,
                     payload,
                     mailbox_timeout,
                     reply_timeout,
@@ -492,8 +492,8 @@ impl SwarmActor {
                     tokio::spawn(async move {
                         let result = remote::ask(
                             actor_id,
-                            actor_name,
-                            message_name,
+                            actor_remote_id,
+                            message_remote_id,
                             payload,
                             mailbox_timeout,
                             reply_timeout,
@@ -507,8 +507,8 @@ impl SwarmActor {
                 }
                 SwarmReq::Tell {
                     actor_id,
-                    actor_name,
-                    message_name,
+                    actor_remote_id,
+                    message_remote_id,
                     payload,
                     mailbox_timeout,
                     immediate,
@@ -517,8 +517,8 @@ impl SwarmActor {
                     tokio::spawn(async move {
                         let result = remote::tell(
                             actor_id,
-                            actor_name,
-                            message_name,
+                            actor_remote_id,
+                            message_remote_id,
                             payload,
                             mailbox_timeout,
                             immediate,
@@ -640,13 +640,13 @@ impl<'a> ActorRegistration<'a> {
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum SwarmReq {
     Spawn {
-        actor_name: String,
+        actor_remote_id: String,
         payload: Vec<u8>,
     },
     Ask {
         actor_id: ActorID,
-        actor_name: String,
-        message_name: String,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
         mailbox_timeout: Option<Duration>,
         reply_timeout: Option<Duration>,
@@ -654,8 +654,8 @@ pub(crate) enum SwarmReq {
     },
     Tell {
         actor_id: ActorID,
-        actor_name: String,
-        message_name: String,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
         mailbox_timeout: Option<Duration>,
         immediate: bool,
