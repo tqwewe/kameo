@@ -1,16 +1,16 @@
-use std::{borrow::Cow, collections::HashMap, time::Duration};
+use std::{borrow::Cow, collections::HashMap, net::SocketAddr, time::Duration};
 
 use libp2p::{
     kad::{
         self,
         store::{MemoryStore, RecordStore},
     },
-    mdns, noise,
+    mdns, multiaddr, noise,
     request_response::{
         self, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel,
     },
     swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+    tcp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -62,7 +62,7 @@ pub struct ActorSwarm {
 
 impl ActorSwarm {
     /// Bootstraps the remote actor system to start listening and accepting requests from other nodes.
-    pub fn bootstrap() -> Result<&'static Self, BootstrapError> {
+    pub fn bootstrap(addr: SocketAddr) -> Result<&'static Self, BootstrapError> {
         if let Some(swarm) = ACTOR_SWARM.get() {
             return Ok(swarm);
         }
@@ -95,7 +95,7 @@ impl ActorSwarm {
             .map_err(|err| BootstrapError::BehaviourError(Box::new(err)))?
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
             .build();
-        swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse().unwrap())?;
+        swarm.listen_on(socket_addr_to_multiaddr(addr))?;
 
         Ok(ACTOR_SWARM.get_or_init(move || {
             let local_peer_id = swarm.local_peer_id().clone();
@@ -121,6 +121,17 @@ impl ActorSwarm {
     /// Returns the local peer ID.
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
+    }
+
+    /// Add a new external address of a remote peer.
+    pub async fn add_peer_address(&self, peer_id: PeerId, addr: SocketAddr) {
+        self.swarm_tx
+            .send(SwarmCommand::AddPeerAddress {
+                peer_id,
+                addr: socket_addr_to_multiaddr(addr),
+            })
+            .await
+            .expect("the swarm should never stop running");
     }
 
     /// Looks up an actor running locally.
@@ -270,6 +281,9 @@ impl SwarmActor {
 
     fn handle_command(&mut self, cmd: SwarmCommand) {
         match cmd {
+            SwarmCommand::AddPeerAddress { peer_id, addr } => {
+                self.swarm.add_peer_address(peer_id, addr);
+            }
             SwarmCommand::Lookup { key, reply } => {
                 let query_id = self.swarm.behaviour_mut().kademlia.get_record(key);
                 self.get_queries.insert(query_id, reply);
@@ -554,6 +568,10 @@ impl SwarmActor {
 }
 
 pub(crate) enum SwarmCommand {
+    AddPeerAddress {
+        peer_id: PeerId,
+        addr: Multiaddr,
+    },
     Lookup {
         key: kad::RecordKey,
         reply: oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>,
@@ -657,4 +675,8 @@ struct Behaviour {
     kademlia: kad::Behaviour<MemoryStore>,
     request_response: request_response::cbor::Behaviour<SwarmReq, SwarmResp>,
     mdns: mdns::tokio::Behaviour,
+}
+
+fn socket_addr_to_multiaddr(addr: SocketAddr) -> Multiaddr {
+    Multiaddr::from(addr.ip()).with(multiaddr::Protocol::Tcp(addr.port()))
 }

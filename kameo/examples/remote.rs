@@ -7,6 +7,7 @@ use kameo::{
     remote::ActorSwarm,
     Actor,
 };
+use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -52,7 +53,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Bootstrap the actor swarm
-    ActorSwarm::bootstrap()?;
+    if is_host {
+        ActorSwarm::bootstrap("0.0.0.0:8020".parse().unwrap())?;
+    } else {
+        let swarm = ActorSwarm::bootstrap("0.0.0.0:8022".parse().unwrap())?;
+        swarm
+            .add_peer_address(PeerId::random(), "0.0.0.0:8020".parse().unwrap())
+            .await;
+    }
 
     if is_host {
         let actor_ref = kameo::spawn(MyActor { count: 0 });
