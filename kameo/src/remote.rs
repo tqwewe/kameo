@@ -10,6 +10,7 @@ use _internal::{
     AskRemoteMessageFn, RemoteMessageRegistrationID, RemoteSpawnFn, TellRemoteMessageFn,
     REMOTE_ACTORS, REMOTE_MESSAGES,
 };
+pub use libp2p::PeerId;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
