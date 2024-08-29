@@ -1,8 +1,12 @@
 mod derive_actor;
+mod derive_remote_actor;
+mod derive_remote_message;
 mod derive_reply;
 mod messages;
 
 use derive_actor::DeriveActor;
+use derive_remote_actor::DeriveRemoteActor;
+use derive_remote_message::DeriveRemoteMessage;
 use derive_reply::DeriveReply;
 use messages::Messages;
 use proc_macro::TokenStream;
@@ -128,3 +132,58 @@ pub fn derive_reply(input: TokenStream) -> TokenStream {
     let derive_reply = parse_macro_input!(input as DeriveReply);
     TokenStream::from(derive_reply.into_token_stream())
 }
+
+/// Derive macro implementing the [RemoteActor](https://docs.rs/kameo/latest/kameo/actor/remote/trait.RemoteActor.html)
+/// trait with a default remote ID being the full path of the type being implemented.
+///
+/// # Example
+///
+/// ```
+/// use kameo::RemoteActor;
+///
+/// #[derive(RemoteActor)]
+/// struct MyActor { }
+///
+/// assert_eq!(MyActor::REMOTE_ID, "my_crate::module::MyActor");
+/// ```
+#[proc_macro_derive(RemoteActor)]
+pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
+    let derive_remote_actor = parse_macro_input!(input as DeriveRemoteActor);
+    TokenStream::from(derive_remote_actor.into_token_stream())
+}
+
+/// Derive macro implementing the [RemoteMessage](https://docs.rs/kameo/latest/kameo/actor/remote/trait.RemoteMessage.html)
+/// trait with a default remote ID being the full path of the type being implemented.
+///
+/// # Example
+///
+/// ```
+/// use kameo::RemoteMessage;
+///
+/// #[derive(RemoteMessage)]
+/// struct MyMessage { }
+///
+/// assert_eq!(MyMessage::REMOTE_ID, "my_crate::module::MyMessage");
+/// ```
+#[proc_macro_derive(RemoteMessage)]
+pub fn derive_remote_message(input: TokenStream) -> TokenStream {
+    let derive_remote_actor = parse_macro_input!(input as DeriveRemoteMessage);
+    TokenStream::from(derive_remote_actor.into_token_stream())
+}
+
+// /// Registers an actor message to be supported with remote messages.
+// ///
+// /// # Example
+// ///
+// /// ```
+// /// use kameo::remote_message;
+// ///
+// /// #[derive(RemoteMessage)]
+// /// struct MyMessage { }
+// ///
+// /// ```
+// #[proc_macro_attribute]
+// pub fn remote_message(_attrs: TokenStream, input: TokenStream) -> TokenStream {
+//     let derive_remote_actor = parse_macro_input!(input as AttrRemoteMessage);
+//     TokenStream::from(derive_remote_actor.into_token_stream())
+// }
