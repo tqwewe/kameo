@@ -8,18 +8,14 @@ use std::{
 };
 
 use _internal::{
-    AskRemoteMessageFn, RemoteMessageRegistrationID, RemoteSpawnFn, TellRemoteMessageFn,
-    REMOTE_ACTORS, REMOTE_MESSAGES,
+    AskRemoteMessageFn, RemoteMessageRegistrationID, TellRemoteMessageFn, REMOTE_MESSAGES,
 };
 pub use libp2p::PeerId;
 pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
-use crate::{
-    actor::ActorID,
-    error::{RemoteSendError, RemoteSpawnError},
-};
+use crate::{actor::ActorID, error::RemoteSendError};
 
 #[doc(hidden)]
 pub mod _internal;
@@ -29,16 +25,6 @@ pub use swarm::*;
 
 pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, Box<dyn any::Any + Send + Sync>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
-
-static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteSpawnFn>> = Lazy::new(|| {
-    let mut existing_ids = HashSet::new();
-    for (id, _) in REMOTE_ACTORS {
-        if !existing_ids.insert(id) {
-            panic!("duplicate remote actor detected for actor '{id}'",);
-        }
-    }
-    REMOTE_ACTORS.iter().copied().collect()
-});
 
 static REMOTE_MESSAGES_MAP: Lazy<
     HashMap<RemoteMessageRegistrationID<'static>, (AskRemoteMessageFn, TellRemoteMessageFn)>,
@@ -71,16 +57,6 @@ pub trait RemoteActor {
 pub trait RemoteMessage<M> {
     /// The remote identifier string.
     const REMOTE_ID: &'static str;
-}
-
-pub(crate) async fn spawn(
-    actor_remote_id: String,
-    payload: Vec<u8>,
-) -> Result<ActorID, RemoteSpawnError> {
-    let Some(spawn) = REMOTE_ACTORS_MAP.get(&actor_remote_id.as_str()) else {
-        return Err(RemoteSpawnError::UnknownActor(actor_remote_id));
-    };
-    spawn(payload).await
 }
 
 pub(crate) async fn ask(

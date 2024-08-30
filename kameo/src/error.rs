@@ -640,33 +640,6 @@ impl fmt::Display for PanicError {
     }
 }
 
-/// Errors that can occur when spawning a remote actor.
-#[derive(Debug, Serialize, Deserialize)]
-pub enum RemoteSpawnError {
-    /// Failed to serialize actor state.
-    SerializeActor(String),
-    /// Failed to deserialize actor state.
-    DeserializeActor(String),
-    /// Unknown actor.
-    UnknownActor(String),
-}
-
-impl fmt::Display for RemoteSpawnError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RemoteSpawnError::SerializeActor(err) => write!(f, "failed to serialize actor: {err}"),
-            RemoteSpawnError::DeserializeActor(err) => {
-                write!(f, "failed to deserialize actor: {err}")
-            }
-            RemoteSpawnError::UnknownActor(actor_remote_id) => {
-                write!(f, "unknown actor '{actor_remote_id}'")
-            }
-        }
-    }
-}
-
-impl error::Error for RemoteSpawnError {}
-
 /// An infallible error type, similar to std::convert::Infallible.
 ///
 /// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.

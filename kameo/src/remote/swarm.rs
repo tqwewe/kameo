@@ -21,7 +21,7 @@ use tracing::trace;
 
 use crate::{
     actor::{ActorID, ActorRef, RemoteActorRef},
-    error::{BootstrapError, RegistrationError, RemoteSendError, RemoteSpawnError},
+    error::{BootstrapError, RegistrationError, RemoteSendError},
     remote, Actor,
 };
 
@@ -341,15 +341,6 @@ impl SwarmActor {
             } => {
                 if self.swarm.network_info().num_peers() == 0 {
                     match req {
-                        SwarmReq::Spawn {
-                            actor_remote_id,
-                            payload,
-                        } => {
-                            tokio::spawn(async move {
-                                let result = remote::spawn(actor_remote_id, payload).await;
-                                let _ = reply.send(SwarmResp::Spawn(result));
-                            });
-                        }
                         SwarmReq::Ask {
                             actor_id,
                             actor_remote_id,
@@ -403,13 +394,6 @@ impl SwarmActor {
                         .send_request(&peer_id, req);
                     self.requests.insert(req_id, reply);
                 }
-            }
-            SwarmCommand::SendSpawnResponse { result, channel } => {
-                let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, SwarmResp::Spawn(result));
             }
             SwarmCommand::SendAskResponse { result, channel } => {
                 let _ = self
@@ -483,18 +467,6 @@ impl SwarmActor {
                         },
                 },
             )) => match request {
-                SwarmReq::Spawn {
-                    actor_remote_id,
-                    payload,
-                } => {
-                    let tx = self.cmd_tx.clone();
-                    tokio::spawn(async move {
-                        let result = remote::spawn(actor_remote_id, payload).await;
-                        let _ = tx
-                            .send(SwarmCommand::SendSpawnResponse { result, channel })
-                            .await;
-                    });
-                }
                 SwarmReq::Ask {
                     actor_id,
                     actor_remote_id,
@@ -608,10 +580,6 @@ pub(crate) enum SwarmCommand {
         req: SwarmReq,
         reply: oneshot::Sender<SwarmResp>,
     },
-    SendSpawnResponse {
-        result: Result<ActorID, RemoteSpawnError>,
-        channel: ResponseChannel<SwarmResp>,
-    },
     SendAskResponse {
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
         channel: ResponseChannel<SwarmResp>,
@@ -658,10 +626,6 @@ impl<'a> ActorRegistration<'a> {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum SwarmReq {
-    Spawn {
-        actor_remote_id: String,
-        payload: Vec<u8>,
-    },
     Ask {
         actor_id: ActorID,
         actor_remote_id: Cow<'static, str>,
@@ -683,7 +647,6 @@ pub(crate) enum SwarmReq {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) enum SwarmResp {
-    Spawn(Result<ActorID, RemoteSpawnError>),
     Ask(Result<Vec<u8>, RemoteSendError<Vec<u8>>>),
     Tell(Result<(), RemoteSendError<Vec<u8>>>),
     OutboundFailure(RemoteSendError<()>),

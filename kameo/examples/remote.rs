@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-#[derive(Actor, RemoteActor, Default, Serialize, Deserialize)]
+#[derive(Actor, RemoteActor)]
 pub struct MyActor {
     count: i64,
 }

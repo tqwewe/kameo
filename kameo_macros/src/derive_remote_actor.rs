@@ -18,23 +18,6 @@ impl ToTokens for DeriveRemoteActor {
                 const REMOTE_ID: &'static str =
                     ::std::concat!(::std::module_path!(), "::", ::std::stringify!(#ident));
             }
-
-            const _: () = {
-                #[::kameo::remote::_internal::distributed_slice(
-                    ::kameo::remote::_internal::REMOTE_ACTORS
-                )]
-                static REG: (
-                    &'static str,
-                    ::kameo::remote::_internal::RemoteSpawnFn,
-                ) = (
-                    <#ident as ::kameo::remote::RemoteActor>::REMOTE_ID,
-                    (|actor: ::std::vec::Vec<u8>| {
-                        ::std::boxed::Box::pin(::kameo::remote::_internal::spawn_remote::<
-                            #ident,
-                        >(actor))
-                    }) as ::kameo::remote::_internal::RemoteSpawnFn,
-                );
-            };
         });
     }
 }

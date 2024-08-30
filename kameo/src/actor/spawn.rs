@@ -93,14 +93,6 @@ where
     spawn_in_thread_inner::<A, SyncActor<A>>(actor)
 }
 
-// /// Spawns an actor which runs remotely on another node.
-// pub async fn spawn_remote<A>(actor: &A) -> Result<RemoteActorRef<A>, RemoteSpawnError>
-// where
-//     A: Actor + RemoteActor + Serialize,
-// {
-//     // TODO
-// }
-
 /// Spawns an `!Sync` actor in a tokio task.
 ///
 /// Unsync actors cannot handle queries, as this would require the actor be to `Sync` since queries are procesed
