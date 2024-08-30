@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-pub use linkme::distributed_slice;
+pub use linkme;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -12,7 +12,7 @@ use crate::{Actor, Reply};
 
 use super::REMOTE_REGISTRY;
 
-#[distributed_slice]
+#[linkme::distributed_slice]
 pub static REMOTE_MESSAGES: [(
     RemoteMessageRegistrationID<'static>,
     (AskRemoteMessageFn, TellRemoteMessageFn),

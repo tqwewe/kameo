@@ -54,9 +54,10 @@ impl RemoteMessage {
             }
 
             const _: () = {
-                #[::kameo::remote::_internal::distributed_slice(
+                #[::kameo::remote::_internal::linkme::distributed_slice(
                     ::kameo::remote::_internal::REMOTE_MESSAGES
                 )]
+                #[linkme(crate = ::kameo::remote::_internal::linkme)]
                 static REG: (
                     ::kameo::remote::_internal::RemoteMessageRegistrationID<'static>,
                     (
@@ -71,8 +72,8 @@ impl RemoteMessage {
                     (
                         (|actor_id: ::kameo::actor::ActorID,
                           msg: ::std::vec::Vec<u8>,
-                          mailbox_timeout: Option<Duration>,
-                          reply_timeout: Option<Duration>,
+                          mailbox_timeout: ::std::option::Option<::std::time::Duration>,
+                          reply_timeout: ::std::option::Option<::std::time::Duration>,
                           immediate: bool| {
                             ::std::boxed::Box::pin(::kameo::remote::_internal::ask_remote_message::<
                                 #actor_ty,
@@ -87,7 +88,7 @@ impl RemoteMessage {
                         }) as ::kameo::remote::_internal::AskRemoteMessageFn,
                         (|actor_id: ::kameo::actor::ActorID,
                           msg: ::std::vec::Vec<u8>,
-                          mailbox_timeout: Option<Duration>,
+                          mailbox_timeout: ::std::option::Option<::std::time::Duration>,
                           immediate: bool| {
                             ::std::boxed::Box::pin(::kameo::remote::_internal::tell_remote_message::<
                                 #actor_ty,
