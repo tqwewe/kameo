@@ -12,6 +12,7 @@ use _internal::{
     REMOTE_ACTORS, REMOTE_MESSAGES,
 };
 pub use libp2p::PeerId;
+pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 

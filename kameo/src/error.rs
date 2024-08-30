@@ -14,7 +14,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use libp2p::{noise, TransportError};
+use libp2p::TransportError;
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -252,16 +252,8 @@ impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {
 pub enum BootstrapError {
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
-    /// Noise error.
-    Noise(noise::Error),
     /// An error during listening on a Transport.
     Transport(TransportError<io::Error>),
-}
-
-impl From<noise::Error> for BootstrapError {
-    fn from(err: noise::Error) -> Self {
-        BootstrapError::Noise(err)
-    }
 }
 
 impl From<TransportError<io::Error>> for BootstrapError {
@@ -274,7 +266,6 @@ impl fmt::Display for BootstrapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BootstrapError::BehaviourError(err) => err.fmt(f),
-            BootstrapError::Noise(err) => err.fmt(f),
             BootstrapError::Transport(err) => err.fmt(f),
         }
     }

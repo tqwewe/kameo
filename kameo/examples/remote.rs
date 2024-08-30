@@ -49,13 +49,10 @@ impl Message<Dec> for MyActor {
     }
 }
 
-// register_actor!(MyActor);
-// register_message!(MyActor, Inc);
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
-        .with_env_filter("info".parse::<EnvFilter>().unwrap())
+        .with_env_filter("info".parse::<EnvFilter>()?)
         .without_time()
         .with_target(false)
         .init();
@@ -71,11 +68,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bootstrap the actor swarm
     if is_host {
-        ActorSwarm::bootstrap("0.0.0.0:8020".parse().unwrap())?;
+        ActorSwarm::bootstrap("0.0.0.0:8020".parse()?)?;
     } else {
-        let swarm = ActorSwarm::bootstrap("0.0.0.0:8022".parse().unwrap())?;
+        let swarm = ActorSwarm::bootstrap("0.0.0.0:8022".parse()?)?;
         swarm
-            .add_peer_address(PeerId::random(), "0.0.0.0:8020".parse().unwrap())
+            .add_peer_address(PeerId::random(), "0.0.0.0:8020".parse()?)
             .await;
     }
 
@@ -85,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         actor_ref.register("my_actor").await?;
     } else {
         // Wait for registry to sync
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
     loop {

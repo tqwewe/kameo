@@ -1,16 +1,17 @@
 use std::{borrow::Cow, collections::HashMap, net::SocketAddr, time::Duration};
 
 use libp2p::{
+    identity::Keypair,
     kad::{
         self,
         store::{MemoryStore, RecordStore},
     },
-    mdns, multiaddr, noise,
+    mdns, multiaddr,
     request_response::{
         self, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel,
     },
     swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -63,17 +64,21 @@ pub struct ActorSwarm {
 impl ActorSwarm {
     /// Bootstraps the remote actor system to start listening and accepting requests from other nodes.
     pub fn bootstrap(addr: SocketAddr) -> Result<&'static Self, BootstrapError> {
+        Self::bootstrap_with_identity(addr, Keypair::generate_ed25519())
+    }
+
+    /// Bootstraps the remote actor system with a keypair to start listening and accepting requests from other nodes.
+    pub fn bootstrap_with_identity(
+        addr: SocketAddr,
+        keypair: Keypair,
+    ) -> Result<&'static Self, BootstrapError> {
         if let Some(swarm) = ACTOR_SWARM.get() {
             return Ok(swarm);
         }
 
-        let mut swarm = SwarmBuilder::with_new_identity()
+        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
-            .with_tcp(
-                tcp::Config::default(),
-                noise::Config::new,
-                yamux::Config::default,
-            )?
+            .with_quic()
             .with_behaviour(|key| {
                 let mut kademlia = kad::Behaviour::new(
                     key.public().to_peer_id(),
@@ -130,6 +135,14 @@ impl ActorSwarm {
                 peer_id,
                 addr: socket_addr_to_multiaddr(addr),
             })
+            .await
+            .expect("the swarm should never stop running");
+    }
+
+    /// Add a new external address of a remote peer.
+    pub async fn disconnect_peer_id(&self, peer_id: PeerId) {
+        self.swarm_tx
+            .send(SwarmCommand::DisconnectPeerId { peer_id })
             .await
             .expect("the swarm should never stop running");
     }
@@ -283,6 +296,9 @@ impl SwarmActor {
         match cmd {
             SwarmCommand::AddPeerAddress { peer_id, addr } => {
                 self.swarm.add_peer_address(peer_id, addr);
+            }
+            SwarmCommand::DisconnectPeerId { peer_id } => {
+                let _ = self.swarm.disconnect_peer_id(peer_id);
             }
             SwarmCommand::Lookup { key, reply } => {
                 let query_id = self.swarm.behaviour_mut().kademlia.get_record(key);
@@ -572,6 +588,9 @@ pub(crate) enum SwarmCommand {
         peer_id: PeerId,
         addr: Multiaddr,
     },
+    DisconnectPeerId {
+        peer_id: PeerId,
+    },
     Lookup {
         key: kad::RecordKey,
         reply: oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>,
@@ -678,5 +697,7 @@ struct Behaviour {
 }
 
 fn socket_addr_to_multiaddr(addr: SocketAddr) -> Multiaddr {
-    Multiaddr::from(addr.ip()).with(multiaddr::Protocol::Tcp(addr.port()))
+    Multiaddr::from(addr.ip())
+        .with(multiaddr::Protocol::Udp(addr.port()))
+        .with(multiaddr::Protocol::QuicV1)
 }
