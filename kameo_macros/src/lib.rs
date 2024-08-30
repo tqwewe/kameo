@@ -136,6 +136,8 @@ pub fn derive_reply(input: TokenStream) -> TokenStream {
 /// Derive macro implementing the [RemoteActor](https://docs.rs/kameo/latest/kameo/actor/remote/trait.RemoteActor.html)
 /// trait with a default remote ID being the full path of the type being implemented.
 ///
+/// The `#[remote_actor(id = "...")]` attribute can be specified to change the default remote actor ID.
+///
 /// # Example
 ///
 /// ```
@@ -146,7 +148,7 @@ pub fn derive_reply(input: TokenStream) -> TokenStream {
 ///
 /// assert_eq!(MyActor::REMOTE_ID, "my_crate::module::MyActor");
 /// ```
-#[proc_macro_derive(RemoteActor)]
+#[proc_macro_derive(RemoteActor, attributes(remote_actor))]
 pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
     let derive_remote_actor = parse_macro_input!(input as DeriveRemoteActor);
     TokenStream::from(derive_remote_actor.into_token_stream())
