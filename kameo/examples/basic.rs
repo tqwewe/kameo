@@ -1,6 +1,6 @@
 use kameo::{
     actor::UnboundedMailbox,
-    message::{Context, Message, Query},
+    message::{Context, Message},
     Actor,
 };
 use tracing::info;
@@ -45,17 +45,6 @@ impl Message<ForceErr> for MyActor {
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
         Err(3)
-    }
-}
-
-// Queries the current count
-pub struct Count;
-
-impl Query<Count> for MyActor {
-    type Reply = i64;
-
-    async fn handle(&self, _msg: Count, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
-        self.count
     }
 }
 

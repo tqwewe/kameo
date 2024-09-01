@@ -15,7 +15,7 @@ use syn::parse_macro_input;
 
 /// Attribute macro placed on `impl` blocks of actors to define messages.
 ///
-/// Methods on the impl block are marked with `#[message]` or `#[query]`.
+/// Methods on the impl block are marked with `#[message]`.
 /// This generates a struct for the message, allowing it to be sent to the actor.
 ///
 /// # Example
@@ -32,12 +32,6 @@ use syn::parse_macro_input;
 ///         self.count
 ///     }
 ///
-///     /// Regular query
-///     #[query]
-///     pub fn count(&self) -> i64 {
-///         self.count
-///     }
-///
 ///     /// Derives on the message
 ///     #[message(derive(Clone, Copy))]
 ///     pub fn dec(&self, amount: u32) {
@@ -46,7 +40,6 @@ use syn::parse_macro_input;
 /// }
 ///
 /// counter_ref.ask(Inc { amount: 5 }).send().await?;
-/// counter_ref.query(Count).send().await?;
 /// counter_ref.ask(Dec { amount: 2 }.clone()).send().await?;
 /// ```
 ///
@@ -67,14 +60,6 @@ use syn::parse_macro_input;
 /// }
 ///
 /// pub struct Count;
-///
-/// impl kameo::message::Query<Count> for Counter {
-///     type Reply = i64;
-///
-///     async fn handle(&self, msg: Counter) -> Self::Reply {
-///         self.count()
-///     }
-/// }
 ///
 /// #[derive(Clone, Copy)]
 /// pub struct Dec;

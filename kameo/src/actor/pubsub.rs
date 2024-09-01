@@ -43,8 +43,7 @@ impl<M> PubSub<M> {
                 }
                 Err(SendError::MailboxFull(_))
                 | Err(SendError::HandlerError(_))
-                | Err(SendError::Timeout(_))
-                | Err(SendError::QueriesNotSupported) => {}
+                | Err(SendError::Timeout(_)) => {}
             }
         }
     }
@@ -61,7 +60,7 @@ impl<M> PubSub<M> {
     }
 }
 
-impl<M> Actor for PubSub<M> {
+impl<M: 'static> Actor for PubSub<M> {
     type Mailbox = BoundedMailbox<Self>;
 }
 

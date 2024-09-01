@@ -13,7 +13,6 @@
 - **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
 - **Remote Messaging**: Send messages to actors remotely in a distributed way.
 - **MPSC Bounded/Unbounded Channels**: Uses mpsc channels for messaging between actors with boundedness configurable.
-- **Concurrent Queries**: Support concurrent processing of queries when mutable state isn't necessary.
 - **Panic Safe**: Catches panics internally, allowing actors to be restarted.
 
 ---
@@ -145,7 +144,6 @@ Sending a message to an actor
 | -------------------- | --------- |
 | Kameo Unsync Message | 432.26 ns |
 | Kameo Sync Message   | 503.89 ns |
-| Kameo Query          | 1.3000 µs |
 | Actix Message        | 5.7545 µs |
 
 Processing fibonachi sequence in an actor up to 20
@@ -154,7 +152,6 @@ Processing fibonachi sequence in an actor up to 20
 | -------------------- | --------- |
 | Kameo Unsync Message | 18.229 µs |
 | Kameo Sync Message   | 18.501 µs |
-| Kameo Query          | 19.257 µs |
 | Actix Message        | 27.442 µs |
 
 </details>

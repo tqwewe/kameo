@@ -170,7 +170,7 @@ where
 /// A mechanism for sending replies back to the original requester in a message exchange.
 ///
 /// `ReplySender` encapsulates the functionality to send a response back to whereever
-/// a request or query was initiated. It is typically used in scenarios where the
+/// a request was initiated. It is typically used in scenarios where the
 /// processing of a request is delegated to another actor within the system.
 /// Upon completion of the request handling, `ReplySender` is used to send the result back,
 /// ensuring that the flow of communication is maintained and the requester receives the

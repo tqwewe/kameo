@@ -66,7 +66,7 @@ pub struct ActorPool<A: Actor> {
 
 impl<A> ActorPool<A>
 where
-    A: Actor + 'static,
+    A: Actor,
 {
     /// Creates a new `ActorPool` with the specified size and a factory function for creating workers.
     ///
@@ -87,7 +87,7 @@ where
         mut factory: impl FnMut() -> ActorRef<A> + Send + Sync + 'static,
     ) -> Self
     where
-        A: Actor + Send + Sync + 'static,
+        A: Actor,
     {
         assert_ne!(size, 0);
 
@@ -106,7 +106,7 @@ where
     /// This is the same as [ActorPool::new], but allows the factory function to be async.
     pub async fn new_async<F, Fu>(size: usize, mut factory: F) -> Self
     where
-        A: Actor + Send + Sync + 'static,
+        A: Actor,
         F: FnMut() -> Fu + Clone + Send + Sync + 'static,
         Fu: Future<Output = ActorRef<A>> + Send,
     {
@@ -142,7 +142,7 @@ where
 
 impl<A> Actor for ActorPool<A>
 where
-    A: Actor + 'static,
+    A: Actor,
 {
     type Mailbox = BoundedMailbox<Self>;
 

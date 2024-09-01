@@ -26,11 +26,6 @@ impl MyActor {
         Err(3)
     }
 
-    #[query]
-    fn count(&self) -> i64 {
-        self.count
-    }
-
     /// Prints a message
     #[message]
     pub fn print<T>(
@@ -44,7 +39,7 @@ impl MyActor {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter("trace".parse::<EnvFilter>().unwrap())
@@ -60,10 +55,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Increment the count by 50 in the background
     my_actor_ref.tell(Inc { amount: 50 }).send()?;
-
-    // Query the count
-    let count = my_actor_ref.query(Count).send().await?;
-    info!("Count is {count}");
 
     // Generic message
     my_actor_ref

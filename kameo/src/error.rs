@@ -45,8 +45,6 @@ pub enum SendError<M = (), E = Infallible> {
     HandlerError(E),
     /// Timed out waiting for a reply.
     Timeout(Option<M>),
-    /// The actor was spawned as `!Sync`, which doesn't support queries.
-    QueriesNotSupported,
 }
 
 impl<M, E> SendError<M, E> {
@@ -58,7 +56,6 @@ impl<M, E> SendError<M, E> {
             SendError::MailboxFull(_) => SendError::MailboxFull(()),
             SendError::HandlerError(_) => SendError::HandlerError(()),
             SendError::Timeout(_) => SendError::Timeout(None),
-            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 
@@ -73,7 +70,6 @@ impl<M, E> SendError<M, E> {
             SendError::MailboxFull(msg) => SendError::MailboxFull(f(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(err),
             SendError::Timeout(msg) => SendError::Timeout(msg.map(f)),
-            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 
@@ -88,7 +84,6 @@ impl<M, E> SendError<M, E> {
             SendError::MailboxFull(msg) => SendError::MailboxFull(msg),
             SendError::HandlerError(err) => SendError::HandlerError(op(err)),
             SendError::Timeout(msg) => SendError::Timeout(msg),
-            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 
@@ -100,13 +95,12 @@ impl<M, E> SendError<M, E> {
     {
         match self {
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(Box::new(err)),
-            SendError::ActorStopped => SendError::QueriesNotSupported,
+            SendError::ActorStopped => SendError::ActorStopped,
             SendError::MailboxFull(msg) => SendError::MailboxFull(Box::new(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
             SendError::Timeout(msg) => {
                 SendError::Timeout(msg.map(|msg| Box::new(msg) as Box<dyn any::Any + Send>))
             }
-            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 }
@@ -129,10 +123,6 @@ impl<M, E> SendError<M, SendError<M, E>> {
             SendError::Timeout(msg) | SendError::HandlerError(SendError::Timeout(msg)) => {
                 SendError::Timeout(msg)
             }
-            SendError::QueriesNotSupported
-            | SendError::HandlerError(SendError::QueriesNotSupported) => {
-                SendError::QueriesNotSupported
-            }
         }
     }
 }
@@ -150,7 +140,6 @@ impl BoxSendError {
             SendError::MailboxFull(err) => SendError::MailboxFull(*err.downcast().unwrap()),
             SendError::HandlerError(err) => SendError::HandlerError(*err.downcast().unwrap()),
             SendError::Timeout(err) => SendError::Timeout(err.map(|err| *err.downcast().unwrap())),
-            SendError::QueriesNotSupported => SendError::QueriesNotSupported,
         }
     }
 }
@@ -166,7 +155,6 @@ where
             SendError::MailboxFull(_) => write!(f, "MailboxFull"),
             SendError::HandlerError(err) => err.fmt(f),
             SendError::Timeout(_) => write!(f, "Timeout"),
-            SendError::QueriesNotSupported => write!(f, "QueriesNotSupported"),
         }
     }
 }
@@ -182,9 +170,6 @@ where
             SendError::MailboxFull(_) => write!(f, "mailbox full"),
             SendError::HandlerError(err) => err.fmt(f),
             SendError::Timeout(_) => write!(f, "timeout"),
-            SendError::QueriesNotSupported => {
-                write!(f, "actor spawned as !Sync cannot handle queries")
-            }
         }
     }
 }
@@ -451,7 +436,6 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
             SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
             SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
             SendError::Timeout(_) => RemoteSendError::ReplyTimeout,
-            SendError::QueriesNotSupported => unimplemented!(),
         }
     }
 }
