@@ -23,22 +23,14 @@ struct Message {
     sig: Signature,
     ident: Ident,
     fields: Punctuated<Field, Token![,]>,
-    msg_type: MessageType,
     attrs: Vec<TokenStream>,
     generics: Generics,
-}
-
-#[derive(Clone, Copy)]
-enum MessageType {
-    Message,
-    Query,
 }
 
 impl
     TryFrom<(
         Visibility,
         Signature,
-        MessageType,
         Vec<TokenStream>,
         Vec<Vec<Attribute>>,
         Generics,
@@ -47,10 +39,9 @@ impl
     type Error = syn::Error;
 
     fn try_from(
-        (vis, mut sig, msg_type, attrs, field_doc_attrs, generics): (
+        (vis, mut sig, attrs, field_doc_attrs, generics): (
             Visibility,
             Signature,
-            MessageType,
             Vec<TokenStream>,
             Vec<Vec<Attribute>>,
             Generics,
@@ -84,7 +75,6 @@ impl
             sig,
             ident,
             fields,
-            msg_type,
             attrs,
             generics,
         })
@@ -110,9 +100,9 @@ impl Messages {
                             .map(|attr| quote! { #attr })
                             .collect();
 
-                        let mut msg_type: Option<MessageType> = None;
+                        let mut is_message = false;
                         impl_item_fn.attrs.retain(|attr| {
-                            if msg_type.is_some() {
+                            if is_message {
                                 return true;
                             }
                             match &attr.meta {
@@ -120,10 +110,7 @@ impl Messages {
                                     let first_segment =
                                         path.segments.first().unwrap().ident.to_string();
                                     if first_segment == "message" {
-                                        msg_type = Some(MessageType::Message);
-                                        false
-                                    } else if first_segment == "query" {
-                                        msg_type = Some(MessageType::Query);
+                                        is_message = true;
                                         false
                                     } else {
                                         true
@@ -133,11 +120,9 @@ impl Messages {
                                     let first_segment =
                                         list.path.segments.first().unwrap().ident.to_string();
                                     if first_segment == "message" {
-                                        msg_type = Some(MessageType::Message);
-                                    } else if first_segment == "query" {
-                                        msg_type = Some(MessageType::Query);
+                                        is_message = true;
                                     } else {
-                                        return true
+                                        return true;
                                     }
 
                                     let args_res = Punctuated::<Meta, Token![,]>::parse_separated_nonempty.parse2(list.tokens.clone());
@@ -157,7 +142,7 @@ impl Messages {
                             }
                         });
 
-                        if let Some(msg_type) = msg_type {
+                        if is_message {
                             let mut generics = vec![];
                             let impl_item_generics: Vec<_> = item_impl.generics
                                 .lifetimes()
@@ -206,16 +191,6 @@ impl Messages {
                             };
 
                             match impl_item_fn.sig.inputs.first() {
-                                Some(FnArg::Receiver(recv))
-                                    if matches!(msg_type, MessageType::Query)
-                                        && recv.mutability.is_some() =>
-                                {
-                                    errors.push(syn::Error::new(
-                                        recv.span(),
-                                        "queries cannot take mutable references to self",
-                                    ));
-                                    return None;
-                                }
                                 Some(FnArg::Typed(_)) | None => {
                                     errors.push(syn::Error::new(
                                         impl_item_fn.sig.span(),
@@ -252,7 +227,6 @@ impl Messages {
                             match Message::try_from((
                                 impl_item_fn.vis.clone(),
                                 impl_item_fn.sig.clone(),
-                                msg_type,
                                 attrs,
                                 field_doc_attrs,
                                 generics,
@@ -339,7 +313,6 @@ impl Messages {
                  sig,
                  ident: msg_ident,
                  fields,
-                 msg_type,
                  generics,
                  ..
              }| {
@@ -351,10 +324,7 @@ impl Messages {
                 let (_, msg_ty_generics, _) = generics.split_for_impl();
                 let (impl_generics, _, where_clause) = all_generics.split_for_impl();
 
-                let trait_name = match msg_type {
-                    MessageType::Message => quote_spanned! {sig.span()=> Message },
-                    MessageType::Query => quote_spanned! {sig.span()=> Query },
-                };
+                let trait_name = quote_spanned! {sig.span()=> Message };
                 let self_span = sig.inputs.first().and_then(|input|
                     if matches!(input, FnArg::Receiver(_)) {
                         Some(input.span())
@@ -362,10 +332,7 @@ impl Messages {
                         None
                     }
                 ).unwrap_or(Span::call_site());
-                let self_ref = match msg_type {
-                    MessageType::Message => quote! { &mut self },
-                    MessageType::Query => quote! { &self },
-                };
+                let self_ref = quote! { &mut self };
                 let msg = quote_spanned! {self_span=> msg: #msg_ident #msg_ty_generics };
                 let fn_ident = &sig.ident;
                 let reply = match sig.output.clone() {

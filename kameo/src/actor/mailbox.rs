@@ -4,7 +4,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     error::{ActorStopReason, BoxSendError, SendError},
-    message::{BoxReply, DynMessage, DynQuery},
+    message::{BoxReply, DynMessage},
     Actor,
 };
 
@@ -238,12 +238,6 @@ pub enum Signal<A: Actor> {
         reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
         sent_within_actor: bool,
     },
-    Query {
-        query: Box<dyn DynQuery<A>>,
-        actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-        sent_within_actor: bool,
-    },
     LinkDied {
         id: ActorID,
         reason: ActorStopReason,
@@ -258,7 +252,6 @@ impl<A: Actor> Signal<A> {
     {
         match self {
             Signal::Message { message, .. } => message.as_any().downcast().ok().map(|v| *v),
-            Signal::Query { query: message, .. } => message.as_any().downcast().ok().map(|v| *v),
             _ => None,
         }
     }

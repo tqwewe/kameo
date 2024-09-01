@@ -440,8 +440,7 @@ where
     > {
         match &mut self.location.signal {
             Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
-            Signal::Query { reply, .. } => *reply = Some(tx.box_sender()),
-            _ => unreachable!("ask requests only support messages and queries"),
+            _ => unreachable!("ask requests only support messages"),
         }
 
         self.location
@@ -456,13 +455,7 @@ where
                     message.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
                     ReplySender::new(reply.take().unwrap()),
                 )),
-                Signal::Query {
-                    query, mut reply, ..
-                } => SendError::ActorNotRunning((
-                    query.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
-                    ReplySender::new(reply.take().unwrap()),
-                )),
-                _ => unreachable!("ask requests only support messages and queries"),
+                _ => unreachable!("ask requests only support messages"),
             })
     }
 }
@@ -609,8 +602,7 @@ where
     > {
         match &mut self.location.signal {
             Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
-            Signal::Query { reply, .. } => *reply = Some(tx.box_sender()),
-            _ => unreachable!("ask requests only support messages and queries"),
+            _ => unreachable!("ask requests only support messages"),
         }
 
         self.location
@@ -624,13 +616,7 @@ where
                     message.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
                     ReplySender::new(reply.take().unwrap()),
                 )),
-                Signal::Query {
-                    query, mut reply, ..
-                } => SendError::ActorNotRunning((
-                    query.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
-                    ReplySender::new(reply.take().unwrap()),
-                )),
-                _ => unreachable!("ask requests only support messages and queries"),
+                _ => unreachable!("ask requests only support messages"),
             })
     }
 }

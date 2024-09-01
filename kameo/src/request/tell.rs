@@ -135,7 +135,6 @@ where
         reserve: bool,
     ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
     where
-        A: 'static,
         M: Send,
     {
         tokio::spawn(async move {
@@ -205,7 +204,6 @@ where
         reserve: bool,
     ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
     where
-        A: 'static,
         M: Send,
     {
         tokio::spawn(async move {
@@ -286,7 +284,6 @@ where
         delay: Duration,
     ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
     where
-        A: 'static,
         M: Send,
     {
         tokio::spawn(async move {

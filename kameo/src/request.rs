@@ -13,11 +13,9 @@ use crate::{
 };
 
 mod ask;
-mod query;
 mod tell;
 
 pub use ask::{AskRequest, LocalAskRequest, RemoteAskRequest};
-pub use query::QueryRequest;
 pub use tell::{LocalTellRequest, RemoteTellRequest, TellRequest};
 
 /// A trait for sending messages to an actor.

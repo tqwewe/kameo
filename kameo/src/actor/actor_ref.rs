@@ -10,12 +10,12 @@ use tokio::{
 
 use crate::{
     error::{RegistrationError, SendError},
-    message::{Message, Query, StreamMessage},
+    message::{Message, StreamMessage},
     remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand},
     reply::Reply,
     request::{
-        AskRequest, LocalAskRequest, LocalTellRequest, QueryRequest, RemoteAskRequest,
-        RemoteTellRequest, TellRequest, WithoutRequestTimeout,
+        AskRequest, LocalAskRequest, LocalTellRequest, RemoteAskRequest, RemoteTellRequest,
+        TellRequest, WithoutRequestTimeout,
     },
     Actor,
 };
@@ -29,7 +29,7 @@ thread_local! {
     pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorID>> = Cell::new(None);
 }
 
-/// A reference to an actor for sending messages/queries and managing the actor.
+/// A reference to an actor for sending messages and managing the actor.
 pub struct ActorRef<A: Actor> {
     id: ActorID,
     mailbox: A::Mailbox,
@@ -120,10 +120,7 @@ where
     /// that the actor will process all preceding messages before stopping. Any messages sent
     /// after this stop signal will be ignored and dropped. This approach allows for a graceful
     /// shutdown of the actor, ensuring all pending work is completed before termination.
-    pub async fn stop_gracefully(&self) -> Result<(), SendError>
-    where
-        A: 'static,
-    {
+    pub async fn stop_gracefully(&self) -> Result<(), SendError> {
         self.mailbox.signal_stop().await
     }
 
@@ -206,32 +203,6 @@ where
         TellRequest::new(self, msg)
     }
 
-    /// Queries the actor for some data.
-    ///
-    /// Queries can run in parallel if executed in sequence.
-    ///
-    /// If the actor was spawned as `!Sync` with [spawn_unsync](crate::actor::spawn_unsync),
-    /// then queries will not be supported and any query will return an error of [`SendError::QueriesNotSupported`].
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// actor_ref.query(msg).send().await?; // Receive reply asyncronously
-    /// actor_ref.query(msg).blocking_send()?; // Receive reply blocking
-    /// actor_ref.query(msg).mailbox_timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
-    /// ```
-    #[inline]
-    pub fn query<M>(
-        &self,
-        msg: M,
-    ) -> QueryRequest<A, A::Mailbox, M, WithoutRequestTimeout, WithoutRequestTimeout>
-    where
-        A: Query<M>,
-        M: Send + 'static,
-    {
-        QueryRequest::new(self, msg)
-    }
-
     /// Attaches a stream of messages to the actor.
     ///
     /// This spawns a tokio task which forwards the stream to the actor.
@@ -247,8 +218,7 @@ where
         finish_value: F,
     ) -> JoinHandle<Result<(), SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>>>
     where
-        A: Message<StreamMessage<M, T, F>> + Send + 'static,
-        A::Mailbox: Send + Sync,
+        A: Message<StreamMessage<M, T, F>>,
         S: Stream<Item = M> + Send + Unpin + 'static,
         M: Send + 'static,
         T: Send + 'static,
@@ -277,7 +247,7 @@ where
     /// If the parent dies, then the child will be notified with a link died signal.
     pub async fn link_child<B>(&self, child: &ActorRef<B>)
     where
-        B: Actor + 'static,
+        B: Actor,
     {
         if self.id == child.id() {
             return;
@@ -291,7 +261,7 @@ where
     /// Unlinks a previously linked child actor.
     pub async fn unlink_child<B>(&self, child: &ActorRef<B>)
     where
-        B: Actor + 'static,
+        B: Actor,
     {
         if self.id == child.id() {
             return;
@@ -303,8 +273,7 @@ where
     /// Links this actor with a sibbling, notifying eachother if either one dies.
     pub async fn link_together<B>(&self, sibbling: &ActorRef<B>)
     where
-        A: 'static,
-        B: Actor + 'static,
+        B: Actor,
     {
         if self.id == sibbling.id() {
             return;
@@ -319,7 +288,7 @@ where
     /// Unlinks previously linked processes from eachother.
     pub async fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
     where
-        B: Actor + 'static,
+        B: Actor,
     {
         if self.id == sibbling.id() {
             return;
@@ -335,10 +304,7 @@ where
         &self.mailbox
     }
 
-    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox>
-    where
-        A: 'static,
-    {
+    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
         Box::new(self.mailbox.downgrade())
     }
 

@@ -9,7 +9,7 @@ use tracing::{error, trace};
 
 use crate::{
     actor::{
-        kind::{ActorState, SyncActor, UnsyncActor},
+        kind::{ActorBehaviour, ActorState},
         Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError},
@@ -31,9 +31,9 @@ use super::{ActorID, MailboxReceiver};
 /// ```
 pub fn spawn<A>(actor: A) -> ActorRef<A>
 where
-    A: Actor + Send + Sync + 'static,
+    A: Actor,
 {
-    spawn_inner::<A, SyncActor<A>, _, _>(|_| async move { actor })
+    spawn_inner::<A, ActorBehaviour<A>, _, _>(|_| async move { actor })
         .now_or_never()
         .unwrap()
 }
@@ -52,11 +52,11 @@ where
 /// ```
 pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
 where
-    A: Actor + Send + Sync + 'static,
+    A: Actor,
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
-    spawn_inner::<A, SyncActor<A>, _, _>(f).await
+    spawn_inner::<A, ActorBehaviour<A>, _, _>(f).await
 }
 
 /// Spawns an actor in its own dedicated thread where blocking is acceptable.
@@ -88,76 +88,15 @@ where
 /// ```
 pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
 where
-    A: Actor + Send + Sync + 'static,
+    A: Actor,
 {
-    spawn_in_thread_inner::<A, SyncActor<A>>(actor)
-}
-
-/// Spawns an `!Sync` actor in a tokio task.
-///
-/// Unsync actors cannot handle queries, as this would require the actor be to `Sync` since queries are procesed
-/// concurrently.
-///
-/// # Example
-///
-/// ```no_run
-/// use kameo::Actor;
-/// use kameo::actor::spawn_unsync;
-///
-/// #[derive(Actor, Default)]
-/// struct MyUnsyncActor {
-///     data: RefCell<()>, // RefCell is !Sync
-/// }
-///
-/// spawn_unsync(MyUnsyncActor::default());
-/// ```
-pub fn spawn_unsync<A>(actor: A) -> ActorRef<A>
-where
-    A: Actor + Send + 'static,
-{
-    spawn_inner::<A, UnsyncActor<A>, _, _>(|_| async move { actor })
-        .now_or_never()
-        .unwrap()
-}
-
-/// Spawns an `!Sync` actor in its own dedicated thread where blocking is acceptable.
-///
-/// This is useful for actors which require or may benefit from using blocking operations rather than async,
-/// whilst still enabling asyncronous functionality.
-///
-/// # Example
-///
-/// ```no_run
-/// use kameo::Actor;
-///
-/// #[derive(Actor)]
-/// struct MyActor {
-///     file: RefCell<std::fs::File>, // RefCell is !Sync
-/// }
-///
-/// struct Flush;
-/// impl Message<Flush> for Actor {
-///     type Reply = std::io::Result<()>;
-///
-///     fn handle(&mut self, _: Flush, _ctx: Context<Self, Self::Reply>) -> Self::Reply {
-///         self.file.borrow_mut().flush() // This operation is blocking, but acceptable since we're spawning in a thread
-///     }
-/// }
-///
-/// let actor_ref = kameo::actor::spawn_unsync_in_thread(MyActor { ... });
-/// actor_ref.tell(Flush).send()?;
-/// ```
-pub fn spawn_unsync_in_thread<A>(actor: A) -> ActorRef<A>
-where
-    A: Actor + Send + 'static,
-{
-    spawn_in_thread_inner::<A, UnsyncActor<A>>(actor)
+    spawn_in_thread_inner::<A, ActorBehaviour<A>>(actor)
 }
 
 #[inline]
 async fn spawn_inner<A, S, F, Fu>(f: F) -> ActorRef<A>
 where
-    A: Actor + Send + 'static,
+    A: Actor,
     S: ActorState<A> + Send,
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
@@ -206,7 +145,7 @@ where
 #[inline]
 fn spawn_in_thread_inner<A, S>(actor: A) -> ActorRef<A>
 where
-    A: Actor + Send + 'static,
+    A: Actor,
     S: ActorState<A> + Send,
 {
     let handle = Handle::current();
@@ -250,7 +189,7 @@ async fn run_actor_lifecycle<A, S>(
     abort_registration: AbortRegistration,
     links: Links,
 ) where
-    A: Actor + 'static,
+    A: Actor,
     S: ActorState<A>,
 {
     let id = actor_ref.id();
@@ -336,38 +275,33 @@ where
     S: ActorState<A>,
 {
     loop {
-        tokio::select! {
-            biased;
-            Some(reason) = state.next_pending_task() => {
-                return reason
+        match mailbox_rx.recv().await {
+            Some(Signal::StartupFinished) => {
+                if let Some(reason) = state.handle_startup_finished().await {
+                    return reason;
+                }
             }
-            signal = mailbox_rx.recv() => {
-                match signal {
-                    Some(Signal::StartupFinished) => {
-                        if let Some(reason) = state.handle_startup_finished().await {
-                            return reason;
-                        }
-                    }
-                    Some(Signal::Message { message, actor_ref, reply, sent_within_actor }) => {
-                        if let Some(reason) = state.handle_message(message, actor_ref, reply, sent_within_actor).await {
-                            return reason;
-                        }
-                    }
-                    Some(Signal::Query { query, actor_ref, reply, sent_within_actor }) => {
-                        if let Some(reason) = state.handle_query(query, actor_ref, reply, sent_within_actor).await {
-                            return reason;
-                        }
-                    }
-                    Some(Signal::LinkDied { id, reason }) => {
-                        if let Some(reason) = state.handle_link_died(id, reason).await {
-                            return reason;
-                        }
-                    }
-                    Some(Signal::Stop) | None => {
-                        if let Some(reason) = state.handle_stop().await {
-                            return reason;
-                        }
-                    }
+            Some(Signal::Message {
+                message,
+                actor_ref,
+                reply,
+                sent_within_actor,
+            }) => {
+                if let Some(reason) = state
+                    .handle_message(message, actor_ref, reply, sent_within_actor)
+                    .await
+                {
+                    return reason;
+                }
+            }
+            Some(Signal::LinkDied { id, reason }) => {
+                if let Some(reason) = state.handle_link_died(id, reason).await {
+                    return reason;
+                }
+            }
+            Some(Signal::Stop) | None => {
+                if let Some(reason) = state.handle_stop().await {
+                    return reason;
                 }
             }
         }

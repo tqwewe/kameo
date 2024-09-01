@@ -1,10 +1,10 @@
 //! Messaging infrastructure for actor communication in kameo.
 //!
-//! This module provides the constructs necessary for handling messages and queries within kameo,
+//! This module provides the constructs necessary for handling messages within kameo,
 //! defining how actors communicate and interact. It equips actors with the ability to receive and respond
 //! to both commands that might change their internal state and requests for information which do not alter their state.
 //!
-//! A key component of this module is the [`Context`], which is passed to message and query handlers, offering them a
+//! A key component of this module is the [`Context`], which is passed to message handlers, offering them a
 //! reference to the current actor and a way to reply to messages. This enables actors to perform a wide range of
 //! actions in response to received messages, from altering their own state to querying other actors.
 //!
@@ -35,7 +35,7 @@ pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 /// Messages are processed sequentially one at a time, with exclusive mutable access to the actors state.
 ///
 /// The reply type must implement [Reply].
-pub trait Message<T>: Actor + Send + 'static {
+pub trait Message<T>: Actor {
     /// The reply sent back to the message caller.
     type Reply: Reply;
 
@@ -43,25 +43,6 @@ pub trait Message<T>: Actor + Send + 'static {
     fn handle(
         &mut self,
         msg: T,
-        ctx: Context<'_, Self, Self::Reply>,
-    ) -> impl Future<Output = Self::Reply> + Send;
-}
-
-/// Queries the actor for some data.
-///
-/// Unlike regular messages, queries can be processed by the actor in parallel
-/// if multiple queries are sent in sequence. This means queries only have read access
-/// to the actors state.
-///
-/// The reply type must implement [Reply].
-pub trait Query<T>: Actor + Send + 'static {
-    /// The reply sent back to the query caller.
-    type Reply: Reply;
-
-    /// Handler for this query.
-    fn handle(
-        &self,
-        query: T,
         ctx: Context<'_, Self, Self::Reply>,
     ) -> impl Future<Output = Self::Reply> + Send;
 }
@@ -83,7 +64,7 @@ pub enum StreamMessage<T, S, F> {
     Finished(F),
 }
 
-/// A context provided to message and query handlers providing access
+/// A context provided to message handlers providing access
 /// to the current actor ref, and reply channel.
 #[derive(Debug)]
 pub struct Context<'r, A: Actor, R: ?Sized>
@@ -195,9 +176,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-    ) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send;
+    ) -> BoxFuture<'_, Option<BoxDebug>>;
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
 }
 
@@ -211,62 +190,12 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-    ) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send,
-    {
+    ) -> BoxFuture<'_, Option<BoxDebug>> {
         async move {
             let mut reply_sender = tx.map(ReplySender::new);
             let ctx: Context<'_, A, <A as Message<T>>::Reply> =
                 Context::new(actor_ref, &mut reply_sender);
             let reply = Message::handle(state, *self, ctx).await;
-            if let Some(tx) = reply_sender.take() {
-                tx.send(reply.into_value());
-                None
-            } else {
-                reply.into_boxed_err()
-            }
-        }
-        .boxed()
-    }
-
-    fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
-        self
-    }
-}
-
-#[doc(hidden)]
-pub trait DynQuery<A: Actor>: Send {
-    fn handle_dyn(
-        self: Box<Self>,
-        state: &A,
-        actor_ref: ActorRef<A>,
-        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-    ) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send + Sync;
-    fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
-}
-
-impl<A, T> DynQuery<A> for T
-where
-    A: Query<T>,
-    T: Send + 'static,
-{
-    fn handle_dyn(
-        self: Box<Self>,
-        state: &A,
-        actor_ref: ActorRef<A>,
-        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
-    ) -> BoxFuture<'_, Option<BoxDebug>>
-    where
-        A: Send + Sync,
-    {
-        async move {
-            let mut reply_sender = tx.map(ReplySender::new);
-            let ctx: Context<'_, A, <A as Query<T>>::Reply> =
-                Context::new(actor_ref, &mut reply_sender);
-            let reply = Query::handle(state, *self, ctx).await;
             if let Some(tx) = reply_sender.take() {
                 tx.send(reply.into_value());
                 None

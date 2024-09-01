@@ -72,7 +72,7 @@ pub use spawn::*;
 ///     }
 /// }
 /// ```
-pub trait Actor: Sized {
+pub trait Actor: Sized + Send + 'static {
     /// The mailbox used for the actor.
     ///
     /// This can either be `BoundedMailbox<Self>` or `UnboundedMailbox<Self>.`
@@ -89,13 +89,6 @@ pub trait Actor: Sized {
     /// Creates a new mailbox.
     fn new_mailbox() -> (Self::Mailbox, MailboxReceiver<Self>) {
         Self::Mailbox::default_mailbox()
-    }
-
-    /// The maximum number of concurrent queries to handle at a time.
-    ///
-    /// This defaults to the number of cpus on the system.
-    fn max_concurrent_queries() -> usize {
-        num_cpus::get()
     }
 
     /// Hook that is called before the actor starts processing messages.
