@@ -8,7 +8,7 @@ use crate::{
     Actor,
 };
 
-use super::ActorRef;
+use super::{ActorID, ActorRef};
 
 #[doc(hidden)]
 pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
@@ -27,7 +27,7 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
 }
 
 #[doc(hidden)]
-pub trait WeakMailbox: SignalMailbox + Clone + Send {
+pub trait WeakMailbox: SignalMailbox + Clone + Send + Sync {
     type StrongMailbox;
 
     fn upgrade(&self) -> Option<Self::StrongMailbox>;
@@ -245,7 +245,7 @@ pub enum Signal<A: Actor> {
         sent_within_actor: bool,
     },
     LinkDied {
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     },
     Stop,
@@ -269,7 +269,7 @@ pub trait SignalMailbox: DynClone + Send {
     fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_link_died(
         &self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
@@ -293,7 +293,7 @@ where
 
     fn signal_link_died(
         &self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {
@@ -332,7 +332,7 @@ where
 
     fn signal_link_died(
         &self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {
@@ -370,7 +370,7 @@ where
 
     fn signal_link_died(
         &self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {
@@ -407,7 +407,7 @@ where
 
     fn signal_link_died(
         &self,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {

@@ -15,7 +15,7 @@ use crate::{
     error::{ActorStopReason, PanicError},
 };
 
-use super::MailboxReceiver;
+use super::{ActorID, MailboxReceiver};
 
 /// Spawns an actor in a tokio task.
 ///
@@ -375,7 +375,7 @@ where
 }
 
 #[inline]
-fn log_actor_stop_reason(id: u64, name: &str, reason: &ActorStopReason) {
+fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ ActorStopReason::Normal
         | reason @ ActorStopReason::Killed

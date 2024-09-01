@@ -1,37 +1,37 @@
-use std::{
-    cell::Cell,
-    collections::HashMap,
-    fmt, ops,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-};
+use std::{cell::Cell, collections::HashMap, fmt, marker::PhantomData, ops, sync::Arc};
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
-use tokio::{sync::Mutex, task::JoinHandle, task_local};
+use serde::{de::DeserializeOwned, Serialize};
+use tokio::{
+    sync::{mpsc, Mutex},
+    task::JoinHandle,
+    task_local,
+};
 
 use crate::{
-    error::SendError,
+    error::{RegistrationError, SendError},
     message::{Message, Query, StreamMessage},
+    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand},
     reply::Reply,
-    request::{AskRequest, QueryRequest, TellRequest, WithoutRequestTimeout},
+    request::{
+        AskRequest, LocalAskRequest, LocalTellRequest, QueryRequest, RemoteAskRequest,
+        RemoteTellRequest, TellRequest, WithoutRequestTimeout,
+    },
     Actor,
 };
 
-use super::{Mailbox, Signal, SignalMailbox, WeakMailbox};
+use super::{id::ActorID, Mailbox, Signal, SignalMailbox, WeakMailbox};
 
-static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 task_local! {
-    pub(crate) static CURRENT_ACTOR_ID: u64;
+    pub(crate) static CURRENT_ACTOR_ID: ActorID;
 }
 thread_local! {
-    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<u64>> = Cell::new(None);
+    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorID>> = Cell::new(None);
 }
 
 /// A reference to an actor for sending messages/queries and managing the actor.
 pub struct ActorRef<A: Actor> {
-    id: u64,
+    id: ActorID,
     mailbox: A::Mailbox,
     abort_handle: AbortHandle,
     links: Links,
@@ -43,7 +43,7 @@ where
 {
     pub(crate) fn new(mailbox: A::Mailbox, abort_handle: AbortHandle, links: Links) -> Self {
         ActorRef {
-            id: ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed),
+            id: ActorID::generate(),
             mailbox,
             abort_handle,
             links,
@@ -51,13 +51,35 @@ where
     }
 
     /// Returns the actor identifier.
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> ActorID {
         self.id
     }
 
     /// Returns whether the actor is currently alive.
     pub fn is_alive(&self) -> bool {
         !self.mailbox.is_closed()
+    }
+
+    /// Registers the actor under a given name within the actor swarm.
+    pub async fn register(&self, name: &str) -> Result<(), RegistrationError>
+    where
+        A: RemoteActor + 'static,
+    {
+        ActorSwarm::get()
+            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+            .register(self.clone(), name.to_string())
+            .await
+    }
+
+    /// Looks up an actor registered locally.
+    pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
+    where
+        A: RemoteActor + 'static,
+    {
+        ActorSwarm::get()
+            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+            .lookup_local(name.to_string())
+            .await
     }
 
     /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
@@ -150,7 +172,13 @@ where
     pub fn ask<M>(
         &self,
         msg: M,
-    ) -> AskRequest<A, A::Mailbox, M, WithoutRequestTimeout, WithoutRequestTimeout>
+    ) -> AskRequest<
+        LocalAskRequest<A, A::Mailbox>,
+        A::Mailbox,
+        M,
+        WithoutRequestTimeout,
+        WithoutRequestTimeout,
+    >
     where
         A: Message<M>,
         M: Send + 'static,
@@ -167,7 +195,10 @@ where
     /// actor_ref.tell(msg).timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
     /// ```
     #[inline]
-    pub fn tell<M>(&self, msg: M) -> TellRequest<A, A::Mailbox, M, WithoutRequestTimeout>
+    pub fn tell<M>(
+        &self,
+        msg: M,
+    ) -> TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -361,6 +392,95 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
     }
 }
 
+/// A reference to an actor running remotely.
+pub struct RemoteActorRef<A: Actor> {
+    id: ActorID,
+    swarm_tx: mpsc::Sender<SwarmCommand>,
+    phantom: PhantomData<A>,
+}
+
+impl<A: Actor> RemoteActorRef<A> {
+    pub(crate) fn new(id: ActorID, swarm_tx: mpsc::Sender<SwarmCommand>) -> Self {
+        RemoteActorRef {
+            id,
+            swarm_tx,
+            phantom: PhantomData,
+        }
+    }
+
+    /// Returns the actor identifier.
+    pub fn id(&self) -> ActorID {
+        self.id
+    }
+
+    /// Looks up an actor registered locally.
+    pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
+    where
+        A: RemoteActor + 'static,
+    {
+        ActorSwarm::get()
+            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+            .lookup(name.to_string())
+            .await
+    }
+
+    /// Sends a message to the remote actor, waiting for a reply.
+    #[inline]
+    pub fn ask<'a, M>(
+        &'a self,
+        msg: &'a M,
+    ) -> AskRequest<
+        RemoteAskRequest<'a, A, M>,
+        A::Mailbox,
+        M,
+        WithoutRequestTimeout,
+        WithoutRequestTimeout,
+    >
+    where
+        A: RemoteActor + Message<M> + RemoteMessage<M>,
+        M: Serialize,
+        <A::Reply as Reply>::Ok: DeserializeOwned,
+    {
+        AskRequest::new_remote(self, msg)
+    }
+
+    /// Sends a message to the remote actor asyncronously without waiting for a reply from the actor.
+    /// This still waits for an acknowledgement from the remote node.
+    #[inline]
+    pub fn tell<'a, M>(
+        &'a self,
+        msg: &'a M,
+    ) -> TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
+    where
+        A: Message<M>,
+        M: Send + 'static,
+    {
+        TellRequest::new_remote(self, msg)
+    }
+
+    pub(crate) async fn send_to_swarm(&self, msg: SwarmCommand) {
+        self.swarm_tx.send(msg).await.unwrap()
+    }
+}
+
+impl<A: Actor> Clone for RemoteActorRef<A> {
+    fn clone(&self) -> Self {
+        RemoteActorRef {
+            id: self.id.clone(),
+            swarm_tx: self.swarm_tx.clone(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("RemoteActorRef");
+        d.field("id", &self.id);
+        d.finish()
+    }
+}
+
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
@@ -370,7 +490,7 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 /// [`WeakActorRef::upgrade`], which returns `Option<ActorRef>`. It returns `None`
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
 pub struct WeakActorRef<A: Actor> {
-    id: u64,
+    id: ActorID,
     mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
     abort_handle: AbortHandle,
     links: Links,
@@ -378,18 +498,20 @@ pub struct WeakActorRef<A: Actor> {
 
 impl<A: Actor> WeakActorRef<A> {
     /// Returns the actor identifier.
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> ActorID {
         self.id
     }
 
     /// Tries to convert a `WeakActorRef` into a [`ActorRef`]. This will return `Some`
     /// if there are other `ActorRef` instances alive, otherwise `None` is returned.
     pub fn upgrade(&self) -> Option<ActorRef<A>> {
-        self.mailbox.upgrade().map(|mailbox| ActorRef {
-            id: self.id,
-            mailbox,
-            abort_handle: self.abort_handle.clone(),
-            links: self.links.clone(),
+        self.mailbox.upgrade().and_then(|mailbox| {
+            Some(ActorRef {
+                id: self.id,
+                mailbox,
+                abort_handle: self.abort_handle.clone(),
+                links: self.links.clone(),
+            })
         })
     }
 
@@ -434,10 +556,10 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
 /// A hashmap of linked actors to be notified when the actor dies.
 #[derive(Clone, Default)]
 #[allow(missing_debug_implementations)]
-pub struct Links(Arc<Mutex<HashMap<u64, Box<dyn SignalMailbox>>>>);
+pub struct Links(Arc<Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>>);
 
 impl ops::Deref for Links {
-    type Target = Mutex<HashMap<u64, Box<dyn SignalMailbox>>>;
+    type Target = Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0

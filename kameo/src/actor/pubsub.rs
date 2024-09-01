@@ -9,12 +9,12 @@ use crate::{
     Actor,
 };
 
-use super::{ActorRef, BoundedMailbox};
+use super::{ActorID, ActorRef, BoundedMailbox};
 
 /// A mpsc-like pubsub actor.
 #[allow(missing_debug_implementations)]
 pub struct PubSub<M> {
-    subscribers: HashMap<u64, Box<dyn MessageSubscriber<M> + Send + Sync>>,
+    subscribers: HashMap<ActorID, Box<dyn MessageSubscriber<M> + Send + Sync>>,
 }
 
 impl<M> PubSub<M> {
@@ -124,7 +124,7 @@ where
 {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
         Box::pin(async move {
-            Request::tell(self, msg)
+            Request::tell(self, msg, None, false)
                 .await
                 .map_err(|err| err.map_err(|_| ()))
         })

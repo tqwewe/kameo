@@ -174,7 +174,7 @@ where
     {
         let (delegated_reply, reply_sender) = self.reply_sender();
         tokio::spawn(async move {
-            let reply = Request::ask(&actor_ref, message).await;
+            let reply = Request::ask(&actor_ref, message, None, None, false).await;
             if let Some(reply_sender) = reply_sender {
                 reply_sender.send(reply);
             }

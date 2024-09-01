@@ -1,12 +1,16 @@
 mod derive_actor;
+mod derive_remote_actor;
 mod derive_reply;
 mod messages;
+mod remote_message;
 
 use derive_actor::DeriveActor;
+use derive_remote_actor::DeriveRemoteActor;
 use derive_reply::DeriveReply;
 use messages::Messages;
 use proc_macro::TokenStream;
 use quote::ToTokens;
+use remote_message::{RemoteMessage, RemoteMessageAttrs};
 use syn::parse_macro_input;
 
 /// Attribute macro placed on `impl` blocks of actors to define messages.
@@ -127,4 +131,45 @@ pub fn derive_actor(input: TokenStream) -> TokenStream {
 pub fn derive_reply(input: TokenStream) -> TokenStream {
     let derive_reply = parse_macro_input!(input as DeriveReply);
     TokenStream::from(derive_reply.into_token_stream())
+}
+
+/// Derive macro implementing the [RemoteActor](https://docs.rs/kameo/latest/kameo/actor/remote/trait.RemoteActor.html)
+/// trait with a default remote ID being the full path of the type being implemented.
+///
+/// The `#[remote_actor(id = "...")]` attribute can be specified to change the default remote actor ID.
+///
+/// # Example
+///
+/// ```
+/// use kameo::RemoteActor;
+///
+/// #[derive(RemoteActor)]
+/// struct MyActor { }
+///
+/// assert_eq!(MyActor::REMOTE_ID, "my_crate::module::MyActor");
+/// ```
+#[proc_macro_derive(RemoteActor, attributes(remote_actor))]
+pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
+    let derive_remote_actor = parse_macro_input!(input as DeriveRemoteActor);
+    TokenStream::from(derive_remote_actor.into_token_stream())
+}
+
+/// Registers an actor message to be supported with remote messages.
+///
+/// # Example
+///
+/// ```
+/// use kameo::{remote_message, message::Message};
+///
+/// struct MyActor { }
+/// struct MyMessage { }
+///
+/// #[remote_message("c6fa9f76-8818-4000-96f4-50c2ebd52408")]
+/// impl Message<MyMessage> for MyActor { ... }
+/// ```
+#[proc_macro_attribute]
+pub fn remote_message(attrs: TokenStream, input: TokenStream) -> TokenStream {
+    let remote_actor_attrs = parse_macro_input!(attrs as RemoteMessageAttrs);
+    let remote_actor = parse_macro_input!(input as RemoteMessage);
+    TokenStream::from(remote_actor.into_tokens(remote_actor_attrs))
 }

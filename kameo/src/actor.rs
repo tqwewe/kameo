@@ -22,6 +22,7 @@
 //! of concurrency and parallelism.
 
 mod actor_ref;
+mod id;
 mod kind;
 mod mailbox;
 mod pool;
@@ -35,6 +36,7 @@ use futures::Future;
 use crate::error::{ActorStopReason, BoxError, PanicError};
 
 pub use actor_ref::*;
+pub use id::*;
 pub use mailbox::*;
 pub use pool::*;
 pub use pubsub::*;
@@ -143,7 +145,7 @@ pub trait Actor: Sized {
     fn on_link_died(
         &mut self,
         actor_ref: WeakActorRef<Self>,
-        id: u64,
+        id: ActorID,
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
         async move {

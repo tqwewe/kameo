@@ -11,6 +11,7 @@
 
 - **Async**: Built on tokio, actors run asyncronously in their own isolated spawned tasks.
 - **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
+- **Remote Messaging**: Send messages to actors remotely in a distributed way.
 - **MPSC Bounded/Unbounded Channels**: Uses mpsc channels for messaging between actors with boundedness configurable.
 - **Concurrent Queries**: Support concurrent processing of queries when mutable state isn't necessary.
 - **Panic Safe**: Catches panics internally, allowing actors to be restarted.

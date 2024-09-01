@@ -6,17 +6,26 @@
 
 use std::{
     any::{self, Any},
-    convert::Infallible,
-    error, fmt,
+    borrow::Cow,
+    cmp, error, fmt,
+    hash::{Hash, Hasher},
+    io,
+    num::NonZero,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
+use libp2p::TransportError;
+use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
     time::error::Elapsed,
 };
 
-use crate::{actor::Signal, message::BoxDebug, Actor};
+use crate::{
+    actor::{ActorID, Signal},
+    message::BoxDebug,
+    Actor,
+};
 
 /// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
@@ -238,6 +247,263 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
+/// An error that can occur when bootstrapping the actor swarm.
+#[derive(Debug)]
+pub enum BootstrapError {
+    /// Behaviour error.
+    BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
+    /// An error during listening on a Transport.
+    Transport(TransportError<io::Error>),
+}
+
+impl From<TransportError<io::Error>> for BootstrapError {
+    fn from(err: TransportError<io::Error>) -> Self {
+        BootstrapError::Transport(err)
+    }
+}
+
+impl fmt::Display for BootstrapError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BootstrapError::BehaviourError(err) => err.fmt(f),
+            BootstrapError::Transport(err) => err.fmt(f),
+        }
+    }
+}
+
+impl error::Error for BootstrapError {}
+
+/// An error that can occur when registering & looking up actors by name.
+#[derive(Clone, Debug)]
+pub enum RegistrationError {
+    /// The actor swarm has not been bootstrapped.
+    SwarmNotBootstrapped,
+    /// The remote actor was found given the ID, but was not the correct type.
+    BadActorType,
+    /// Quorum failed.
+    QuorumFailed {
+        /// Required quorum.
+        quorum: NonZero<usize>,
+    },
+    /// Timeout.
+    Timeout,
+}
+
+impl fmt::Display for RegistrationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RegistrationError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
+            RegistrationError::BadActorType => write!(f, "bad actor type"),
+            RegistrationError::QuorumFailed { quorum } => {
+                write!(f, "the quorum failed; needed {quorum} peers")
+            }
+            RegistrationError::Timeout => write!(f, "the request timed out"),
+        }
+    }
+}
+
+impl error::Error for RegistrationError {}
+
+/// Error that can occur when sending a message to an actor.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum RemoteSendError<E> {
+    /// The actor isn't running.
+    ActorNotRunning,
+    /// The actor panicked or was stopped before a reply could be received.
+    ActorStopped,
+    /// The actor's remote ID was not found.
+    UnknownActor {
+        /// The remote ID of the actor.
+        actor_remote_id: String,
+    },
+    /// The message remote ID was not found for the actor.
+    UnknownMessage {
+        /// The remote ID of the actor.
+        actor_remote_id: Cow<'static, str>,
+        /// The remote ID of the message.
+        message_remote_id: Cow<'static, str>,
+    },
+    /// The remote actor was found given the ID, but was not the correct type.
+    BadActorType,
+    /// The actors mailbox is full.
+    MailboxFull,
+    /// Timed out waiting for a reply.
+    ReplyTimeout,
+    /// An error returned by the actor's message handler.
+    HandlerError(E),
+    /// Failed to serialize the message.
+    SerializeMessage(String),
+    /// Failed to deserialize the incoming message.
+    DeserializeMessage(String),
+    /// Failed to serialize the reply.
+    SerializeReply(String),
+    /// Failed to serialize the handler error.
+    SerializeHandlerError(String),
+    /// Failed to deserialize the handler error.
+    DeserializeHandlerError(String),
+
+    /// The request could not be sent because a dialing attempt failed.
+    DialFailure,
+    /// The request timed out before a response was received.
+    ///
+    /// It is not known whether the request may have been
+    /// received (and processed) by the remote peer.
+    NetworkTimeout,
+    /// The connection closed before a response was received.
+    ///
+    /// It is not known whether the request may have been
+    /// received (and processed) by the remote peer.
+    ConnectionClosed,
+    /// An IO failure happened on an outbound stream.
+    #[serde(skip)]
+    Io(Option<io::Error>),
+}
+
+impl<E> RemoteSendError<E> {
+    /// Maps the inner error to another type if the variant is [`HandlerError`](RemoteSendError::HandlerError).
+    pub fn map_err<F, O>(self, mut op: O) -> RemoteSendError<F>
+    where
+        O: FnMut(E) -> F,
+    {
+        match self {
+            RemoteSendError::ActorNotRunning => RemoteSendError::ActorNotRunning,
+            RemoteSendError::ActorStopped => RemoteSendError::ActorStopped,
+            RemoteSendError::UnknownActor { actor_remote_id } => {
+                RemoteSendError::UnknownActor { actor_remote_id }
+            }
+            RemoteSendError::UnknownMessage {
+                actor_remote_id,
+                message_remote_id,
+            } => RemoteSendError::UnknownMessage {
+                actor_remote_id,
+                message_remote_id,
+            },
+            RemoteSendError::BadActorType => RemoteSendError::BadActorType,
+            RemoteSendError::MailboxFull => RemoteSendError::MailboxFull,
+            RemoteSendError::ReplyTimeout => RemoteSendError::ReplyTimeout,
+            RemoteSendError::HandlerError(err) => RemoteSendError::HandlerError(op(err)),
+            RemoteSendError::SerializeMessage(err) => RemoteSendError::SerializeMessage(err),
+            RemoteSendError::DeserializeMessage(err) => RemoteSendError::DeserializeMessage(err),
+            RemoteSendError::SerializeReply(err) => RemoteSendError::SerializeReply(err),
+            RemoteSendError::SerializeHandlerError(err) => {
+                RemoteSendError::SerializeHandlerError(err)
+            }
+            RemoteSendError::DeserializeHandlerError(err) => {
+                RemoteSendError::DeserializeHandlerError(err)
+            }
+            RemoteSendError::DialFailure => RemoteSendError::DialFailure,
+            RemoteSendError::NetworkTimeout => RemoteSendError::NetworkTimeout,
+            RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
+            RemoteSendError::Io(err) => RemoteSendError::Io(err),
+        }
+    }
+}
+
+impl<E> RemoteSendError<RemoteSendError<E>> {
+    /// Flattens a nested SendError.
+    pub fn flatten(self) -> RemoteSendError<E> {
+        use RemoteSendError::*;
+        match self {
+            ActorNotRunning | HandlerError(ActorNotRunning) => ActorNotRunning,
+            ActorStopped | HandlerError(ActorStopped) => ActorStopped,
+            UnknownActor { actor_remote_id } | HandlerError(UnknownActor { actor_remote_id }) => {
+                UnknownActor { actor_remote_id }
+            }
+            UnknownMessage {
+                actor_remote_id,
+                message_remote_id,
+            }
+            | HandlerError(UnknownMessage {
+                actor_remote_id,
+                message_remote_id,
+            }) => UnknownMessage {
+                actor_remote_id,
+                message_remote_id,
+            },
+            BadActorType | HandlerError(BadActorType) => BadActorType,
+            MailboxFull | HandlerError(MailboxFull) => MailboxFull,
+            ReplyTimeout | HandlerError(ReplyTimeout) => ReplyTimeout,
+            HandlerError(HandlerError(err)) => HandlerError(err),
+            SerializeMessage(err) | HandlerError(SerializeMessage(err)) => SerializeMessage(err),
+            DeserializeMessage(err) | HandlerError(DeserializeMessage(err)) => {
+                DeserializeMessage(err)
+            }
+            SerializeReply(err) | HandlerError(SerializeReply(err)) => SerializeReply(err),
+            SerializeHandlerError(err) | HandlerError(SerializeHandlerError(err)) => {
+                SerializeHandlerError(err)
+            }
+            DeserializeHandlerError(err) | HandlerError(DeserializeHandlerError(err)) => {
+                RemoteSendError::DeserializeHandlerError(err)
+            }
+            DialFailure | HandlerError(DialFailure) => DialFailure,
+            NetworkTimeout | HandlerError(NetworkTimeout) => NetworkTimeout,
+            ConnectionClosed | HandlerError(ConnectionClosed) => ConnectionClosed,
+            Io(err) | HandlerError(Io(err)) => Io(err),
+        }
+    }
+}
+
+impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
+    fn from(err: SendError<M, E>) -> Self {
+        match err {
+            SendError::ActorNotRunning(_) => RemoteSendError::ActorNotRunning,
+            SendError::ActorStopped => RemoteSendError::ActorStopped,
+            SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
+            SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
+            SendError::Timeout(_) => RemoteSendError::ReplyTimeout,
+            SendError::QueriesNotSupported => unimplemented!(),
+        }
+    }
+}
+
+impl<E> fmt::Display for RemoteSendError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RemoteSendError::ActorNotRunning => write!(f, "actor not running"),
+            RemoteSendError::ActorStopped => write!(f, "actor stopped"),
+            RemoteSendError::UnknownActor { actor_remote_id } => {
+                write!(f, "unknown actor '{actor_remote_id}'")
+            }
+            RemoteSendError::UnknownMessage {
+                actor_remote_id,
+                message_remote_id,
+            } => write!(
+                f,
+                "unknown message '{message_remote_id}' for actor '{actor_remote_id}'"
+            ),
+            RemoteSendError::BadActorType => write!(f, "bad actor type"),
+            RemoteSendError::MailboxFull => write!(f, "mailbox full"),
+            RemoteSendError::ReplyTimeout => write!(f, "timeout"),
+            RemoteSendError::HandlerError(err) => err.fmt(f),
+            RemoteSendError::SerializeMessage(err) => {
+                write!(f, "failed to serialize message: {err}")
+            }
+            RemoteSendError::DeserializeMessage(err) => {
+                write!(f, "failed to deserialize message: {err}")
+            }
+            RemoteSendError::SerializeReply(err) => {
+                write!(f, "failed to serialize reply: {err}")
+            }
+            RemoteSendError::SerializeHandlerError(err) => {
+                write!(f, "failed to serialize handler error: {err}")
+            }
+            RemoteSendError::DeserializeHandlerError(err) => {
+                write!(f, "failed to deserialize handler error: {err}")
+            }
+            RemoteSendError::DialFailure => write!(f, "dial failure"),
+            RemoteSendError::NetworkTimeout => write!(f, "network timeout"),
+            RemoteSendError::ConnectionClosed => write!(f, "connection closed"),
+            RemoteSendError::Io(Some(err)) => err.fmt(f),
+            RemoteSendError::Io(None) => write!(f, "io error"),
+        }
+    }
+}
+
+impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {}
+
 /// Reason for an actor being stopped.
 #[derive(Clone)]
 pub enum ActorStopReason {
@@ -250,7 +516,7 @@ pub enum ActorStopReason {
     /// Link died.
     LinkDied {
         /// Actor ID.
-        id: u64,
+        id: ActorID,
         /// Actor died reason.
         reason: Box<ActorStopReason>,
     },
@@ -371,5 +637,61 @@ impl fmt::Display for PanicError {
         })
         .ok()
         .unwrap_or_else(|| write!(f, "panicked"))
+    }
+}
+
+/// An infallible error type, similar to std::convert::Infallible.
+///
+/// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.
+#[derive(Copy, Serialize, Deserialize)]
+pub enum Infallible {}
+
+impl Clone for Infallible {
+    fn clone(&self) -> Infallible {
+        match *self {}
+    }
+}
+
+impl fmt::Debug for Infallible {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
+}
+
+impl fmt::Display for Infallible {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
+}
+
+impl error::Error for Infallible {
+    fn description(&self) -> &str {
+        match *self {}
+    }
+}
+
+impl PartialEq for Infallible {
+    fn eq(&self, _: &Infallible) -> bool {
+        match *self {}
+    }
+}
+
+impl Eq for Infallible {}
+
+impl PartialOrd for Infallible {
+    fn partial_cmp(&self, _other: &Self) -> Option<cmp::Ordering> {
+        match *self {}
+    }
+}
+
+impl Ord for Infallible {
+    fn cmp(&self, _other: &Self) -> cmp::Ordering {
+        match *self {}
+    }
+}
+
+impl Hash for Infallible {
+    fn hash<H: Hasher>(&self, _: &mut H) {
+        match *self {}
     }
 }

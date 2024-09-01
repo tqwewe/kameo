@@ -107,9 +107,10 @@
 pub mod actor;
 pub mod error;
 pub mod message;
+pub mod remote;
 pub mod reply;
 pub mod request;
 
 pub use actor::{spawn, Actor};
-pub use kameo_macros::{messages, Actor, Reply};
+pub use kameo_macros::{messages, remote_message, Actor, RemoteActor, Reply};
 pub use reply::Reply;
