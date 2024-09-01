@@ -15,7 +15,7 @@ use crate::{
     error::{ActorStopReason, PanicError},
 };
 
-use super::{ActorID, MailboxReceiver};
+use super::{ActorID, Mailbox, MailboxReceiver, MpscMailbox, SignalMessage};
 
 /// Spawns an actor in a tokio task.
 ///
@@ -32,6 +32,7 @@ use super::{ActorID, MailboxReceiver};
 pub fn spawn<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
+    A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
 {
     spawn_inner::<A, ActorBehaviour<A>, _, _>(|_| async move { actor })
         .now_or_never()
@@ -53,6 +54,7 @@ where
 pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
 where
     A: Actor,
+    A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
@@ -89,6 +91,7 @@ where
 pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
+    A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
 {
     spawn_in_thread_inner::<A, ActorBehaviour<A>>(actor)
 }
@@ -97,7 +100,8 @@ where
 async fn spawn_inner<A, S, F, Fu>(f: F) -> ActorRef<A>
 where
     A: Actor,
-    S: ActorState<A> + Send,
+    A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>>,
+    S: ActorState<A, SignalMessage = SignalMessage<A>> + Send,
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
@@ -146,7 +150,8 @@ where
 fn spawn_in_thread_inner<A, S>(actor: A) -> ActorRef<A>
 where
     A: Actor,
-    S: ActorState<A> + Send,
+    A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>>,
+    S: ActorState<A, SignalMessage = SignalMessage<A>> + Send,
 {
     let handle = Handle::current();
     if matches!(handle.runtime_flavor(), RuntimeFlavor::CurrentThread) {
@@ -182,15 +187,18 @@ where
 }
 
 #[inline]
-async fn run_actor_lifecycle<A, S>(
+pub(crate) async fn run_actor_lifecycle<A, S>(
     actor_ref: ActorRef<A>,
     mut actor: A,
-    mailbox_rx: MailboxReceiver<A>,
+    mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     abort_registration: AbortRegistration,
     links: Links,
 ) where
     A: Actor,
-    S: ActorState<A>,
+    S: ActorState<
+        A,
+        SignalMessage = <<A::Mailbox as Mailbox<A>>::Receiver as MailboxReceiver>::SignalMessage,
+    >,
 {
     let id = actor_ref.id();
     let name = A::name();
@@ -203,31 +211,28 @@ async fn run_actor_lifecycle<A, S>(
         .map_err(PanicError::new_boxed)
         .and_then(convert::identity);
 
-    let _ = actor_ref
-        .weak_signal_mailbox()
-        .signal_startup_finished()
-        .await;
-    let actor_ref = {
-        // Downgrade actor ref
-        let weak_actor_ref = actor_ref.downgrade();
-        mem::drop(actor_ref);
-        weak_actor_ref
-    };
+    let _ = actor_ref.signal_mailbox().signal_startup_finished().await;
 
     if let Err(err) = start_res {
         let reason = ActorStopReason::Panicked(err);
-        let mut state = S::new_from_actor(actor, actor_ref.clone());
+        let mut state = S::new_from_actor(actor, &actor_ref);
         state.on_shutdown(reason.clone()).await.unwrap();
         let actor = state.shutdown().await;
         actor
-            .on_stop(actor_ref.clone(), reason.clone())
+            .on_stop(actor_ref.downgrade(), reason.clone())
             .await
             .unwrap();
         log_actor_stop_reason(id, name, &reason);
         return;
     }
 
-    let mut state = S::new_from_actor(actor, actor_ref.clone());
+    let mut state = S::new_from_actor(actor, &actor_ref);
+    let actor_ref = {
+        // Downgrade actor ref
+        let weak_actor_ref = actor_ref.downgrade();
+        mem::drop(actor_ref);
+        weak_actor_ref
+    };
 
     let reason = Abortable::new(
         abortable_actor_loop(&mut state, mailbox_rx),
@@ -252,11 +257,14 @@ async fn run_actor_lifecycle<A, S>(
 
 async fn abortable_actor_loop<A, S>(
     state: &mut S,
-    mut mailbox_rx: MailboxReceiver<A>,
+    mut mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
 ) -> ActorStopReason
 where
     A: Actor,
-    S: ActorState<A>,
+    S: ActorState<
+        A,
+        SignalMessage = <<A::Mailbox as Mailbox<A>>::Receiver as MailboxReceiver>::SignalMessage,
+    >,
 {
     loop {
         let reason = recv_mailbox_loop(state, &mut mailbox_rx).await;
@@ -268,11 +276,14 @@ where
 
 async fn recv_mailbox_loop<A, S>(
     state: &mut S,
-    mailbox_rx: &mut MailboxReceiver<A>,
+    mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
 ) -> ActorStopReason
 where
     A: Actor,
-    S: ActorState<A>,
+    S: ActorState<
+        A,
+        SignalMessage = <<A::Mailbox as Mailbox<A>>::Receiver as MailboxReceiver>::SignalMessage,
+    >,
 {
     loop {
         match mailbox_rx.recv().await {
@@ -281,16 +292,8 @@ where
                     return reason;
                 }
             }
-            Some(Signal::Message {
-                message,
-                actor_ref,
-                reply,
-                sent_within_actor,
-            }) => {
-                if let Some(reason) = state
-                    .handle_message(message, actor_ref, reply, sent_within_actor)
-                    .await
-                {
+            Some(Signal::Message(msg)) => {
+                if let Some(reason) = state.handle_message(msg).await {
                     return reason;
                 }
             }

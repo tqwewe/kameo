@@ -6,7 +6,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
 
 use crate::{
-    actor::{ActorRef, BoundedMailbox, RemoteActorRef, Signal, UnboundedMailbox},
+    actor::{ActorRef, BoundedMailbox, RemoteActorRef, Signal, SignalMessage, UnboundedMailbox},
     error::{RemoteSendError, SendError},
     message::Message,
     remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmReq, SwarmResp},
@@ -37,12 +37,12 @@ where
         TellRequest {
             location: LocalTellRequest {
                 mailbox: actor_ref.mailbox().clone(),
-                signal: Signal::Message {
+                signal: Signal::Message(SignalMessage {
                     message: Box::new(msg),
                     actor_ref: actor_ref.clone(),
                     reply: None,
                     sent_within_actor: actor_ref.is_current(),
-                },
+                }),
             },
             timeout: WithoutRequestTimeout,
             phantom: PhantomData,
@@ -314,7 +314,7 @@ where
     A: Actor<Mailbox = Mb>,
 {
     mailbox: Mb,
-    signal: Signal<A>,
+    signal: Signal<SignalMessage<A>>,
 }
 
 /// A request to a remote actor.

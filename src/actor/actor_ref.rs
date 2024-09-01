@@ -20,7 +20,10 @@ use crate::{
     Actor,
 };
 
-use super::{id::ActorID, Mailbox, Signal, SignalMailbox, WeakMailbox};
+use super::{
+    id::ActorID, BoundedMailbox, Mailbox, MpscMailbox, Signal, SignalMailbox, SignalMessage,
+    WeakBoundedMailbox, WeakMailbox,
+};
 
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorID;
@@ -53,11 +56,6 @@ where
     /// Returns the actor identifier.
     pub fn id(&self) -> ActorID {
         self.id
-    }
-
-    /// Returns whether the actor is currently alive.
-    pub fn is_alive(&self) -> bool {
-        !self.mailbox.is_closed()
     }
 
     /// Registers the actor under a given name within the actor swarm.
@@ -96,16 +94,6 @@ where
         }
     }
 
-    /// Returns the number of [`ActorRef`] handles.
-    pub fn strong_count(&self) -> usize {
-        self.mailbox.strong_count()
-    }
-
-    /// Returns the number of [`WeakActorRef`] handles.
-    pub fn weak_count(&self) -> usize {
-        self.mailbox.weak_count()
-    }
-
     /// Returns true if called from within the actor.
     pub fn is_current(&self) -> bool {
         CURRENT_ACTOR_ID
@@ -133,27 +121,6 @@ where
     /// Note: If the actor is in the middle of processing a message, it will abort processing of that message.
     pub fn kill(&self) {
         self.abort_handle.abort()
-    }
-
-    /// Waits for the actor to finish processing and stop.
-    ///
-    /// This method suspends execution until the actor has stopped, ensuring that any ongoing
-    /// processing is completed and the actor has fully terminated. This is particularly useful
-    /// in scenarios where it's necessary to wait for an actor to clean up its resources or
-    /// complete its final tasks before proceeding.
-    ///
-    /// Note: This method does not initiate the stop process; it only waits for the actor to
-    /// stop. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
-    /// before calling this method.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Assuming `actor.stop_gracefully().await` has been called earlier
-    /// actor.wait_for_stop().await;
-    /// ```
-    pub async fn wait_for_stop(&self) {
-        self.mailbox.closed().await
     }
 
     /// Sends a message to the actor, waiting for a reply.
@@ -219,6 +186,7 @@ where
     ) -> JoinHandle<Result<(), SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>>>
     where
         A: Message<StreamMessage<M, T, F>>,
+        A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
         S: Stream<Item = M> + Send + Unpin + 'static,
         M: Send + 'static,
         T: Send + 'static,
@@ -248,13 +216,14 @@ where
     pub async fn link_child<B>(&self, child: &ActorRef<B>)
     where
         B: Actor,
+        B::Mailbox: Mailbox<B, SignalMessage = SignalMessage<B>>,
     {
         if self.id == child.id() {
             return;
         }
 
         let child_id = child.id();
-        let child: Box<dyn SignalMailbox> = child.weak_signal_mailbox();
+        let child: Box<dyn SignalMailbox> = child.signal_mailbox();
         self.links.lock().await.insert(child_id, child);
     }
 
@@ -273,7 +242,9 @@ where
     /// Links this actor with a sibbling, notifying eachother if either one dies.
     pub async fn link_together<B>(&self, sibbling: &ActorRef<B>)
     where
+        A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>>,
         B: Actor,
+        B::Mailbox: Mailbox<B, SignalMessage = SignalMessage<B>>,
     {
         if self.id == sibbling.id() {
             return;
@@ -281,8 +252,8 @@ where
 
         let (mut this_links, mut sibbling_links) =
             tokio::join!(self.links.lock(), sibbling.links.lock());
-        this_links.insert(sibbling.id(), sibbling.weak_signal_mailbox());
-        sibbling_links.insert(self.id, self.weak_signal_mailbox());
+        this_links.insert(sibbling.id(), sibbling.signal_mailbox());
+        sibbling_links.insert(self.id, self.signal_mailbox());
     }
 
     /// Unlinks previously linked processes from eachother.
@@ -300,12 +271,55 @@ where
         sibbling_links.remove(&self.id);
     }
 
+    #[inline]
     pub(crate) fn mailbox(&self) -> &A::Mailbox {
         &self.mailbox
     }
 
-    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
-        Box::new(self.mailbox.downgrade())
+    #[inline]
+    pub(crate) fn signal_mailbox(&self) -> Box<dyn SignalMailbox> {
+        self.mailbox.signal_mailbox()
+    }
+}
+
+impl<A: Actor> ActorRef<A>
+where
+    A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
+{
+    /// Returns whether the actor is currently alive.
+    pub fn is_alive(&self) -> bool {
+        !self.mailbox.is_closed()
+    }
+
+    /// Returns the number of [`ActorRef`] handles.
+    pub fn strong_count(&self) -> usize {
+        self.mailbox.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`] handles.
+    pub fn weak_count(&self) -> usize {
+        self.mailbox.weak_count()
+    }
+
+    /// Waits for the actor to finish processing and stop.
+    ///
+    /// This method suspends execution until the actor has stopped, ensuring that any ongoing
+    /// processing is completed and the actor has fully terminated. This is particularly useful
+    /// in scenarios where it's necessary to wait for an actor to clean up its resources or
+    /// complete its final tasks before proceeding.
+    ///
+    /// Note: This method does not initiate the stop process; it only waits for the actor to
+    /// stop. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
+    /// before calling this method.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Assuming `actor.stop_gracefully().await` has been called earlier
+    /// actor.wait_for_stop().await;
+    /// ```
+    pub async fn wait_for_stop(&self) {
+        self.mailbox.closed().await
     }
 
     async fn send_msg<M>(&self, msg: M) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
@@ -314,12 +328,12 @@ where
         M: Send + 'static,
     {
         self.mailbox
-            .send(Signal::Message {
+            .send(Signal::Message(SignalMessage {
                 message: Box::new(msg),
                 actor_ref: self.clone(),
                 reply: None,
                 sent_within_actor: false,
-            })
+            }))
             .await?;
         Ok(())
     }

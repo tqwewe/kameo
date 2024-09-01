@@ -16,6 +16,7 @@
 
 use std::{any, fmt};
 
+use dyn_clone::DynClone;
 use futures::{future::BoxFuture, Future, FutureExt};
 use tokio::sync::oneshot;
 
@@ -202,6 +203,52 @@ where
             } else {
                 reply.into_boxed_err()
             }
+        }
+        .boxed()
+    }
+
+    fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
+        self
+    }
+}
+
+#[doc(hidden)]
+pub trait DynBroadcast<A>
+where
+    Self: DynClone + Send,
+    A: Actor,
+{
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &mut A,
+        actor_ref: ActorRef<A>,
+    ) -> BoxFuture<'_, Option<BoxDebug>>;
+    fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
+}
+
+impl<A> Clone for Box<dyn DynBroadcast<A>> {
+    fn clone(&self) -> Self {
+        dyn_clone::clone_box(&**self)
+    }
+}
+
+impl<A, T> DynBroadcast<A> for T
+where
+    Self: DynClone,
+    A: Actor + Message<T>,
+    T: Send + 'static,
+{
+    fn handle_dyn(
+        self: Box<Self>,
+        state: &mut A,
+        actor_ref: ActorRef<A>,
+    ) -> BoxFuture<'_, Option<BoxDebug>> {
+        async move {
+            let mut reply_sender = None;
+            let ctx: Context<'_, A, <A as Message<T>>::Reply> =
+                Context::new(actor_ref, &mut reply_sender);
+            let reply = Message::handle(state, *self, ctx).await;
+            reply.into_boxed_err()
         }
         .boxed()
     }

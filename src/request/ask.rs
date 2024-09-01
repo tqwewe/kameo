@@ -4,7 +4,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use tokio::{sync::oneshot, time::timeout};
 
 use crate::{
-    actor::{ActorRef, BoundedMailbox, RemoteActorRef, Signal, UnboundedMailbox},
+    actor::{ActorRef, BoundedMailbox, RemoteActorRef, Signal, SignalMessage, UnboundedMailbox},
     error::{BoxSendError, RemoteSendError, SendError},
     message::{BoxReply, Message},
     remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmReq, SwarmResp},
@@ -44,12 +44,12 @@ where
         AskRequest {
             location: LocalAskRequest {
                 mailbox: actor_ref.mailbox().clone(),
-                signal: Signal::Message {
+                signal: Signal::Message(SignalMessage {
                     message: Box::new(msg),
                     actor_ref: actor_ref.clone(),
                     reply: Some(reply),
                     sent_within_actor: actor_ref.is_current(),
-                },
+                }),
                 rx,
             },
             mailbox_timeout: WithoutRequestTimeout,
@@ -250,7 +250,7 @@ where
         tx: oneshot::Sender<Result<BoxReply, BoxSendError>>,
     ) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
         match &mut self.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx),
+            Signal::Message(SignalMessage { reply, .. }) => *reply = Some(tx),
             _ => unreachable!("ask requests only support messages"),
         }
 
@@ -439,7 +439,7 @@ where
         SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
     > {
         match &mut self.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            Signal::Message(SignalMessage { reply, .. }) => *reply = Some(tx.box_sender()),
             _ => unreachable!("ask requests only support messages"),
         }
 
@@ -449,9 +449,9 @@ where
             .send(self.location.signal)
             .await
             .map_err(|err| match err.0 {
-                Signal::Message {
+                Signal::Message(SignalMessage {
                     message, mut reply, ..
-                } => SendError::ActorNotRunning((
+                }) => SendError::ActorNotRunning((
                     message.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
                     ReplySender::new(reply.take().unwrap()),
                 )),
@@ -601,7 +601,7 @@ where
         SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
     > {
         match &mut self.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            Signal::Message(SignalMessage { reply, .. }) => *reply = Some(tx.box_sender()),
             _ => unreachable!("ask requests only support messages"),
         }
 
@@ -610,9 +610,9 @@ where
             .0
             .send(self.location.signal)
             .map_err(|err| match err.0 {
-                Signal::Message {
+                Signal::Message(SignalMessage {
                     message, mut reply, ..
-                } => SendError::ActorNotRunning((
+                }) => SendError::ActorNotRunning((
                     message.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
                     ReplySender::new(reply.take().unwrap()),
                 )),
@@ -657,7 +657,7 @@ where
     A: Actor<Mailbox = Mb>,
 {
     mailbox: Mb,
-    signal: Signal<A>,
+    signal: Signal<SignalMessage<A>>,
     rx: oneshot::Receiver<Result<BoxReply, BoxSendError>>,
 }
 

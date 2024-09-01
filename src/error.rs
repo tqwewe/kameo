@@ -17,12 +17,12 @@ use std::{
 use libp2p::TransportError;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{broadcast, mpsc, oneshot},
     time::error::Elapsed,
 };
 
 use crate::{
-    actor::{ActorID, Signal},
+    actor::{ActorID, Signal, SignalBroadcast, SignalMessage},
     message::BoxDebug,
     Actor,
 };
@@ -174,22 +174,22 @@ where
     }
 }
 
-impl<A, M, E> From<mpsc::error::SendError<Signal<A>>> for SendError<M, E>
+impl<A, M, E> From<mpsc::error::SendError<Signal<SignalMessage<A>>>> for SendError<M, E>
 where
     A: Actor,
     M: 'static,
 {
-    fn from(err: mpsc::error::SendError<Signal<A>>) -> Self {
+    fn from(err: mpsc::error::SendError<Signal<SignalMessage<A>>>) -> Self {
         SendError::ActorNotRunning(err.0.downcast_message::<M>().unwrap())
     }
 }
 
-impl<A, M, E> From<mpsc::error::TrySendError<Signal<A>>> for SendError<M, E>
+impl<A, M, E> From<mpsc::error::TrySendError<Signal<SignalMessage<A>>>> for SendError<M, E>
 where
     A: Actor,
     M: 'static,
 {
-    fn from(err: mpsc::error::TrySendError<Signal<A>>) -> Self {
+    fn from(err: mpsc::error::TrySendError<Signal<SignalMessage<A>>>) -> Self {
         match err {
             mpsc::error::TrySendError::Full(signal) => {
                 SendError::MailboxFull(signal.downcast_message::<M>().unwrap())
@@ -201,18 +201,28 @@ where
     }
 }
 
+impl<A, M, E> From<broadcast::error::SendError<Signal<SignalBroadcast<A>>>> for SendError<M, E>
+where
+    A: Actor,
+    M: 'static,
+{
+    fn from(err: broadcast::error::SendError<Signal<SignalBroadcast<A>>>) -> Self {
+        SendError::ActorNotRunning(err.0.downcast_message::<M>().unwrap())
+    }
+}
+
 impl<M, E> From<oneshot::error::RecvError> for SendError<M, E> {
     fn from(_err: oneshot::error::RecvError) -> Self {
         SendError::ActorStopped
     }
 }
 
-impl<A, M, E> From<mpsc::error::SendTimeoutError<Signal<A>>> for SendError<M, E>
+impl<A, M, E> From<mpsc::error::SendTimeoutError<Signal<SignalMessage<A>>>> for SendError<M, E>
 where
     A: Actor,
     M: 'static,
 {
-    fn from(err: mpsc::error::SendTimeoutError<Signal<A>>) -> Self {
+    fn from(err: mpsc::error::SendTimeoutError<Signal<SignalMessage<A>>>) -> Self {
         match err {
             mpsc::error::SendTimeoutError::Timeout(msg) => {
                 SendError::Timeout(Some(msg.downcast_message::<M>().unwrap()))
