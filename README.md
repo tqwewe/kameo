@@ -140,19 +140,17 @@ Always benchmark for yourself.
 
 Sending a message to an actor
 
-| Benchmark            | Time      |
-| -------------------- | --------- |
-| Kameo Unsync Message | 432.26 ns |
-| Kameo Sync Message   | 503.89 ns |
-| Actix Message        | 5.7545 µs |
+| Benchmark     | Time      |
+| ------------- | --------- |
+| Kameo Message | 432.26 ns |
+| Actix Message | 5.7545 µs |
 
 Processing fibonachi sequence in an actor up to 20
 
-| Benchmark            | Time      |
-| -------------------- | --------- |
-| Kameo Unsync Message | 18.229 µs |
-| Kameo Sync Message   | 18.501 µs |
-| Actix Message        | 27.442 µs |
+| Benchmark     | Time      |
+| ------------- | --------- |
+| Kameo Message | 18.229 µs |
+| Actix Message | 27.442 µs |
 
 </details>
 
