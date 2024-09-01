@@ -13,21 +13,21 @@
         overlays = [ (import rust-overlay) ];
         rust = pkgs.rust-bin.stable.latest.default.override {
           extensions = [ "rust-src" "rustfmt" "rust-analyzer" ];
-          targets = [ ];
         };
         pkgs = import nixpkgs {
           inherit system overlays;
-          config.allowUnfree = true;
         };
+        darwinDeps = if builtins.match ".*-darwin" system != null then with pkgs; [
+          darwin.apple_sdk.frameworks.SystemConfiguration
+        ] else [];
       in
       with pkgs;
       {
         devShells.default = mkShell {
           buildInputs = [
             pkg-config
-            protobuf
             rust
-          ];
+          ] ++ darwinDeps;
         };
       }
     );
