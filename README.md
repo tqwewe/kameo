@@ -1,51 +1,51 @@
-# Kameo 🧚🏻
+# Kameo 🎬
 
 ![Crates.io Version](https://img.shields.io/crates/v/kameo)
 ![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)
 ![Crates.io License](https://img.shields.io/crates/l/kameo)
 ![GitHub Repo stars](https://img.shields.io/github/stars/tqwewe/kameo)
 
-#### Fault-tolerant Async Actors Built on Tokio
+![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/banner.png?raw=true)
 
-<img src="https://repository-images.githubusercontent.com/779318723/e0f57589-040e-4e4e-a50e-84c0670e6d70" width=600 />
+## What is Kameo
 
-- **Async**: Built on tokio, actors run asyncronously in their own isolated spawned tasks.
-- **Supervision**: Link actors, creating dependencies through child/parent/sibbling relationships.
-- **Remote Messaging**: Send messages to actors remotely in a distributed way.
-- **MPSC Bounded/Unbounded Channels**: Uses mpsc channels for messaging between actors with boundedness configurable.
-- **Panic Safe**: Catches panics internally, allowing actors to be restarted.
+Kameo is a Rust library to build fault-tolerant async actors in Rust.
 
----
+## Feature highlights
 
-### Installing
+* Async Rust: tokio task per actor
+* Supervision: link actors together
+* Remote messaging: message actors between nodes
+* Panic safe: gracefully handled panics
+* Back pressure: supports bounded & unbounded mpsc messaging
 
-Install using `cargo add`:
+
+## Reasons to use Kameo
+
+* **Distributed Systems**: Use Kameo when building distributed systems that require seamless communication between actors across multiple nodes, leveraging its built-in support for remote actor messaging and registration.
+* **Concurrency with Simplicity**: Choose Kameo for projects that need efficient concurrency management without the complexity of manually handling threads, as it provides a straightforward API for spawning and managing actors with Tokio.
+* **Scalability**: Kameo is ideal for applications that need to scale horizontally, thanks to its actor pools and remote actor support, making it easy to scale workloads across multiple machines.
+
+
+# Getting Started
+
+Add kameo as a dependency to your crate.
 
 ```bash
 cargo add kameo
 ```
 
-or adding to your dependencies manually:
-
-```toml
-[dependencies]
-kameo = "*"
-```
-
-### Defining an Actor without Macros
+Define an actor and some messages.
 
 ```rust
 use kameo::Actor;
 use kameo::message::{Context, Message};
 
-// Define the actor state
+#[derive(Actor)]
 struct Counter {
     count: i64,
 }
 
-impl Actor for Counter {}
-
-// Define messages
 struct Inc { amount: u32 }
 
 impl Message<Inc> for Counter {
@@ -58,101 +58,22 @@ impl Message<Inc> for Counter {
 }
 ```
 
-### Defining an Actor with Macros
+Spawn and message the actor.
 
 ```rust
-use kameo::{messages, Actor};
-
-// Define the actor state
-#[derive(Actor)]
-struct Counter {
-    count: i64,
-}
-
-// Define messages
-#[messages]
-impl Counter {
-    #[message]
-    fn inc(&mut self, amount: u32) -> i64 {
-        self.count += amount as i64;
-        self.count
-    }
-}
+let actor_ref = kameo::spawn(Counter { count: 0 });
+let count = actor_ref.ask(Inc { amount: 42 }).send().await?;
+assert_eq!(count, 42);
 ```
-
-<details>
-  <summary>See generated macro code</summary>
-
-```rust
-// Derive Actor
-impl kameo::actor::Actor for Counter {
-    type Mailbox = kameo::actor::UnboundedMailbox<Self>;
-
-    fn name(&self) -> Cow<'_, str> {
-        Cow::Borrowed("Counter")
-    }
-}
-
-// Messages
-struct Inc { amount: u32 }
-
-impl kameo::message::Message<Inc> for Counter {
-    type Reply = i64;
-
-    async fn handle(&mut self, msg: &mut Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
-        self.inc(msg.amount)
-    }
-}
-```
-
-</details>
-
-<sup>
-<a href="https://docs.rs/kameo/latest/kameo/derive.Actor.html" target="_blank">Actor</a>
- • 
-<a href="https://docs.rs/kameo/latest/kameo/attr.messages.html" target="_blank">#[messages]</a>
-</sup>
-
-### Spawning an Actor & Messaging
-
-```rust
-let counter_ref = kameo::spawn(Counter { count: 0 });
-
-let count = counter_ref.ask(Inc(42)).send().await?;
-println!("Count is {count}");
-```
-
-<sup>
-<a href="https://docs.rs/kameo/latest/kameo/trait.ActorRef.html#method.ask" target="_blank">ActorRef::ask</a>
-</sup>
 
 ## Benchmarks
 
 **13x higher throughput when compared with Actix**
 
-![benchmark](benchmark.svg)
+![benchmark](https://github.com/tqwewe/kameo/raw/main/benchmark.svg)
 
 Above shows a basic benchmark for sending a message to an actor in Kameo and Actix.
 Always benchmark for yourself.
-
-<details>
-<summary>Benchmark results</summary>
-
-Sending a message to an actor
-
-| Benchmark     | Time      |
-| ------------- | --------- |
-| Kameo Message | 432.26 ns |
-| Actix Message | 5.7545 µs |
-
-Processing fibonachi sequence in an actor up to 20
-
-| Benchmark     | Time      |
-| ------------- | --------- |
-| Kameo Message | 18.229 µs |
-| Actix Message | 27.442 µs |
-
-</details>
 
 ## Contributing
 
@@ -162,7 +83,7 @@ Contributions are welcome! Feel free to submit pull requests, create issues, or 
 
 `kameo` is dual-licensed under either:
 
-- MIT License ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+- MIT License ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
 
 at your option.
