@@ -81,10 +81,15 @@ pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Derive macro implementing the [Actor](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html) trait with default behaviour.
 ///
-/// The [Actor::name](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html#method.name) is implemented using the actor's ident.
+/// The `#[actor(name = "...")]` attribute can be specified to change the actors [Actor::name](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html#method.name).
+/// The default value is the actor's ident.
 ///
-/// This trait has no customizability, and is only a convenience macro for implementing `Actor`.
-/// If you'd like to override the default behaviour, you should implement the `Actor` trait manually.
+/// The `#[actor(mailbox = ...)]` attribute can be specified to change the actors [Actor::Mailbox](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html#associatedtype.Mailbox).
+/// The values can be one of:
+///  - `bounded` (default capacity of 1000)
+///  - `bounded(64)` (custom capacity of 64)
+///  - `unbounded`
+
 ///
 /// # Example
 ///
@@ -92,11 +97,12 @@ pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
 /// use kameo::Actor;
 ///
 /// #[derive(Actor)]
+/// #[actor(name = "my_amazing_actor", mailbox = bounded(256))]
 /// struct MyActor { }
 ///
 /// assert_eq!(MyActor { }.name(), "MyActor");
 /// ```
-#[proc_macro_derive(Actor)]
+#[proc_macro_derive(Actor, attributes(actor))]
 pub fn derive_actor(input: TokenStream) -> TokenStream {
     let derive_actor = parse_macro_input!(input as DeriveActor);
     TokenStream::from(derive_actor.into_token_stream())
