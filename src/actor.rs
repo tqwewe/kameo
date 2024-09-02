@@ -22,8 +22,8 @@
 //! of concurrency and parallelism.
 
 mod actor_ref;
+mod behaviour;
 mod id;
-mod kind;
 mod mailbox;
 mod pool;
 mod pubsub;
@@ -122,7 +122,7 @@ pub trait Actor: Sized + Send + 'static {
     #[allow(unused_variables)]
     fn on_panic(
         &mut self,
-        actor_ref: WeakActorRef<Self>,
+        actor_ref: ActorRef<Self>,
         err: PanicError,
     ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
         async move { Ok(Some(ActorStopReason::Panicked(err))) }
@@ -137,7 +137,7 @@ pub trait Actor: Sized + Send + 'static {
     #[allow(unused_variables)]
     fn on_link_died(
         &mut self,
-        actor_ref: WeakActorRef<Self>,
+        actor_ref: ActorRef<Self>,
         id: ActorID,
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
@@ -163,11 +163,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # Parameters
     /// - `reason`: The reason why the actor is being stopped.
     #[allow(unused_variables)]
-    fn on_stop(
-        self,
-        actor_ref: WeakActorRef<Self>,
-        reason: ActorStopReason,
-    ) -> impl Future<Output = Result<(), BoxError>> + Send {
+    fn on_stop(self, reason: ActorStopReason) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
     }
 }

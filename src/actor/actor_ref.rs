@@ -20,10 +20,7 @@ use crate::{
     Actor,
 };
 
-use super::{
-    id::ActorID, BoundedMailbox, Mailbox, MpscMailbox, Signal, SignalMailbox, SignalMessage,
-    WeakBoundedMailbox, WeakMailbox,
-};
+use super::{id::ActorID, Mailbox, MpscMailbox, Signal, SignalMailbox, SignalMessage, WeakMailbox};
 
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorID;

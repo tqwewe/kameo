@@ -9,7 +9,7 @@ use tracing::{error, trace};
 
 use crate::{
     actor::{
-        kind::{ActorBehaviour, ActorState},
+        behaviour::{ActorBehaviour, DefaultActorBehaviour},
         Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError},
@@ -34,7 +34,7 @@ where
     A: Actor,
     A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
 {
-    spawn_inner::<A, ActorBehaviour<A>, _, _>(|_| async move { actor })
+    spawn_inner::<A, DefaultActorBehaviour<A>, _, _>(|_| async move { actor })
         .now_or_never()
         .unwrap()
 }
@@ -58,7 +58,7 @@ where
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
-    spawn_inner::<A, ActorBehaviour<A>, _, _>(f).await
+    spawn_inner::<A, DefaultActorBehaviour<A>, _, _>(f).await
 }
 
 /// Spawns an actor in its own dedicated thread where blocking is acceptable.
@@ -93,7 +93,7 @@ where
     A: Actor,
     A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
 {
-    spawn_in_thread_inner::<A, ActorBehaviour<A>>(actor)
+    spawn_in_thread_inner::<A, DefaultActorBehaviour<A>>(actor)
 }
 
 #[inline]
@@ -101,7 +101,7 @@ async fn spawn_inner<A, S, F, Fu>(f: F) -> ActorRef<A>
 where
     A: Actor,
     A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>>,
-    S: ActorState<A, SignalMessage = SignalMessage<A>> + Send,
+    S: ActorBehaviour<A, SignalMessage = SignalMessage<A>> + Send,
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
@@ -151,7 +151,7 @@ fn spawn_in_thread_inner<A, S>(actor: A) -> ActorRef<A>
 where
     A: Actor,
     A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>>,
-    S: ActorState<A, SignalMessage = SignalMessage<A>> + Send,
+    S: ActorBehaviour<A, SignalMessage = SignalMessage<A>> + Send,
 {
     let handle = Handle::current();
     if matches!(handle.runtime_flavor(), RuntimeFlavor::CurrentThread) {
@@ -195,7 +195,7 @@ pub(crate) async fn run_actor_lifecycle<A, S>(
     links: Links,
 ) where
     A: Actor,
-    S: ActorState<
+    S: ActorBehaviour<
         A,
         SignalMessage = <<A::Mailbox as Mailbox<A>>::Receiver as MailboxReceiver>::SignalMessage,
     >,
@@ -215,18 +215,18 @@ pub(crate) async fn run_actor_lifecycle<A, S>(
 
     if let Err(err) = start_res {
         let reason = ActorStopReason::Panicked(err);
-        let mut state = S::new_from_actor(actor, &actor_ref);
-        state.on_shutdown(reason.clone()).await.unwrap();
-        let actor = state.shutdown().await;
-        actor
-            .on_stop(actor_ref.downgrade(), reason.clone())
+        let mut behaviour = S::new_from_actor(actor, &actor_ref);
+        behaviour
+            .on_shutdown(&actor_ref, reason.clone())
             .await
             .unwrap();
+        let actor = behaviour.shutdown().await;
+        actor.on_stop(actor_ref, reason.clone()).await.unwrap();
         log_actor_stop_reason(id, name, &reason);
         return;
     }
 
-    let mut state = S::new_from_actor(actor, &actor_ref);
+    let mut behaviour = S::new_from_actor(actor, &actor_ref);
     let actor_ref = {
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
@@ -235,52 +235,52 @@ pub(crate) async fn run_actor_lifecycle<A, S>(
     };
 
     let reason = Abortable::new(
-        abortable_actor_loop(&mut state, mailbox_rx),
+        abortable_actor_loop(&mut behaviour, mailbox_rx),
         abort_registration,
     )
     .await
     .unwrap_or(ActorStopReason::Killed);
 
-    let actor = state.shutdown().await;
+    let actor = behaviour.shutdown().await;
 
     {
         let mut links = links.lock().await;
-        for (_, actor_ref) in links.drain() {
-            let _ = actor_ref.signal_link_died(id, reason.clone()).await;
+        for (_, signal_mailbox) in links.drain() {
+            let _ = signal_mailbox.signal_link_died(id, reason.clone()).await;
         }
     }
 
-    let on_stop_res = actor.on_stop(actor_ref, reason.clone()).await;
+    let on_stop_res = actor.on_stop(reason.clone()).await;
     log_actor_stop_reason(id, name, &reason);
     on_stop_res.unwrap();
 }
 
 async fn abortable_actor_loop<A, S>(
-    state: &mut S,
+    behaviour: &mut S,
     mut mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
 ) -> ActorStopReason
 where
     A: Actor,
-    S: ActorState<
+    S: ActorBehaviour<
         A,
         SignalMessage = <<A::Mailbox as Mailbox<A>>::Receiver as MailboxReceiver>::SignalMessage,
     >,
 {
     loop {
-        let reason = recv_mailbox_loop(state, &mut mailbox_rx).await;
-        if let Some(reason) = state.on_shutdown(reason).await {
+        let reason = recv_mailbox_loop(behaviour, &mut mailbox_rx).await;
+        if let Some(reason) = behaviour.on_shutdown(reason).await {
             return reason;
         }
     }
 }
 
 async fn recv_mailbox_loop<A, S>(
-    state: &mut S,
+    behaviour: &mut S,
     mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
 ) -> ActorStopReason
 where
     A: Actor,
-    S: ActorState<
+    S: ActorBehaviour<
         A,
         SignalMessage = <<A::Mailbox as Mailbox<A>>::Receiver as MailboxReceiver>::SignalMessage,
     >,
@@ -288,22 +288,22 @@ where
     loop {
         match mailbox_rx.recv().await {
             Some(Signal::StartupFinished) => {
-                if let Some(reason) = state.handle_startup_finished().await {
+                if let Some(reason) = behaviour.handle_startup_finished().await {
                     return reason;
                 }
             }
             Some(Signal::Message(msg)) => {
-                if let Some(reason) = state.handle_message(msg).await {
+                if let Some(reason) = behaviour.handle_message(msg).await {
                     return reason;
                 }
             }
             Some(Signal::LinkDied { id, reason }) => {
-                if let Some(reason) = state.handle_link_died(id, reason).await {
+                if let Some(reason) = behaviour.handle_link_died(id, reason).await {
                     return reason;
                 }
             }
             Some(Signal::Stop) | None => {
-                if let Some(reason) = state.handle_stop().await {
+                if let Some(reason) = behaviour.handle_stop().await {
                     return reason;
                 }
             }

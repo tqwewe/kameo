@@ -7,9 +7,9 @@ use crate::{
     error::{ActorStopReason, PanicError},
 };
 
-use super::{ActorID, Mailbox, MpscMailbox, Signal, SignalBroadcast, SignalMessage};
+use super::{ActorID, Mailbox, MpscMailbox, SignalBroadcast, SignalMessage};
 
-pub(crate) trait ActorState<A: Actor>: Sized {
+pub(crate) trait ActorBehaviour<A: Actor>: Sized {
     type SignalMessage;
 
     fn new_from_actor(actor: A, actor_ref: &ActorRef<A>) -> Self;
@@ -31,20 +31,21 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 
     fn on_shutdown(
         &mut self,
+        actor_ref: &ActorRef<A>,
         reason: ActorStopReason,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
     fn shutdown(self) -> impl Future<Output = A> + Send;
 }
 
-pub(crate) struct ActorBehaviour<A: Actor> {
+pub(crate) struct DefaultActorBehaviour<A: Actor> {
     actor_ref: WeakActorRef<A>,
     state: A,
     finished_startup: bool,
-    startup_buffer: VecDeque<Signal<SignalMessage<A>>>,
+    startup_buffer: VecDeque<SignalMessage<A>>,
 }
 
-impl<A> ActorState<A> for ActorBehaviour<A>
+impl<A> ActorBehaviour<A> for DefaultActorBehaviour<A>
 where
     A: Actor,
     A::Mailbox: Mailbox<A, SignalMessage = SignalMessage<A>> + MpscMailbox,
@@ -53,7 +54,7 @@ where
 
     #[inline]
     fn new_from_actor(actor: A, actor_ref: &ActorRef<A>) -> Self {
-        ActorBehaviour {
+        DefaultActorBehaviour {
             actor_ref: actor_ref.downgrade(),
             state: actor,
             finished_startup: false,
@@ -63,14 +64,9 @@ where
 
     async fn handle_startup_finished(&mut self) -> Option<ActorStopReason> {
         self.finished_startup = true;
-        for signal in mem::take(&mut self.startup_buffer).drain(..) {
-            match signal {
-                Signal::Message(msg) => {
-                    if let Some(reason) = self.handle_message(msg).await {
-                        return Some(reason);
-                    }
-                }
-                _ => unreachable!(),
+        for msg in mem::take(&mut self.startup_buffer).drain(..) {
+            if let Some(reason) = self.handle_message(msg).await {
+                return Some(reason);
             }
         }
 
@@ -89,13 +85,12 @@ where
     ) -> Option<ActorStopReason> {
         if !sent_within_actor && !self.finished_startup {
             // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
-            self.startup_buffer
-                .push_back(Signal::Message(SignalMessage {
-                    message,
-                    actor_ref,
-                    reply,
-                    sent_within_actor,
-                }));
+            self.startup_buffer.push_back(SignalMessage {
+                message,
+                actor_ref,
+                reply,
+                sent_within_actor,
+            });
             return None;
         }
 
@@ -115,10 +110,11 @@ where
         id: ActorID,
         reason: ActorStopReason,
     ) -> Option<ActorStopReason> {
-        match AssertUnwindSafe(
-            self.state
-                .on_link_died(self.actor_ref.clone(), id, reason.clone()),
-        )
+        match AssertUnwindSafe(self.state.on_link_died(
+            self.actor_ref.upgrade().unwrap(),
+            id,
+            reason.clone(),
+        ))
         .catch_unwind()
         .await
         {
@@ -134,13 +130,16 @@ where
         Some(ActorStopReason::Normal)
     }
 
-    #[inline]
-    async fn on_shutdown(&mut self, reason: ActorStopReason) -> Option<ActorStopReason> {
+    async fn on_shutdown(
+        &mut self,
+        actor_ref: &ActorRef<A>,
+        reason: ActorStopReason,
+    ) -> Option<ActorStopReason> {
         match reason {
             ActorStopReason::Normal => Some(ActorStopReason::Normal),
             ActorStopReason::Killed => Some(ActorStopReason::Killed),
             ActorStopReason::Panicked(err) => {
-                match self.state.on_panic(self.actor_ref.clone(), err).await {
+                match self.state.on_panic(actor_ref.clone(), err).await {
                     Ok(Some(reason)) => Some(reason),
                     Ok(None) => None,
                     Err(err) => Some(ActorStopReason::Panicked(PanicError::new(err))),
@@ -158,14 +157,14 @@ where
     }
 }
 
-pub(crate) struct ActorBroadcastBehaviour<A: Actor> {
+pub(crate) struct BroadcastActorBehaviour<A: Actor> {
     actor_ref: ActorRef<A>,
     state: A,
     finished_startup: bool,
-    startup_buffer: VecDeque<Signal<SignalBroadcast<A>>>,
+    startup_buffer: VecDeque<SignalBroadcast<A>>,
 }
 
-impl<A> ActorState<A> for ActorBroadcastBehaviour<A>
+impl<A> ActorBehaviour<A> for BroadcastActorBehaviour<A>
 where
     A: Actor,
 {
@@ -173,7 +172,7 @@ where
 
     #[inline]
     fn new_from_actor(actor: A, actor_ref: &ActorRef<A>) -> Self {
-        ActorBroadcastBehaviour {
+        BroadcastActorBehaviour {
             actor_ref: actor_ref.clone(),
             state: actor,
             finished_startup: false,
@@ -183,14 +182,9 @@ where
 
     async fn handle_startup_finished(&mut self) -> Option<ActorStopReason> {
         self.finished_startup = true;
-        for signal in mem::take(&mut self.startup_buffer).drain(..) {
-            match signal {
-                Signal::Message(msg) => {
-                    if let Some(reason) = self.handle_message(msg).await {
-                        return Some(reason);
-                    }
-                }
-                _ => unreachable!(),
+        for msg in mem::take(&mut self.startup_buffer).drain(..) {
+            if let Some(reason) = self.handle_message(msg).await {
+                return Some(reason);
             }
         }
 
@@ -210,11 +204,10 @@ where
             .unwrap_or(false);
         if !sent_within_actor && !self.finished_startup {
             // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
-            self.startup_buffer
-                .push_back(Signal::Message(SignalBroadcast {
-                    message,
-                    sent_from_actor,
-                }));
+            self.startup_buffer.push_back(SignalBroadcast {
+                message,
+                sent_from_actor,
+            });
             return None;
         }
 
