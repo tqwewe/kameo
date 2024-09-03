@@ -1,6 +1,7 @@
-use std::{borrow::Cow, collections::HashMap, net::SocketAddr, time::Duration};
+use std::{borrow::Cow, collections::HashMap, io, net::SocketAddr, time::Duration};
 
 use libp2p::{
+    core::transport::ListenerId,
     identity::Keypair,
     kad::{
         self,
@@ -11,7 +12,7 @@ use libp2p::{
         self, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel,
     },
     swarm::{NetworkBehaviour, SwarmEvent},
-    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
+    Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, TransportError,
 };
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -63,28 +64,24 @@ pub struct ActorSwarm {
 
 impl ActorSwarm {
     /// Bootstraps the remote actor system to start listening and accepting requests from other nodes.
-    pub fn bootstrap(addr: SocketAddr) -> Result<&'static Self, BootstrapError> {
-        Self::bootstrap_with_identity(addr, Keypair::generate_ed25519())
+    pub fn bootstrap() -> Result<&'static Self, BootstrapError> {
+        Self::bootstrap_with_identity(Keypair::generate_ed25519())
     }
 
     /// Bootstraps the remote actor system with a keypair to start listening and accepting requests from other nodes.
-    pub fn bootstrap_with_identity(
-        addr: SocketAddr,
-        keypair: Keypair,
-    ) -> Result<&'static Self, BootstrapError> {
+    pub fn bootstrap_with_identity(keypair: Keypair) -> Result<&'static Self, BootstrapError> {
         if let Some(swarm) = ACTOR_SWARM.get() {
             return Ok(swarm);
         }
 
-        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
+        let swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_behaviour(|key| {
-                let mut kademlia = kad::Behaviour::new(
+                let kademlia = kad::Behaviour::new(
                     key.public().to_peer_id(),
                     MemoryStore::new(key.public().to_peer_id()),
                 );
-                kademlia.set_mode(Some(kad::Mode::Server));
                 Ok(Behaviour {
                     kademlia,
                     mdns: mdns::tokio::Behaviour::new(
@@ -100,7 +97,6 @@ impl ActorSwarm {
             .map_err(|err| BootstrapError::BehaviourError(Box::new(err)))?
             .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
             .build();
-        swarm.listen_on(socket_addr_to_multiaddr(addr))?;
 
         Ok(ACTOR_SWARM.get_or_init(move || {
             let local_peer_id = swarm.local_peer_id().clone();
@@ -116,6 +112,25 @@ impl ActorSwarm {
                 local_peer_id,
             }
         }))
+    }
+
+    /// Starts listening on the given address, allowing other nodes to lookup registered actors.
+    ///
+    /// Awaiting this function does not block, and will cause the swarm to start listening in the background.
+    pub async fn listen_on(
+        &self,
+        addr: SocketAddr,
+    ) -> Result<ListenerId, TransportError<io::Error>> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.swarm_tx
+            .send(SwarmCommand::ListenOn {
+                addr,
+                reply: reply_tx,
+            })
+            .await
+            .expect("the swarm should never stop running");
+
+        reply_rx.await.unwrap()
     }
 
     /// Gets a reference to the actor swarm.
@@ -294,6 +309,14 @@ impl SwarmActor {
 
     fn handle_command(&mut self, cmd: SwarmCommand) {
         match cmd {
+            SwarmCommand::ListenOn { addr, reply } => {
+                let res = self.swarm.listen_on(socket_addr_to_multiaddr(addr));
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .set_mode(Some(kad::Mode::Server));
+                let _ = reply.send(res);
+            }
             SwarmCommand::AddPeerAddress { peer_id, addr } => {
                 self.swarm.add_peer_address(peer_id, addr);
             }
@@ -556,6 +579,10 @@ impl SwarmActor {
 }
 
 pub(crate) enum SwarmCommand {
+    ListenOn {
+        addr: SocketAddr,
+        reply: oneshot::Sender<Result<ListenerId, TransportError<io::Error>>>,
+    },
     AddPeerAddress {
         peer_id: PeerId,
         addr: Multiaddr,

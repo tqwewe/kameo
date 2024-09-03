@@ -68,10 +68,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Bootstrap the actor swarm
     if is_host {
-        ActorSwarm::bootstrap("0.0.0.0:8020".parse()?)?;
+        ActorSwarm::bootstrap()?
+            .listen_on("0.0.0.0:8020".parse()?)
+            .await?;
     } else {
-        let swarm = ActorSwarm::bootstrap("0.0.0.0:8022".parse()?)?;
-        swarm
+        ActorSwarm::bootstrap()?
             .add_peer_address(PeerId::random(), "0.0.0.0:8020".parse()?)
             .await;
     }
