@@ -115,7 +115,7 @@ where
     /// impl Message<MyMsg> for MyActor {
     ///     type Reply = DelegatedReply<String>;
     ///
-    ///     async fn handle(&mut self, msg: MyMsg, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///     async fn handle(&mut self, msg: MyMsg, mut ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
     ///         let (delegated_reply, reply_sender) = ctx.reply_sender();
     ///
     ///         if let Some(tx) = reply_sender {
