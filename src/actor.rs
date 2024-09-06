@@ -109,7 +109,7 @@ pub trait Actor: Sized + Send + 'static {
         async { Ok(()) }
     }
 
-    /// Hook that is called when an actor panicked or returns an error during an async message.
+    /// Hook that is called when an actor panicked or returns an error during "tell" message.
     ///
     /// This method provides an opportunity to clean up or reset state.
     /// It can also determine whether the actor should be killed or if it should continue processing messages by returning `None`.

@@ -53,7 +53,7 @@ pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>
 
 /// A reply value.
 ///
-/// If an Err is returned by a hadler, and is unhandled by the caller (ie, the message was sent async),
+/// If an Err is returned by a handler, and is unhandled by the caller (ie, the message was sent asyncronously with `tell`),
 /// then the error is treated as a panic in the actor.
 ///
 /// This is implemented for all many std lib types, and can be implemented on custom types manually or with the derive
@@ -91,47 +91,10 @@ pub trait Reply: Send + 'static {
 
 /// A marker type indicating that the reply to a message will be handled elsewhere.
 ///
-/// `DelegatedReply` is used in scenarios where the immediate receiver of a message
-/// delegates the task of replying to another actor or component. It serves as a
-/// signal to the actor system that the current handler will not directly respond to
-/// the message, and that the responsibility for sending the reply has been transferred.
+/// This structure is created by the [`reply_sender`] method on [`Context`].
 ///
-/// This type is returned by message handlers that invoke [Context::reply_sender](crate::message::Context::reply_sender)
-/// to delegate response duties. It is crucial in maintaining the clarity of message
-/// flow and ensuring that the system accurately tracks the delegation of response
-/// responsibilities.
-///
-/// # Examples
-///
-/// A typical usage might involve a handler for a request that requires information
-/// from another part of the system. The handler would call [`Context::reply_sender`](crate::message::Context::reply_sender) to
-/// obtain a `DelegatedReply` and an optional [`ReplySender`]. The `DelegatedReply`
-/// would be returned by the handler to indicate that the reply will be delegated,
-/// and the `ReplySender`, if present, would be passed to the actual responder.
-///
-/// ```
-/// use kameo::message::{Context, Message};
-/// use kameo::reply::DelegatedReply;
-///
-/// impl Message<Request> for MyActor {
-///     type Reply = DelegatedReply<MyResponseType>;
-///
-///     fn handle(&mut self, msg: Request, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
-///         let (delegated_reply, reply_sender) = ctx.reply_sender();
-///    
-///         // Logic to delegate the response, potentially involving other actors
-///         if let Some(sender) = reply_sender {
-///             another_actor.send(SomeMessage { sender });
-///         }
-///    
-///         delegated_reply
-///     }   
-/// }
-/// ```
-///
-/// It is essential that the delegated entity completes the response process by
-/// utilizing the provided [ReplySender]. Failing to send a response may lead to
-/// the requester indefinitely awaiting a reply.
+/// [`reply_sender`]: method@crate::message::Context::reply_sender
+/// [`Context`]: struct@crate::message::Context
 #[must_use = "the deligated reply should be returned by the handler"]
 #[derive(Clone, Copy, Debug)]
 pub struct DelegatedReply<R> {

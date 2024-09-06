@@ -102,7 +102,7 @@ where
     /// is a marker type indicating that the message handler will delegate the task of replying to another part of the
     /// system. It should be returned by the message handler to signify this intention. The `ReplySender`, if present,
     /// should be used to actually send the response back to the caller. The `ReplySender` will not be present if the
-    /// message was sent as async (no repsonse is needed by the caller).
+    /// message was sent as a "tell" request (no repsonse is needed by the caller).
     ///
     /// # Usage
     ///
