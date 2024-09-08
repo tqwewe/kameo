@@ -28,21 +28,21 @@ impl ToTokens for DeriveActor {
 
         let mailbox_expanded = match attrs.mailbox {
             MailboxKind::Bounded(_) => quote! {
-                ::kameo::actor::BoundedMailbox<Self>
+                ::kameo::mailbox::bounded::BoundedMailbox<Self>
             },
             MailboxKind::Unbounded => quote! {
-                ::kameo::actor::UnboundedMailbox<Self>
+                ::kameo::mailbox::unbounded::UnboundedMailbox<Self>
             },
         };
         let new_mailbox_expanded = match attrs.mailbox {
             MailboxKind::Bounded(cap) => {
                 let cap = cap.unwrap_or(1000);
                 quote! {
-                    ::kameo::actor::BoundedMailbox::new(#cap)
+                    ::kameo::mailbox::bounded::BoundedMailbox::new(#cap)
                 }
             }
             MailboxKind::Unbounded => quote! {
-                ::kameo::actor::UnboundedMailbox::new()
+                ::kameo::mailbox::unbounded::UnboundedMailbox::new()
             },
         };
 
@@ -55,7 +55,7 @@ impl ToTokens for DeriveActor {
                     #name
                 }
 
-                fn new_mailbox() -> (Self::Mailbox, ::kameo::actor::MailboxReceiver<Self>) {
+                fn new_mailbox() -> (Self::Mailbox, <Self::Mailbox as ::kameo::mailbox::Mailbox<Self>>::Receiver) {
                     #new_mailbox_expanded
                 }
             }

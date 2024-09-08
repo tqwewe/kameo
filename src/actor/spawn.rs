@@ -10,12 +10,13 @@ use tracing::{error, trace};
 use crate::{
     actor::{
         kind::{ActorBehaviour, ActorState},
-        Actor, ActorRef, Links, Signal, CURRENT_ACTOR_ID,
+        Actor, ActorRef, Links, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError},
+    mailbox::{Mailbox, MailboxReceiver, Signal},
 };
 
-use super::{ActorID, MailboxReceiver};
+use super::ActorID;
 
 /// Spawns an actor in a tokio task.
 ///
@@ -185,7 +186,7 @@ where
 async fn run_actor_lifecycle<A, S>(
     actor_ref: ActorRef<A>,
     mut actor: A,
-    mailbox_rx: MailboxReceiver<A>,
+    mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     abort_registration: AbortRegistration,
     links: Links,
 ) where
@@ -252,7 +253,7 @@ async fn run_actor_lifecycle<A, S>(
 
 async fn abortable_actor_loop<A, S>(
     state: &mut S,
-    mut mailbox_rx: MailboxReceiver<A>,
+    mut mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
 ) -> ActorStopReason
 where
     A: Actor,
@@ -268,7 +269,7 @@ where
 
 async fn recv_mailbox_loop<A, S>(
     state: &mut S,
-    mailbox_rx: &mut MailboxReceiver<A>,
+    mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
 ) -> ActorStopReason
 where
     A: Actor,

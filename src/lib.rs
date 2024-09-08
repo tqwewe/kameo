@@ -7,6 +7,7 @@
 
 pub mod actor;
 pub mod error;
+pub mod mailbox;
 pub mod message;
 pub mod remote;
 pub mod reply;

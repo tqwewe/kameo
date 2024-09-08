@@ -1,16 +1,48 @@
 //! Types for sending requests including messages and queries to actors.
+//!
+//! # Supported Send Methods Overview
+//!
+//! Below is a table showing which features are supported for different requests.
+//!
+//! - **Ask (bounded)**: refers to sending a message using [`ask`] on an actor with a [`BoundedMailbox`].
+//! - **Ask (unbounded)**: refers to sending a message using [`ask`] on an actor with an [`UnboundedMailbox`].
+//! - **Tell (bounded)**: refers to sending a message using [`tell`] on an actor with a [`BoundedMailbox`].
+//! - **Tell (unbounded)**: refers to sending a message using [`tell`] on an actor with an [`UnboundedMailbox`].
+//!
+//! [`tell`]: method@crate::actor::ActorRef::tell
+//! [`ask`]: method@crate::actor::ActorRef::ask
+//! [`BoundedMailbox`]: crate::mailbox::bounded::BoundedMailbox
+//! [`UnboundedMailbox`]: crate::mailbox::unbounded::UnboundedMailbox
+//!
+//! **Legend**
+//!
+//! - Supported: ✅
+//! - With mailbox timeout: 📬
+//! - With reply timeout: ⏳
+//! - Remote: 🌐
+//! - Unsupported: ❌
+//!
+//! | Method                | Ask (bounded) | Ask (unbounded) | Tell (bounded) | Tell (unbounded) |
+//! |-----------------------|---------------|-----------------|----------------|------------------|
+//! | [`send`]              |    ✅ 📬 ⏳ 🌐    |      ✅ ⏳ 🌐      |      ✅ 📬 🌐     |        ✅ 🌐       |
+//! | [`send_sync`]         |       ❌       |        ❌        |        ❌       |         ✅        |
+//! | [`try_send`]          |     ✅ ⏳ 🌐     |      ✅ ⏳ 🌐      |       ✅ 🌐      |        ✅ 🌐       |
+//! | [`try_send_sync`]     |       ❌       |        ❌        |        ✅       |         ✅        |
+//! | [`blocking_send`]     |       ✅       |        ✅        |        ✅       |         ✅        |
+//! | [`try_blocking_send`] |       ✅       |        ✅        |        ✅       |         ✅        |
+//! | [`forward`]           |      ✅ 📬      |        ✅        |        ❌       |         ❌        |
+//!
+//! [`send`]: method@MessageSend::send
+//! [`send_sync`]: method@MessageSendSync::send_sync
+//! [`try_send`]: method@TryMessageSend::try_send
+//! [`try_send_sync`]: method@TryMessageSendSync::try_send_sync
+//! [`blocking_send`]: method@BlockingMessageSend::blocking_send
+//! [`try_blocking_send`]: method@TryBlockingMessageSend::try_blocking_send
+//! [`forward`]: method@ForwardMessageSend::forward
 
 use std::time::Duration;
 
 use futures::Future;
-
-use crate::{
-    actor::{ActorRef, BoundedMailbox, UnboundedMailbox},
-    error::SendError,
-    message::Message,
-    reply::ReplySender,
-    Actor, Reply,
-};
 
 mod ask;
 mod tell;
@@ -18,158 +50,128 @@ mod tell;
 pub use ask::{AskRequest, LocalAskRequest, RemoteAskRequest};
 pub use tell::{LocalTellRequest, RemoteTellRequest, TellRequest};
 
-/// A trait for sending messages to an actor.
-///
-/// Typically `ActorRef::tell` and `ActorRef::ask` would be used directly, as they provide more functionality such as setting timeouts.
-/// Methods on this trait are helpful shorthand methods, which can be used for ActorRef's with any mailbox type (bounded or unbounded).
-#[doc(hidden)]
-pub trait Request<A, M, Mb>
-where
-    A: Actor<Mailbox = Mb> + Message<M>,
-{
-    /// Sends a message to an actor without waiting for any reply.
-    fn tell(
-        &self,
-        msg: M,
-        mailbox_timeout: Option<Duration>,
-        immediate: bool,
-    ) -> impl Future<Output = Result<(), SendError<M, <A::Reply as Reply>::Error>>> + Send;
+use crate::{error::SendError, reply::ReplySender, Reply};
 
-    /// Sends a message to an actor, waiting for a reply.
-    fn ask(
-        &self,
-        msg: M,
-        mailbox_timeout: Option<Duration>,
-        reply_timeout: Option<Duration>,
-        immediate: bool,
-    ) -> impl Future<
-        Output = Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>,
-    > + Send;
+/// Trait representing the ability to send a message.
+pub trait MessageSend {
+    /// Success value.
+    type Ok;
+    /// Error value.
+    type Error;
 
-    /// Forwards a message to an actor, waiting for a reply to be sent back to `tx`.
-    fn ask_forwarded(
-        &self,
-        msg: M,
-        tx: ReplySender<<A::Reply as Reply>::Value>,
-    ) -> impl Future<
-        Output = Result<
-            (),
-            SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
-        >,
-    > + Send;
+    /// Sends a message.
+    fn send(self) -> impl Future<Output = Result<Self::Ok, Self::Error>> + Send;
 }
 
-impl<A, M> Request<A, M, BoundedMailbox<A>> for ActorRef<A>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M>,
-    M: Send + 'static,
-{
-    async fn tell(
-        &self,
-        msg: M,
-        mailbox_timeout: Option<Duration>,
-        immediate: bool,
-    ) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        let req = ActorRef::tell(self, msg);
-        match (mailbox_timeout, immediate) {
-            (None, true) => req.try_send(),
-            (None, false) => req.send().await,
-            (Some(_), true) => panic!("immediate is not available when a mailbox timeout is set"),
-            (Some(t), false) => req.timeout(t).send().await,
-        }
-    }
+/// Trait representing the ability to send a message synchronously.
+pub trait MessageSendSync {
+    /// Success value.
+    type Ok;
+    /// Error value.
+    type Error;
 
-    async fn ask(
-        &self,
-        msg: M,
-        mailbox_timeout: Option<Duration>,
-        reply_timeout: Option<Duration>,
-        immediate: bool,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
-        let req = ActorRef::ask(self, msg);
-        match (mailbox_timeout, reply_timeout, immediate) {
-            (None, None, true) => req.try_send().await,
-            (None, None, false) => req.send().await,
-            (None, Some(t), true) => req.reply_timeout(t).try_send().await,
-            (None, Some(t), false) => req.reply_timeout(t).send().await,
-            (Some(_), None, true) => {
-                panic!("immediate is not available when a mailbox timeout is set")
-            }
-            (Some(t), None, false) => req.mailbox_timeout(t).send().await,
-            (Some(_), Some(_), true) => {
-                panic!("immediate is not available when a mailbox timeout is set")
-            }
-            (Some(mt), Some(rt), false) => req.mailbox_timeout(mt).reply_timeout(rt).send().await,
-        }
-    }
-
-    async fn ask_forwarded(
-        &self,
-        msg: M,
-        tx: ReplySender<<A::Reply as Reply>::Value>,
-    ) -> Result<
-        (),
-        SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
-    > {
-        ActorRef::ask(self, msg).forward(tx).await
-    }
+    /// Sends a message synchronously.
+    fn send_sync(self) -> Result<Self::Ok, Self::Error>;
 }
 
-impl<A, M> Request<A, M, UnboundedMailbox<A>> for ActorRef<A>
-where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M>,
-    M: Send + 'static,
-{
-    async fn tell(
-        &self,
-        msg: M,
-        mailbox_timeout: Option<Duration>,
-        immediate: bool,
-    ) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        let req = ActorRef::tell(self, msg);
-        match (mailbox_timeout, immediate) {
-            (None, false) => req.send(),
-            (_, true) => panic!("immediate is not available with unbounded mailboxes"),
-            (Some(_), _) => {
-                panic!("mailbox timeout is not available with unbounded mailboxes")
-            }
-        }
-    }
+/// Trait representing the ability to attempt to send a message without waiting for mailbox capacity.
+pub trait TryMessageSend {
+    /// Success value.
+    type Ok;
+    /// Error value.
+    type Error;
 
-    async fn ask(
-        &self,
-        msg: M,
-        mailbox_timeout: Option<Duration>,
-        reply_timeout: Option<Duration>,
-        immediate: bool,
-    ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
-        let req = ActorRef::ask(self, msg);
-        match (mailbox_timeout, reply_timeout, immediate) {
-            (None, None, false) => req.send().await,
-            (None, Some(t), false) => req.reply_timeout(t).send().await,
-            (_, _, true) => panic!("immediate is not available with unbounded mailboxes"),
-            (Some(_), _, _) => {
-                panic!("mailbox timeout is not available with unbounded mailboxes")
-            }
-        }
-    }
+    /// Attempts to sends a message without waiting for mailbox capacity.
+    ///
+    /// If the actors mailbox is full, [`SendError::MailboxFull`] error will be returned.
+    ///
+    /// [`SendError::MailboxFull`]: crate::error::SendError::MailboxFull
+    fn try_send(self) -> impl Future<Output = Result<Self::Ok, Self::Error>> + Send;
+}
 
-    async fn ask_forwarded(
-        &self,
-        msg: M,
-        tx: ReplySender<<A::Reply as Reply>::Value>,
-    ) -> Result<
-        (),
-        SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
-    > {
-        ActorRef::ask(self, msg).forward(tx)
-    }
+/// Trait representing the ability to attempt to send a message without waiting for mailbox capacity synchronously.
+pub trait TryMessageSendSync {
+    /// Success value.
+    type Ok;
+    /// Error value.
+    type Error;
+
+    /// Attemps to send a message synchronously without waiting for mailbox capacity.
+    fn try_send_sync(self) -> Result<Self::Ok, Self::Error>;
+}
+
+/// Trait representing the ability to send a message in a blocking context, useful outside an async runtime.
+pub trait BlockingMessageSend {
+    /// Success value.
+    type Ok;
+    /// Error value.
+    type Error;
+
+    /// Sends a message, blocking the current thread.
+    fn blocking_send(self) -> Result<Self::Ok, Self::Error>;
+}
+
+/// Trait representing the ability to send a message in a blocking context without waiting for mailbox capacity,
+/// useful outside an async runtime.
+pub trait TryBlockingMessageSend {
+    /// Success value.
+    type Ok;
+    /// Error value.
+    type Error;
+
+    /// Attempts to sends a message in a blocking context without waiting for mailbox capacity.
+    ///
+    /// If the actors mailbox is full, [`SendError::MailboxFull`] error will be returned.
+    ///
+    /// [`SendError::MailboxFull`]: crate::error::SendError::MailboxFull
+    fn try_blocking_send(self) -> Result<Self::Ok, Self::Error>;
+}
+
+/// Trait representing the ability to send a message with the reply being sent back to a channel.
+pub trait ForwardMessageSend<R: Reply, M> {
+    /// Sends a message with the reply being sent back to a channel.
+    fn forward(
+        self,
+        tx: ReplySender<R::Value>,
+    ) -> impl Future<Output = Result<(), SendError<(M, ReplySender<R::Value>), R::Error>>> + Send;
 }
 
 /// A type for requests without any timeout set.
-#[allow(missing_debug_implementations)]
+#[derive(Clone, Copy, Debug)]
 pub struct WithoutRequestTimeout;
 
 /// A type for timeouts in actor requests.
-#[allow(missing_debug_implementations)]
+#[derive(Clone, Copy, Debug)]
 pub struct WithRequestTimeout(Duration);
+
+/// A type which might contain a request timeout.
+///
+/// This type is used internally for remote messaging and will panic if used incorrectly with any MessageSend trait.
+#[derive(Clone, Copy, Debug)]
+pub enum MaybeRequestTimeout {
+    /// No timeout set.
+    NoTimeout,
+    /// A timeout with a duration.
+    Timeout(Duration),
+}
+
+impl From<Option<Duration>> for MaybeRequestTimeout {
+    fn from(timeout: Option<Duration>) -> Self {
+        match timeout {
+            Some(timeout) => MaybeRequestTimeout::Timeout(timeout),
+            None => MaybeRequestTimeout::NoTimeout,
+        }
+    }
+}
+
+impl From<WithoutRequestTimeout> for MaybeRequestTimeout {
+    fn from(_: WithoutRequestTimeout) -> Self {
+        MaybeRequestTimeout::NoTimeout
+    }
+}
+
+impl From<WithRequestTimeout> for MaybeRequestTimeout {
+    fn from(WithRequestTimeout(timeout): WithRequestTimeout) -> Self {
+        MaybeRequestTimeout::Timeout(timeout)
+    }
+}

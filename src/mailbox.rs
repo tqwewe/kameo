@@ -1,46 +1,63 @@
-mod bounded;
-mod unbounded;
+//! Behaviour for actor mailboxes.
+//!
+//! An actor mailbox is a channel which stores pending messages and signals for an actor to process sequentially.
+
+pub mod bounded;
+pub mod unbounded;
 
 use dyn_clone::DynClone;
 use futures::{future::BoxFuture, Future};
 use tokio::sync::oneshot;
 
 use crate::{
+    actor::{ActorID, ActorRef},
     error::{ActorStopReason, BoxSendError, SendError},
     message::{BoxReply, DynMessage},
     Actor,
 };
 
-use super::{ActorID, ActorRef};
-
 /// A trait defining the behaviour and functionality of a mailbox.
 pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
+    /// Mailbox receiver type.
     type Receiver: MailboxReceiver<A>;
+    /// Mailbox weak type.
     type WeakMailbox: WeakMailbox<StrongMailbox = Self>;
 
+    /// Creates a default mailbox and receiver.
     fn default_mailbox() -> (Self, Self::Receiver);
-    fn send(
+    /// Sends a signal to the mailbox.
+    fn send<E: 'static>(
         &self,
         signal: Signal<A>,
-    ) -> impl Future<Output = Result<(), SendError<Signal<A>>>> + Send + '_;
+    ) -> impl Future<Output = Result<(), SendError<Signal<A>, E>>> + Send + '_;
+    /// Waits for the mailbox to be closed.
     fn closed(&self) -> impl Future<Output = ()> + '_;
+    /// Checks if the mailbox is closed.
     fn is_closed(&self) -> bool;
+    /// Downgrades the mailbox to a weak mailbox.
     fn downgrade(&self) -> Self::WeakMailbox;
+    /// Returns the number of strong mailboxes.
     fn strong_count(&self) -> usize;
+    /// Returns the number of weak mailboxes.
     fn weak_count(&self) -> usize;
 }
 
 /// A mailbox receiver.
 pub trait MailboxReceiver<A: Actor>: Send + 'static {
+    /// Receives a value from the mailbox.
     fn recv(&mut self) -> impl Future<Output = Option<Signal<A>>> + Send + '_;
 }
 
 /// A weak mailbox which can be upraded.
 pub trait WeakMailbox: SignalMailbox + Clone + Send + Sync {
+    /// Strong mailbox type.
     type StrongMailbox;
 
+    /// Upgrades the mailbox to a strong mailbox, or returns None if all strong mailboxes have been dropped.
     fn upgrade(&self) -> Option<Self::StrongMailbox>;
+    /// Returns the number of strong mailboxes.
     fn strong_count(&self) -> usize;
+    /// Returns the number of weak mailboxes.
     fn weak_count(&self) -> usize;
 }
 

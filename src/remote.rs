@@ -7,9 +7,7 @@ use std::{
     time::Duration,
 };
 
-use _internal::{
-    AskRemoteMessageFn, RemoteMessageRegistrationID, TellRemoteMessageFn, REMOTE_MESSAGES,
-};
+use _internal::{RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_MESSAGES};
 pub use libp2p::PeerId;
 pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
@@ -26,20 +24,19 @@ pub use swarm::*;
 pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, Box<dyn any::Any + Send + Sync>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-static REMOTE_MESSAGES_MAP: Lazy<
-    HashMap<RemoteMessageRegistrationID<'static>, (AskRemoteMessageFn, TellRemoteMessageFn)>,
-> = Lazy::new(|| {
-    let mut existing_ids = HashSet::new();
-    for (id, _) in REMOTE_MESSAGES {
-        if !existing_ids.insert(id) {
-            panic!(
-                "duplicate remote message detected for actor '{}' and message '{}'",
-                id.actor_remote_id, id.message_remote_id
-            );
+static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>> =
+    Lazy::new(|| {
+        let mut existing_ids = HashSet::new();
+        for (id, _) in REMOTE_MESSAGES {
+            if !existing_ids.insert(id) {
+                panic!(
+                    "duplicate remote message detected for actor '{}' and message '{}'",
+                    id.actor_remote_id, id.message_remote_id
+                );
+            }
         }
-    }
-    REMOTE_MESSAGES.iter().copied().collect()
-});
+        REMOTE_MESSAGES.iter().copied().collect()
+    });
 
 /// A trait for identifying actors remotely.
 ///
@@ -68,7 +65,7 @@ pub(crate) async fn ask(
     reply_timeout: Option<Duration>,
     immediate: bool,
 ) -> Result<Vec<u8>, RemoteSendError<Vec<u8>>> {
-    let Some((handler, _)) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
+    let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
         actor_remote_id: &actor_remote_id,
         message_remote_id: &message_remote_id,
     }) else {
@@ -77,7 +74,11 @@ pub(crate) async fn ask(
             message_remote_id,
         });
     };
-    handler(actor_id, payload, mailbox_timeout, reply_timeout, immediate).await
+    if immediate {
+        (fns.try_ask)(actor_id, payload, reply_timeout).await
+    } else {
+        (fns.ask)(actor_id, payload, mailbox_timeout, reply_timeout).await
+    }
 }
 
 pub(crate) async fn tell(
@@ -88,7 +89,7 @@ pub(crate) async fn tell(
     mailbox_timeout: Option<Duration>,
     immediate: bool,
 ) -> Result<(), RemoteSendError<Vec<u8>>> {
-    let Some((_, handler)) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
+    let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
         actor_remote_id: &actor_remote_id,
         message_remote_id: &message_remote_id,
     }) else {
@@ -97,5 +98,9 @@ pub(crate) async fn tell(
             message_remote_id,
         });
     };
-    handler(actor_id, payload, mailbox_timeout, immediate).await
+    if immediate {
+        (fns.try_tell)(actor_id, payload).await
+    } else {
+        (fns.tell)(actor_id, payload, mailbox_timeout).await
+    }
 }

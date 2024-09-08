@@ -6,10 +6,11 @@ use tokio::sync::oneshot;
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, BoxSendError, PanicError},
+    mailbox::Signal,
     message::{BoxReply, DynMessage},
 };
 
-use super::{ActorID, Signal};
+use super::ActorID;
 
 pub(crate) trait ActorState<A: Actor>: Sized {
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;

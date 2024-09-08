@@ -23,7 +23,7 @@ use crate::{
     actor::ActorRef,
     error::{BoxSendError, SendError},
     reply::{DelegatedReply, ForwardedReply, Reply, ReplySender},
-    request::Request,
+    request::{AskRequest, LocalAskRequest, MessageSend, WithoutRequestTimeout},
     Actor,
 };
 
@@ -151,11 +151,17 @@ where
         R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
         E: fmt::Debug + Unpin + Send + Sync + 'static,
         R::Ok: Unpin,
-        ActorRef<B>: Request<B, M, B::Mailbox>,
+        AskRequest<
+            LocalAskRequest<B, B::Mailbox>,
+            B::Mailbox,
+            M,
+            WithoutRequestTimeout,
+            WithoutRequestTimeout,
+        >: MessageSend<Ok = R::Ok, Error = SendError<M, E>>,
     {
         let (delegated_reply, reply_sender) = self.reply_sender();
         tokio::spawn(async move {
-            let reply = Request::ask(&actor_ref, message, None, None, false).await;
+            let reply = MessageSend::send(actor_ref.ask(message)).await;
             if let Some(reply_sender) = reply_sender {
                 reply_sender.send(reply);
             }

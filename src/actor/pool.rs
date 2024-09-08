@@ -9,12 +9,16 @@ use itertools::repeat_n;
 use crate::{
     actor::{Actor, ActorRef},
     error::{ActorStopReason, BoxError, SendError},
+    mailbox::bounded::BoundedMailbox,
     message::{BoxDebug, Context, Message},
     reply::Reply,
-    request::Request,
+    request::{
+        AskRequest, ForwardMessageSend, LocalAskRequest, LocalTellRequest, MessageSend,
+        TellRequest, WithoutRequestTimeout,
+    },
 };
 
-use super::{ActorID, BoundedMailbox, WeakActorRef};
+use super::{ActorID, WeakActorRef};
 
 enum Factory<A: Actor> {
     Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
@@ -235,7 +239,10 @@ where
     Mb: Send + 'static,
     R: Reply,
     <A::Reply as Reply>::Error: fmt::Debug,
-    ActorRef<A>: Request<A, M, Mb>,
+    AskRequest<LocalAskRequest<A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
+        ForwardMessageSend<A::Reply, M>,
+    TellRequest<LocalTellRequest<A, Mb>, Mb, M, WithoutRequestTimeout>:
+        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = WorkerReply<A, M>;
 
@@ -249,7 +256,7 @@ where
             let worker = self.next_worker().1.clone();
             match reply_sender {
                 Some(tx) => {
-                    if let Err(err) = Request::ask_forwarded(&worker, msg, tx).await {
+                    if let Err(err) = worker.ask(msg).forward(tx).await {
                         match err {
                             SendError::ActorNotRunning((m, tx)) => {
                                 msg = m;
@@ -263,7 +270,7 @@ where
                     return WorkerReply::Forwarded;
                 }
                 None => {
-                    if let Err(err) = Request::tell(&worker, msg, None, false).await {
+                    if let Err(err) = worker.tell(msg).send().await {
                         match err {
                             SendError::ActorNotRunning(m) => {
                                 msg = m;
@@ -292,7 +299,8 @@ where
     A: Actor + Message<M>,
     M: Clone + Send + 'static,
     <A::Reply as Reply>::Error: fmt::Debug,
-    ActorRef<A>: Request<A, M, A::Mailbox>,
+    TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = Vec<Result<(), SendError<M, <A::Reply as Reply>::Error>>>;
 
@@ -305,7 +313,7 @@ where
             self.workers
                 .iter()
                 .zip(repeat_n(msg, self.workers.len())) // Avoids unnecessary clone of msg on last iteration
-                .map(|(worker, msg)| Request::tell(worker, msg, None, false)),
+                .map(|(worker, msg)| worker.tell(msg).send()),
         )
         .await
     }

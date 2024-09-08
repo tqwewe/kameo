@@ -4,6 +4,7 @@ use kameo::{
     actor::RemoteActorRef,
     message::{Context, Message},
     remote::ActorSwarm,
+    request::MessageSend,
     Actor,
 };
 use kameo_macros::{remote_message, RemoteActor};

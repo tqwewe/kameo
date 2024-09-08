@@ -1,6 +1,7 @@
 use kameo::{
     actor::{PubSub, Publish, Subscribe},
     message::{Context, Message},
+    request::MessageSend,
     Actor,
 };
 use tracing_subscriber::EnvFilter;
@@ -38,7 +39,7 @@ impl Message<PrintActorID> for ActorB {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter("warn".parse::<EnvFilter>().unwrap())

@@ -2,8 +2,9 @@ use std::{future::pending, time};
 
 use futures::stream;
 use kameo::{
-    actor::{ActorRef, UnboundedMailbox},
+    actor::ActorRef,
     error::BoxError,
+    mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message, StreamMessage},
     Actor,
 };
@@ -57,7 +58,7 @@ impl Message<StreamMessage<i64, &'static str, &'static str>> for MyActor {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter("trace".parse::<EnvFilter>().unwrap())
