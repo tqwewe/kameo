@@ -480,22 +480,6 @@ impl_try_message_send!(
     WithRequestTimeout,
     |req| (None, Some(req.reply_timeout.0))
 );
-// TODO: This one shouldnt be here!
-impl_try_message_send!(
-    remote,
-    BoundedMailbox,
-    WithRequestTimeout,
-    WithoutRequestTimeout,
-    |req| (Some(req.mailbox_timeout.0), None)
-);
-// TODO: This one shouldn't be here
-impl_try_message_send!(
-    remote,
-    BoundedMailbox,
-    WithRequestTimeout,
-    WithRequestTimeout,
-    |req| (Some(req.mailbox_timeout.0), Some(req.reply_timeout.0))
-);
 
 impl_try_message_send!(
     remote,
