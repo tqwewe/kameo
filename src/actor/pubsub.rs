@@ -4,12 +4,13 @@ use futures::future::{join_all, BoxFuture};
 
 use crate::{
     error::SendError,
+    mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
-    request::Request,
-    Actor,
+    request::{LocalTellRequest, MessageSend, TellRequest, WithoutRequestTimeout},
+    Actor, Reply,
 };
 
-use super::{ActorID, ActorRef, BoundedMailbox};
+use super::{ActorID, ActorRef};
 
 /// A mpsc-like pubsub actor.
 #[allow(missing_debug_implementations)]
@@ -54,7 +55,8 @@ impl<M> PubSub<M> {
     where
         A: Actor + Message<M>,
         M: Send + 'static,
-        ActorRef<A>: Request<A, M, A::Mailbox>,
+        TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+            MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
         self.subscribers.insert(actor_ref.id(), Box::new(actor_ref));
     }
@@ -97,7 +99,8 @@ impl<A, M> Message<Subscribe<A>> for PubSub<M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    ActorRef<A>: Request<A, M, A::Mailbox>,
+    TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = ();
 
@@ -119,11 +122,13 @@ where
     A: Actor<Mailbox = Mb> + Message<M>,
     M: Send + 'static,
     Mb: Sync,
-    ActorRef<A>: Request<A, M, Mb>,
+    TellRequest<LocalTellRequest<A, Mb>, Mb, M, WithoutRequestTimeout>:
+        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
         Box::pin(async move {
-            Request::tell(self, msg, None, false)
+            self.tell(msg)
+                .send()
                 .await
                 .map_err(|err| err.map_err(|_| ()))
         })

@@ -1,19 +1,22 @@
 use core::panic;
-use std::{borrow::Cow, marker::PhantomData, mem, time::Duration};
+use std::{borrow::Cow, marker::PhantomData, time::Duration};
 
-use futures::TryFutureExt;
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::{sync::oneshot, task::JoinHandle, time::timeout};
+use tokio::sync::oneshot;
 
 use crate::{
-    actor::{ActorRef, BoundedMailbox, RemoteActorRef, Signal, UnboundedMailbox},
+    actor::{ActorRef, RemoteActorRef},
     error::{RemoteSendError, SendError},
+    mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Signal},
     message::Message,
     remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmReq, SwarmResp},
     Actor, Reply,
 };
 
-use super::{WithRequestTimeout, WithoutRequestTimeout};
+use super::{
+    BlockingMessageSend, MaybeRequestTimeout, MessageSend, MessageSendSync, TryBlockingMessageSend,
+    TryMessageSend, TryMessageSendSync, WithRequestTimeout, WithoutRequestTimeout,
+};
 
 /// A request to send a message to an actor without any reply.
 ///
@@ -23,6 +26,26 @@ pub struct TellRequest<L, Mb, M, T> {
     location: L,
     timeout: T,
     phantom: PhantomData<(Mb, M)>,
+}
+
+/// A request to a local actor.
+#[allow(missing_debug_implementations)]
+pub struct LocalTellRequest<A, Mb>
+where
+    A: Actor<Mailbox = Mb>,
+{
+    mailbox: Mb,
+    signal: Signal<A>,
+}
+
+/// A request to a remote actor.
+#[allow(missing_debug_implementations)]
+pub struct RemoteTellRequest<'a, A, M>
+where
+    A: Actor,
+{
+    actor_ref: &'a RemoteActorRef<A>,
+    msg: &'a M,
 }
 
 impl<A, M> TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
@@ -63,16 +86,15 @@ where
     }
 }
 
-impl<A, M, T> TellRequest<LocalTellRequest<A, BoundedMailbox<A>>, BoundedMailbox<A>, M, T>
+impl<L, A, M, T> TellRequest<L, BoundedMailbox<A>, M, T>
 where
     A: Actor<Mailbox = BoundedMailbox<A>>,
 {
-    /// Sets the timeout for waiting for a reply from the actor.
-    pub fn timeout(
+    /// Sets the timeout for waiting for the actors mailbox to have capacity.
+    pub fn mailbox_timeout(
         self,
         duration: Duration,
-    ) -> TellRequest<LocalTellRequest<A, BoundedMailbox<A>>, BoundedMailbox<A>, M, WithRequestTimeout>
-    {
+    ) -> TellRequest<L, BoundedMailbox<A>, M, WithRequestTimeout> {
         TellRequest {
             location: self.location,
             timeout: WithRequestTimeout(duration),
@@ -81,250 +103,421 @@ where
     }
 }
 
-impl<'a, A, M, T> TellRequest<RemoteTellRequest<'a, A, M>, BoundedMailbox<A>, M, T>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>>,
-{
-    /// Sets the timeout for waiting for a reply from the actor.
-    pub fn timeout(
+impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
+    pub(crate) fn into_maybe_timeouts(
         self,
-        duration: Duration,
-    ) -> TellRequest<RemoteTellRequest<'a, A, M>, BoundedMailbox<A>, M, WithRequestTimeout> {
+        mailbox_timeout: MaybeRequestTimeout,
+    ) -> TellRequest<L, Mb, M, MaybeRequestTimeout> {
         TellRequest {
             location: self.location,
-            timeout: WithRequestTimeout(duration),
+            timeout: mailbox_timeout,
             phantom: PhantomData,
         }
     }
 }
 
-impl<A, M>
-    TellRequest<LocalTellRequest<A, BoundedMailbox<A>>, BoundedMailbox<A>, M, WithoutRequestTimeout>
+/////////////////////////
+// === MessageSend === //
+/////////////////////////
+macro_rules! impl_message_send {
+    (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<A, M> MessageSend
+            for TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: Send + 'static,
+        {
+            type Ok = ();
+            type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+            async fn send(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+    (remote, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<'a, A, M> MessageSend
+            for TellRequest<RemoteTellRequest<'a, A, M>, $mailbox<A>, M, $timeout>
+        where
+            TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >: MessageSend,
+            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+            M: Serialize + Send + Sync,
+            <A::Reply as Reply>::Error: DeserializeOwned,
+        {
+            type Ok = ();
+            type Error = RemoteSendError<<A::Reply as Reply>::Error>;
+
+            async fn send(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                remote_tell($req.location.actor_ref, &$req.location.msg, $($body)*, false).await
+            }
+        }
+    };
+}
+
+impl_message_send!(local, BoundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal).await?;
+    Ok(())
+});
+impl_message_send!(local, BoundedMailbox, WithRequestTimeout, |req| {
+    req.location
+        .mailbox
+        .0
+        .send_timeout(req.location.signal, req.timeout.0)
+        .await?;
+    Ok(())
+});
+impl_message_send!(remote, BoundedMailbox, WithoutRequestTimeout, |req| None);
+impl_message_send!(remote, BoundedMailbox, WithRequestTimeout, |req| Some(
+    req.timeout.0
+));
+
+impl_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal)?;
+    Ok(())
+});
+impl_message_send!(remote, UnboundedMailbox, WithoutRequestTimeout, |req| None);
+
+/////////////////////////////
+// === MessageSendSync === //
+/////////////////////////////
+macro_rules! impl_message_send_sync {
+    (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<A, M> MessageSendSync
+            for TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: 'static,
+        {
+            type Ok = ();
+            type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+            fn send_sync(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+}
+
+impl_message_send_sync!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal)?;
+    Ok(())
+});
+
+////////////////////////////
+// === TryMessageSend === //
+////////////////////////////
+macro_rules! impl_try_message_send {
+    (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<A, M> TryMessageSend
+            for TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: Send + 'static,
+        {
+            type Ok = ();
+            type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+            async fn try_send(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+    (remote, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<'a, A, M> TryMessageSend
+            for TellRequest<RemoteTellRequest<'a, A, M>, $mailbox<A>, M, $timeout>
+        where
+            TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >: TryMessageSend,
+            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+            M: Serialize + Send + Sync,
+            <A::Reply as Reply>::Error: DeserializeOwned,
+        {
+            type Ok = ();
+            type Error = RemoteSendError<<A::Reply as Reply>::Error>;
+
+            async fn try_send(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                remote_tell($req.location.actor_ref, &$req.location.msg, $($body)*, true).await
+            }
+        }
+    };
+}
+
+impl_try_message_send!(local, BoundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.try_send(req.location.signal)?;
+    Ok(())
+});
+impl_try_message_send!(remote, BoundedMailbox, WithoutRequestTimeout, |req| None);
+impl_try_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal)?;
+    Ok(())
+});
+impl_try_message_send!(remote, UnboundedMailbox, WithoutRequestTimeout, |req| None);
+
+////////////////////////////////
+// === TryMessageSendSync === //
+////////////////////////////////
+macro_rules! impl_try_message_send_sync {
+    (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<A, M> TryMessageSendSync
+            for TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: 'static,
+        {
+            type Ok = ();
+            type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+            fn try_send_sync(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+}
+
+impl_try_message_send_sync!(local, BoundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.try_send(req.location.signal)?;
+    Ok(())
+});
+
+impl_try_message_send_sync!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal)?;
+    Ok(())
+});
+
+////////////////////////////////
+// === BlockingMessageSend === //
+////////////////////////////////
+macro_rules! impl_blocking_message_send {
+    (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<A, M> BlockingMessageSend
+            for TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: 'static,
+        {
+            type Ok = ();
+            type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+            fn blocking_send(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+}
+
+impl_blocking_message_send!(local, BoundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.blocking_send(req.location.signal)?;
+    Ok(())
+});
+
+impl_blocking_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal)?;
+    Ok(())
+});
+
+////////////////////////////////////
+// === TryBlockingMessageSend === //
+////////////////////////////////////
+macro_rules! impl_try_blocking_message_send {
+    (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<A, M> TryBlockingMessageSend
+            for TellRequest<
+                LocalTellRequest<A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: 'static,
+        {
+            type Ok = ();
+            type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+            fn try_blocking_send(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+}
+
+impl_try_blocking_message_send!(local, BoundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.try_send(req.location.signal)?;
+    Ok(())
+});
+
+impl_try_blocking_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
+    req.location.mailbox.0.send(req.location.signal)?;
+    Ok(())
+});
+
+impl<A, M> MessageSend
+    for TellRequest<
+        LocalTellRequest<A, BoundedMailbox<A>>,
+        BoundedMailbox<A>,
+        M,
+        MaybeRequestTimeout,
+    >
 where
     A: Actor<Mailbox = BoundedMailbox<A>> + Message<M>,
-    M: 'static,
+    M: Send + 'static,
 {
-    /// Sends the message.
-    pub async fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        self.location.mailbox.0.send(self.location.signal).await?;
-        Ok(())
-    }
+    type Ok = ();
+    type Error = SendError<M, <A::Reply as Reply>::Error>;
 
-    /// Sends the message from outside the async runtime.
-    pub fn blocking_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        self.location
-            .mailbox
-            .0
-            .blocking_send(self.location.signal)?;
-        Ok(())
-    }
-
-    /// Tries to send the message if the mailbox is not full.
-    pub fn try_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        self.location.mailbox.0.try_send(self.location.signal)?;
-        Ok(())
-    }
-
-    /// Sends the message after the given delay in the background.
-    ///
-    /// If reserve is true, then a permit will be reserved in
-    /// the actors mailbox before waiting for the delay.
-    pub fn delayed_send(
-        mut self,
-        delay: Duration,
-        reserve: bool,
-    ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
-    where
-        M: Send,
-    {
-        tokio::spawn(async move {
-            let permit = match reserve {
-                true => Some(self.location.mailbox.0.reserve().await.map_err(|_| {
-                    SendError::ActorNotRunning(
-                        mem::replace(&mut self.location.signal, Signal::Stop) // Replace signal with a dummy value
-                            .downcast_message::<M>()
-                            .unwrap(),
-                    )
-                })?),
-                false => None,
-            };
-
-            tokio::time::sleep(delay).await;
-
-            match permit {
-                Some(permit) => permit.send(self.location.signal),
-                None => self.location.mailbox.0.send(self.location.signal).await?,
+    async fn send(self) -> Result<Self::Ok, Self::Error> {
+        match self.timeout {
+            MaybeRequestTimeout::NoTimeout => {
+                self.location.mailbox.0.send(self.location.signal).await?;
             }
-
-            Ok(())
-        })
-    }
-}
-
-impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, BoundedMailbox<A>, M, WithoutRequestTimeout>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-    M: Serialize,
-    <A::Reply as Reply>::Error: DeserializeOwned,
-{
-    /// Sends the message.
-    pub async fn send(self) -> Result<(), RemoteSendError<<A::Reply as Reply>::Error>> {
-        remote_tell(self.location.actor_ref, &self.location.msg, None, false).await
-    }
-
-    /// Tries to send the message if the mailbox is not full.
-    pub async fn try_send(self) -> Result<(), RemoteSendError<<A::Reply as Reply>::Error>> {
-        remote_tell(self.location.actor_ref, &self.location.msg, None, true).await
-    }
-}
-
-impl<A, M>
-    TellRequest<LocalTellRequest<A, BoundedMailbox<A>>, BoundedMailbox<A>, M, WithRequestTimeout>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M>,
-    M: 'static,
-{
-    /// Sends the message with the timeout set.
-    pub async fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        self.location
-            .mailbox
-            .0
-            .send_timeout(self.location.signal, self.timeout.0)
-            .await?;
+            MaybeRequestTimeout::Timeout(timeout) => {
+                self.location
+                    .mailbox
+                    .0
+                    .send_timeout(self.location.signal, timeout)
+                    .await?;
+            }
+        }
         Ok(())
     }
-
-    /// Sends the message after the given delay in the background with the timeout set.
-    ///
-    /// If reserve is true, then a permit will be reserved in
-    /// the actors mailbox before waiting for the delay.
-    pub fn delayed_send(
-        mut self,
-        delay: Duration,
-        reserve: bool,
-    ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
-    where
-        M: Send,
-    {
-        tokio::spawn(async move {
-            let permit = match reserve {
-                true => {
-                    let permit = timeout(
-                        self.timeout.0,
-                        self.location.mailbox.0.reserve().map_err(|_| {
-                            SendError::ActorNotRunning(
-                                mem::replace(&mut self.location.signal, Signal::Stop) // Replace signal with a dummy value
-                                    .downcast_message::<M>()
-                                    .unwrap(),
-                            )
-                        }),
-                    )
-                    .await??;
-                    Some(permit)
-                }
-                false => None,
-            };
-
-            tokio::time::sleep(delay).await;
-
-            match permit {
-                Some(permit) => permit.send(self.location.signal),
-                None => {
-                    self.location
-                        .mailbox
-                        .0
-                        .send_timeout(self.location.signal, self.timeout.0)
-                        .await?
-                }
-            }
-
-            Ok(())
-        })
-    }
 }
 
-impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, BoundedMailbox<A>, M, WithRequestTimeout>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-    M: Serialize,
-    <A::Reply as Reply>::Error: DeserializeOwned,
-{
-    /// Sends the message with the timeout set.
-    pub async fn send(self) -> Result<(), RemoteSendError<<A::Reply as Reply>::Error>> {
-        remote_tell(
-            self.location.actor_ref,
-            &self.location.msg,
-            Some(self.timeout.0),
-            false,
-        )
-        .await
-    }
-}
-
-impl<A, M>
-    TellRequest<
+impl<A, M> MessageSend
+    for TellRequest<
         LocalTellRequest<A, UnboundedMailbox<A>>,
         UnboundedMailbox<A>,
         M,
-        WithoutRequestTimeout,
+        MaybeRequestTimeout,
     >
 where
     A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M>,
-    M: 'static,
+    M: Send + 'static,
 {
-    /// Sends the message.
-    pub fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
-        self.location.mailbox.0.send(self.location.signal)?;
-        Ok(())
-    }
+    type Ok = ();
+    type Error = SendError<M, <A::Reply as Reply>::Error>;
 
-    /// Sends the message after the given delay in the background.
-    pub fn delayed_send(
-        self,
-        delay: Duration,
-    ) -> JoinHandle<Result<(), SendError<M, <A::Reply as Reply>::Error>>>
-    where
-        M: Send,
-    {
-        tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            self.location.mailbox.0.send(self.location.signal)?;
-            Ok(())
-        })
-    }
-}
-
-impl<'a, A, M>
-    TellRequest<RemoteTellRequest<'a, A, M>, UnboundedMailbox<A>, M, WithoutRequestTimeout>
-where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-    M: Serialize,
-    <A::Reply as Reply>::Error: DeserializeOwned,
-{
-    /// Sends the message.
-    pub async fn send(self) -> Result<(), RemoteSendError<<A::Reply as Reply>::Error>> {
-        remote_tell(self.location.actor_ref, &self.location.msg, None, false).await
+    async fn send(self) -> Result<Self::Ok, Self::Error> {
+        match self.timeout {
+            MaybeRequestTimeout::NoTimeout => {
+                TellRequest {
+                    location: self.location,
+                    timeout: WithoutRequestTimeout,
+                    phantom: PhantomData,
+                }
+                .send()
+                .await
+            }
+            MaybeRequestTimeout::Timeout(_) => {
+                panic!("mailbox timeout is not available with unbounded mailboxes")
+            }
+        }
     }
 }
 
-/// A request to a local actor.
-#[allow(missing_debug_implementations)]
-pub struct LocalTellRequest<A, Mb>
+impl<A, M> TryMessageSend
+    for TellRequest<
+        LocalTellRequest<A, BoundedMailbox<A>>,
+        BoundedMailbox<A>,
+        M,
+        MaybeRequestTimeout,
+    >
 where
-    A: Actor<Mailbox = Mb>,
+    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M>,
+    M: Send + 'static,
 {
-    mailbox: Mb,
-    signal: Signal<A>,
+    type Ok = ();
+    type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+    async fn try_send(self) -> Result<Self::Ok, Self::Error> {
+        match self.timeout {
+            MaybeRequestTimeout::NoTimeout => {
+                TellRequest {
+                    location: self.location,
+                    timeout: WithoutRequestTimeout,
+                    phantom: PhantomData,
+                }
+                .try_send()
+                .await
+            }
+            MaybeRequestTimeout::Timeout(_) => {
+                panic!("try_send is not available when a mailbox timeout is set")
+            }
+        }
+    }
 }
 
-/// A request to a remote actor.
-#[allow(missing_debug_implementations)]
-pub struct RemoteTellRequest<'a, A, M>
+impl<A, M> TryMessageSend
+    for TellRequest<
+        LocalTellRequest<A, UnboundedMailbox<A>>,
+        UnboundedMailbox<A>,
+        M,
+        MaybeRequestTimeout,
+    >
 where
-    A: Actor,
+    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M>,
+    M: Send + 'static,
 {
-    actor_ref: &'a RemoteActorRef<A>,
-    msg: &'a M,
+    type Ok = ();
+    type Error = SendError<M, <A::Reply as Reply>::Error>;
+
+    async fn try_send(self) -> Result<Self::Ok, Self::Error> {
+        match self.timeout {
+            MaybeRequestTimeout::NoTimeout => {
+                TellRequest {
+                    location: self.location,
+                    timeout: WithoutRequestTimeout,
+                    phantom: PhantomData,
+                }
+                .try_send()
+                .await
+            }
+            MaybeRequestTimeout::Timeout(_) => {
+                panic!("try_send is not available when a mailbox timeout is set")
+            }
+        }
+    }
 }
 
 async fn remote_tell<A, M>(

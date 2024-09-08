@@ -1,6 +1,7 @@
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
-use kameo::actor::UnboundedMailbox;
+use kameo::mailbox::unbounded::UnboundedMailbox;
+use kameo::request::MessageSend;
 use kameo::{
     message::{Context, Message},
     Actor,

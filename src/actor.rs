@@ -24,7 +24,6 @@
 mod actor_ref;
 mod id;
 mod kind;
-mod mailbox;
 mod pool;
 mod pubsub;
 mod spawn;
@@ -33,11 +32,13 @@ use std::any;
 
 use futures::Future;
 
-use crate::error::{ActorStopReason, BoxError, PanicError};
+use crate::{
+    error::{ActorStopReason, BoxError, PanicError},
+    mailbox::Mailbox,
+};
 
 pub use actor_ref::*;
 pub use id::*;
-pub use mailbox::*;
 pub use pool::*;
 pub use pubsub::*;
 pub use spawn::*;
@@ -87,7 +88,7 @@ pub trait Actor: Sized + Send + 'static {
     }
 
     /// Creates a new mailbox.
-    fn new_mailbox() -> (Self::Mailbox, MailboxReceiver<Self>) {
+    fn new_mailbox() -> (Self::Mailbox, <Self::Mailbox as Mailbox<Self>>::Receiver) {
         Self::Mailbox::default_mailbox()
     }
 

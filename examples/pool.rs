@@ -3,6 +3,7 @@ use std::time::Duration;
 use kameo::{
     actor::{ActorPool, BroadcastMsg, WorkerMsg},
     message::{Context, Message},
+    request::MessageSend,
     Actor,
 };
 use tracing_subscriber::EnvFilter;
@@ -36,7 +37,7 @@ impl Message<ForceStop> for MyActor {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter("warn".parse::<EnvFilter>().unwrap())

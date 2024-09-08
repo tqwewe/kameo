@@ -21,11 +21,7 @@ use tokio::{
     time::error::Elapsed,
 };
 
-use crate::{
-    actor::{ActorID, Signal},
-    message::BoxDebug,
-    Actor,
-};
+use crate::{actor::ActorID, mailbox::Signal, message::BoxDebug, Actor};
 
 /// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;

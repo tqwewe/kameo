@@ -1,8 +1,9 @@
 use std::time::Duration;
 
 use kameo::{
-    actor::UnboundedMailbox,
+    mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message},
+    request::{MessageSend, MessageSendSync},
     Actor,
 };
 use tracing::info;
@@ -35,7 +36,7 @@ impl Message<Inc> for MyActor {
     }
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter("trace".parse::<EnvFilter>().unwrap())
@@ -45,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let my_actor_ref = kameo::spawn(MyActor::default());
 
-    my_actor_ref.tell(Inc { amount: 3 }).send()?;
+    my_actor_ref.tell(Inc { amount: 3 }).send_sync()?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Increment the count by 3

@@ -1,7 +1,8 @@
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
-use kameo::actor::BoundedMailbox;
+use kameo::mailbox::bounded::BoundedMailbox;
+use kameo::request::MessageSend;
 use kameo::{
     message::{Context, Message},
     Actor,

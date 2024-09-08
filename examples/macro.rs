@@ -1,6 +1,10 @@
 use std::fmt;
 
-use kameo::{messages, Actor};
+use kameo::{
+    messages,
+    request::{MessageSend, MessageSendSync},
+    Actor,
+};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -54,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Count is {count}");
 
     // Increment the count by 50 in the background
-    my_actor_ref.tell(Inc { amount: 50 }).send()?;
+    my_actor_ref.tell(Inc { amount: 50 }).send_sync()?;
 
     // Generic message
     my_actor_ref
@@ -65,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Async messages that return an Err will cause the actor to panic
-    my_actor_ref.tell(ForceErr).send()?;
+    my_actor_ref.tell(ForceErr).send_sync()?;
 
     // Actor should be stopped, so we cannot send more messages to it
     assert!(my_actor_ref.ask(Inc { amount: 2 }).send().await.is_err());

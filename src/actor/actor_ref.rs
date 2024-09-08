@@ -10,6 +10,7 @@ use tokio::{
 
 use crate::{
     error::{RegistrationError, SendError},
+    mailbox::{Mailbox, Signal, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
     remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand},
     reply::Reply,
@@ -20,7 +21,7 @@ use crate::{
     Actor,
 };
 
-use super::{id::ActorID, Mailbox, Signal, SignalMailbox, WeakMailbox};
+use super::id::ActorID;
 
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorID;
@@ -320,8 +321,8 @@ where
                 reply: None,
                 sent_within_actor: false,
             })
-            .await?;
-        Ok(())
+            .await
+            .map_err(|err| err.map_msg(|msg| msg.downcast_message::<M>().unwrap()))
     }
 }
 
@@ -362,7 +363,7 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
     swarm_tx: mpsc::Sender<SwarmCommand>,
-    phantom: PhantomData<A>,
+    phantom: PhantomData<A::Mailbox>,
 }
 
 impl<A: Actor> RemoteActorRef<A> {

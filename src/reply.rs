@@ -98,7 +98,7 @@ pub trait Reply: Send + 'static {
 #[must_use = "the deligated reply should be returned by the handler"]
 #[derive(Clone, Copy, Debug)]
 pub struct DelegatedReply<R> {
-    phantom: PhantomData<R>,
+    phantom: PhantomData<fn() -> R>,
 }
 
 impl<R> DelegatedReply<R> {
