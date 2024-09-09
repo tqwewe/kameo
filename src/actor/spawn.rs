@@ -69,6 +69,7 @@ where
 ///
 /// ```no_run
 /// use kameo::Actor;
+/// use kameo::request::MessageSend;
 ///
 /// #[derive(Actor)]
 /// struct MyActor {

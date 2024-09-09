@@ -45,6 +45,7 @@ enum Factory<A: Actor> {
 /// use kameo::Actor;
 /// use kameo::actor::{ActorPool, ActorRef};
 /// use kameo::message::Message;
+/// use kameo::request::MessageSend;
 ///
 /// #[derive(Actor)]
 /// struct MyActor;

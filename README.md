@@ -40,6 +40,7 @@ Define an actor and some messages.
 ```rust
 use kameo::Actor;
 use kameo::message::{Context, Message};
+use kameo::request::MessageSend;
 
 #[derive(Actor)]
 struct Counter {
