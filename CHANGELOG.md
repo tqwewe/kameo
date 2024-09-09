@@ -5,24 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2024-09-09
+
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add request traits (#39)
+- Add delayed_send for unbounded actors [</>](https://github.com/tqwewe/kameo/commit/cd2276b291b5e2ce736e867567c9ce1ad2506e31)
+- Add remote actor support (#35)
+- Add `actor` attribute to `Actor` derive macro [</>](https://github.com/tqwewe/kameo/commit/8a2543e5c5226bf89c1fbce715601dd3e2672400)
+- Make actor swarm listen address optional [</>](https://github.com/tqwewe/kameo/commit/e23e1e49226263b68f061ad7cc74b119e242e98b)
+- Use macro to clean request trait impls for `MaybeRequestTimeout` [</>](https://github.com/tqwewe/kameo/commit/bd3d00f9db718f4b9e087c5659ad05083ad95645)
+
+### <!-- 2 -->Removed
+
+- **BREAKING:** Remove queries (#36)
+
+### <!-- 3 -->Fixed
+
+- Call on_panic when actor panics during startup [</>](https://github.com/tqwewe/kameo/commit/8e46e3402cedaa9f1176cc45fb7a58f1d7340504)
+
+### <!-- 4 -->Documentation
+
+- Update README.md [</>](https://github.com/tqwewe/kameo/commit/28ca611fdc2d138eac7ae4051a15997f1c97c293)
+- Improve documentation for async messages [</>](https://github.com/tqwewe/kameo/commit/bc019278f459d913cbac34da45d4b9f7fc899383)
+- Add missing `mut` from `reply_sender` example [</>](https://github.com/tqwewe/kameo/commit/6f7b6f76b6043be426948da0a9621ed4e82018db)
+- Add `MessageSend` import in code examples [</>](https://github.com/tqwewe/kameo/commit/5bad5553b3358eae26bea70f5acd5058f202993d)
+
+### <!-- 5 -->Misc
+
+- Fix path to README in Cargo.toml files [</>](https://github.com/tqwewe/kameo/commit/d7c8d7c487120c743b864a4d7629299858dfc53e)
+- Move kameo crate to root directory [</>](https://github.com/tqwewe/kameo/commit/dadbf59164037f9f18a6912a1869220be8e500ad)
+- Add banner image [</>](https://github.com/tqwewe/kameo/commit/7ccbfebed673d9d471e463285939761ce87995e8)
+- Create dependabot.yml [</>](https://github.com/tqwewe/kameo/commit/fc16b842de61c05834c23bc63fdd88e72e387735)
+- Remote PR number suffix from changelog generation [</>](https://github.com/tqwewe/kameo/commit/b9a13905b8f853c49700f4fbb872318acf4b03b4)
+
 ## [0.9.0] - 2024-06-25
 
 
 ### <!-- 0 -->Added
 
-- **BREAKING:** Add support for bounded/unbounded mailboxes (#29) #29
+- **BREAKING:** Add support for bounded/unbounded mailboxes (#29)
 - Add `Send + 'static` bounds to `Reply` trait [</>](https://github.com/tqwewe/kameo/commit/382a118966308697bfa4ca72dedacadc83107554)
 - Add pubsub actor (#31) [</>](https://github.com/tqwewe/kameo/commit/27533843726f787c042425bacc2306a28e3f96b6)
-- Add support for async pool factory functions (#33) #33
-- Add async spawn_with function (#34) #34
+- Add support for async pool factory functions (#33)
+- Add async spawn_with function (#34)
 
 ### <!-- 1 -->Changed
 
-- **BREAKING:** Return `SendError` from send methods allowing replies to be received blocking (#27) #27
+- **BREAKING:** Return `SendError` from send methods allowing replies to be received blocking (#27)
 
 ### <!-- 3 -->Fixed
 
-- Buffered messages not being applied correctly (#32) #32
+- Buffered messages not being applied correctly (#32)
 
 ### <!-- 5 -->Misc
 
@@ -34,7 +69,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### <!-- 0 -->Added
 
-- Add `BlockingMessage` for blocking actor code (#26) #26
+- Add `BlockingMessage` for blocking actor code (#26)
 
 ## [0.8.0] - 2024-04-19
 
@@ -53,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### <!-- 2 -->Removed
 
-- Remove `Sync` requirement from `Reply` macro #21
+- Remove `Sync` requirement from `Reply` macro
 
 ### <!-- 3 -->Fixed
 
@@ -230,6 +265,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.10.0]: https://github.com/tqwewe/kameo/compare/v0.9.0..v0.10.0
 [0.9.0]: https://github.com/tqwewe/kameo/compare/v0.8.1..v0.9.0
 [0.8.1]: https://github.com/tqwewe/kameo/compare/v0.8.0..v0.8.1
 [0.8.0]: https://github.com/tqwewe/kameo/compare/v0.7.0..v0.8.0

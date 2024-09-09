@@ -10,7 +10,7 @@ codegen-units = 1
 [package]
 name = "kameo"
 description = "Fault-tolerant Async Actors Built on Tokio"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 rust-version = "1.79"
 readme = "../README.md"
@@ -20,7 +20,7 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 keywords = ["actor", "tokio"]
 
 [dependencies]
-kameo_macros = { version = "0.9.0", path = "./macros" }
+kameo_macros = { version = "0.10.0", path = "./macros" }
 
 dyn-clone = "1.0"
 futures = "0.3"
