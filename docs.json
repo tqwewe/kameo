@@ -1,0 +1,57 @@
+{
+  "name": "Kameo",
+  "description": "Fault-tolerant Async Actors Built on Tokio",
+  "socialPreview": "https://repository-images.githubusercontent.com/779318723/b1ce92be-760d-427b-b3a6-ffca8cbc2e6a",
+  "sidebar": [
+    {
+      "group": "Getting Started",
+      "pages": [
+        {
+          "title": "Introduction",
+          "href": "/",
+          "icon": "globe"
+        },
+        {
+          "title": "Getting Started",
+          "href": "/getting-started",
+          "icon": "rocket"
+        }
+      ]
+    },
+    {
+      "group": "Core Concepts",
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/core-concepts",
+          "icon": "book"
+        },
+        {
+          "title": "Actors",
+          "href": "/core-concepts/actors",
+          "icon": "users"
+        },
+        {
+          "title": "Messages",
+          "href": "/core-concepts/messages",
+          "icon": "envelope"
+        },
+        {
+          "title": "Requests",
+          "href": "/core-concepts/requests",
+          "icon": "question"
+        },
+        {
+          "title": "Replies",
+          "href": "/core-concepts/replies",
+          "icon": "reply"
+        },
+        {
+          "title": "Supervision",
+          "href": "/core-concepts/supervision",
+          "icon": "shield-alt"
+        }
+      ]
+    }
+  ]
+}
