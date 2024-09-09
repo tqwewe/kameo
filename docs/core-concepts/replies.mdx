@@ -49,7 +49,7 @@ In this example, `MyReply` is defined as a struct with data relevant to the re
 
 ### Handling Replies
 
-When dealing with ask requests, it's important to handle replies gracefully. This involves not only receiving the reply but also managing potential timeouts and errors that might occur during the interaction. Kameo's design encourages clear, concise handling of these scenarios, ensuring that your actor system remains robust and resilient under various operational conditions.
+When dealing with ask requests, it's important to handle replies gracefully. This involves not only receiving the reply but also managing potential timeouts and errors that might occur during the interaction. If the message handler returned an error while processing a message, it will be returned as a `SendError::HandlerError`. Kameo's design encourages clear, concise handling of these scenarios, ensuring that your actor system remains robust and resilient under various operational conditions.
 
 ---
 
