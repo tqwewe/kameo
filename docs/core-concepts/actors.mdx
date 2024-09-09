@@ -26,6 +26,14 @@ When using the derive macro, you can customize your actor with the following att
 
 **Example**
 
+```rust
+use kameo::Actor;
+
+#[derive(Actor)]
+#[actor(name = "MyAmazingActor", mailbox = bounded(64))]
+struct MyActor { }
+```
+
 ### Lifecycle Management
 
 - **Starting**: The `on_start` hook is called before the actor starts processing messages. It's an opportunity to perform any necessary initialization.
@@ -38,6 +46,24 @@ When using the derive macro, you can customize your actor with the following att
 Creating an actor involves implementing the `Actor` trait and then spawning the actor using `kameo::spawn`. Upon spawning, an `ActorRef<T>` is returned, which is used to send messages to the actor. The actor processes messages using the `handle` method from the `Message` trait, optionally returning a reply.
 
 #### Example Usage
+
+```rust
+struct MyActor;
+
+impl Actor for MyActor {
+    type Mailbox = BoundedMailbox<Self>;
+
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+        println!("Actor started");
+        Ok(())
+    }
+
+    // Implement other lifecycle hooks as needed...
+}
+
+// Spawning the actor
+let actor_ref = kameo::spawn(MyActor);
+```
 
 The above example demonstrates defining a simple actor and spawning it. The actor prints a message upon starting, showcasing the use of the `on_start` lifecycle hook.
 
