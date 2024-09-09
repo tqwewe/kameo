@@ -31,7 +31,7 @@ body = """
     ### {{ group | upper_first }}
     {% for commit in commits | sort(attribute="author.timestamp") | reverse | sort(attribute="breaking") | reverse %}
         - {% if commit.breaking %}**BREAKING:** {% endif %}{{ commit.message | upper_first }}\
-        {% if commit.github.pr_number %} #{{ commit.github.pr_number }}{% else %} [</>](https://github.com/tqwewe/kameo/commit/{{ commit.id }}){%- endif %}\
+        {% if commit.github.pr_number %}{% else %} [</>](https://github.com/tqwewe/kameo/commit/{{ commit.id }}){%- endif %}\
     {% endfor %}
 {% endfor %}\n
 """
