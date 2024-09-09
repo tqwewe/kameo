@@ -189,6 +189,39 @@ impl_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
 });
 impl_message_send!(remote, UnboundedMailbox, WithoutRequestTimeout, |req| None);
 
+impl_message_send!(local, BoundedMailbox, MaybeRequestTimeout, |req| {
+    match req.timeout {
+        MaybeRequestTimeout::NoTimeout => {
+            req.location.mailbox.0.send(req.location.signal).await?;
+        }
+        MaybeRequestTimeout::Timeout(timeout) => {
+            req.location
+                .mailbox
+                .0
+                .send_timeout(req.location.signal, timeout)
+                .await?;
+        }
+    }
+    Ok(())
+});
+
+impl_message_send!(local, UnboundedMailbox, MaybeRequestTimeout, |req| {
+    match req.timeout {
+        MaybeRequestTimeout::NoTimeout => {
+            TellRequest {
+                location: req.location,
+                timeout: WithoutRequestTimeout,
+                phantom: PhantomData,
+            }
+            .send()
+            .await
+        }
+        MaybeRequestTimeout::Timeout(_) => {
+            panic!("mailbox timeout is not available with unbounded mailboxes")
+        }
+    }
+});
+
 /////////////////////////////
 // === MessageSendSync === //
 /////////////////////////////
@@ -281,6 +314,40 @@ impl_try_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
     Ok(())
 });
 impl_try_message_send!(remote, UnboundedMailbox, WithoutRequestTimeout, |req| None);
+
+impl_try_message_send!(local, BoundedMailbox, MaybeRequestTimeout, |req| {
+    match req.timeout {
+        MaybeRequestTimeout::NoTimeout => {
+            TellRequest {
+                location: req.location,
+                timeout: WithoutRequestTimeout,
+                phantom: PhantomData,
+            }
+            .try_send()
+            .await
+        }
+        MaybeRequestTimeout::Timeout(_) => {
+            panic!("try_send is not available when a mailbox timeout is set")
+        }
+    }
+});
+
+impl_try_message_send!(local, UnboundedMailbox, MaybeRequestTimeout, |req| {
+    match req.timeout {
+        MaybeRequestTimeout::NoTimeout => {
+            TellRequest {
+                location: req.location,
+                timeout: WithoutRequestTimeout,
+                phantom: PhantomData,
+            }
+            .try_send()
+            .await
+        }
+        MaybeRequestTimeout::Timeout(_) => {
+            panic!("try_send is not available when a mailbox timeout is set")
+        }
+    }
+});
 
 ////////////////////////////////
 // === TryMessageSendSync === //
@@ -392,133 +459,6 @@ impl_try_blocking_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, 
     req.location.mailbox.0.send(req.location.signal)?;
     Ok(())
 });
-
-impl<A, M> MessageSend
-    for TellRequest<
-        LocalTellRequest<A, BoundedMailbox<A>>,
-        BoundedMailbox<A>,
-        M,
-        MaybeRequestTimeout,
-    >
-where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M>,
-    M: Send + 'static,
-{
-    type Ok = ();
-    type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-    async fn send(self) -> Result<Self::Ok, Self::Error> {
-        match self.timeout {
-            MaybeRequestTimeout::NoTimeout => {
-                self.location.mailbox.0.send(self.location.signal).await?;
-            }
-            MaybeRequestTimeout::Timeout(timeout) => {
-                self.location
-                    .mailbox
-                    .0
-                    .send_timeout(self.location.signal, timeout)
-                    .await?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl<A, M> MessageSend
-    for TellRequest<
-        LocalTellRequest<A, UnboundedMailbox<A>>,
-        UnboundedMailbox<A>,
-        M,
-        MaybeRequestTimeout,
-    >
-where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M>,
-    M: Send + 'static,
-{
-    type Ok = ();
-    type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-    async fn send(self) -> Result<Self::Ok, Self::Error> {
-        match self.timeout {
-            MaybeRequestTimeout::NoTimeout => {
-                TellRequest {
-                    location: self.location,
-                    timeout: WithoutRequestTimeout,
-                    phantom: PhantomData,
-                }
-                .send()
-                .await
-            }
-            MaybeRequestTimeout::Timeout(_) => {
-                panic!("mailbox timeout is not available with unbounded mailboxes")
-            }
-        }
-    }
-}
-
-impl<A, M> TryMessageSend
-    for TellRequest<
-        LocalTellRequest<A, BoundedMailbox<A>>,
-        BoundedMailbox<A>,
-        M,
-        MaybeRequestTimeout,
-    >
-where
-    A: Actor<Mailbox = BoundedMailbox<A>> + Message<M>,
-    M: Send + 'static,
-{
-    type Ok = ();
-    type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-    async fn try_send(self) -> Result<Self::Ok, Self::Error> {
-        match self.timeout {
-            MaybeRequestTimeout::NoTimeout => {
-                TellRequest {
-                    location: self.location,
-                    timeout: WithoutRequestTimeout,
-                    phantom: PhantomData,
-                }
-                .try_send()
-                .await
-            }
-            MaybeRequestTimeout::Timeout(_) => {
-                panic!("try_send is not available when a mailbox timeout is set")
-            }
-        }
-    }
-}
-
-impl<A, M> TryMessageSend
-    for TellRequest<
-        LocalTellRequest<A, UnboundedMailbox<A>>,
-        UnboundedMailbox<A>,
-        M,
-        MaybeRequestTimeout,
-    >
-where
-    A: Actor<Mailbox = UnboundedMailbox<A>> + Message<M>,
-    M: Send + 'static,
-{
-    type Ok = ();
-    type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-    async fn try_send(self) -> Result<Self::Ok, Self::Error> {
-        match self.timeout {
-            MaybeRequestTimeout::NoTimeout => {
-                TellRequest {
-                    location: self.location,
-                    timeout: WithoutRequestTimeout,
-                    phantom: PhantomData,
-                }
-                .try_send()
-                .await
-            }
-            MaybeRequestTimeout::Timeout(_) => {
-                panic!("try_send is not available when a mailbox timeout is set")
-            }
-        }
-    }
-}
 
 async fn remote_tell<A, M>(
     actor_ref: &RemoteActorRef<A>,
