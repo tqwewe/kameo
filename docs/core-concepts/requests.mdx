@@ -13,8 +13,8 @@ Key Features of Ask Requests:
 - **Reply Awaited**: The sender pauses its execution and waits for a reply, making it synchronous in nature within an asynchronous execution model.
 - **Error Handling**: If an actor encounters an error while processing an ask request, the responsibility of handling these errors falls to the caller. This allows for more granular error management strategies.
 - **Timeouts**:
-- **Mailbox Timeout**: For actors with a bounded mailbox, an optional `mailbox_timeout` can be specified. This timeout represents the maximum duration the request will wait in the queue before being processed. If the mailbox is full beyond this duration, the request may be dropped or an error returned.
-- **Reply Timeout**: A `reply_timeout` can also be set, indicating how long the sender will wait for a response. This is particularly useful for avoiding indefinite blocking in scenarios where the receiver might be unable to process the request promptly.
+	- **Mailbox Timeout**: For actors with a bounded mailbox, an optional `mailbox_timeout` can be specified. This timeout represents the maximum duration the request will wait in the queue before being processed. If the mailbox is full beyond this duration, the request may be dropped or an error returned.
+	- **Reply Timeout**: A `reply_timeout` can also be set, indicating how long the sender will wait for a response. This is particularly useful for avoiding indefinite blocking in scenarios where the receiver might be unable to process the request promptly.
 
 ### Tell Requests
 
