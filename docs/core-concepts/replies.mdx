@@ -6,9 +6,11 @@ In Kameo, replies are the responses sent back from an actor following the receip
 
 ### The Reply Trait
 
-All reply types must implement the `Reply` trait. This trait signifies that the type can be used as a valid response from an actor to a message. Implementing the `Reply` trait correctly is essential for the seamless operation of ask requests, where a response from the actor is expected.
+To facilitate communication within Kameo, all types intended to serve as responses from an actor must implement the `Reply` trait. This designation ensures that a type is recognized as a valid form of reply, capable of being processed within the actor's messaging system.
 
-Errors are a special consideration in the context of replies. When a message is sent using the tell method, any errors generated during its processing are treated as panics within the actor. This behavior underscores the importance of robust error handling and validation within the actor's message processing logic to prevent unintended stops.
+Special attention is given to replies that encapsulate a `Result::Err` variant from the Rust standard library. These are treated distinctively compared to their non-error counterparts. Specifically, when a message is dispatched using the "tell" method, any errors emerging from the actor's message handler are interpreted as panics. This mechanism highlights the critical role of thorough error handling and validation in an actor's message processing routine, safeguarding against unexpected terminations.
+
+While most standard library types already implement the `Reply` trait, there might be exceptions. Should you encounter a standard library type not implementing `Reply`, you are encouraged to report this through an issue. For types outside the standard library that do not implement `Reply`, a straightforward workaround is to wrap your reply type in a `Result<T, kameo::error::Infallible>`, where `T` is your original type. Given that any `Result` type inherently implements `Reply`, this approach often obviates the need for custom implementations of the `Reply` trait for your types, especially in scenarios where using `Result` types is a common practice.
 
 ### Deriving the Reply Trait
 
