@@ -1,0 +1,56 @@
+---
+title: Replies Overview
+---
+
+In Kameo, replies are the responses sent back from an actor following the receipt and processing of a message. These replies are fundamental to the ask pattern of actor communication, where a sender awaits a response to proceed. Ensuring that replies are properly structured and handled is crucial for maintaining the flow of information and control within your actor system.
+
+### The Reply Trait
+
+All reply types must implement the `Reply` trait. This trait signifies that the type can be used as a valid response from an actor to a message. Implementing the `Reply` trait correctly is essential for the seamless operation of ask requests, where a response from the actor is expected.
+
+Errors are a special consideration in the context of replies. When a message is sent using the tell method, any errors generated during its processing are treated as panics within the actor. This behavior underscores the importance of robust error handling and validation within the actor's message processing logic to prevent unintended stops.
+
+### Deriving the Reply Trait
+
+Kameo simplifies the implementation of the `Reply` trait through the `#[derive(Reply)]` macro. This macro automatically provides the necessary trait implementations for a type, making it straightforward to create custom reply types that integrate seamlessly with Kameo's messaging system.
+
+#### Example Usage
+
+```rust
+use kameo::Reply;
+
+#[derive(Reply)]
+pub struct MyReply {
+    pub data: String,
+    pub status: bool,
+}
+
+// Usage within an actor
+impl Message<MyRequest> for MyActor {
+    type Reply = MyReply;
+
+    async fn handle(
+        &mut self,
+        msg: MyRequest,
+        _: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        // Logic to process the message and generate a reply
+        MyReply {
+            data: "Processed data".to_string(),
+            status: true,
+        }
+    }
+}
+```
+
+In this example, `MyReply` is defined as a struct with data relevant to the response expected by a sender. By deriving the `Reply` trait, `MyReply` is automatically equipped to serve as a response in Kameo's messaging system. This pattern allows for rich, structured data to be communicated back to senders, facilitating complex interactions and workflows within your actor system.
+
+### Handling Replies
+
+When dealing with ask requests, it's important to handle replies gracefully. This involves not only receiving the reply but also managing potential timeouts and errors that might occur during the interaction. Kameo's design encourages clear, concise handling of these scenarios, ensuring that your actor system remains robust and resilient under various operational conditions.
+
+---
+
+#### Summary
+
+Replies play a crucial role in the communication loop between actors in Kameo, particularly when direct feedback or data needs to be conveyed back to the requester. They enrich the interaction model, enabling more structured and predictable exchanges. By defining clear and meaningful replies, you ensure smoother and more reliable communication flows, which is essential for handling complex and evolving workflows within your applications.

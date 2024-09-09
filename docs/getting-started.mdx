@@ -1,0 +1,87 @@
+---
+title: Getting Started
+---
+
+Welcome to Kameo, your gateway to building efficient, scalable, and resilient systems in Rust. This guide will walk you through the initial steps of installing Kameo and creating a simple "Hello, World!" application to get your feet wet in the world of asynchronous actors.
+
+## Installation
+
+Before diving into the world of Kameo, you'll need to ensure that your Rust development environment is set up. Kameo requires Rust 1.79, which you can install or update via [rustup](https://rustup.rs/).
+
+With Rust installed, you can add Kameo to your project by editing your `Cargo.toml` file:
+
+```toml
+[dependencies]
+kameo = "0.10.0" # Use the latest version
+```
+
+Alternatively you can run `cargo add kameo`.
+
+## Hello World Actor
+
+This example demonstrates a basic "Hello World" actor capable of handling a `Greet` message. It showcases the fundamental concepts of actor creation, message definition, and asynchronous message handling within Kameo.
+
+### Defining the Actor and Message
+
+First, we define a `HelloWorldActor` and a `Greet` message. The actor will process messages of type `Greet`, which contain a string greeting.
+
+```rust
+use kameo::Actor;
+use kameo::message::{Message, Context};
+
+// Define the actor
+#[derive(Actor)]
+pub struct HelloWorldActor;
+
+// Define the message
+pub struct Greet(String);
+
+// Implement the message handling for HelloWorldActor
+impl Message<Greet> for HelloWorldActor {
+    type Reply = (); // This actor sends no reply
+
+    async fn handle(
+        &mut self,
+        Greet(greeting): Greet, // Destructure the Greet message to get the greeting string
+        _: Context<'_, Self, Self::Reply>, // The message handling context
+    ) -> Self::Reply {
+        println!("{greeting}"); // Print the greeting to the console
+    }
+}
+```
+
+### Spawning the Actor and Sending a Message
+
+To interact with the `HelloWorldActor`, we spawn it and send a `Greet` message. This is done using the `spawn` function from Kameo and the `tell` method provided by the actor's reference, `actor_ref`.
+
+```rust
+use kameo::spawn;
+use kameo::request::MessageSend;
+
+#[tokio::main] // Mark the entry point as an asynchronous main function
+async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result return type for error handling
+    // Spawn the HelloWorldActor
+    let actor_ref = spawn(HelloWorldActor);
+
+    // Send a Greet message to the actor
+    actor_ref
+        .tell(Greet("Hello, world!".to_string()))
+        .send()
+        .await?;
+
+    Ok(())
+}
+```
+
+### Understanding the Code
+
+- **Actor Definition**: The `HelloWorldActor` is a simple actor that does not maintain any state and only prints out the greeting it receives.
+- Message Handling: The `handle` method asynchronously processes the `Greet` message. It takes ownership of the message and a context parameter, which could be used for more advanced message handling scenarios.
+- **Spawning and Messaging**: The `spawn` function creates an instance of the `HelloWorldActor` and returns a reference to it (`actor_ref`). The `tell` method is then used to send a `Greet` message to the actor. The `send` method is awaited to ensure the message is sent to the actors mailbox.
+- **Asynchronous Runtime**: The example uses Tokio as the asynchronous runtime, indicated by the `#[tokio::main]` attribute. This is necessary for running asynchronous Rust code.
+
+### Next Steps
+
+This example is a starting point for building applications with Kameo. From here, you can explore more complex actor behaviors, state management, actor supervision, and building distributed systems with remote actors.
+
+Remember, the power of actors comes from their ability to encapsulate state and behavior, process messages concurrently, and interact in a decoupled manner. Experiment with these concepts to build scalable and resilient applications.

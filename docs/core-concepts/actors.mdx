@@ -1,0 +1,48 @@
+---
+title: Actors Overview
+---
+
+The core of Kameo is its actors. Actors are objects that encapsulate state and behavior. They interact with the rest of the system asynchronously, primarily through message passing, which allows for a high degree of concurrency and scalability. This section provides an overview of the `Actor` trait in Kameo, detailing its lifecycle, messaging, and supervision.
+
+### Actor Trait Overview
+
+The `Actor` trait defines the essential functionality and lifecycle hooks for an actor in Kameo. Implementing this trait allows you to create custom actors tailored to your application's requirements. Here are the key components of the `Actor` trait:
+
+- **Lifecycle Hooks**: Kameo provides several hooks (`on_start`, `on_stop`, `on_panic`, `on_link_died`) that are called at different points in an actor's lifecycle. These hooks offer points of intervention where custom behavior can be implemented, such as initialization, cleanup, and error handling.
+- **Mailbox**: Each actor has a mailbox (`type Mailbox`), which can be bounded or unbounded. The mailbox is where incoming messages are queued before being processed by the actor. Bounded mailboxes help in applying backpressure, preventing the system from being overwhelmed by too many message
+- **Messaging**: Actors communicate by sending messages to each other. When an actor is spawned, it returns an `ActorRef`, a reference to the actor that can be used to send messages to it. Messages are sent asynchronously and are processed sequentially by the receiving actor.
+- **Supervision**: Actors can supervise other actors, allowing for hierarchical error handling and recovery strategies. The `on_panic` and `on_link_died` hooks are integral to this, enabling actors to respond to failures in their child actors, as well as themselves.
+
+#### **Deriving Actor**
+
+To streamline the creation of actors and reduce repetitive boilerplate, Kameo offers a derive macro for the `Actor` trait. This macro not only simplifies the actor definition process but also provides sensible defaults that adhere to common practices.
+
+When using the derive macro, you can customize your actor with the following attributes:
+
+- `#[actor(name = "...")]`: This attribute allows you to assign a custom name to your actor. By default, Kameo uses the actor's identifier (ident) as its name. Specifying a custom name can be useful for logging.
+- `#[actor(mailbox = ...)]`: Through this attribute, you can define the type of mailbox your actor should use. Kameo supports two mailbox types: `bounded` and `unbounded`.
+- **Bounded Mailbox**: For a `bounded` mailbox, you have the option to specify its capacity using the syntax `bounded(<size>)`, where `<size>` represents the maximum number of messages the mailbox can hold. If not specified, a default size of 1,000 is used.
+- **Unbounded Mailbox**: An `unbounded` mailbox does not have a size limit, meaning it can grow indefinitely as more messages are received. While this ensures that no message is ever rejected due to mailbox capacity, it could potentially lead to increased memory usage under high load or if the actor is unable to process messages quickly enough.
+
+**Example**
+
+### Lifecycle Management
+
+- **Starting**: The `on_start` hook is called before the actor starts processing messages. It's an opportunity to perform any necessary initialization.
+- **Stopping**: Actors are stopped either explicitly or when all references to their `ActorRef` are dropped. The `on_stop` hook allows for cleanup activities before the actor is fully stopped.
+- **Error Handling**: The `on_panic` hook is invoked when an actor panics or encounters an error while processing a message. This hook can decide whether the actor should be stopped or continue processing messages.
+- **Link Failures**: The `on_link_died` hook is called when a linked actor dies, providing a chance to react to the failure of closely related actors.
+
+### Actor Creation and Messaging
+
+Creating an actor involves implementing the `Actor` trait and then spawning the actor using `kameo::spawn`. Upon spawning, an `ActorRef<T>` is returned, which is used to send messages to the actor. The actor processes messages using the `handle` method from the `Message` trait, optionally returning a reply.
+
+#### Example Usage
+
+The above example demonstrates defining a simple actor and spawning it. The actor prints a message upon starting, showcasing the use of the `on_start` lifecycle hook.
+
+---
+
+#### Summary
+
+Actors form the core of Kameo, providing a structured way to encapsulate both logic and state within self-contained units. This design principle facilitates the creation of systems that are inherently more scalable and resilient, enabling you to build applications that efficiently manage concurrency and are robust against failures. Through actors, complex interactions become manageable, allowing for a modular approach to system architecture.
