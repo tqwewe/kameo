@@ -76,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result retu
 ### Understanding the Code
 
 - **Actor Definition**: The `HelloWorldActor` is a simple actor that does not maintain any state and only prints out the greeting it receives.
-- Message Handling: The `handle` method asynchronously processes the `Greet` message. It takes ownership of the message and a context parameter, which could be used for more advanced message handling scenarios.
+- **Message Handling**: The `handle` method asynchronously processes the `Greet` message. It takes ownership of the message and a context parameter, which could be used for more advanced message handling scenarios.
 - **Spawning and Messaging**: The `spawn` function creates an instance of the `HelloWorldActor` and returns a reference to it (`actor_ref`). The `tell` method is then used to send a `Greet` message to the actor. The `send` method is awaited to ensure the message is sent to the actors mailbox.
 - **Asynchronous Runtime**: The example uses Tokio as the asynchronous runtime, indicated by the `#[tokio::main]` attribute. This is necessary for running asynchronous Rust code.
 
