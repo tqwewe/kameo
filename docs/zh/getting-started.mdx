@@ -1,0 +1,87 @@
+---
+title: 入门指南
+---
+
+欢迎使用Kameo，这是您用Rust构建高效、可扩展和弹性系统的入口。本指南将引导您完成安装Kameo和创建一个简单的“Hello, World!”应用程序的初始步骤，让您在异步演员的世界中尝试第一步。
+
+## 安装
+
+在深入Kameo的世界之前，您需要确保您的Rust开发环境已经设置好。Kameo需要Rust 1.79版本，您可以通过[rustup](https://rustup.rs/)安装或更新。
+
+安装了Rust之后，您可以通过编辑`Cargo.toml`文件将Kameo添加到您的项目中：
+
+```toml
+[dependencies]
+kameo = "0.10.0" # 使用最新版本
+```
+
+或者您可以运行`cargo add kameo`。
+
+## Hello World 演员
+
+这个示例演示了一个基本的“Hello World”演员，能够处理一个`Greet`消息。它展示了在Kameo中创建演员、定义消息和异步消息处理的基本概念。
+
+### 定义演员和消息
+
+首先，我们定义一个`HelloWorldActor`和一个`Greet`消息。演员将处理类型为`Greet`的消息，其中包含一个字符串问候。
+
+```rust
+use kameo::Actor;
+use kameo::message::{Message, Context};
+
+// 定义演员
+#[derive(Actor)]
+pub struct HelloWorldActor;
+
+// 定义消息
+pub struct Greet(String);
+
+// 为HelloWorldActor实现消息处理
+impl Message<Greet> for HelloWorldActor {
+    type Reply = (); // 这个演员不发送回复
+
+    async fn handle(
+        &mut self,
+        Greet(greeting): Greet, // 解构Greet消息以获取问候字符串
+        _: Context<'_, Self, Self::Reply>, // 消息处理上下文
+    ) -> Self::Reply {
+        println!("{greeting}"); // 将问候打印到控制台
+    }
+}
+```
+
+### 生成演员并发送消息
+
+要与`HelloWorldActor`互动，我们生成它并发送一个`Greet`消息。这是通过使用Kameo的`spawn`函数和演员引用`actor_ref`提供的`tell`方法完成的。
+
+```rust
+use kameo::spawn;
+use kameo::request::MessageSend;
+
+#[tokio::main] // 将入口点标记为异步主函数
+async fn main() -> Result<(), Box<dyn std::error::Error>> { // 使用Result返回类型进行错误处理
+    // 生成HelloWorldActor
+    let actor_ref = spawn(HelloWorldActor);
+
+    // 向演员发送一个Greet消息
+    actor_ref
+        .tell(Greet("Hello, world!".to_string()))
+        .send()
+        .await?;
+
+    Ok(())
+}
+```
+
+### 理解代码
+
+- **演员定义**：`HelloWorldActor`是一个简单的演员，不维护任何状态，只打印出它接收到的问候。
+- **消息处理**：`handle`方法异步处理`Greet`消息。它接收消息的所有权和一个上下文参数，这可以用于更高级的消息处理场景。
+- **生成和消息传递**：`spawn`函数创建一个`HelloWorldActor`的实例，并返回对它的引用（`actor_ref`）。然后使用`tell`方法向演员发送一个`Greet`消息。等待`send`方法以确保消息被发送到演员的邮箱。
+- **异步运行时**：示例使用Tokio作为异步运行时，由`#[tokio::main]`属性指示。这对于运行异步Rust代码是必要的。
+
+### 下一步
+
+这个示例是使用Kameo构建应用程序的起点。从这里开始，您可以探索更复杂的演员行为、状态管理、演员监督以及使用远程演员构建分布式系统。
+
+记住，演员的力量来自于他们能够封装状态和行为、并发处理消息和以解耦的方式互动。通过实验这些概念来构建可扩展和弹性的应用程序。
