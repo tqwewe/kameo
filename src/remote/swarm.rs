@@ -1,6 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, io, net::SocketAddr, time::Duration};
 
 use libp2p::{
+    autonat,
     core::transport::ListenerId,
     identity::Keypair,
     kad::{
@@ -11,7 +12,7 @@ use libp2p::{
     request_response::{
         self, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel,
     },
-    swarm::{NetworkBehaviour, SwarmEvent},
+    swarm::{dial_opts::DialOpts, DialError, NetworkBehaviour, SwarmEvent},
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, TransportError,
 };
 use once_cell::sync::OnceCell;
@@ -84,13 +85,17 @@ impl ActorSwarm {
                 );
                 Ok(Behaviour {
                     kademlia,
+                    request_response: request_response::cbor::Behaviour::new(
+                        [(StreamProtocol::new("/kameo/1"), ProtocolSupport::Full)],
+                        request_response::Config::default(),
+                    ),
                     mdns: mdns::tokio::Behaviour::new(
                         mdns::Config::default(),
                         key.public().to_peer_id(),
                     )?,
-                    request_response: request_response::cbor::Behaviour::new(
-                        [(StreamProtocol::new("/kameo/1"), ProtocolSupport::Full)],
-                        request_response::Config::default(),
+                    autonat: autonat::Behaviour::new(
+                        key.public().to_peer_id(),
+                        autonat::Config::default(),
                     ),
                 })
             })
@@ -141,6 +146,28 @@ impl ActorSwarm {
     /// Returns the local peer ID.
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
+    }
+
+    /// Dial a known or unknown peer.
+    pub async fn dial(&self, peer_id: Option<PeerId>, addr: SocketAddr) -> Result<(), DialError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let opts = match peer_id {
+            Some(peer_id) => DialOpts::peer_id(peer_id)
+                .addresses(vec![socket_addr_to_multiaddr(addr)])
+                .build(),
+            None => DialOpts::unknown_peer_id()
+                .address(socket_addr_to_multiaddr(addr))
+                .build(),
+        };
+        self.swarm_tx
+            .send(SwarmCommand::Dial {
+                opts,
+                reply: reply_tx,
+            })
+            .await
+            .expect("the swarm should never stop running");
+
+        reply_rx.await.unwrap()
     }
 
     /// Add a new external address of a remote peer.
@@ -317,6 +344,10 @@ impl SwarmActor {
                     .set_mode(Some(kad::Mode::Server));
                 let _ = reply.send(res);
             }
+            SwarmCommand::Dial { opts, reply } => {
+                let res = self.swarm.dial(opts);
+                let _ = reply.send(res);
+            }
             SwarmCommand::AddPeerAddress { peer_id, addr } => {
                 self.swarm.add_peer_address(peer_id, addr);
             }
@@ -477,7 +508,9 @@ impl SwarmActor {
                         let _ = tx.send(res);
                     }
                 }
-                _ => {}
+                event => {
+                    trace!("unhandled kademlia event: {event:?}");
+                }
             },
             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
                 request_response::Event::Message {
@@ -573,7 +606,9 @@ impl SwarmActor {
                     let _ = tx.send(SwarmResp::OutboundFailure(err));
                 }
             }
-            _ => {}
+            event => {
+                trace!("unhandled swarm event: {event:?}");
+            }
         }
     }
 }
@@ -582,6 +617,10 @@ pub(crate) enum SwarmCommand {
     ListenOn {
         addr: SocketAddr,
         reply: oneshot::Sender<Result<ListenerId, TransportError<io::Error>>>,
+    },
+    Dial {
+        opts: DialOpts,
+        reply: oneshot::Sender<Result<(), DialError>>,
     },
     AddPeerAddress {
         peer_id: PeerId,
@@ -684,6 +723,7 @@ struct Behaviour {
     kademlia: kad::Behaviour<MemoryStore>,
     request_response: request_response::cbor::Behaviour<SwarmReq, SwarmResp>,
     mdns: mdns::tokio::Behaviour,
+    autonat: autonat::Behaviour,
 }
 
 fn socket_addr_to_multiaddr(addr: SocketAddr) -> Multiaddr {

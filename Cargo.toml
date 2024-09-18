@@ -25,7 +25,7 @@ kameo_macros = { version = "0.10.0", path = "./macros" }
 dyn-clone = "1.0"
 futures = "0.3"
 itertools = "0.13.0"
-libp2p = { version = "0.54.1", features = ["cbor", "dns", "kad", "mdns", "macros", "quic", "request-response", "rsa", "serde", "tokio"] }
+libp2p = { version = "0.54.1", features = ["autonat", "cbor", "dns", "kad", "mdns", "macros", "quic", "request-response", "rsa", "serde", "tokio"] }
 libp2p-identity = { version = "0.2.9", features = ["rand", "rsa"] }
 linkme = "0.3.28"
 once_cell = "1.19"
