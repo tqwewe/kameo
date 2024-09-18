@@ -476,10 +476,20 @@ impl SwarmActor {
             } => {
                 self.swarm
                     .add_peer_address(peer_id, endpoint.get_remote_address().clone());
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&peer_id, endpoint.get_remote_address().clone());
             }
-            SwarmEvent::ConnectionClosed { endpoint, .. } => {
+            SwarmEvent::ConnectionClosed {
+                peer_id, endpoint, ..
+            } => {
                 self.swarm
                     .remove_external_address(endpoint.get_remote_address());
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .remove_address(&peer_id, endpoint.get_remote_address());
             }
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
