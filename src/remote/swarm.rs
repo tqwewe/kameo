@@ -471,6 +471,14 @@ impl SwarmActor {
             SwarmEvent::NewListenAddr { address, .. } => {
                 trace!("listening on {address:?}");
             }
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
+                self.swarm
+                    .behaviour_mut()
+                    .kademlia
+                    .add_address(&peer_id, endpoint.get_remote_address().clone());
+            }
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, multiaddr) in list {
                     self.swarm
