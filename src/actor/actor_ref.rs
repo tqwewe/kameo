@@ -42,6 +42,7 @@ impl<A> ActorRef<A>
 where
     A: Actor,
 {
+    #[inline]
     pub(crate) fn new(mailbox: A::Mailbox, abort_handle: AbortHandle, links: Links) -> Self {
         ActorRef {
             id: ActorID::generate(),
@@ -52,11 +53,13 @@ where
     }
 
     /// Returns the actor identifier.
+    #[inline]
     pub fn id(&self) -> ActorID {
         self.id
     }
 
     /// Returns whether the actor is currently alive.
+    #[inline]
     pub fn is_alive(&self) -> bool {
         !self.mailbox.is_closed()
     }
@@ -88,6 +91,7 @@ where
     /// actor were dropped and only `WeakActorRef` instances remain,
     /// the actor is stopped.
     #[must_use = "Downgrade creates a WeakActorRef without destroying the original non-weak actor ref."]
+    #[inline]
     pub fn downgrade(&self) -> WeakActorRef<A> {
         WeakActorRef {
             id: self.id,
@@ -98,16 +102,19 @@ where
     }
 
     /// Returns the number of [`ActorRef`] handles.
+    #[inline]
     pub fn strong_count(&self) -> usize {
         self.mailbox.strong_count()
     }
 
     /// Returns the number of [`WeakActorRef`] handles.
+    #[inline]
     pub fn weak_count(&self) -> usize {
         self.mailbox.weak_count()
     }
 
     /// Returns true if called from within the actor.
+    #[inline]
     pub fn is_current(&self) -> bool {
         CURRENT_ACTOR_ID
             .try_with(Clone::clone)
@@ -121,6 +128,7 @@ where
     /// that the actor will process all preceding messages before stopping. Any messages sent
     /// after this stop signal will be ignored and dropped. This approach allows for a graceful
     /// shutdown of the actor, ensuring all pending work is completed before termination.
+    #[inline]
     pub async fn stop_gracefully(&self) -> Result<(), SendError> {
         self.mailbox.signal_stop().await
     }
@@ -132,6 +140,7 @@ where
     /// The actors on_stop hook will still be called.
     ///
     /// Note: If the actor is in the middle of processing a message, it will abort processing of that message.
+    #[inline]
     pub fn kill(&self) {
         self.abort_handle.abort()
     }
@@ -153,6 +162,7 @@ where
     /// // Assuming `actor.stop_gracefully().await` has been called earlier
     /// actor.wait_for_stop().await;
     /// ```
+    #[inline]
     pub async fn wait_for_stop(&self) {
         self.mailbox.closed().await
     }
@@ -171,7 +181,7 @@ where
         &self,
         msg: M,
     ) -> AskRequest<
-        LocalAskRequest<A, A::Mailbox>,
+        LocalAskRequest<'_, A, A::Mailbox>,
         A::Mailbox,
         M,
         WithoutRequestTimeout,
@@ -196,7 +206,7 @@ where
     pub fn tell<M>(
         &self,
         msg: M,
-    ) -> TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
+    ) -> TellRequest<LocalTellRequest<'_, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -211,6 +221,7 @@ where
     ///
     /// The `start_value` and `finish_value` can be provided to pass additional context when attaching the stream.
     /// If there's no data to be sent, these can be set to `()`.
+    #[inline]
     #[allow(clippy::type_complexity)]
     pub fn attach_stream<M, S, T, F>(
         &self,
@@ -246,6 +257,7 @@ where
     /// Links this actor with a child, making this one the parent.
     ///
     /// If the parent dies, then the child will be notified with a link died signal.
+    #[inline]
     pub async fn link_child<B>(&self, child: &ActorRef<B>)
     where
         B: Actor,
@@ -260,6 +272,7 @@ where
     }
 
     /// Unlinks a previously linked child actor.
+    #[inline]
     pub async fn unlink_child<B>(&self, child: &ActorRef<B>)
     where
         B: Actor,
@@ -272,6 +285,7 @@ where
     }
 
     /// Links this actor with a sibbling, notifying eachother if either one dies.
+    #[inline]
     pub async fn link_together<B>(&self, sibbling: &ActorRef<B>)
     where
         B: Actor,
@@ -287,6 +301,7 @@ where
     }
 
     /// Unlinks previously linked processes from eachother.
+    #[inline]
     pub async fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
     where
         B: Actor,
@@ -301,14 +316,17 @@ where
         sibbling_links.remove(&self.id);
     }
 
+    #[inline]
     pub(crate) fn mailbox(&self) -> &A::Mailbox {
         &self.mailbox
     }
 
+    #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
         Box::new(self.mailbox.downgrade())
     }
 
+    #[inline]
     async fn send_msg<M>(&self, msg: M) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
     where
         A: Message<M>,

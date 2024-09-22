@@ -66,8 +66,8 @@ where
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Ok: Serialize,
     <A::Reply as Reply>::Error: Serialize,
-    AskRequest<
-        LocalAskRequest<A, A::Mailbox>,
+    for<'a> AskRequest<
+        LocalAskRequest<'a, A, A::Mailbox>,
         A::Mailbox,
         M,
         MaybeRequestTimeout,
@@ -113,8 +113,8 @@ where
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Ok: Serialize,
     <A::Reply as Reply>::Error: Serialize,
-    AskRequest<
-        LocalAskRequest<A, A::Mailbox>,
+    for<'a> AskRequest<
+        LocalAskRequest<'a, A, A::Mailbox>,
         A::Mailbox,
         M,
         MaybeRequestTimeout,
@@ -162,7 +162,7 @@ where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Error: Serialize,
-    TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, MaybeRequestTimeout>:
+    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, MaybeRequestTimeout>:
         MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     let actor_ref = {
@@ -198,7 +198,7 @@ where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Error: Serialize,
-    TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, MaybeRequestTimeout>:
+    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, MaybeRequestTimeout>:
         TryMessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     let actor_ref = {

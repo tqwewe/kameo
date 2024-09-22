@@ -151,8 +151,8 @@ where
         R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
         E: fmt::Debug + Unpin + Send + Sync + 'static,
         R::Ok: Unpin,
-        AskRequest<
-            LocalAskRequest<B, B::Mailbox>,
+        for<'a> AskRequest<
+            LocalAskRequest<'a, B, B::Mailbox>,
             B::Mailbox,
             M,
             WithoutRequestTimeout,

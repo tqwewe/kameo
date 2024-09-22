@@ -55,7 +55,7 @@ impl<M> PubSub<M> {
     where
         A: Actor + Message<M>,
         M: Send + 'static,
-        TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+        for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
             MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
         self.subscribers.insert(actor_ref.id(), Box::new(actor_ref));
@@ -99,7 +99,7 @@ impl<A, M> Message<Subscribe<A>> for PubSub<M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
         MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = ();
@@ -122,7 +122,7 @@ where
     A: Actor<Mailbox = Mb> + Message<M>,
     M: Send + 'static,
     Mb: Sync,
-    TellRequest<LocalTellRequest<A, Mb>, Mb, M, WithoutRequestTimeout>:
+    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:
         MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {

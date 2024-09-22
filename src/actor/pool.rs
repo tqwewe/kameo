@@ -240,9 +240,9 @@ where
     Mb: Send + 'static,
     R: Reply,
     <A::Reply as Reply>::Error: fmt::Debug,
-    AskRequest<LocalAskRequest<A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
+    for<'a> AskRequest<LocalAskRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
         ForwardMessageSend<A::Reply, M>,
-    TellRequest<LocalTellRequest<A, Mb>, Mb, M, WithoutRequestTimeout>:
+    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:
         MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = WorkerReply<A, M>;
@@ -300,7 +300,7 @@ where
     A: Actor + Message<M>,
     M: Clone + Send + 'static,
     <A::Reply as Reply>::Error: fmt::Debug,
-    TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
         MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = Vec<Result<(), SendError<M, <A::Reply as Reply>::Error>>>;

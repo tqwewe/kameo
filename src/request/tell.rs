@@ -30,11 +30,11 @@ pub struct TellRequest<L, Mb, M, T> {
 
 /// A request to a local actor.
 #[allow(missing_debug_implementations)]
-pub struct LocalTellRequest<A, Mb>
+pub struct LocalTellRequest<'a, A, Mb>
 where
     A: Actor<Mailbox = Mb>,
 {
-    mailbox: Mb,
+    mailbox: &'a Mb,
     signal: Signal<A>,
 }
 
@@ -48,18 +48,20 @@ where
     msg: &'a M,
 }
 
-impl<A, M> TellRequest<LocalTellRequest<A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
+impl<'a, A, M>
+    TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
 where
     A: Actor,
 {
-    pub(crate) fn new(actor_ref: &ActorRef<A>, msg: M) -> Self
+    #[inline]
+    pub(crate) fn new(actor_ref: &'a ActorRef<A>, msg: M) -> Self
     where
         A: Message<M>,
         M: Send + 'static,
     {
         TellRequest {
             location: LocalTellRequest {
-                mailbox: actor_ref.mailbox().clone(),
+                mailbox: actor_ref.mailbox(),
                 signal: Signal::Message {
                     message: Box::new(msg),
                     actor_ref: actor_ref.clone(),
@@ -77,6 +79,7 @@ impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRe
 where
     A: Actor,
 {
+    #[inline]
     pub(crate) fn new_remote(actor_ref: &'a RemoteActorRef<A>, msg: &'a M) -> Self {
         TellRequest {
             location: RemoteTellRequest { actor_ref, msg },
@@ -91,6 +94,7 @@ where
     A: Actor<Mailbox = BoundedMailbox<A>>,
 {
     /// Sets the timeout for waiting for the actors mailbox to have capacity.
+    #[inline]
     pub fn mailbox_timeout(
         self,
         duration: Duration,
@@ -104,6 +108,7 @@ where
 }
 
 impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
+    #[inline]
     pub(crate) fn into_maybe_timeouts(
         self,
         mailbox_timeout: MaybeRequestTimeout,
@@ -121,9 +126,9 @@ impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
 /////////////////////////
 macro_rules! impl_message_send {
     (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<A, M> MessageSend
+        impl<'a, A, M> MessageSend
             for TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -135,6 +140,7 @@ macro_rules! impl_message_send {
             type Ok = ();
             type Error = SendError<M, <A::Reply as Reply>::Error>;
 
+            #[inline]
             async fn send(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
@@ -146,7 +152,7 @@ macro_rules! impl_message_send {
             for TellRequest<RemoteTellRequest<'a, A, M>, $mailbox<A>, M, $timeout>
         where
             TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -158,6 +164,7 @@ macro_rules! impl_message_send {
             type Ok = ();
             type Error = RemoteSendError<<A::Reply as Reply>::Error>;
 
+            #[inline]
             async fn send(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 remote_tell($req.location.actor_ref, &$req.location.msg, $($body)*, false).await
@@ -227,9 +234,9 @@ impl_message_send!(local, UnboundedMailbox, MaybeRequestTimeout, |req| {
 /////////////////////////////
 macro_rules! impl_message_send_sync {
     (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<A, M> MessageSendSync
+        impl<'a, A, M> MessageSendSync
             for TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -241,6 +248,7 @@ macro_rules! impl_message_send_sync {
             type Ok = ();
             type Error = SendError<M, <A::Reply as Reply>::Error>;
 
+            #[inline]
             fn send_sync(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
@@ -259,9 +267,9 @@ impl_message_send_sync!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
 ////////////////////////////
 macro_rules! impl_try_message_send {
     (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<A, M> TryMessageSend
+        impl<'a, A, M> TryMessageSend
             for TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -273,6 +281,7 @@ macro_rules! impl_try_message_send {
             type Ok = ();
             type Error = SendError<M, <A::Reply as Reply>::Error>;
 
+            #[inline]
             async fn try_send(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
@@ -284,7 +293,7 @@ macro_rules! impl_try_message_send {
             for TellRequest<RemoteTellRequest<'a, A, M>, $mailbox<A>, M, $timeout>
         where
             TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -296,6 +305,7 @@ macro_rules! impl_try_message_send {
             type Ok = ();
             type Error = RemoteSendError<<A::Reply as Reply>::Error>;
 
+            #[inline]
             async fn try_send(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 remote_tell($req.location.actor_ref, &$req.location.msg, $($body)*, true).await
@@ -354,9 +364,9 @@ impl_try_message_send!(local, UnboundedMailbox, MaybeRequestTimeout, |req| {
 ////////////////////////////////
 macro_rules! impl_try_message_send_sync {
     (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<A, M> TryMessageSendSync
+        impl<'a, A, M> TryMessageSendSync
             for TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -368,6 +378,7 @@ macro_rules! impl_try_message_send_sync {
             type Ok = ();
             type Error = SendError<M, <A::Reply as Reply>::Error>;
 
+            #[inline]
             fn try_send_sync(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
@@ -391,9 +402,9 @@ impl_try_message_send_sync!(local, UnboundedMailbox, WithoutRequestTimeout, |req
 ////////////////////////////////
 macro_rules! impl_blocking_message_send {
     (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<A, M> BlockingMessageSend
+        impl<'a, A, M> BlockingMessageSend
             for TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -405,6 +416,7 @@ macro_rules! impl_blocking_message_send {
             type Ok = ();
             type Error = SendError<M, <A::Reply as Reply>::Error>;
 
+            #[inline]
             fn blocking_send(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
@@ -428,9 +440,9 @@ impl_blocking_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req
 ////////////////////////////////////
 macro_rules! impl_try_blocking_message_send {
     (local, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<A, M> TryBlockingMessageSend
+        impl<'a, A, M> TryBlockingMessageSend
             for TellRequest<
-                LocalTellRequest<A, $mailbox<A>>,
+                LocalTellRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
                 M,
                 $timeout,
@@ -442,6 +454,7 @@ macro_rules! impl_try_blocking_message_send {
             type Ok = ();
             type Error = SendError<M, <A::Reply as Reply>::Error>;
 
+            #[inline]
             fn try_blocking_send(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
