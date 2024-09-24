@@ -2,6 +2,7 @@ use std::error;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicU64};
 
+use internment::Intern;
 use libp2p::identity::ParseError;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
@@ -15,7 +16,7 @@ static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct ActorID {
     id: u64,
     /// None indicates its local, and the local peer ID should be used
-    peer_id: Option<PeerId>,
+    peer_id: Option<Intern<PeerId>>,
 }
 
 impl ActorID {
@@ -33,12 +34,16 @@ impl ActorID {
 
     /// Returns the peer ID associated with the actor ID.
     pub fn peer_id(&self) -> Option<PeerId> {
-        self.peer_id
+        self.peer_id.map(|peer_id| *peer_id)
+    }
+
+    pub(crate) fn peer_id_intern(&self) -> Option<&Intern<PeerId>> {
+        self.peer_id.as_ref()
     }
 
     pub(crate) fn with_hydrate_peer_id(mut self) -> ActorID {
         if self.peer_id.is_none() {
-            self.peer_id = Some(*ActorSwarm::get().unwrap().local_peer_id());
+            self.peer_id = Some(ActorSwarm::get().unwrap().local_peer_id_intern().clone());
         }
         self
     }
@@ -46,7 +51,14 @@ impl ActorID {
     pub(crate) fn to_bytes(&self, local_peer_id: PeerId) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 + 42);
         bytes.extend(&self.id.to_le_bytes());
-        bytes.extend(&self.peer_id.unwrap_or(local_peer_id).to_bytes());
+        bytes.extend(
+            &self
+                .peer_id
+                .as_deref()
+                .cloned()
+                .unwrap_or(local_peer_id)
+                .to_bytes(),
+        );
         bytes
     }
 
@@ -63,7 +75,7 @@ impl ActorID {
 
         Ok(ActorID {
             id,
-            peer_id: Some(peer_id),
+            peer_id: Some(Intern::new(peer_id)),
         })
     }
 }
