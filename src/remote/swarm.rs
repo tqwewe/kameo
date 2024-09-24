@@ -1,5 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, io, net::SocketAddr, time::Duration};
 
+use internment::Intern;
 use libp2p::{
     core::transport::ListenerId,
     identity::Keypair,
@@ -59,7 +60,7 @@ static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
 #[derive(Clone, Debug)]
 pub struct ActorSwarm {
     swarm_tx: mpsc::Sender<SwarmCommand>,
-    local_peer_id: PeerId,
+    local_peer_id: Intern<PeerId>,
 }
 
 impl ActorSwarm {
@@ -99,7 +100,7 @@ impl ActorSwarm {
             .build();
 
         Ok(ACTOR_SWARM.get_or_init(move || {
-            let local_peer_id = swarm.local_peer_id().clone();
+            let local_peer_id = Intern::new(swarm.local_peer_id().clone());
 
             let (cmd_tx, cmd_rx) = mpsc::channel(24);
             tokio::spawn({
@@ -140,6 +141,10 @@ impl ActorSwarm {
 
     /// Returns the local peer ID.
     pub fn local_peer_id(&self) -> &PeerId {
+        &self.local_peer_id
+    }
+
+    pub(crate) fn local_peer_id_intern(&self) -> &Intern<PeerId> {
         &self.local_peer_id
     }
 
@@ -248,7 +253,7 @@ impl ActorSwarm {
             .send(SwarmCommand::Register {
                 record: kad::Record::new(
                     name.into_bytes(),
-                    actor_registration.into_bytes(self.local_peer_id),
+                    actor_registration.into_bytes(*self.local_peer_id),
                 ),
                 reply: reply_tx,
             })
@@ -603,7 +608,7 @@ pub(crate) enum SwarmCommand {
         reply: oneshot::Sender<kad::PutRecordResult>,
     },
     Req {
-        peer_id: PeerId,
+        peer_id: Intern<PeerId>,
         req: SwarmReq,
         reply: oneshot::Sender<SwarmResp>,
     },

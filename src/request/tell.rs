@@ -489,8 +489,9 @@ where
     actor_ref
         .send_to_swarm(SwarmCommand::Req {
             peer_id: actor_id
-                .peer_id()
-                .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id()),
+                .peer_id_intern()
+                .cloned()
+                .unwrap_or_else(|| ActorSwarm::get().unwrap().local_peer_id_intern().clone()),
             req: SwarmReq::Tell {
                 actor_id,
                 actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
