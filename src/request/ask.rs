@@ -902,25 +902,23 @@ where
 {
     let actor_id = actor_ref.id();
     let (reply_tx, reply_rx) = oneshot::channel();
-    actor_ref
-        .send_to_swarm(SwarmCommand::Req {
-            peer_id: actor_id
-                .peer_id_intern()
-                .cloned()
-                .unwrap_or_else(|| ActorSwarm::get().unwrap().local_peer_id_intern().clone()),
-            req: SwarmReq::Ask {
-                actor_id,
-                actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
-                message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
-                payload: rmp_serde::to_vec_named(msg)
-                    .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
-                mailbox_timeout,
-                reply_timeout,
-                immediate,
-            },
-            reply: reply_tx,
-        })
-        .await;
+    actor_ref.send_to_swarm(SwarmCommand::Req {
+        peer_id: actor_id
+            .peer_id_intern()
+            .cloned()
+            .unwrap_or_else(|| ActorSwarm::get().unwrap().local_peer_id_intern().clone()),
+        req: SwarmReq::Ask {
+            actor_id,
+            actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
+            message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
+            payload: rmp_serde::to_vec_named(msg)
+                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
+            mailbox_timeout,
+            reply_timeout,
+            immediate,
+        },
+        reply: reply_tx,
+    });
 
     match reply_rx.await.unwrap() {
         SwarmResp::Ask(res) => match res {

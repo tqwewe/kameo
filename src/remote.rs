@@ -8,6 +8,7 @@ use std::{
 };
 
 use _internal::{RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_MESSAGES};
+pub use libp2p::swarm::dial_opts;
 pub use libp2p::PeerId;
 pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
