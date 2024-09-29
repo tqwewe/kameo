@@ -68,15 +68,6 @@ let count = actor_ref.ask(Inc { amount: 42 }).send().await?;
 assert_eq!(count, 42);
 ```
 
-## Benchmarks
-
-**13x higher throughput when compared with Actix**
-
-![benchmark](https://github.com/tqwewe/kameo/raw/main/benchmark.svg)
-
-Above shows a basic benchmark for sending a message to an actor in Kameo and Actix.
-Always benchmark for yourself.
-
 ## Contributing
 
 Contributions are welcome! Feel free to submit pull requests, create issues, or suggest improvements.
