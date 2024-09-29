@@ -226,7 +226,7 @@ where
         mut stream: S,
         start_value: T,
         finish_value: F,
-    ) -> JoinHandle<Result<(), SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>>>
+    ) -> JoinHandle<Result<S, SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>>>
     where
         A: Message<StreamMessage<M, T, F>>,
         S: Stream<Item = M> + Send + Unpin + 'static,
@@ -261,7 +261,7 @@ where
                         }
                     }
                     _ = actor_ref.wait_for_stop() => {
-                        return Ok(());
+                        return Ok(stream);
                     }
                 }
             }
@@ -271,7 +271,7 @@ where
                 .send()
                 .await?;
 
-            Ok(())
+            Ok(stream)
         })
     }
 
