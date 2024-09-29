@@ -31,7 +31,7 @@ body = """
     ### {{ group | upper_first }}
     {% for commit in commits | sort(attribute="author.timestamp") | reverse | sort(attribute="breaking") | reverse %}
         - {% if commit.breaking %}**BREAKING:** {% endif %}{{ commit.message | upper_first }}\
-        {% if commit.github.pr_number %}{% else %} [</>](https://github.com/tqwewe/kameo/commit/{{ commit.id }}){%- endif %}\
+        {% if commit.remote.pr_number %}{% else %} [</>](https://github.com/tqwewe/kameo/commit/{{ commit.id }}){%- endif %}\
     {% endfor %}
 {% endfor %}\n
 """
@@ -65,9 +65,9 @@ commit_parsers = [
     { message = "^chore: bump version to .*", skip = true },
     { message = "^chore: bump to version .*", skip = true },
     { message = "^.*\\(example(s)?\\):.*", skip = true },
-    { message = "^chore: .*", group = "<!-- 5 -->Misc" },
-    { message = "^feat: .*", group = "<!-- 0 -->Added" },
-    { message = "^docs: .*", group = "<!-- 4 -->Documentation" },
+    { message = "^chore(\\(.*\\))?: .*", group = "<!-- 5 -->Misc" },
+    { message = "^feat(\\(.*\\))?: .*", group = "<!-- 0 -->Added" },
+    { message = "^docs(\\(.*\\))?: .*", group = "<!-- 4 -->Documentation" },
     { message = "^.*: add", group = "<!-- 0 -->Added" },
     { message = "^.*: support", group = "<!-- 0 -->Added" },
     { message = "^.*: remove", group = "<!-- 2 -->Removed" },
@@ -92,6 +92,6 @@ topo_order = false
 # sort the commits inside sections by oldest/newest order
 sort_commits = "oldest"
 
-[remote.github]
+[remote.remote]
 owner = "tqwewe"
 repo = "kameo"
