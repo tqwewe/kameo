@@ -1,11 +1,11 @@
 # Kameo 🎬
 
-![Crates.io Version](https://img.shields.io/crates/v/kameo)
-![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)
-![Crates.io License](https://img.shields.io/crates/l/kameo)
-![GitHub Repo stars](https://img.shields.io/github/stars/tqwewe/kameo)
+[![Crates.io Version](https://img.shields.io/crates/v/kameo)](https://crates.io/crates/kameo)
+[![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)](https://crates.io/crates/kameo)
+[![Crates.io License](https://img.shields.io/crates/l/kameo)](https://crates.io/crates/kameo)
+[![GitHub Repo stars](https://img.shields.io/github/stars/tqwewe/kameo)](https://github.com/tqwewe/kameo)
 
-![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/banner.png?raw=true)
+[![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/banner.png?raw=true)](https://github.com/tqwewe/kameo)
 
 ## What is Kameo
 
