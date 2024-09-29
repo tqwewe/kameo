@@ -31,7 +31,7 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
         signal: Signal<A>,
     ) -> impl Future<Output = Result<(), SendError<Signal<A>, E>>> + Send + '_;
     /// Waits for the mailbox to be closed.
-    fn closed(&self) -> impl Future<Output = ()> + '_;
+    fn closed(&self) -> impl Future<Output = ()> + Send + '_;
     /// Checks if the mailbox is closed.
     fn is_closed(&self) -> bool;
     /// Downgrades the mailbox to a weak mailbox.

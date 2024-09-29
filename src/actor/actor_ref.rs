@@ -250,8 +250,20 @@ where
                 .send()
                 .await?;
 
-            while let Some(msg) = stream.next().await {
-                actor_ref.tell(StreamMessage::Next(msg)).send().await?;
+            loop {
+                tokio::select! {
+                    msg = stream.next() => {
+                        match msg {
+                            Some(msg) => {
+                                actor_ref.tell(StreamMessage::Next(msg)).send().await?;
+                            }
+                            None => break,
+                        }
+                    }
+                    _ = actor_ref.wait_for_stop() => {
+                        return Ok(());
+                    }
+                }
             }
 
             actor_ref
