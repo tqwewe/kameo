@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2024-09-29
+
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add lifetime to requests to avoid mailbox cloning [</>](https://github.com/tqwewe/kameo/commit/4f363a3c24f623406bc8322a6f8fc0ef801beb12)
+- Use interned peer ids for improved performance (#43)
+- Return stream from join handle in `attach_stream` [</>](https://github.com/tqwewe/kameo/commit/c260c0f0493949f3eb4e3f6e6b3ec5419fe29ba3)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Detach stream when actor stops [</>](https://github.com/tqwewe/kameo/commit/c778b9e2fb4c66dbd2ddac0c1eaff51b59732b3e)
+- **BREAKING:** Use multiaddr and add `SwarmFuture` (#44) [</>](https://github.com/tqwewe/kameo/commit/c6275236c0bcfeb97cd52a7defcc45a1ab27f846)
+
+### <!-- 3 -->Fixed
+
+- `attach_stream` panicking when actor is stopped [</>](https://github.com/tqwewe/kameo/commit/711722898a52e216102dc9c7975eee26b6b28b25)
+
+### <!-- 4 -->Documentation
+
+- Add book explaining core concepts (#40)
+- Add missing examples from actors page [</>](https://github.com/tqwewe/kameo/commit/71dcb6f46e69f233da7a5fbcf53c88a5471a7df4)
+- Fix indentation for request features [</>](https://github.com/tqwewe/kameo/commit/0f9bf2d19ad6c642d7c90149f7512e5ff874d927)
+- Add note about Result::Err in the reply trait [</>](https://github.com/tqwewe/kameo/commit/9dc17828c8cc6c556552858b0c1d6bf37517a821)
+- Add note about `SendError::HandlerError` in replies [</>](https://github.com/tqwewe/kameo/commit/21e12beead500f85a8f4dc728103f10dda0dc874)
+- Add icons and links to core concepts overview page [</>](https://github.com/tqwewe/kameo/commit/99cd4f9349502e1aebb49ffe635d806cc96e293c)
+- Fix formatting in book [</>](https://github.com/tqwewe/kameo/commit/441fd0b53bc37e6f2d0174a71c3cb979d8234d12)
+- Add icons to introduction headings [</>](https://github.com/tqwewe/kameo/commit/335d90280d7cddf93962d8977c380e28f2ef8828)
+
+### <!-- 5 -->Misc
+
+- Fix path to README in Cargo.toml [</>](https://github.com/tqwewe/kameo/commit/39c2cf4e88887d1954df353818c9b1e99b2b3e7d)
+- Add obsidian related items to .gitignore [</>](https://github.com/tqwewe/kameo/commit/d08368632f68b1ada1de60e0f5bcc770b76cccaf)
+- Remove unused mailbox modules [</>](https://github.com/tqwewe/kameo/commit/56c6844e083700fcea36b182e7e441d921f5eb86)
+- Update git cliff configuration [</>](https://github.com/tqwewe/kameo/commit/d7e0bded948bb672d02d9757a9172ce0f8937477)
+
 ## [0.10.0] - 2024-09-09
 
 
@@ -265,6 +301,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.11.0]: https://github.com/tqwewe/kameo/compare/v0.10.0..v0.11.0
 [0.10.0]: https://github.com/tqwewe/kameo/compare/v0.9.0..v0.10.0
 [0.9.0]: https://github.com/tqwewe/kameo/compare/v0.8.1..v0.9.0
 [0.8.1]: https://github.com/tqwewe/kameo/compare/v0.8.0..v0.8.1
