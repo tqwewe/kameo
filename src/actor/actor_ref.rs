@@ -10,13 +10,13 @@ use tokio::{
 
 use crate::{
     error::{RegistrationError, SendError},
-    mailbox::{Mailbox, Signal, SignalMailbox, WeakMailbox},
+    mailbox::{Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
     remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand},
     reply::Reply,
     request::{
-        AskRequest, LocalAskRequest, LocalTellRequest, RemoteAskRequest, RemoteTellRequest,
-        TellRequest, WithoutRequestTimeout,
+        AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, RemoteAskRequest,
+        RemoteTellRequest, TellRequest, WithoutRequestTimeout,
     },
     Actor,
 };
@@ -221,8 +221,6 @@ where
     ///
     /// The `start_value` and `finish_value` can be provided to pass additional context when attaching the stream.
     /// If there's no data to be sent, these can be set to `()`.
-    #[inline]
-    #[allow(clippy::type_complexity)]
     pub fn attach_stream<M, S, T, F>(
         &self,
         mut stream: S,
@@ -235,19 +233,30 @@ where
         M: Send + 'static,
         T: Send + 'static,
         F: Send + 'static,
+        for<'a> TellRequest<
+            LocalTellRequest<'a, A, A::Mailbox>,
+            A::Mailbox,
+            StreamMessage<M, T, F>,
+            WithoutRequestTimeout,
+        >: MessageSend<
+            Ok = (),
+            Error = SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>,
+        >,
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
             actor_ref
-                .send_msg(StreamMessage::Started(start_value))
+                .tell(StreamMessage::Started(start_value))
+                .send()
                 .await?;
 
             while let Some(msg) = stream.next().await {
-                actor_ref.send_msg(StreamMessage::Next(msg)).await?;
+                actor_ref.tell(StreamMessage::Next(msg)).send().await?;
             }
 
             actor_ref
-                .send_msg(StreamMessage::Finished(finish_value))
+                .tell(StreamMessage::Finished(finish_value))
+                .send()
                 .await?;
 
             Ok(())
@@ -324,23 +333,6 @@ where
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
         Box::new(self.mailbox.downgrade())
-    }
-
-    #[inline]
-    async fn send_msg<M>(&self, msg: M) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
-    where
-        A: Message<M>,
-        M: Send + 'static,
-    {
-        self.mailbox
-            .send(Signal::Message {
-                message: Box::new(msg),
-                actor_ref: self.clone(),
-                reply: None,
-                sent_within_actor: false,
-            })
-            .await
-            .map_err(|err| err.map_msg(|msg| msg.downcast_message::<M>().unwrap()))
     }
 }
 
