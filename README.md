@@ -1,6 +1,7 @@
 # Kameo 🎬
 
 [![Crates.io Version](https://img.shields.io/crates/v/kameo)](https://crates.io/crates/kameo)
+[![docs.rs](https://img.shields.io/docsrs/kameo)](https://docs.rs/kameo)
 [![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)](https://crates.io/crates/kameo)
 [![Crates.io License](https://img.shields.io/crates/l/kameo)](https://crates.io/crates/kameo)
 [![GitHub Repo stars](https://img.shields.io/github/stars/tqwewe/kameo)](https://github.com/tqwewe/kameo)
