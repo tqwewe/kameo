@@ -1,5 +1,7 @@
-use std::{borrow::Cow, collections::HashMap, io, net::SocketAddr, time::Duration};
+use core::task;
+use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
+use futures::{ready, Future, FutureExt};
 use internment::Intern;
 use libp2p::{
     core::transport::ListenerId,
@@ -8,11 +10,11 @@ use libp2p::{
         self,
         store::{MemoryStore, RecordStore},
     },
-    mdns, multiaddr,
+    mdns,
     request_response::{
         self, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel,
     },
-    swarm::{NetworkBehaviour, SwarmEvent},
+    swarm::{dial_opts::DialOpts, DialError, NetworkBehaviour, SwarmEvent},
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, TransportError,
 };
 use once_cell::sync::OnceCell;
@@ -59,7 +61,7 @@ static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
 /// remote actor interactions.
 #[derive(Clone, Debug)]
 pub struct ActorSwarm {
-    swarm_tx: mpsc::Sender<SwarmCommand>,
+    swarm_tx: SwarmSender,
     local_peer_id: Intern<PeerId>,
 }
 
@@ -102,14 +104,15 @@ impl ActorSwarm {
         Ok(ACTOR_SWARM.get_or_init(move || {
             let local_peer_id = Intern::new(swarm.local_peer_id().clone());
 
-            let (cmd_tx, cmd_rx) = mpsc::channel(24);
+            let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+            let swarm_tx = SwarmSender(cmd_tx);
             tokio::spawn({
-                let swarm_tx = cmd_tx.clone();
+                let swarm_tx = swarm_tx.clone();
                 async move { SwarmActor::new(swarm, swarm_tx, cmd_rx).run().await }
             });
 
             ActorSwarm {
-                swarm_tx: cmd_tx,
+                swarm_tx,
                 local_peer_id,
             }
         }))
@@ -118,20 +121,22 @@ impl ActorSwarm {
     /// Starts listening on the given address, allowing other nodes to lookup registered actors.
     ///
     /// Awaiting this function does not block, and will cause the swarm to start listening in the background.
-    pub async fn listen_on(
+    ///
+    /// For information on `Multiaddr`, see <https://docs.libp2p.io/concepts/fundamentals/addressing/>.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// ActorSwarm::bootstrap()?
+    ///     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
+    ///     .await?;
+    /// ```
+    pub fn listen_on(
         &self,
-        addr: SocketAddr,
-    ) -> Result<ListenerId, TransportError<io::Error>> {
-        let (reply_tx, reply_rx) = oneshot::channel();
+        addr: Multiaddr,
+    ) -> SwarmFuture<Result<ListenerId, TransportError<io::Error>>> {
         self.swarm_tx
-            .send(SwarmCommand::ListenOn {
-                addr,
-                reply: reply_tx,
-            })
-            .await
-            .expect("the swarm should never stop running");
-
-        reply_rx.await.unwrap()
+            .send_with_reply(|reply| SwarmCommand::ListenOn { addr, reply })
     }
 
     /// Gets a reference to the actor swarm.
@@ -148,138 +153,140 @@ impl ActorSwarm {
         &self.local_peer_id
     }
 
-    /// Add a new external address of a remote peer.
-    pub async fn add_peer_address(&self, peer_id: PeerId, addr: SocketAddr) {
-        self.swarm_tx
-            .send(SwarmCommand::AddPeerAddress {
-                peer_id,
-                addr: socket_addr_to_multiaddr(addr),
-            })
-            .await
-            .expect("the swarm should never stop running");
+    /// Dial a known or unknown peer.
+    ///
+    /// See also [`DialOpts`].
+    pub fn dial(&self, opts: impl Into<DialOpts>) -> SwarmFuture<Result<(), DialError>> {
+        self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
+            opts: opts.into(),
+            reply,
+        })
     }
 
     /// Add a new external address of a remote peer.
-    pub async fn disconnect_peer_id(&self, peer_id: PeerId) {
+    pub fn add_peer_address(&self, peer_id: PeerId, addr: Multiaddr) {
+        self.swarm_tx
+            .send(SwarmCommand::AddPeerAddress { peer_id, addr })
+    }
+
+    /// Add a new external address of a remote peer.
+    pub fn disconnect_peer_id(&self, peer_id: PeerId) {
         self.swarm_tx
             .send(SwarmCommand::DisconnectPeerId { peer_id })
-            .await
-            .expect("the swarm should never stop running");
     }
 
     /// Looks up an actor running locally.
-    pub(crate) async fn lookup_local<A: Actor + RemoteActor + 'static>(
+    pub(crate) fn lookup_local<A: Actor + RemoteActor + 'static>(
         &self,
         name: String,
-    ) -> Result<Option<ActorRef<A>>, RegistrationError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.swarm_tx
-            .send(SwarmCommand::LookupLocal {
+    ) -> impl Future<Output = Result<Option<ActorRef<A>>, RegistrationError>> {
+        let reply_rx = self
+            .swarm_tx
+            .send_with_reply(|reply| SwarmCommand::LookupLocal {
                 key: name.into_bytes().into(),
-                reply: reply_tx,
-            })
-            .await
-            .expect("the swarm should never stop running");
+                reply,
+            });
 
-        let Some(ActorRegistration {
-            actor_id,
-            remote_id,
-        }) = reply_rx.await.unwrap()
-        else {
-            return Ok(None);
-        };
-        if A::REMOTE_ID != remote_id {
-            return Err(RegistrationError::BadActorType);
+        async move {
+            let Some(ActorRegistration {
+                actor_id,
+                remote_id,
+            }) = reply_rx.await
+            else {
+                return Ok(None);
+            };
+            if A::REMOTE_ID != remote_id {
+                return Err(RegistrationError::BadActorType);
+            }
+
+            let registry = REMOTE_REGISTRY.lock().await;
+            let Some(actor_ref_any) = registry.get(&actor_id) else {
+                return Ok(None);
+            };
+            let actor_ref = actor_ref_any
+                .downcast_ref::<ActorRef<A>>()
+                .ok_or(RegistrationError::BadActorType)?
+                .clone();
+
+            Ok(Some(actor_ref))
         }
-
-        let registry = REMOTE_REGISTRY.lock().await;
-        let Some(actor_ref_any) = registry.get(&actor_id) else {
-            return Ok(None);
-        };
-        let actor_ref = actor_ref_any
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RegistrationError::BadActorType)?
-            .clone();
-
-        Ok(Some(actor_ref))
     }
 
     /// Looks up an actor in the swarm.
-    pub(crate) async fn lookup<A: Actor + RemoteActor>(
+    pub(crate) fn lookup<A: Actor + RemoteActor>(
         &self,
         name: String,
-    ) -> Result<Option<RemoteActorRef<A>>, RegistrationError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.swarm_tx
-            .send(SwarmCommand::Lookup {
-                key: name.into_bytes().into(),
-                reply: reply_tx,
-            })
-            .await
-            .expect("the swarm should never stop running");
+    ) -> impl Future<Output = Result<Option<RemoteActorRef<A>>, RegistrationError>> {
+        let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Lookup {
+            key: name.into_bytes().into(),
+            reply,
+        });
 
-        match reply_rx.await.unwrap() {
-            Ok(kad::PeerRecord { record, .. }) => {
-                let ActorRegistration {
-                    actor_id,
-                    remote_id,
-                } = ActorRegistration::from_bytes(&record.value);
-                if A::REMOTE_ID != remote_id {
-                    return Err(RegistrationError::BadActorType);
+        let swarm_tx = self.swarm_tx.clone();
+        async move {
+            match reply_rx.await {
+                Ok(kad::PeerRecord { record, .. }) => {
+                    let ActorRegistration {
+                        actor_id,
+                        remote_id,
+                    } = ActorRegistration::from_bytes(&record.value);
+                    if A::REMOTE_ID != remote_id {
+                        return Err(RegistrationError::BadActorType);
+                    }
+
+                    Ok(Some(RemoteActorRef::new(actor_id, swarm_tx.clone())))
                 }
-
-                Ok(Some(RemoteActorRef::new(actor_id, self.swarm_tx.clone())))
+                Err(kad::GetRecordError::NotFound { .. }) => Ok(None),
+                Err(kad::GetRecordError::QuorumFailed { quorum, .. }) => {
+                    Err(RegistrationError::QuorumFailed { quorum })
+                }
+                Err(kad::GetRecordError::Timeout { .. }) => Err(RegistrationError::Timeout),
             }
-            Err(kad::GetRecordError::NotFound { .. }) => Ok(None),
-            Err(kad::GetRecordError::QuorumFailed { quorum, .. }) => {
-                Err(RegistrationError::QuorumFailed { quorum })
-            }
-            Err(kad::GetRecordError::Timeout { .. }) => Err(RegistrationError::Timeout),
         }
     }
 
     /// Registers an actor within the swarm.
-    pub(crate) async fn register<A: Actor + RemoteActor + 'static>(
+    pub(crate) fn register<A: Actor + RemoteActor + 'static>(
         &self,
         actor_ref: ActorRef<A>,
         name: String,
-    ) -> Result<(), RegistrationError> {
+    ) -> impl Future<Output = Result<(), RegistrationError>> {
         let actor_registration = ActorRegistration {
             actor_id: actor_ref.id().with_hydrate_peer_id(),
             remote_id: Cow::Borrowed(A::REMOTE_ID),
         };
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.swarm_tx
-            .send(SwarmCommand::Register {
+        let reply_rx = self
+            .swarm_tx
+            .send_with_reply(|reply| SwarmCommand::Register {
                 record: kad::Record::new(
                     name.into_bytes(),
                     actor_registration.into_bytes(*self.local_peer_id),
                 ),
-                reply: reply_tx,
-            })
-            .await
-            .expect("the swarm should never stop running");
+                reply,
+            });
 
-        match reply_rx.await.unwrap() {
-            Ok(kad::PutRecordOk { .. }) => {
-                REMOTE_REGISTRY
-                    .lock()
-                    .await
-                    .insert(actor_ref.id().with_hydrate_peer_id(), Box::new(actor_ref));
-                Ok(())
+        async move {
+            match reply_rx.await {
+                Ok(kad::PutRecordOk { .. }) => {
+                    REMOTE_REGISTRY
+                        .lock()
+                        .await
+                        .insert(actor_ref.id().with_hydrate_peer_id(), Box::new(actor_ref));
+                    Ok(())
+                }
+                Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
+                    Err(RegistrationError::QuorumFailed { quorum })
+                }
+                Err(kad::PutRecordError::Timeout { .. }) => Err(RegistrationError::Timeout),
             }
-            Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
-                Err(RegistrationError::QuorumFailed { quorum })
-            }
-            Err(kad::PutRecordError::Timeout { .. }) => Err(RegistrationError::Timeout),
         }
     }
 }
 
 struct SwarmActor {
     swarm: Swarm<Behaviour>,
-    cmd_tx: mpsc::Sender<SwarmCommand>,
-    cmd_rx: mpsc::Receiver<SwarmCommand>,
+    cmd_tx: SwarmSender,
+    cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
     get_queries:
         HashMap<kad::QueryId, oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>>,
     put_queries: HashMap<kad::QueryId, oneshot::Sender<kad::PutRecordResult>>,
@@ -289,8 +296,8 @@ struct SwarmActor {
 impl SwarmActor {
     fn new(
         swarm: Swarm<Behaviour>,
-        tx: mpsc::Sender<SwarmCommand>,
-        rx: mpsc::Receiver<SwarmCommand>,
+        tx: SwarmSender,
+        rx: mpsc::UnboundedReceiver<SwarmCommand>,
     ) -> Self {
         SwarmActor {
             swarm,
@@ -315,11 +322,15 @@ impl SwarmActor {
     fn handle_command(&mut self, cmd: SwarmCommand) {
         match cmd {
             SwarmCommand::ListenOn { addr, reply } => {
-                let res = self.swarm.listen_on(socket_addr_to_multiaddr(addr));
+                let res = self.swarm.listen_on(addr);
                 self.swarm
                     .behaviour_mut()
                     .kademlia
                     .set_mode(Some(kad::Mode::Server));
+                let _ = reply.send(res);
+            }
+            SwarmCommand::Dial { opts, reply } => {
+                let res = self.swarm.dial(opts);
                 let _ = reply.send(res);
             }
             SwarmCommand::AddPeerAddress { peer_id, addr } => {
@@ -516,9 +527,7 @@ impl SwarmActor {
                             immediate,
                         )
                         .await;
-                        let _ = tx
-                            .send(SwarmCommand::SendAskResponse { result, channel })
-                            .await;
+                        let _ = tx.send(SwarmCommand::SendAskResponse { result, channel });
                     });
                 }
                 SwarmReq::Tell {
@@ -540,9 +549,7 @@ impl SwarmActor {
                             immediate,
                         )
                         .await;
-                        let _ = tx
-                            .send(SwarmCommand::SendTellResponse { result, channel })
-                            .await;
+                        let _ = tx.send(SwarmCommand::SendTellResponse { result, channel });
                     });
                 }
             },
@@ -583,10 +590,36 @@ impl SwarmActor {
     }
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
+
+impl SwarmSender {
+    pub(crate) fn send(&self, cmd: SwarmCommand) {
+        self.0
+            .send(cmd)
+            .expect("the swarm should never stop running");
+    }
+
+    pub(crate) fn send_with_reply<T>(
+        &self,
+        cmd_fn: impl FnOnce(oneshot::Sender<T>) -> SwarmCommand,
+    ) -> SwarmFuture<T> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        let cmd = cmd_fn(reply_tx);
+        self.send(cmd);
+
+        SwarmFuture(reply_rx)
+    }
+}
+
 pub(crate) enum SwarmCommand {
     ListenOn {
-        addr: SocketAddr,
+        addr: Multiaddr,
         reply: oneshot::Sender<Result<ListenerId, TransportError<io::Error>>>,
+    },
+    Dial {
+        opts: DialOpts,
+        reply: oneshot::Sender<Result<(), DialError>>,
     },
     AddPeerAddress {
         peer_id: PeerId,
@@ -691,8 +724,19 @@ struct Behaviour {
     mdns: mdns::tokio::Behaviour,
 }
 
-fn socket_addr_to_multiaddr(addr: SocketAddr) -> Multiaddr {
-    Multiaddr::from(addr.ip())
-        .with(multiaddr::Protocol::Udp(addr.port()))
-        .with(multiaddr::Protocol::QuicV1)
+/// A future containing the response from the actor swarm.
+///
+/// This future does not need to be awaited if the response is not needed, and can simply be dropped.
+#[derive(Debug)]
+pub struct SwarmFuture<T>(oneshot::Receiver<T>);
+
+impl<T> Future for SwarmFuture<T> {
+    type Output = T;
+
+    fn poll(mut self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+        task::Poll::Ready(
+            ready!(self.0.poll_unpin(cx))
+                .expect("the oneshot sender should never be dropped before being sent to"),
+        )
+    }
 }

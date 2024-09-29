@@ -3,12 +3,11 @@ use std::time::Duration;
 use kameo::{
     actor::RemoteActorRef,
     message::{Context, Message},
-    remote::ActorSwarm,
+    remote::{dial_opts::DialOpts, ActorSwarm},
     request::MessageSend,
     Actor,
 };
 use kameo_macros::{remote_message, RemoteActor};
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -70,12 +69,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap the actor swarm
     if is_host {
         ActorSwarm::bootstrap()?
-            .listen_on("0.0.0.0:8020".parse()?)
+            .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
             .await?;
     } else {
-        ActorSwarm::bootstrap()?
-            .add_peer_address(PeerId::random(), "0.0.0.0:8020".parse()?)
-            .await;
+        ActorSwarm::bootstrap()?.dial(
+            DialOpts::unknown_peer_id()
+                .address("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
+                .build(),
+        );
     }
 
     if is_host {

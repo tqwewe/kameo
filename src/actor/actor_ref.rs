@@ -2,17 +2,13 @@ use std::{cell::Cell, collections::HashMap, fmt, marker::PhantomData, ops, sync:
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Serialize};
-use tokio::{
-    sync::{mpsc, Mutex},
-    task::JoinHandle,
-    task_local,
-};
+use tokio::{sync::Mutex, task::JoinHandle, task_local};
 
 use crate::{
     error::{RegistrationError, SendError},
     mailbox::{Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
-    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand},
+    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmSender},
     reply::Reply,
     request::{
         AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, RemoteAskRequest,
@@ -384,12 +380,12 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 /// A reference to an actor running remotely.
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
-    swarm_tx: mpsc::Sender<SwarmCommand>,
+    swarm_tx: SwarmSender,
     phantom: PhantomData<A::Mailbox>,
 }
 
 impl<A: Actor> RemoteActorRef<A> {
-    pub(crate) fn new(id: ActorID, swarm_tx: mpsc::Sender<SwarmCommand>) -> Self {
+    pub(crate) fn new(id: ActorID, swarm_tx: SwarmSender) -> Self {
         RemoteActorRef {
             id,
             swarm_tx,
@@ -447,8 +443,8 @@ impl<A: Actor> RemoteActorRef<A> {
         TellRequest::new_remote(self, msg)
     }
 
-    pub(crate) async fn send_to_swarm(&self, msg: SwarmCommand) {
-        self.swarm_tx.send(msg).await.unwrap()
+    pub(crate) fn send_to_swarm(&self, msg: SwarmCommand) {
+        self.swarm_tx.send(msg)
     }
 }
 
