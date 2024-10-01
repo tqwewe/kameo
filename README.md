@@ -1,5 +1,6 @@
 # Kameo 🎬
 
+[![Discord](https://img.shields.io/badge/Discord-5868e4?logo=discord&logoColor=white)](https://discord.gg/GMX4DV9fbk)
 [![Crates.io Version](https://img.shields.io/crates/v/kameo)](https://crates.io/crates/kameo)
 [![docs.rs](https://img.shields.io/docsrs/kameo)](https://docs.rs/kameo)
 [![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)](https://crates.io/crates/kameo)
