@@ -258,10 +258,7 @@ impl ActorSwarm {
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Register {
-                record: kad::Record::new(
-                    name.into_bytes(),
-                    actor_registration.into_bytes(*self.local_peer_id),
-                ),
+                record: kad::Record::new(name.into_bytes(), actor_registration.into_bytes()),
                 reply,
             });
 
@@ -661,9 +658,9 @@ pub(crate) struct ActorRegistration<'a> {
 }
 
 impl<'a> ActorRegistration<'a> {
-    fn into_bytes(self, local_peer_id: PeerId) -> Vec<u8> {
+    fn into_bytes(self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(1 + 8 + 42 + self.remote_id.len());
-        let actor_id_bytes = self.actor_id.to_bytes(local_peer_id);
+        let actor_id_bytes = self.actor_id.to_bytes();
         let peer_id_len = (actor_id_bytes.len() - 8) as u8;
         bytes.extend_from_slice(&peer_id_len.to_le_bytes());
         bytes.extend_from_slice(&actor_id_bytes);
