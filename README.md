@@ -17,11 +17,11 @@ Kameo is a Rust library to build fault-tolerant async actors in Rust.
 
 ## Feature highlights
 
-* Async Rust: tokio task per actor
-* Supervision: link actors together
-* Remote messaging: message actors between nodes
-* Panic safe: gracefully handled panics
-* Back pressure: supports bounded & unbounded mpsc messaging
+* **Async Rust**: tokio task per actor
+* **Supervision**: link actors together
+* **Remote messaging**: message actors between nodes
+* **Panic safe**: gracefully handled panics
+* **Back pressure**: supports bounded & unbounded mpsc messaging
 
 
 ## Reasons to use Kameo
@@ -70,6 +70,11 @@ let actor_ref = kameo::spawn(Counter { count: 0 });
 let count = actor_ref.ask(Inc { amount: 42 }).send().await?;
 assert_eq!(count, 42);
 ```
+
+## Getting Help
+
+The kameo book provides a great overview of core concepts in kameo.
+If you'd like to reach out, feel free to open an issue or discussion, or join the discord server – [https://discord.gg/GMX4DV9fbk](https://discord.gg/GMX4DV9fbk).
 
 ## Contributing
 
