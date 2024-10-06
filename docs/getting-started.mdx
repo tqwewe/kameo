@@ -80,7 +80,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result retu
 - **Spawning and Messaging**: The `spawn` function creates an instance of the `HelloWorldActor` and returns a reference to it (`actor_ref`). The `tell` method is then used to send a `Greet` message to the actor. The `send` method is awaited to ensure the message is sent to the actors mailbox.
 - **Asynchronous Runtime**: The example uses Tokio as the asynchronous runtime, indicated by the `#[tokio::main]` attribute. This is necessary for running asynchronous Rust code.
 
-### Next Steps
+---
+
+#### Next Steps
 
 This example is a starting point for building applications with Kameo. From here, you can explore more complex actor behaviors, state management, actor supervision, and building distributed systems with remote actors.
 

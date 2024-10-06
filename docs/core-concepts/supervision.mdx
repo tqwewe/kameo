@@ -4,28 +4,28 @@ title: Supervision Overview
 
 Supervision is a critical concept in building resilient actor systems, ensuring that the system can recover from failures and continue operating without interruption. In Kameo, supervision and actor lifecycle management are facilitated through a combination of customizable behavior hooks and actor linking. This page discusses how to effectively use these features to create robust actor hierarchies and manage actor failures gracefully.
 
-### Customizing Actor Behavior on Panic
+## Customizing Actor Behavior on Panic
 
 When an actor panics, its default behavior can be customized using the `on_panic` hook within the `Actor` trait. This hook allows developers to define custom logic that should execute when an actor encounters a panic, providing a first line of defense in managing unexpected failures.
 
-### Linking Actors
+## Linking Actors
 
 Beyond individual actor behavior, Kameo supports linking actors together to create a supervision tree. This structure enables actors to monitor each other's health and respond to failures, forming the backbone of a self-healing system.
 
-#### Actor Links
+### Actor Links
 
 Actors can be linked using two primary methods, which establish parent-child and sibling relationships:
 
 - `ActorRef::link_child`
 - `ActorRef::link_together`
 
-#### Handling Link Failures
+### Handling Link Failures
 
 When a linked actor dies, the surviving actors can react to this event using the `on_link_died` hook in the `Actor` trait. This hook provides the ID of the deceased actor and the reason for its termination, enabling the surviving actors to implement custom logic, such as restarting the failed actor or taking other remedial actions.
 
 The default behavior for `on_link_died` is to stop the current actor if the linked actor died for any reason other than a normal shutdown. This conservative default ensures that failures are not silently ignored, promoting system stability by preventing dependent actors from continuing in an inconsistent state.
 
-#### Unlinking Actors
+## Unlinking Actors
 
 In some scenarios, it may be necessary to remove links between actors, either to restructure the supervision tree or in response to changing application dynamics. Kameo provides methods for this purpose:
 

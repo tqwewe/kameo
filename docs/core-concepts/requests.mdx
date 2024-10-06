@@ -4,7 +4,7 @@ title: Requests Overview
 
 In the context of the Kameo, requests are the means through which actors communicate and interact with each other. These interactions are encapsulated in two primary forms: ask requests and tell requests. Understanding the nuances between these two types of requests is crucial for effectively managing actor behaviors and ensuring the robustness of your application.
 
-### Ask Requests
+## Ask Requests
 
 Ask requests are a form of message sending where the sender waits for a response from the receiver. This pattern is useful when the sender requires data or confirmation that an action has been completed before proceeding. Unlike tell requests, ask requests inherently support handling responses and errors, providing a direct way to deal with exceptional conditions.
 
@@ -16,7 +16,7 @@ Key Features of Ask Requests:
 	- **Mailbox Timeout**: For actors with a bounded mailbox, an optional `mailbox_timeout` can be specified. This timeout represents the maximum duration the request will wait in the queue before being processed. If the mailbox is full beyond this duration, the request may be dropped or an error returned.
 	- **Reply Timeout**: A `reply_timeout` can also be set, indicating how long the sender will wait for a response. This is particularly useful for avoiding indefinite blocking in scenarios where the receiver might be unable to process the request promptly.
 
-### Tell Requests
+## Tell Requests
 
 Tell requests, on the other hand, are the "fire-and-forget" type of messages. When a tell request is sent, the sender does not wait for any acknowledgment or reply from the receiver. This approach is ideal for notifications or commands where the outcome does not directly influence the sender's immediate actions.
 
@@ -26,7 +26,7 @@ Characteristics of Tell Requests:
 - **Error Handling**: Errors encountered by the actor while processing a tell request are treated as panics. By default, such panics may lead to the stopping of the actor, although this behavior can be customized via the `Actor::on_panic` hook to allow for error recovery or logging.
 - **Mailbox Timeout**: Similar to ask requests, a `mailbox_timeout` can be set for tell requests sent to actors with bounded mailboxes. This timeout helps manage the queuing behavior in scenarios where the actor's mailbox might be at capacity, ensuring that the system can gracefully handle backpressure.
 
-### Request Methods
+## Request Methods
 
 Sending a message can be done using one of the traits/methods listed in this table. Each cell describes the behaviour of the implementation depending on the mailbox type.
 
@@ -48,7 +48,7 @@ The column headings describe the following:
 | `TryBlockingMessageSend` :: `try_blocking_send` | Tries to send a message, blocking the thread while waiting for a reply, but failing if the mailbox is full. | Tries to send a message, blocking the thread while waiting for a reply.    | Tries to send a message, failing if the mailbox is full.                   | Sends a message.               |
 | `ForwardMessageSend` :: `forward`               | Sends a message, waiting for mailbox capacity with the reply being forwarded to a provided ReplySender.     | Sends a message, with the reply being forwarded to a provided ReplySender. | ❌                                                                          | ❌                              |
 
-#### **Supported Requests**
+### **Supported Requests**
 
 Depending on whether a message is being sent with a timeout set or to a remote actor, some methods may not be available. Below is table showing which methods are available under different circumstances.
 

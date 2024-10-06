@@ -4,7 +4,7 @@ title: Dialing and Connecting to Other Nodes
 
 Once your node is bootstrapped and listening on an address, the next step in setting up a distributed actor system is dialing and connecting to other nodes. Kameo’s `ActorSwarm` allows nodes to discover and connect with peers using libp2p’s peer-to-peer communication capabilities. This section covers how to dial peers using multiaddresses, how to manage peer connections, and how libp2p’s mDNS feature can simplify peer discovery.
 
-#### Dialing a Peer
+## Dialing a Peer
 
 To establish a connection with another node, you need to dial its multiaddress. A multiaddress specifies the protocol, IP address, and port required to reach the node.
 
@@ -14,7 +14,22 @@ actor_swarm.dial("/ip4/192.0.2.0/udp/8020/quic-v1".parse()?).await?;
 
 In this example, the node is dialing another node located at IP address `192.0.2.0` on UDP port `8020`, using the QUIC protocol. Once the connection is established, the node can interact with remote actors on the peer.
 
-#### Auto-discovery with mDNS
+### Dialing with Options
+
+For more advanced use cases, Kameo provides the `DialOpts` structure, which allows you to customize how you dial peers. This is useful when you need to include additional details or preferences when establishing connections, such as specifying peer IDs.
+
+```rust
+let dial_opts = DialOpts::unknown_peer_id()
+    .address("/ip4/192.0.2.0/udp/8020/quic-v1".parse()?)
+    .build();
+
+actor_swarm.dial(dial_opts).await?;
+```
+
+In this example, `DialOpts` is used to dial a peer at a known address without specifying the peer’s ID. This option can be customized depending on the situation, such as when connecting to peers with specific identities or conditions.
+
+
+## Auto-discovery with mDNS
 
 In most cases, libp2p’s [**mDNS (Multicast DNS)**](https://docs.libp2p.io/concepts/discovery-routing/mdns/) feature allows nodes to automatically discover each other on the same local network, without needing to manually dial peers. This greatly simplifies setting up a distributed system, as peers will be able to find and connect to each other without explicit configuration.
 
@@ -29,21 +44,7 @@ actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
 
 This makes peer discovery effortless in environments where mDNS is available, such as local networks or development environments.
 
-#### Dialing with Options
-
-For more advanced use cases, Kameo provides the `DialOpts` structure, which allows you to customize how you dial peers. This is useful when you need to include additional details or preferences when establishing connections, such as specifying peer IDs.
-
-```rust
-let dial_opts = DialOpts::unknown_peer_id()
-    .address("/ip4/192.0.2.0/udp/8020/quic-v1".parse()?)
-    .build();
-
-actor_swarm.dial(dial_opts).await?;
-```
-
-In this example, `DialOpts` is used to dial a peer at a known address without specifying the peer’s ID. This option can be customized depending on the situation, such as when connecting to peers with specific identities or conditions.
-
-#### Adding Peer Addresses Manually
+## Adding Peer Addresses Manually
 
 In some cases, you may want to manually add a known peer’s address to the swarm without dialing immediately. This can be useful for preloading peers or when you want to manage connections programmatically.
 
@@ -56,7 +57,7 @@ actor_swarm.add_peer_address(peer_id, addr);
 
 This example shows how to associate a peer’s identity with a known address. Once the peer address is added, the swarm will use it to attempt future connections or for message routing.
 
-#### Disconnecting from Peers
+## Disconnecting from Peers
 
 If you need to disconnect from a peer, you can do so using the peer’s `PeerId`. This is helpful when you want to manage peer connections and ensure that a node is no longer part of the active network.
 
@@ -66,7 +67,7 @@ actor_swarm.disconnect_peer_id(peer_id);
 
 This cleanly terminates the connection with the specified peer, removing it from the swarm’s list of active peers.
 
-#### Example: Dialing and Connecting to Peers
+## Example: Dialing and Connecting to Peers
 
 Here’s a full example of how to dial a peer and establish a connection:
 
@@ -88,6 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 This example shows how to bootstrap the swarm, set up a listener, and connect to another node using a multiaddress.
+
+---
 
 #### What’s Next?
 

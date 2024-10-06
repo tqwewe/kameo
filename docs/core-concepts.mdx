@@ -4,22 +4,22 @@ title: Core Concepts Overview
 
 Welcome to the Core Concepts section of Kameo, where you'll find the foundational principles and components that make up the Kameo actor library. Understanding these concepts is crucial for effectively leveraging Kameo to build resilient, scalable, and concurrent applications. Below is an overview of the key concepts that form the backbone of Kameo's design and functionality.
 
-### [<i class="fa-fw fa-solid fa-users"></i>&nbsp; Actors](/core-concepts/actors)
+## [<i class="fa-fw fa-solid fa-users"></i>&nbsp; Actors](/core-concepts/actors)
 
 At the heart of Kameo lies the Actor model, a powerful abstraction that encapsulates state and behavior into independent, concurrent units. Actors are the primary building blocks of applications in Kameo, designed to isolate state and handle messages asynchronously. This isolation enhances fault tolerance and system resilience, as actors can fail and recover without affecting the overall system stability.
 
-### [<i class="fa-fw fa-solid fa-envelope"></i>&nbsp; Messages](/core-concepts/messages)
+## [<i class="fa-fw fa-solid fa-envelope"></i>&nbsp; Messages](/core-concepts/messages)
 
 Communication in Kameo is achieved through messages. Actors interact with each other exclusively by sending and receiving messages, ensuring a loose coupling between components. This messaging system underpins the asynchronous, non-blocking nature of Kameo, enabling efficient communication patterns and facilitating the development of responsive applications.
 
-### [<i class="fa-fw fa-solid fa-question"></i>&nbsp; Requests](/core-concepts/requests)
+## [<i class="fa-fw fa-solid fa-question"></i>&nbsp; Requests](/core-concepts/requests)
 
 Requests represent a specialized form of message exchange in Kameo, supporting both the "ask" and "tell" patterns. This library allows actors to either send messages without expecting a reply ("tell") or send messages and await responses ("ask"). The ask pattern, in particular, introduces a way to handle more complex interaction flows, including synchronous operations and error handling.
 
-### [<i class="fa-fw fa-solid fa-reply"></i>&nbsp; Replies](/core-concepts/replies)
+## [<i class="fa-fw fa-solid fa-reply"></i>&nbsp; Replies](/core-concepts/replies)
 
 Replies are responses to requests, completing the communication cycle between actors. By implementing the `Reply` trait, apps can define custom reply types, ensuring that actors can exchange meaningful data and status information. This mechanism is crucial for implementing robust and interactive systems where actors depend on the outcomes of their interactions.
 
-### [<i class="fa-fw fa-solid fa-shield-alt"></i>&nbsp; Supervision](/core-concepts/supervision)
+## [<i class="fa-fw fa-solid fa-shield-alt"></i>&nbsp; Supervision](/core-concepts/supervision)
 
 Supervision is a strategy for managing actor lifecycle and failure recovery, embodying the principle of "let it crash." In Kameo, actors can be linked together in supervision trees, allowing parent actors to monitor and respond to the failures of their children. This model provides a structured approach to error handling and recovery, ensuring system resilience and stability.

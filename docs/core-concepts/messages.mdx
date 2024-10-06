@@ -4,7 +4,7 @@ title: Messages Overview
 
 In Kameo, messages play a central role in the communication between actors. They are the primary means through which actors interact and modify each other's state. Understanding how messages work is fundamental to effectively using Kameo to build concurrent applications.
 
-### **Defining Messages**
+## **Defining Messages**
 
 Messages in Kameo are any static types that are handled by implementing the `Message<T>` trait for an actor. This design allows for a wide variety of message types, from simple data structures to complex commands with associated data. The flexibility in message definition enables developers to design their actor system with clear and concise communication patterns.
 
@@ -28,13 +28,13 @@ pub trait Message<T>: Actor {
 - **Reply Type**: Each message has an associated `Reply` type, which is the type of the response that the message sender can expect to receive. This reply must implement the `Reply` trait, which ensures that it can be properly handled and sent back to the caller.
 - **Message Handler**: The core of the Message trait is the handle function. This function is where the logic for handling a specific message is defined. It takes mutable access to the actor (&mut self), the message itself (msg), and a context (ctx) that provides access to actor-specific functionality like sending messages to other actors or accessing the actor's state. The handle function returns a future that resolves to the message's reply type, allowing for asynchronous processing of messages. This design supports non-blocking message handling, which is essential for building responsive and scalable actor systems.
 
-### Sequential Processing
+## Sequential Processing
 
 Messages in Kameo are processed sequentially, one at a time, with exclusive mutable access to the actor's state. This sequential processing model simplifies state management within actors, as there is no need for explicit synchronization mechanisms like locks. When an actor is handling a message, it can safely modify its state without worrying about concurrent modifications from other messages.
 
 This model also ensures that messages are processed in the order they are received, which can be critical for maintaining consistency and correctness in certain applications.
 
-### Asynchronous and Concurrent
+## Asynchronous and Concurrent
 
 While messages are processed sequentially within a single actor, Kameo allows for concurrent processing across multiple actors. This is where the actor model shines, enabling high levels of concurrency without the complexity associated with traditional multithreading and synchronization.
 

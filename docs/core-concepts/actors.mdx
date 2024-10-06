@@ -4,7 +4,7 @@ title: Actors Overview
 
 The core of Kameo is its actors. Actors are objects that encapsulate state and behavior. They interact with the rest of the system asynchronously, primarily through message passing, which allows for a high degree of concurrency and scalability. This section provides an overview of the `Actor` trait in Kameo, detailing its lifecycle, messaging, and supervision.
 
-### Actor Trait Overview
+## Actor Trait Overview
 
 The `Actor` trait defines the essential functionality and lifecycle hooks for an actor in Kameo. Implementing this trait allows you to create custom actors tailored to your application's requirements. Here are the key components of the `Actor` trait:
 
@@ -13,7 +13,7 @@ The `Actor` trait defines the essential functionality and lifecycle hooks for an
 - **Messaging**: Actors communicate by sending messages to each other. When an actor is spawned, it returns an `ActorRef`, a reference to the actor that can be used to send messages to it. Messages are sent asynchronously and are processed sequentially by the receiving actor.
 - **Supervision**: Actors can supervise other actors, allowing for hierarchical error handling and recovery strategies. The `on_panic` and `on_link_died` hooks are integral to this, enabling actors to respond to failures in their child actors, as well as themselves.
 
-#### **Deriving Actor**
+### **Deriving Actor**
 
 To streamline the creation of actors and reduce repetitive boilerplate, Kameo offers a derive macro for the `Actor` trait. This macro not only simplifies the actor definition process but also provides sensible defaults that adhere to common practices.
 
@@ -34,18 +34,18 @@ use kameo::Actor;
 struct MyActor { }
 ```
 
-### Lifecycle Management
+## Lifecycle Management
 
 - **Starting**: The `on_start` hook is called before the actor starts processing messages. It's an opportunity to perform any necessary initialization.
 - **Stopping**: Actors are stopped either explicitly or when all references to their `ActorRef` are dropped. The `on_stop` hook allows for cleanup activities before the actor is fully stopped.
 - **Error Handling**: The `on_panic` hook is invoked when an actor panics or encounters an error while processing a message. This hook can decide whether the actor should be stopped or continue processing messages.
 - **Link Failures**: The `on_link_died` hook is called when a linked actor dies, providing a chance to react to the failure of closely related actors.
 
-### Actor Creation and Messaging
+## Actor Creation and Messaging
 
 Creating an actor involves implementing the `Actor` trait and then spawning the actor using `kameo::spawn`. Upon spawning, an `ActorRef<T>` is returned, which is used to send messages to the actor. The actor processes messages using the `handle` method from the `Message` trait, optionally returning a reply.
 
-#### Example Usage
+### Example Usage
 
 ```rust
 struct MyActor;

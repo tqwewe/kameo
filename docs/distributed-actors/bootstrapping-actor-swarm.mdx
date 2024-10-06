@@ -4,7 +4,7 @@ title: Bootstrapping Actor Swarm
 
 Before actors can communicate across nodes in a distributed system, you need to initialize the `ActorSwarm`. The `ActorSwarm` is responsible for managing peer-to-peer connections, actor registration, and message routing across nodes. This section explains how to bootstrap the swarm, set up network listening, and prepare your system for distributed communication.
 
-#### Initializing the Actor Swarm
+## Initializing the Actor Swarm
 
 The first step in setting up distributed actors is bootstrapping the `ActorSwarm`. This initializes the swarm, allowing the node to participate in the network and accept incoming connections.
 
@@ -14,7 +14,7 @@ let actor_swarm = ActorSwarm::bootstrap()?;
 
 This will initialize the swarm with default settings, preparing the node to listen for connections from other nodes. Once bootstrapped, you can register actors and send messages.
 
-#### Bootstrapping with Identity
+## Bootstrapping with Identity
 
 In some cases, you may want to bootstrap the swarm with a specific identity (keypair). This allows nodes to be uniquely identified in the network, which can be useful for secure communication or when interacting with known peers.
 
@@ -25,7 +25,7 @@ let actor_swarm = ActorSwarm::bootstrap_with_identity(keypair)?;
 
 The `Keypair` generates a cryptographic identity for the node. This is useful for secure, verifiable communication between peers. The node will now be identified by its `PeerId`, derived from the keypair.
 
-#### Listening on a Multiaddress
+## Listening on a Multiaddress
 
 After bootstrapping the swarm, you need to instruct the node to listen on a specific network address. Kameo uses libp2p’s **multiaddress** format, which allows nodes to specify how they can be reached over the network. Multiaddresses define the protocol (e.g., TCP or QUIC) and the IP address/port combination.
 
@@ -35,7 +35,7 @@ actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
 
 In this example, the node is listening on the IP address `0.0.0.0` (which represents all available network interfaces) on UDP port `8020`, using the QUIC protocol. You can customize this address based on your network environment or use different protocols as needed.
 
-#### Example: Bootstrapping and Listening
+## Example: Bootstrapping and Listening
 
 Here’s a full example that combines bootstrapping the swarm and setting up a listener:
 
@@ -54,6 +54,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 
 Once the swarm is bootstrapped and listening, the node can register actors, dial other peers, and send messages. This setup ensures the node is part of the network and ready to accept and route messages.
+
+---
 
 #### What’s Next?
 
