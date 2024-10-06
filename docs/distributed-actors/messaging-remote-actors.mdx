@@ -1,0 +1,125 @@
+---
+title: Messaging Remote Actors
+---
+
+Once actors are registered and discoverable across nodes, the next step is to start communicating with them. Kameo allows you to send messages to remote actors just like you would with local actors. The underlying networking is handled transparently, and messages are routed across the network using the `RemoteActorRef`. This section explains how to message remote actors and handle replies.
+
+#### Sending Messages
+
+After looking up a remote actor using `RemoteActorRef`, you can send messages to it using the familiar `ask` and `tell` patterns.
+
+- **ask**: Used when you expect a reply from the remote actor.
+- **tell**: Used when you do not expect a reply, a "fire-and-forget" style message.
+
+```rust
+// Lookup the remote actor
+let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+
+// Send a message and await the reply
+if let Some(actor) = remote_actor_ref {
+    let result = actor.ask(&Inc { amount: 10 }).send().await?;
+    println!("Incremented count: {result}");
+}
+```
+
+In this example, the node looks up the actor named `"my_actor"` and sends an `Inc` message to increment the actor's internal state. The message is serialized and sent over the network to the remote actor, and the reply is awaited asynchronously.
+
+#### Fire-and-Forget Messaging
+
+If you don’t need a response from the actor, you can use the `tell` method to send a message without waiting for a reply.
+
+```rust
+// Send a fire-and-forget message
+actor.tell(&LogMessage { text: String::from("Logging event") }).send().await?;
+```
+
+The `tell` method is useful for one-way communication where no acknowledgment is required, such as logging or notification systems.
+
+#### Requirements for Remote Messaging
+
+There are two requirements to enable messaging between nodes:
+
+1. **The Actor must implement `RemoteActor`**: Any actor that can be messaged remotely must implement the `RemoteActor` trait, which uniquely identifies the actor type. This allows the system to route messages to the correct actor on remote nodes.
+
+```rust
+#[derive(RemoteActor)]
+pub struct MyActor;
+```
+
+2. **Message Serialization with `#[remote_message]`**: In Kameo, messages sent between nodes must be serializable. To enable this, message types need to implement `Serialize` and `Deserialize` traits, and the message implementation must be annotated with the `#[remote_message]` macro, which assigns a unique identifier to the actor and message type handler.
+
+```rust
+#[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
+impl Message<Inc> for MyActor {
+    type Reply = i64;
+
+    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+        self.count += msg.amount as i64;
+        self.count
+    }
+}
+```
+
+This `#[remote_message]` macro ensures that the message is properly serialized and routed to the correct actor across the network. The UUID string assigned to each message must be unique within the crate to avoid conflicts.
+
+#### Handling Replies
+
+When sending a message using the `ask` pattern, you’ll typically want to handle a response from the remote actor. The reply type is specified in the actor’s message handler and can be awaited asynchronously.
+
+```rust
+let result = actor.ask(&Inc { amount: 10 }).send().await?;
+println!("Received reply: {}", result);
+```
+
+In this example, the reply from the remote actor is awaited, and the result is printed once received.
+
+#### Why the `#[remote_message]` Macro is Needed
+
+Unlike actor systems that use a traditional enum for message types, Kameo allows actors to handle a variety of message types without defining a centralized enum for all possible messages. This flexibility introduces a challenge when deserializing incoming messages—because we don't know the exact message type at the time of deserialization.
+
+To solve this, Kameo leverages the [**linkme**](https://crates.io/crates/linkme) crate, which dynamically builds a `HashMap` of registered message types at link time:
+
+```rust
+HashMap<RemoteMessageRegistrationID, RemoteMessagesFns>
+```
+
+- **`RemoteMessageRegistrationID`**: A unique identifier combining the actor’s ID and the message’s ID (both provided via the `RemoteActor` and `#[remote_message]` macros).
+- **`RemoteMessagesFns`**: A struct containing function pointers for handling messages (`ask` or `tell`) for the given actor and message type.
+
+When a message is received, Kameo uses this hashmap to look up the appropriate function for deserializing and handling the message, based on the combination of the actor and message IDs.
+
+By using the `#[remote_message]` macro, Kameo registers each message type during link time, ensuring that when a message is received, the system knows how to deserialize it and which function to invoke on the target actor.
+
+#### Example: Messaging a Remote Actor
+
+Here’s a full example of how to message a remote actor and handle its reply:
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Bootstrap the swarm and listen on an address
+    let actor_swarm = ActorSwarm::bootstrap()?;
+    actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
+
+    // Lookup a registered remote actor
+    let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+
+    if let Some(actor) = remote_actor_ref {
+        // Send a message and await the reply
+        let result = actor.ask(&Inc { amount: 10 }).send().await?;
+        println!("Incremented count: {result}");
+    } else {
+        println!("Actor not found");
+    }
+
+    Ok(())
+}
+```
+
+In this example, a node is bootstrapped, connected to a network, and looks up a remote actor named `"my_actor"`. After finding the actor, the node sends an increment message (`Inc`) and waits for a response, which is printed upon receipt.
+
+#### What’s Next?
+
+Now that you’ve seen how to send messages to remote actors and handle replies, you can start building distributed systems where actors on different nodes communicate seamlessly. Experiment with sending different types of messages and handling remote interactions.
+
+If you haven’t yet set up your actor system, go back to the [Bootstrapping the Actor Swarm](/distributed-actors/bootstrapping-actor-swarm) section for instructions on setting up your distributed actor environment.

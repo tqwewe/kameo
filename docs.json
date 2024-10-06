@@ -52,6 +52,36 @@
           "icon": "shield-alt"
         }
       ]
+    },
+    {
+      "group": "Distributed Actors",
+      "pages": [
+        {
+          "title": "Overview",
+          "href": "/distributed-actors",
+          "icon": "network-wired"
+        },
+        {
+          "title": "Bootstrapping the Actor Swarm",
+          "href": "/distributed-actors/bootstrapping-actor-swarm",
+          "icon": "play-circle"
+        },
+        {
+          "title": "Dialing and Connecting to Other Nodes",
+          "href": "/distributed-actors/dialing-connecting-nodes",
+          "icon": "link"
+        },
+        {
+          "title": "Registering and Looking up Actors",
+          "href": "/distributed-actors/registering-looking-up-actors",
+          "icon": "user-tag"
+        },
+        {
+          "title": "Messaging Remote Actors",
+          "href": "/distributed-actors/messaging-remote-actors",
+          "icon": "envelope-open-text"
+        }
+      ]
     }
   ]
 }

@@ -145,7 +145,8 @@ Distributed actors in Kameo are designed to interact with each other as if they 
         .await?;
     ```
 
-A full example can be found in [examples/remote.rs](examples/remote.rs).
+See the [kameo book](https://docs.page/tqwewe/kameo/distributed-actors) for in-depth information on distributed actors in kameo.
+Additionally, a full example can be found in [examples/remote.rs](examples/remote.rs).
 
 ## Additional Resources
 
