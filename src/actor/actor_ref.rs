@@ -767,7 +767,7 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
 /// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
 #[derive(Clone, Default)]
 #[allow(missing_debug_implementations)]
-pub struct Links(Arc<Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>>);
+pub(crate) struct Links(Arc<Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>>);
 
 impl ops::Deref for Links {
     type Target = Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>;
