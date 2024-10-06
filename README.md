@@ -49,7 +49,7 @@ cargo add kameo
 
 ## Example: Defining an Actor
 
-```rust
+```rust,ignore
 use kameo::Actor;
 use kameo::message::{Context, Message};
 use kameo::request::MessageSend;
@@ -76,7 +76,7 @@ impl Message<Inc> for Counter {
 
 Spawn and message the actor.
 
-```rust
+```rust,ignore
 // Spawn the actor and get a reference to it
 let actor_ref = kameo::spawn(Counter { count: 0 });
 
@@ -95,7 +95,7 @@ Distributed actors in Kameo are designed to interact with each other as if they 
 
 1. **Actor Registration:** Actors can be registered under a unique name using `ActorRef::register`. Once registered, other actors or systems can look up this actor from a remote node. Under the hood, Kameo uses a **Kademlia Distributed Hash Table (DHT)**, provided by libp2p, to handle actor registration and lookup across nodes in a distributed manner.
 
-   ```rust
+   ```rust,ignore
    // On the host node, register the actor
    let actor_ref = kameo::spawn(MyActor::default());
    actor_ref.register("my_actor").await?;
@@ -103,14 +103,14 @@ Distributed actors in Kameo are designed to interact with each other as if they 
 
 2. **Actor Lookup:** On remote nodes, actors can look up registered actors using `RemoteActorRef::lookup`. This returns a reference to the remote actor that can be messaged.
 
-   ```rust
+   ```rust,ignore
    // On a guest node, lookup the remote actor
    let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
    ```
 
 3. **Message Passing:** Once the remote actor reference is obtained, you can send messages to it just like with local actors. The message is serialized, sent over the network, deserialized on the remote node, and handled by the actor.
 
-   ```rust
+   ```rust,ignore
    if let Some(remote_actor_ref) = remote_actor_ref {
        let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
        println!("Incremented! Count is {count}");
@@ -119,7 +119,7 @@ Distributed actors in Kameo are designed to interact with each other as if they 
 
 4. **Message Registration:** In order to send messages between nodes, the message type must implement `Serialize` and `Deserialize`. Additionally, it needs to be annotated with the `#[remote_message("uuid")]` macro, where the `uuid` is a unique identifier for the message type. This UUID helps identify which message implementation to use when sending and receiving messages over the network. It's important to ensure that the UUID does not conflict with other registered messages in your crate.
 
-   ```rust
+   ```rust,ignore
    #[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
    impl Message<Inc> for MyActor {
        type Reply = i64;
@@ -138,7 +138,7 @@ Distributed actors in Kameo are designed to interact with each other as if they 
 
     Kameo actors use these multiaddresses when communicating across nodes. The `ActorSwarm` component handles networking, allowing actors to register, look up, and send messages to remote actors, abstracting away the underlying complexity.
 
-    ```rust
+    ```rust,ignore
     // Bootstrap the actor swarm and listen on a UDP port 8020
     ActorSwarm::bootstrap()?
         .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)

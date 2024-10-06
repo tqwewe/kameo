@@ -6,6 +6,7 @@
 //! names and send messages between actors on different nodes as though they were local.
 //!
 //! ## Key Features
+//!
 //! - **Swarm Management**: The `ActorSwarm` struct handles a distributed swarm of nodes,
 //!   managing peer discovery and communication.
 //! - **Actor Registration**: Actors can be registered under a unique name and looked up across
@@ -14,27 +15,34 @@
 //!   of Kademlia DHT and libp2p's networking capabilities.
 //!
 //! ## Getting Started
+//!
 //! To use remote actors, you must first initialize an `ActorSwarm`, which will set up the necessary
 //! networking components to allow remote actors to communicate across nodes.
 //!
-//! ```rust
+//! ```
 //! use kameo::remote::ActorSwarm;
 //!
+//! # tokio_test::block_on(async {
 //! // Initialize the actor swarm
-//! let actor_swarm = ActorSwarm::bootstrap();
-//! actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?);
+//! ActorSwarm::bootstrap()?
+//!     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # });
 //! ```
 //!
 //! ## Example Use Case
+//!
 //! - A distributed chat system where actors represent individual users, and messages are sent between them across multiple nodes.
 //!
 //! ## Types in the Module
+//!
 //! - [`ActorSwarm`]: The core struct for managing the distributed swarm of nodes and coordinating actor registration and messaging.
 //! - [`SwarmFuture`]: A future that holds the response from the actor swarm.
 //! - [`RemoteActor`]: A trait for identifying remote actors via a unique ID.
 //! - [`RemoteMessage`]: A trait for identifying remote messages via a unique ID.
 //!
 //! ### Re-exports
+//!
 //! - `Keypair`, `PeerId`, `dial_opts`: Re-exported from the libp2p library to assist with handling peer identities and dialing options.
 
 use std::{
@@ -83,7 +91,9 @@ static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, R
 ///
 /// ## Example with Derive
 ///
-/// ```rust
+/// ```
+/// use kameo::RemoteActor;
+///
 /// #[derive(RemoteActor)]
 /// pub struct MyActor;
 /// ```
@@ -91,6 +101,8 @@ static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, R
 /// ## Example Manual Implementation
 ///
 /// ```
+/// use kameo::remote::RemoteActor;
+///
 /// pub struct MyActor;
 ///
 /// impl RemoteActor for MyActor {

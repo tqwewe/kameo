@@ -1,3 +1,46 @@
+//! Provides a pool of actors for task distribution and load balancing.
+//!
+//! The `pool` module offers the ability to manage a group of actors that work together to process tasks.
+//! It enables the creation of an `ActorPool`, which distributes incoming messages to a fixed set of worker actors
+//! in a round-robin fashion. This ensures that tasks are evenly distributed across workers, improving
+//! resource utilization and overall performance.
+//!
+//! `ActorPool` must be spawned as an actor, and tasks can be sent to it using the `WorkerMsg` message
+//! for individual workers or the `BroadcastMsg` to send a message to all workers in the pool.
+//!
+//! # Features
+//! - **Load Balancing**: Messages are distributed among a fixed set of actors in a round-robin manner.
+//! - **Resilience**: Workers that stop or fail are automatically replaced to ensure continued operation.
+//! - **Flexible Actor Management**: The pool can manage any type of actor that implements the [Actor] trait,
+//!   allowing it to be used for various tasks.
+//!
+//! # Example
+//!
+//! ```
+//! use kameo::Actor;
+//! use kameo::actor::{ActorPool, WorkerMsg, BroadcastMsg};
+//! # use kameo::message::{Context, Message};
+//! use kameo::request::MessageSend;
+//!
+//! #[derive(Actor)]
+//! struct MyWorker;
+//! #
+//! # impl Message<&'static str> for MyWorker {
+//! #     type Reply = ();
+//! #     async fn handle(&mut self, msg: &'static str, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+//! # }
+//!
+//! # tokio_test::block_on(async {
+//! // Spawn the actor pool with 4 workers
+//! let pool_actor = kameo::spawn(ActorPool::new(4, || kameo::spawn(MyWorker)));
+//!
+//! // Send tasks to the pool
+//! pool_actor.tell(WorkerMsg("Hello worker!")).send().await?;
+//! pool_actor.tell(BroadcastMsg("Hello all workers!")).send().await?;
+//! # Ok::<(), Box<dyn std::error::Error>>(())
+//! # });
+//! ```
+
 use std::fmt;
 
 use futures::{
@@ -33,35 +76,8 @@ enum Factory<A: Actor> {
 /// and resource utilization. Additionally, it handles the dynamic replacement of workers
 /// that stop due to errors or other reasons, maintaining the pool's resilience and reliability.
 ///
-/// The pool is generic over the type of actors it contains, allowing it to manage any actor
-/// that implements the [Actor] trait. This design provides flexibility in using the pool
-/// with different types of actors for various tasks.
-///
-/// `ActorPool` can handle any message that the worker actors can handle.
-///
-/// # Examples
-///
-/// ```no_run
-/// use kameo::Actor;
-/// use kameo::actor::{ActorPool, ActorRef};
-/// use kameo::message::Message;
-/// use kameo::request::MessageSend;
-///
-/// #[derive(Actor)]
-/// struct MyActor;
-///
-/// struct MyMessage;
-/// impl Message<MyMessage> for MyActor {
-///     // ...
-/// }
-///
-/// // Create a pool with 5 workers.
-/// let pool = ActorPool::new(5, || {
-///     kameo::spawn(MyActor)
-/// });
-///
-/// pool.ask(WorkerMsg(MyMessage)).send().await?;
-/// ```
+/// The pool can be used either as a standalone object or spawned as an actor. When spawned, tasks can be
+/// sent using the `WorkerMsg` and `BroadcastMsg` messages for individual or broadcast communication with workers.
 pub struct ActorPool<A: Actor> {
     workers: Vec<ActorRef<A>>,
     size: usize,
