@@ -110,12 +110,19 @@ where
     /// - The [ReplySender], if not `None`, should be used by the delegated responder to send the actual reply.
     ///
     /// ```
-    /// use kameo::message::{Context, DelegatedReply, Message};
+    /// use kameo::message::{Context, Message};
+    /// use kameo::reply::DelegatedReply;
     ///
-    /// impl Message<MyMsg> for MyActor {
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    ///
+    /// struct Msg;
+    ///
+    /// impl Message<Msg> for MyActor {
     ///     type Reply = DelegatedReply<String>;
     ///
-    ///     async fn handle(&mut self, msg: MyMsg, mut ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///     async fn handle(&mut self, msg: Msg, mut ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
     ///         let (delegated_reply, reply_sender) = ctx.reply_sender();
     ///
     ///         if let Some(tx) = reply_sender {

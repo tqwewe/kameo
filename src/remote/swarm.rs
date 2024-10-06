@@ -39,18 +39,26 @@ static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
 /// enabling peer discovery, actor registration, and remote message routing.
 ///
 /// ## Key Features
+///
 /// - **Swarm Management**: Initializes and manages the libp2p swarm, allowing nodes to discover
 ///   and communicate in a peer-to-peer network.
 /// - **Actor Registration**: Actors can be registered under a unique name, making them discoverable
 ///   and accessible across the network.
 /// - **Message Routing**: Handles reliable message delivery to remote actors using Kademlia DHT.
 ///
-/// ### Example
-/// ```rust
+/// # Example
+///
+/// ```
+/// use kameo::remote::ActorSwarm;
+///
+/// # tokio_test::block_on(async {
 /// // Initialize the actor swarm
-/// let actor_swarm = ActorSwarm::bootstrap();
+/// let actor_swarm = ActorSwarm::bootstrap()?;
+///
 /// // Set up the swarm to listen on a specific address
 /// actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # });
 /// ```
 ///
 /// The `ActorSwarm` is the essential component for enabling distributed actor communication
@@ -144,10 +152,16 @@ impl ActorSwarm {
     /// For more information on multiaddresses, see [libp2p addressing](https://docs.libp2p.io/concepts/fundamentals/addressing/).
     ///
     /// ## Example
-    /// ```rust
+    ///
+    /// ```
+    /// use kameo::remote::ActorSwarm;
+    ///
+    /// # tokio_test::block_on(async {
     /// ActorSwarm::bootstrap()?
     ///     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
     ///     .await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
     /// ```
     ///
     /// ## Returns

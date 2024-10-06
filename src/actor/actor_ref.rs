@@ -26,7 +26,11 @@ thread_local! {
     pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorID>> = Cell::new(None);
 }
 
-/// A reference to an actor for sending messages and managing the actor.
+/// A reference to an actor, used for sending messages and managing its lifecycle.
+///
+/// An `ActorRef` allows interaction with an actor through message passing, both for asking (waiting for a reply)
+/// and telling (without waiting for a reply). It also provides utilities for managing the actor's state,
+/// such as checking if the actor is alive, registering the actor under a name, and stopping the actor gracefully.
 pub struct ActorRef<A: Actor> {
     id: ActorID,
     mailbox: A::Mailbox,
@@ -48,7 +52,7 @@ where
         }
     }
 
-    /// Returns the actor identifier.
+    /// Returns the unique identifier of the actor.
     #[inline]
     pub fn id(&self) -> ActorID {
         self.id
@@ -61,6 +65,8 @@ where
     }
 
     /// Registers the actor under a given name within the actor swarm.
+    ///
+    /// This makes the actor discoverable by other nodes in the distributed system.
     pub async fn register(&self, name: &str) -> Result<(), RegistrationError>
     where
         A: RemoteActor + 'static,
@@ -71,7 +77,9 @@ where
             .await
     }
 
-    /// Looks up an actor registered locally.
+    /// Looks up an actor registered locally by its name.
+    ///
+    /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
     pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
     where
         A: RemoteActor + 'static,
@@ -109,7 +117,9 @@ where
         self.mailbox.weak_count()
     }
 
-    /// Returns true if called from within the actor.
+    /// Returns `true` if the current task is the actor itself.
+    ///
+    /// This is useful when checking if certain code is being executed from within the actor's own context.
     #[inline]
     pub fn is_current(&self) -> bool {
         CURRENT_ACTOR_ID
@@ -120,10 +130,8 @@ where
 
     /// Signals the actor to stop after processing all messages currently in its mailbox.
     ///
-    /// This method sends a special stop message to the end of the actor's mailbox, ensuring
-    /// that the actor will process all preceding messages before stopping. Any messages sent
-    /// after this stop signal will be ignored and dropped. This approach allows for a graceful
-    /// shutdown of the actor, ensuring all pending work is completed before termination.
+    /// This method ensures that the actor finishes processing any messages that were already in the queue
+    /// before it shuts down. Any new messages sent after the stop signal will be ignored.
     #[inline]
     pub async fn stop_gracefully(&self) -> Result<(), SendError> {
         self.mailbox.signal_stop().await
@@ -151,26 +159,38 @@ where
     /// Note: This method does not initiate the stop process; it only waits for the actor to
     /// stop. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
     /// before calling this method.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Assuming `actor.stop_gracefully().await` has been called earlier
-    /// actor.wait_for_stop().await;
-    /// ```
     #[inline]
     pub async fn wait_for_stop(&self) {
         self.mailbox.closed().await
     }
 
-    /// Sends a message to the actor, waiting for a reply.
+    /// Sends a message to the actor and waits for a reply.
+    ///
+    /// The `ask` pattern is used when you expect a response from the actor. This method returns
+    /// an `AskRequest`, which can be awaited asynchronously, or sent in a blocking manner using one of the [`request`](crate::request) traits.
     ///
     /// # Example
     ///
     /// ```
-    /// actor_ref.ask(msg).send().await?; // Receive reply asyncronously
-    /// actor_ref.ask(msg).blocking_send()?; // Receive reply blocking
-    /// actor_ref.ask(msg).mailbox_timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
+    /// use kameo::actor::ActorRef;
+    /// use kameo::request::MessageSend;
+    ///
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// # let msg = Msg;
+    /// let reply = actor_ref.ask(msg).send().await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
     /// ```
     #[inline]
     pub fn ask<M>(
@@ -190,13 +210,33 @@ where
         AskRequest::new(self, msg)
     }
 
-    /// Sends a message to the actor asyncronously without waiting for a reply.
+    /// Sends a message to the actor without waiting for a reply.
+    ///
+    /// The `tell` pattern is used for one-way communication, where no response is expected from the actor. This method
+    /// returns a `TellRequest`, which can be awaited asynchronously, or configured using one of the [`request`](crate::request) traits.
     ///
     /// # Example
     ///
     /// ```
-    /// actor_ref.tell(msg).send().await?; // Send message
-    /// actor_ref.tell(msg).timeout(Duration::from_secs(1)).send().await?; // Timeout after 1 second
+    /// use kameo::actor::ActorRef;
+    /// use kameo::request::MessageSend;
+    ///
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// # let msg = Msg;
+    /// actor_ref.tell(msg).send().await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
     /// ```
     #[inline]
     pub fn tell<M>(
@@ -210,13 +250,195 @@ where
         TellRequest::new(self, msg)
     }
 
-    /// Attaches a stream of messages to the actor.
+    /// Links this actor with a child actor, establishing a parent-child relationship.
     ///
-    /// This spawns a tokio task which forwards the stream to the actor.
-    /// The returned `JoinHandle` can be aborted to stop the messages from being forwarded to the actor.
+    /// If the parent dies, the child actor will be notified with a "link died" signal.
     ///
-    /// The `start_value` and `finish_value` can be provided to pass additional context when attaching the stream.
-    /// If there's no data to be sent, these can be set to `()`.
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let child_ref = kameo::spawn(MyActor);
+    /// actor_ref.link_child(&child_ref).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn link_child<B>(&self, child: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == child.id() {
+            return;
+        }
+
+        let child_id = child.id();
+        let child: Box<dyn SignalMailbox> = child.weak_signal_mailbox();
+        self.links.lock().await.insert(child_id, child);
+    }
+
+    /// Unlinks a previously linked child actor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let child_ref = kameo::spawn(MyActor);
+    /// actor_ref.link_child(&child_ref).await;
+    /// actor_ref.unlink_child(&child_ref).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn unlink_child<B>(&self, child: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == child.id() {
+            return;
+        }
+
+        self.links.lock().await.remove(&child.id());
+    }
+
+    /// Links two actors as siblings, ensuring they notify each other if either one dies.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    /// actor_ref.link_together(&sibbling_ref).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn link_together<B>(&self, sibbling_ref: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == sibbling_ref.id() {
+            return;
+        }
+
+        let (mut this_links, mut sibbling_links) =
+            tokio::join!(self.links.lock(), sibbling_ref.links.lock());
+        this_links.insert(sibbling_ref.id(), sibbling_ref.weak_signal_mailbox());
+        sibbling_links.insert(self.id, self.weak_signal_mailbox());
+    }
+
+    /// Unlinks two previously linked sibling actors.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    /// actor_ref.link_together(&sibbling_ref).await;
+    /// actor_ref.unlink_together(&sibbling_ref).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == sibbling.id() {
+            return;
+        }
+
+        let (mut this_links, mut sibbling_links) =
+            tokio::join!(self.links.lock(), sibbling.links.lock());
+        this_links.remove(&sibbling.id());
+        sibbling_links.remove(&self.id);
+    }
+
+    /// Attaches a stream of messages to the actor, forwarding each item in the stream.
+    ///
+    /// The stream will continue until it is completed or the actor is stopped. A `JoinHandle` is returned,
+    /// which can be used to cancel the stream. The `start_value` and `finish_value` can provide additional
+    /// context for the stream but are optional.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    /// use kameo::message::{Context, Message, StreamMessage};
+    ///
+    /// #[derive(kameo::Actor)]
+    /// struct MyActor;
+    ///
+    /// impl Message<StreamMessage<u32, (), ()>> for MyActor {
+    ///     type Reply = ();
+    ///
+    ///     async fn handle(&mut self, msg: StreamMessage<u32, (), ()>, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///         match msg {
+    ///             StreamMessage::Next(num) => {
+    ///                 println!("Received item: {num}");
+    ///             }
+    ///             StreamMessage::Started(()) => {
+    ///                 println!("Stream attached!");
+    ///             }
+    ///             StreamMessage::Finished(()) => {
+    ///                 println!("Stream finished!");
+    ///             }
+    ///         }
+    ///     }
+    /// }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let stream = futures::stream::iter(vec![17, 19, 24]);
+    ///
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// actor_ref.attach_stream(stream, (), ()).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
     pub fn attach_stream<M, S, T, F>(
         &self,
         mut stream: S,
@@ -271,68 +493,6 @@ where
         })
     }
 
-    /// Links this actor with a child, making this one the parent.
-    ///
-    /// If the parent dies, then the child will be notified with a link died signal.
-    #[inline]
-    pub async fn link_child<B>(&self, child: &ActorRef<B>)
-    where
-        B: Actor,
-    {
-        if self.id == child.id() {
-            return;
-        }
-
-        let child_id = child.id();
-        let child: Box<dyn SignalMailbox> = child.weak_signal_mailbox();
-        self.links.lock().await.insert(child_id, child);
-    }
-
-    /// Unlinks a previously linked child actor.
-    #[inline]
-    pub async fn unlink_child<B>(&self, child: &ActorRef<B>)
-    where
-        B: Actor,
-    {
-        if self.id == child.id() {
-            return;
-        }
-
-        self.links.lock().await.remove(&child.id());
-    }
-
-    /// Links this actor with a sibbling, notifying eachother if either one dies.
-    #[inline]
-    pub async fn link_together<B>(&self, sibbling: &ActorRef<B>)
-    where
-        B: Actor,
-    {
-        if self.id == sibbling.id() {
-            return;
-        }
-
-        let (mut this_links, mut sibbling_links) =
-            tokio::join!(self.links.lock(), sibbling.links.lock());
-        this_links.insert(sibbling.id(), sibbling.weak_signal_mailbox());
-        sibbling_links.insert(self.id, self.weak_signal_mailbox());
-    }
-
-    /// Unlinks previously linked processes from eachother.
-    #[inline]
-    pub async fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
-    where
-        B: Actor,
-    {
-        if self.id == sibbling.id() {
-            return;
-        }
-
-        let (mut this_links, mut sibbling_links) =
-            tokio::join!(self.links.lock(), sibbling.links.lock());
-        this_links.remove(&sibbling.id());
-        sibbling_links.remove(&self.id);
-    }
-
     #[inline]
     pub(crate) fn mailbox(&self) -> &A::Mailbox {
         &self.mailbox
@@ -378,6 +538,9 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 }
 
 /// A reference to an actor running remotely.
+///
+/// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
+/// It supports the same messaging patterns as `ActorRef` for local actors, including `ask` and `tell` messaging.
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
     swarm_tx: SwarmSender,
@@ -393,12 +556,14 @@ impl<A: Actor> RemoteActorRef<A> {
         }
     }
 
-    /// Returns the actor identifier.
+    /// Returns the unique identifier of the remote actor.
     pub fn id(&self) -> ActorID {
         self.id
     }
 
-    /// Looks up an actor registered locally.
+    /// Looks up an actor registered by name across the distributed network.
+    ///
+    /// Returns `Some` if the actor is found, or `None` if no actor with the given name is registered.
     pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
     where
         A: RemoteActor + 'static,
@@ -409,7 +574,37 @@ impl<A: Actor> RemoteActorRef<A> {
             .await
     }
 
-    /// Sends a message to the remote actor, waiting for a reply.
+    /// Sends a message to the remote actor and waits for a reply.
+    ///
+    /// The `ask` pattern is used when a response is expected from the remote actor. This method
+    /// returns an `AskRequest`, which can be awaited asynchronously, or sent in a blocking manner using one of the [`request`](crate::request) traits.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use kameo::actor::RemoteActorRef;
+    /// use kameo::request::MessageSend;
+    ///
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[actor(mailbox = bounded)]
+    /// # struct MyActor;
+    /// #
+    /// # #[derive(serde::Serialize, serde::Deserialize)]
+    /// # struct Msg;
+    /// #
+    /// # #[kameo::remote_message("id")]
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
+    /// # let msg = Msg;
+    /// let reply = remote_actor_ref.ask(&msg).send().await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
     #[inline]
     pub fn ask<'a, M>(
         &'a self,
@@ -429,8 +624,37 @@ impl<A: Actor> RemoteActorRef<A> {
         AskRequest::new_remote(self, msg)
     }
 
-    /// Sends a message to the remote actor asyncronously without waiting for a reply from the actor.
-    /// This still waits for an acknowledgement from the remote node.
+    /// Sends a message to the remote actor without waiting for a reply.
+    ///
+    /// The `tell` pattern is used when no response is expected from the remote actor. This method
+    /// returns a `TellRequest`, which can be awaited asynchronously, or configured using one of the [`request`](crate::request) traits.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use kameo::actor::RemoteActorRef;
+    /// use kameo::request::MessageSend;
+    ///
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[actor(mailbox = bounded)]
+    /// # struct MyActor;
+    /// #
+    /// # #[derive(serde::Serialize, serde::Deserialize)]
+    /// # struct Msg;
+    /// #
+    /// # #[kameo::remote_message("id")]
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
+    /// # let msg = Msg;
+    /// remote_actor_ref.tell(&msg).send().await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
     #[inline]
     pub fn tell<'a, M>(
         &'a self,
@@ -538,7 +762,9 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
     }
 }
 
-/// A hashmap of linked actors to be notified when the actor dies.
+/// A collection of links to other actors that are notified when the actor dies.
+///
+/// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
 #[derive(Clone, Default)]
 #[allow(missing_debug_implementations)]
 pub struct Links(Arc<Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>>);

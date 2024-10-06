@@ -1,25 +1,25 @@
-//! Actor abstractions and utilities for building concurrent, asynchronous systems.
+//! Core functionality for defining and managing actors in Kameo.
 //!
-//! This module provides the core abstractions for spawning and managing actors in an
-//! asynchronous, concurrent application. Actors in kameo are independent units of
-//! computation that communicate through message passing, encapsulating state and behavior.
+//! Actors are independent units of computation that run asynchronously, sending and receiving messages.
+//! Each actor operates within its own task, and its lifecycle is managed by hooks such as `on_start`, `on_panic`, and `on_stop`.
 //!
-//! Central to this module is the [Actor] trait, which defines the lifecycle hooks and
-//! functionalities every actor must implement. These hooks include initialization ([`on_start`](Actor::on_start)),
-//! cleanup ([`on_stop`](Actor::on_stop)), error handling ([`on_panic`](Actor::on_panic)), and managing relationships with other
-//! actors ([`on_link_died`](Actor::on_link_died)). Additionally, the [`name`](Actor::name) method provides a means to identify
-//! actors, facilitating debugging and tracing.
+//! The actor trait is designed to support fault tolerance, recovery from panics, and clean termination.
+//! Lifecycle hooks allow customization of actor behavior when starting, encountering errors, or shutting down.
 //!
-//! To interact with and manage actors, this module introduces two key structures:
-//! - [ActorRef]: A strong reference to an actor, containing all necessary information for
-//!   sending messages, stopping the actor, and managing actor links. It serves as the primary
-//!   interface for external interactions with an actor.
-//! - [WeakActorRef]: Similar to `ActorRef`, but does not prevent the actor from being stopped.
+//! This module contains the primary `Actor` trait, which all actors must implement,
+//! as well as types for managing message queues (mailboxes) and actor references ([`ActorRef`]).
 //!
-//! The design of this module emphasizes loose coupling and high cohesion among actors, promoting
-//! a scalable and maintainable architecture. By leveraging asynchronous message passing and
-//! lifecycle management, developers can create complex, responsive systems with high degrees
-//! of concurrency and parallelism.
+//! # Features
+//! - **Asynchronous Message Handling**: Each actor processes messages asynchronously within its own task.
+//! - **Lifecycle Hooks**: Customizable hooks ([`on_start`], [`on_stop`], [`on_panic`]) for managing the actor's lifecycle.
+//! - **Backpressure**: Mailboxes can be bounded or unbounded, controlling the flow of messages.
+//! - **Supervision**: Actors can be linked, enabling robust supervision and error recovery systems.
+//!
+//! This module allows building resilient, fault-tolerant, distributed systems with flexible control over the actor lifecycle.
+//!
+//! [`on_start`]: Actor::on_start
+//! [`on_stop`]: Actor::on_stop
+//! [`on_panic`]: Actor::on_panic
 
 mod actor_ref;
 mod id;
@@ -43,65 +43,106 @@ pub use pool::*;
 pub use pubsub::*;
 pub use spawn::*;
 
-/// Functionality for an actor including lifecycle hooks.
+/// Core behavior of an actor, including its lifecycle events and how it processes messages.
 ///
-/// Methods in this trait that return [`BoxError`] will stop the actor with the reason
-/// [`ActorStopReason::Panicked`] containing the error.
+/// Every actor must implement this trait, which provides hooks
+/// for the actor's initialization ([`on_start`]), handling errors ([`on_panic`]), and cleanup ([`on_stop`]).
 ///
-/// # Example
+/// The actor runs within its own task and processes messages asynchronously from a mailbox.
+/// Each actor can be linked to others, allowing for robust supervision and failure recovery mechanisms.
+///
+/// Methods in this trait that return [`BoxError`] will cause the actor to stop with the reason
+/// [`ActorStopReason::Panicked`] if an error occurs. This enables graceful handling of actor panics
+/// or errors.
+///
+/// # Example with Derive
 ///
 /// ```
 /// use kameo::Actor;
-/// use kameo::error::{ActorStopReason, BoxError, PanicError};
+///
+/// #[derive(Actor)]
+/// struct MyActor;
+/// ```
+///
+/// # Example Override Behaviour
+///
+/// ```
+/// use kameo::actor::{Actor, ActorRef, WeakActorRef};
+/// use kameo::error::{ActorStopReason, BoxError};
+/// use kameo::mailbox::unbounded::UnboundedMailbox;
 ///
 /// struct MyActor;
 ///
 /// impl Actor for MyActor {
-///     async fn on_start(&mut self) -> Result<(), BoxError> {
+///     type Mailbox = UnboundedMailbox<Self>;
+///
+///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
 ///         println!("actor started");
 ///         Ok(())
 ///     }
 ///
-///     async fn on_panic(&mut self, err: PanicError) -> Result<Option<ActorStopReason>, BoxError> {
-///         println!("actor panicked");
-///         Ok(Some(ActorStopReason::Panicked(err))) // Return `Some` to stop the actor
-///     }
-///
-///     async fn on_stop(&mut self, reason: ActorStopReason) -> Result<(), BoxError> {
+///     async fn on_stop(
+///         self,
+///         actor_ref: WeakActorRef<Self>,
+///         reason: ActorStopReason,
+///     ) -> Result<(), BoxError> {
 ///         println!("actor stopped");
 ///         Ok(())
 ///     }
 /// }
 /// ```
+///
+/// # Lifecycle Hooks
+/// - `on_start`: Called when the actor starts. This is where initialization happens.
+/// - `on_panic`: Called when the actor encounters a panic or an error while processing a "tell" message.
+/// - `on_stop`: Called before the actor is stopped. This allows for cleanup tasks.
+/// - `on_link_died`: Hook that is invoked when a linked actor dies.
+///
+/// # Mailboxes
+/// Actors use a mailbox to queue incoming messages. You can choose between:
+/// - **Bounded Mailbox**: Limits the number of messages that can be queued, providing backpressure.
+/// - **Unbounded Mailbox**: Allows an infinite number of messages, but can lead to high memory usage.
+///
+/// Mailboxes enable efficient asynchronous message passing with support for both backpressure and
+/// unbounded queueing depending on system requirements.
+///
+/// [`on_start`]: Actor::on_start
+/// [`on_stop`]: Actor::on_stop
+/// [`on_panic`]: Actor::on_panic
 pub trait Actor: Sized + Send + 'static {
-    /// The mailbox used for the actor.
+    /// The mailbox type used for the actor.
     ///
-    /// This can either be `BoundedMailbox<Self>` or `UnboundedMailbox<Self>.`
+    /// This can either be a `BoundedMailbox<Self>` or an `UnboundedMailbox<Self>`, depending on
+    /// whether you want to enforce backpressure or allow infinite message queueing.
     ///
-    /// Bounded mailboxes enable backpressure to prevent the queued messages from growing indefinitely,
-    /// whilst unbounded mailboxes have no backpressure and can grow infinitely until the system runs out of memory.
+    /// - **Bounded Mailbox**: Prevents unlimited message growth, enforcing backpressure.
+    /// - **Unbounded Mailbox**: Allows an infinite number of messages, but can consume large amounts of memory.
     type Mailbox: Mailbox<Self>;
 
-    /// Actor name, useful for logging.
+    /// The name of the actor, which can be useful for logging or debugging.
+    ///
+    /// # Default Implementation
+    /// By default, this returns the type name of the actor.
     fn name() -> &'static str {
         any::type_name::<Self>()
     }
 
-    /// Creates a new mailbox.
+    /// Creates a new mailbox for the actor. This sets up the message queue and receiver for the actor.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// - The created mailbox for sending messages.
+    /// - The receiver for processing messages.
     fn new_mailbox() -> (Self::Mailbox, <Self::Mailbox as Mailbox<Self>>::Receiver) {
         Self::Mailbox::default_mailbox()
     }
 
-    /// Hook that is called before the actor starts processing messages.
+    /// Called when the actor starts, before it processes any messages.
     ///
-    /// # Guarantees
-    /// Messages sent internally by the actor during `on_start` are prioritized and processed before any externally
-    /// sent messages, even if external messages are received before `on_start` completes.
-    /// This is ensured by an internal buffering mechanism that holds external messages until after `on_start` has
-    /// finished executing.
+    /// Messages sent internally by the actor during `on_start` are prioritized and processed
+    /// before any externally sent messages, even if external messages are received first.
     ///
-    /// # Returns
-    /// A result indicating successful initialization or an error if initialization fails.
+    /// This ensures that the actor can properly initialize before handling external messages.
     #[allow(unused_variables)]
     fn on_start(
         &mut self,
@@ -110,16 +151,17 @@ pub trait Actor: Sized + Send + 'static {
         async { Ok(()) }
     }
 
-    /// Hook that is called when an actor panicked or returns an error during "tell" message.
+    /// Called when the actor encounters a panic or an error during "tell" message handling.
     ///
-    /// This method provides an opportunity to clean up or reset state.
-    /// It can also determine whether the actor should be killed or if it should continue processing messages by returning `None`.
+    /// This method gives the actor an opportunity to clean up or reset its state and determine
+    /// whether it should be stopped or continue processing messages.
     ///
     /// # Parameters
-    /// - `err`: The error that occurred.
+    /// - `err`: The panic or error that occurred.
     ///
     /// # Returns
-    /// Whether the actor should continue processing, or be stopped by returning a stop reason.
+    /// - `Some(ActorStopReason)`: Stops the actor.
+    /// - `None`: Allows the actor to continue processing messages.
     #[allow(unused_variables)]
     fn on_panic(
         &mut self,
@@ -129,12 +171,13 @@ pub trait Actor: Sized + Send + 'static {
         async move { Ok(Some(ActorStopReason::Panicked(err))) }
     }
 
-    /// Hook that is called when a linked actor dies.
+    /// Called when a linked actor dies.
     ///
-    /// By default, the current actor will be stopped if the reason is anything other than normal.
+    /// By default, the actor will stop if the reason for the linked actor's death is anything other
+    /// than `Normal`. You can customize this behavior in the implementation.
     ///
     /// # Returns
-    /// Whether the actor should continue processing, or be stopped by returning a stop reason.
+    /// Whether the actor should stop or continue processing messages.
     #[allow(unused_variables)]
     fn on_link_died(
         &mut self,
@@ -155,11 +198,9 @@ pub trait Actor: Sized + Send + 'static {
         }
     }
 
-    /// Hook that is called before the actor is stopped.
+    /// Called before the actor stops.
     ///
-    /// This method allows for cleanup and finalization tasks to be performed before the
-    /// actor is fully stopped. It can be used to release resources, notify other actors,
-    /// or complete any final tasks.
+    /// This allows the actor to perform any necessary cleanup or release resources before being fully stopped.
     ///
     /// # Parameters
     /// - `reason`: The reason why the actor is being stopped.

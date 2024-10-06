@@ -18,18 +18,26 @@ use crate::{
 
 use super::ActorID;
 
-/// Spawns an actor in a tokio task.
+/// Spawns an actor in a Tokio task, running asynchronously.
+///
+/// This function spawns the actor in a non-blocking Tokio task, making it suitable for actors that need to
+/// perform asynchronous operations. The actor runs in the background and can be interacted with through
+/// the returned [`ActorRef`].
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```
 /// use kameo::Actor;
 ///
 /// #[derive(Actor)]
 /// struct MyActor;
 ///
-/// kameo::spawn(MyActor);
+/// # tokio_test::block_on(async {
+/// let actor_ref = kameo::spawn(MyActor);
+/// # })
 /// ```
+///
+/// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
 pub fn spawn<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
@@ -39,18 +47,33 @@ where
         .unwrap()
 }
 
-/// Spawns an actor in a tokio task.
+/// Spawns an actor in a Tokio task, using a factory function that provides access to the [`ActorRef`].
+///
+/// This function is useful when the actor requires access to its own reference during initialization. The
+/// factory function is provided with the actor reference and is responsible for returning the initialized actor.
 ///
 /// # Example
 ///
-/// ```no_run
+/// ```
 /// use kameo::Actor;
+/// use kameo::actor::ActorRef;
 ///
 /// #[derive(Actor)]
-/// struct MyActor;
+/// struct MyActor { actor_ref: ActorRef<Self> }
 ///
-/// kameo::spawn(MyActor);
+/// # tokio_test::block_on(async {
+/// let actor_ref = kameo::actor::spawn_with(|actor_ref| {
+///     let actor = MyActor {
+///         actor_ref: actor_ref.clone(),
+///     };
+///     async { actor }
+/// })
+/// .await;
+/// # })
 /// ```
+///
+/// This allows the actor to have access to its own `ActorRef` during creation, which can be useful for actors
+/// that need to communicate with themselves or manage internal state more effectively.
 pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
 where
     A: Actor,
@@ -60,34 +83,43 @@ where
     spawn_inner::<A, ActorBehaviour<A>, _, _>(f).await
 }
 
-/// Spawns an actor in its own dedicated thread where blocking is acceptable.
+/// Spawns an actor in its own dedicated thread, allowing for blocking operations.
 ///
-/// This is useful for actors which require or may benefit from using blocking operations rather than async,
-/// whilst still enabling asyncronous functionality.
+/// This function spawns the actor in a separate thread, making it suitable for actors that perform blocking
+/// operations, such as file I/O or other tasks that cannot be efficiently executed in an asynchronous context.
+/// Despite running in a blocking thread, the actor can still communicate asynchronously with other actors.
 ///
 /// # Example
 ///
 /// ```no_run
+/// use std::io::{self, Write};
+/// use std::fs::File;
+///
 /// use kameo::Actor;
-/// use kameo::request::MessageSend;
+/// use kameo::message::{Context, Message};
+/// use kameo::request::MessageSendSync;
 ///
 /// #[derive(Actor)]
 /// struct MyActor {
-///     file: std::fs::File,
+///     file: File,
 /// }
 ///
 /// struct Flush;
-/// impl Message<Flush> for Actor {
-///     type Reply = std::io::Result<()>;
+/// impl Message<Flush> for MyActor {
+///     type Reply = io::Result<()>;
 ///
-///     fn handle(&mut self, _: Flush, _ctx: Context<Self, Self::Reply>) -> Self::Reply {
-///         self.file.flush() // This operation is blocking, but acceptable since we're spawning in a thread
+///     async fn handle(&mut self, _: Flush, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+///         self.file.flush() // This blocking operation is handled in its own thread
 ///     }
 /// }
 ///
-/// let actor_ref = kameo::actor::spawn_in_thread(MyActor { ... });
-/// actor_ref.tell(Flush).send()?;
+/// let actor_ref = kameo::actor::spawn_in_thread(MyActor { file: File::create("output.txt").unwrap() });
+/// actor_ref.tell(Flush).send_sync()?;
+/// # Ok::<(), kameo::error::SendError<Flush, io::Error>>(())
 /// ```
+///
+/// This function is useful for actors that require or benefit from running blocking operations while still
+/// enabling asynchronous functionality.
 pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
