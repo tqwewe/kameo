@@ -1,4 +1,41 @@
-//! Remote actor functionality.
+//! # Remote Actors in Kameo
+//!
+//! The `remote` module in Kameo provides tools for managing distributed actors across nodes,
+//! enabling actors to communicate seamlessly in a peer-to-peer (P2P) network. By leveraging
+//! the [libp2p](https://libp2p.io) library, Kameo allows you to register actors under unique
+//! names and send messages between actors on different nodes as though they were local.
+//!
+//! ## Key Features
+//! - **Swarm Management**: The `ActorSwarm` struct handles a distributed swarm of nodes,
+//!   managing peer discovery and communication.
+//! - **Actor Registration**: Actors can be registered under a unique name and looked up across
+//!   the network using the `RemoteActorRef`.
+//! - **Message Routing**: Ensures reliable message delivery between nodes using a combination
+//!   of Kademlia DHT and libp2p's networking capabilities.
+//!
+//! ## Getting Started
+//! To use remote actors, you must first initialize an `ActorSwarm`, which will set up the necessary
+//! networking components to allow remote actors to communicate across nodes.
+//!
+//! ```rust
+//! use kameo::remote::ActorSwarm;
+//!
+//! // Initialize the actor swarm
+//! let actor_swarm = ActorSwarm::bootstrap();
+//! actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?);
+//! ```
+//!
+//! ## Example Use Case
+//! - A distributed chat system where actors represent individual users, and messages are sent between them across multiple nodes.
+//!
+//! ## Types in the Module
+//! - [`ActorSwarm`]: The core struct for managing the distributed swarm of nodes and coordinating actor registration and messaging.
+//! - [`SwarmFuture`]: A future that holds the response from the actor swarm.
+//! - [`RemoteActor`]: A trait for identifying remote actors via a unique ID.
+//! - [`RemoteMessage`]: A trait for identifying remote messages via a unique ID.
+//!
+//! ### Re-exports
+//! - `Keypair`, `PeerId`, `dial_opts`: Re-exported from the libp2p library to assist with handling peer identities and dialing options.
 
 use std::{
     any,
@@ -39,19 +76,38 @@ static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, R
         REMOTE_MESSAGES.iter().copied().collect()
     });
 
-/// A trait for identifying actors remotely.
+/// `RemoteActor` is a trait for identifying actors remotely.
 ///
-/// Every implementation of this must specify a unique string for the `REMOTE_ID`,
-/// otherwise remote messaging would fail for ids which conflict.
+/// Each remote actor must implement this trait and provide a unique identifier string (`REMOTE_ID`).
+/// The identifier is essential to distinguish between different actor types during remote communication.
+///
+/// ## Example with Derive
+///
+/// ```rust
+/// #[derive(RemoteActor)]
+/// pub struct MyActor;
+/// ```
+///
+/// ## Example Manual Implementation
+///
+/// ```
+/// pub struct MyActor;
+///
+/// impl RemoteActor for MyActor {
+///     const REMOTE_ID: &'static str = "my_actor_id";
+/// }
+/// ```
 pub trait RemoteActor {
     /// The remote identifier string.
     const REMOTE_ID: &'static str;
 }
 
-/// A trait for identifying messages remotely.
+/// `RemoteMessage` is a trait for identifying messages that are sent between remote actors.
 ///
-/// Every implementation of this must specify a unique string for the `REMOTE_ID`,
-/// otherwise remote messaging would fail for ids which conflict.
+/// Each remote message type must implement this trait and provide a unique identifier string (`REMOTE_ID`).
+/// The unique ID ensures that each message type is recognized correctly during message passing between nodes.
+///
+/// This trait is typically implemented automatically with the [`#[remote_message]`](crate::remote_message) macro.
 pub trait RemoteMessage<M> {
     /// The remote identifier string.
     const REMOTE_ID: &'static str;

@@ -33,32 +33,28 @@ use super::{RemoteActor, REMOTE_REGISTRY};
 
 static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
 
-/// `ActorSwarm` is the core component for remote actors within kameo.
+/// `ActorSwarm` is the core component for remote actors within Kameo.
 ///
-/// It is responsible for managing the distributed swarm of nodes and coordinating
-/// the registration and messaging of remote actors.
+/// It is responsible for managing a swarm of distributed nodes using libp2p,
+/// enabling peer discovery, actor registration, and remote message routing.
 ///
-/// This struct handles the following key functionalities:
+/// ## Key Features
+/// - **Swarm Management**: Initializes and manages the libp2p swarm, allowing nodes to discover
+///   and communicate in a peer-to-peer network.
+/// - **Actor Registration**: Actors can be registered under a unique name, making them discoverable
+///   and accessible across the network.
+/// - **Message Routing**: Handles reliable message delivery to remote actors using Kademlia DHT.
 ///
-/// - **Swarm Management**: It initializes and manages a libp2p swarm that allows
-///   nodes to discover each other and communicate in a peer-to-peer network.
-///
-/// - **Actor Registration**: Actors can be registered under a unique name, which can
-///   then be looked up and interacted with from the same or different nodes in the network.
-///
-/// - **Message Routing**: The swarm also handles the routing and delivery of messages
-///   to registered remote actors, ensuring reliable communication across nodes.
-///
-/// ## Example
-///
+/// ### Example
 /// ```rust
 /// // Initialize the actor swarm
 /// let actor_swarm = ActorSwarm::bootstrap();
+/// // Set up the swarm to listen on a specific address
+/// actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?);
 /// ```
 ///
-/// The `ActorSwarm` is essential for enabling distributed actor communication in a
-/// decentralized network, leveraging libp2p's capabilities to provide robust and scalable
-/// remote actor interactions.
+/// The `ActorSwarm` is the essential component for enabling distributed actor communication
+/// and message passing across decentralized nodes.
 #[derive(Clone, Debug)]
 pub struct ActorSwarm {
     swarm_tx: SwarmSender,
@@ -66,12 +62,29 @@ pub struct ActorSwarm {
 }
 
 impl ActorSwarm {
-    /// Bootstraps the remote actor system to start listening and accepting requests from other nodes.
+    /// Bootstraps the remote actor system, initializing the swarm and preparing it to listen
+    /// and accept requests from other nodes in the network.
+    ///
+    /// This method starts the distributed actor system, enabling remote actors to communicate
+    /// across different nodes using libp2p. It must be called before any other remote actor operations.
+    ///
+    /// ## Returns
+    /// A reference to the initialized `ActorSwarm` if successful, or an error if the bootstrap fails.
     pub fn bootstrap() -> Result<&'static Self, BootstrapError> {
         Self::bootstrap_with_identity(Keypair::generate_ed25519())
     }
 
-    /// Bootstraps the remote actor system with a keypair to start listening and accepting requests from other nodes.
+    /// Bootstraps the remote actor system with a specified keypair, initializing the swarm
+    /// and preparing it to listen and accept requests from other nodes in the network.
+    ///
+    /// The provided `Keypair` will be used to identify this node in the network, ensuring
+    /// secure communication with peers.
+    ///
+    /// ## Parameters
+    /// - `keypair`: The cryptographic keypair used to establish the identity of the node.
+    ///
+    /// ## Returns
+    /// A reference to the initialized `ActorSwarm` if successful, or an error if the bootstrap fails.
     pub fn bootstrap_with_identity(keypair: Keypair) -> Result<&'static Self, BootstrapError> {
         if let Some(swarm) = ACTOR_SWARM.get() {
             return Ok(swarm);
@@ -118,19 +131,27 @@ impl ActorSwarm {
         }))
     }
 
-    /// Starts listening on the given address, allowing other nodes to lookup registered actors.
+    /// Starts listening on the specified multiaddress, allowing other nodes to connect
+    /// and perform actor lookups and message passing.
     ///
-    /// Awaiting this function does not block, and will cause the swarm to start listening in the background.
+    /// This function initiates background listening on the provided address. It does not block
+    /// the current task, and messages from other nodes will be handled in the background.
     ///
-    /// For information on `Multiaddr`, see <https://docs.libp2p.io/concepts/fundamentals/addressing/>.
+    /// ## Parameters
+    /// - `addr`: The multiaddress to start listening on, which specifies the protocol and address
+    ///   (e.g., `/ip4/0.0.0.0/udp/8020/quic-v1`).
     ///
-    /// # Example
+    /// For more information on multiaddresses, see [libp2p addressing](https://docs.libp2p.io/concepts/fundamentals/addressing/).
     ///
-    /// ```
+    /// ## Example
+    /// ```rust
     /// ActorSwarm::bootstrap()?
     ///     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
     ///     .await?;
     /// ```
+    ///
+    /// ## Returns
+    /// A `SwarmFuture` containing either the listener ID if successful or a transport error if the listen operation fails.
     pub fn listen_on(
         &self,
         addr: Multiaddr,
@@ -139,12 +160,21 @@ impl ActorSwarm {
             .send_with_reply(|reply| SwarmCommand::ListenOn { addr, reply })
     }
 
-    /// Gets a reference to the actor swarm.
+    /// Retrieves a reference to the current `ActorSwarm` if it has been bootstrapped.
+    ///
+    /// This function is useful for getting access to the swarm after initialization without
+    /// needing to store the reference manually.
+    ///
+    /// ## Returns
+    /// An optional reference to the `ActorSwarm`, or `None` if it has not been bootstrapped.
     pub fn get() -> Option<&'static Self> {
         ACTOR_SWARM.get()
     }
 
-    /// Returns the local peer ID.
+    /// Returns the local peer ID, which uniquely identifies this node in the libp2p network.
+    ///
+    /// ## Returns
+    /// A reference to the local `PeerId`.
     pub fn local_peer_id(&self) -> &PeerId {
         &self.local_peer_id
     }
@@ -153,9 +183,17 @@ impl ActorSwarm {
         &self.local_peer_id
     }
 
-    /// Dial a known or unknown peer.
+    /// Dials a peer using the provided dialing options.
     ///
-    /// See also [`DialOpts`].
+    /// This method can be used to connect to a known or unknown peer, specified by the options
+    /// given in `DialOpts`. If successful, the peer will be added to the swarm and able to communicate
+    /// with local actors.
+    ///
+    /// ## Parameters
+    /// - `opts`: Dialing options specifying the peer to connect to and any additional parameters.
+    ///
+    /// ## Returns
+    /// A `SwarmFuture` that resolves to either `Ok` if the dialing succeeds or a `DialError` if it fails.
     pub fn dial(&self, opts: impl Into<DialOpts>) -> SwarmFuture<Result<(), DialError>> {
         self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
             opts: opts.into(),
@@ -163,13 +201,25 @@ impl ActorSwarm {
         })
     }
 
-    /// Add a new external address of a remote peer.
+    /// Adds an external address for a remote peer, allowing the swarm to discover and connect to that peer.
+    ///
+    /// This method can be used to manually add a known address for a peer to facilitate
+    /// discovery and messaging.
+    ///
+    /// ## Parameters
+    /// - `peer_id`: The `PeerId` of the remote peer.
+    /// - `addr`: The `Multiaddr` of the remote peer.
     pub fn add_peer_address(&self, peer_id: PeerId, addr: Multiaddr) {
         self.swarm_tx
             .send(SwarmCommand::AddPeerAddress { peer_id, addr })
     }
 
-    /// Add a new external address of a remote peer.
+    /// Disconnects a peer from the swarm, terminating the connection with the given `PeerId`.
+    ///
+    /// This method can be used to forcibly disconnect from a peer.
+    ///
+    /// ## Parameters
+    /// - `peer_id`: The `PeerId` of the remote peer to disconnect from.
     pub fn disconnect_peer_id(&self, peer_id: PeerId) {
         self.swarm_tx
             .send(SwarmCommand::DisconnectPeerId { peer_id })
@@ -721,9 +771,10 @@ struct Behaviour {
     mdns: mdns::tokio::Behaviour,
 }
 
-/// A future containing the response from the actor swarm.
+/// `SwarmFuture` represents a future that contains the response from a remote actor.
 ///
-/// This future does not need to be awaited if the response is not needed, and can simply be dropped.
+/// This future is returned when sending a message to a remote actor via the actor swarm.
+/// If the response is not needed, the future can simply be dropped without awaiting it.
 #[derive(Debug)]
 pub struct SwarmFuture<T>(oneshot::Receiver<T>);
 
