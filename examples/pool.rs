@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use kameo::{
-    actor::{ActorPool, BroadcastMsg, WorkerMsg},
+    actor::pool::{ActorPool, BroadcastMsg, WorkerMsg},
     message::{Context, Message},
     request::MessageSend,
     Actor,
