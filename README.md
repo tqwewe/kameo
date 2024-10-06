@@ -85,6 +85,68 @@ let count = actor_ref.ask(Inc { amount: 42 }).send().await?;
 assert_eq!(count, 42);
 ```
 
+## Distributed Actor Communication
+
+Kameo supports seamless messaging between actors across distributed nodes. This makes it easy to build distributed systems with actors that can communicate over the network.
+
+### How Distributed Actors Work
+
+Distributed actors in Kameo are designed to interact with each other as if they were local, but messages are sent over the network. This is achieved through the following steps:
+
+1. **Actor Registration:** Actors can be registered under a unique name using `ActorRef::register`. Once registered, other actors or systems can look up this actor from a remote node. Under the hood, Kameo uses a **Kademlia Distributed Hash Table (DHT)**, provided by libp2p, to handle actor registration and lookup across nodes in a distributed manner.
+
+   ```rust
+   // On the host node, register the actor
+   let actor_ref = kameo::spawn(MyActor::default());
+   actor_ref.register("my_actor").await?;
+   ```
+
+2. **Actor Lookup:** On remote nodes, actors can look up registered actors using `RemoteActorRef::lookup`. This returns a reference to the remote actor that can be messaged.
+
+   ```rust
+   // On a guest node, lookup the remote actor
+   let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+   ```
+
+3. **Message Passing:** Once the remote actor reference is obtained, you can send messages to it just like with local actors. The message is serialized, sent over the network, deserialized on the remote node, and handled by the actor.
+
+   ```rust
+   if let Some(remote_actor_ref) = remote_actor_ref {
+       let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
+       println!("Incremented! Count is {count}");
+   }
+   ```
+
+4. **Message Registration:** In order to send messages between nodes, the message type must implement `Serialize` and `Deserialize`. Additionally, it needs to be annotated with the `#[remote_message("uuid")]` macro, where the `uuid` is a unique identifier for the message type. This UUID helps identify which message implementation to use when sending and receiving messages over the network. It's important to ensure that the UUID does not conflict with other registered messages in your crate.
+
+   ```rust
+   #[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
+   impl Message<Inc> for MyActor {
+       type Reply = i64;
+
+       async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+           self.count += msg.amount as i64;
+           self.count
+       }
+   }
+   ```
+
+5. **Network Protocol:** Kameo uses the [libp2p](https://libp2p.io) library for networking, allowing actors to communicate over a variety of protocols. libp2p uses **multiaddresses**, which encode different addressing schemes such as TCP/IP, WebSockets, or QUIC. This flexibility allows Kameo to work seamlessly across different network layers.
+
+    - **Multiaddresses**: A multiaddress specifies how to reach a peer using different protocols. For example, a TCP/IP multiaddress might look like this: `/ip4/198.51.100.0/tcp/6543`.
+      Multiaddresses also support peer identity, preventing impersonation during communication, such as `/ip4/192.0.2.0/tcp/4321/p2p/QmcEPrat8ShnCph8WjkREzt5CPXF2RwhYxYBALDcLC1iV6`.
+
+    Kameo actors use these multiaddresses when communicating across nodes. The `ActorSwarm` component handles networking, allowing actors to register, look up, and send messages to remote actors, abstracting away the underlying complexity.
+
+    ```rust
+    // Bootstrap the actor swarm and listen on a UDP port 8020
+    ActorSwarm::bootstrap()?
+        .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
+        .await?;
+    ```
+
+A full example can be found in [examples/remote.rs](examples/remote.rs).
+
 ## Additional Resources
 
 - [Documentation](https://docs.rs/kameo)
@@ -122,4 +184,4 @@ at your option.
 
 ---
 
-[Home](#kameo-) | [Features](#feature-highlights) | [Use Cases](#use-cases) | [Get Started](#getting-started) | [Additional Resources](#additional-resources) | [Contributing](#contributing) | [License](#license)
+[Home](#kameo-) | [Features](#feature-highlights) | [Use Cases](#use-cases) | [Get Started](#getting-started) | [Distributed Actor Communication](#distributed-actor-communication) | [Additional Resources](#additional-resources) | [Contributing](#contributing) | [Support](#support) | [License](#license)
