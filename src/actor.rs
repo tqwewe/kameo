@@ -24,8 +24,8 @@
 mod actor_ref;
 mod id;
 mod kind;
-mod pool;
-mod pubsub;
+pub mod pool;
+pub mod pubsub;
 mod spawn;
 
 use std::any;
@@ -39,8 +39,6 @@ use crate::{
 
 pub use actor_ref::*;
 pub use id::*;
-pub use pool::*;
-pub use pubsub::*;
 pub use spawn::*;
 
 /// Core behavior of an actor, including its lifecycle events and how it processes messages.

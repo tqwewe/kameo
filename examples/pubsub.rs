@@ -1,5 +1,5 @@
 use kameo::{
-    actor::{PubSub, Publish, Subscribe},
+    actor::pubsub::{PubSub, Publish, Subscribe},
     message::{Context, Message},
     request::MessageSend,
     Actor,

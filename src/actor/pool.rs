@@ -18,7 +18,7 @@
 //!
 //! ```
 //! use kameo::Actor;
-//! use kameo::actor::{ActorPool, WorkerMsg, BroadcastMsg};
+//! use kameo::actor::pool::{ActorPool, WorkerMsg, BroadcastMsg};
 //! # use kameo::message::{Context, Message};
 //! use kameo::request::MessageSend;
 //!

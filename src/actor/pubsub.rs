@@ -17,7 +17,7 @@
 //!
 //! ```
 //! use kameo::Actor;
-//! use kameo::actor::{PubSub, Publish, Subscribe};
+//! use kameo::actor::pubsub::{PubSub, Publish, Subscribe};
 //! # use kameo::message::{Context, Message};
 //! use kameo::request::MessageSend;
 //!
@@ -88,7 +88,7 @@ impl<M> PubSub<M> {
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::PubSub;
+    /// use kameo::actor::pubsub::PubSub;
     ///
     /// #[derive(Clone)]
     /// struct Msg(String);
@@ -132,7 +132,7 @@ impl<M> PubSub<M> {
     ///
     /// ```
     /// # use kameo::Actor;
-    /// use kameo::actor::PubSub;
+    /// use kameo::actor::pubsub::PubSub;
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
