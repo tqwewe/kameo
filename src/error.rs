@@ -15,6 +15,7 @@ use std::{
 };
 
 use libp2p::TransportError;
+use libp2p_identity::ParseError;
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -620,7 +621,33 @@ impl fmt::Display for PanicError {
     }
 }
 
-/// An infallible error type, similar to std::convert::Infallible.
+/// Errors that can occur when deserializing an `ActorID` from bytes.
+#[derive(Debug)]
+pub enum ActorIDFromBytesError {
+    /// The byte slice doesn't contain enough data for the `sequence_id`.
+    MissingSequenceID,
+    /// An error occurred while parsing the `PeerId`.
+    ParsePeerID(ParseError),
+}
+
+impl From<ParseError> for ActorIDFromBytesError {
+    fn from(err: ParseError) -> Self {
+        ActorIDFromBytesError::ParsePeerID(err)
+    }
+}
+
+impl fmt::Display for ActorIDFromBytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorIDFromBytesError::MissingSequenceID => write!(f, "missing instance ID"),
+            ActorIDFromBytesError::ParsePeerID(err) => err.fmt(f),
+        }
+    }
+}
+
+impl error::Error for ActorIDFromBytesError {}
+
+/// An infallible error type, similar to [std::convert::Infallible].
 ///
 /// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.
 #[derive(Copy, Serialize, Deserialize)]

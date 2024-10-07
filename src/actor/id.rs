@@ -1,12 +1,11 @@
-use std::error;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicU64};
 
 use internment::Intern;
-use libp2p::identity::ParseError;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 
+use crate::error::ActorIDFromBytesError;
 use crate::remote::ActorSwarm;
 
 static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -208,29 +207,3 @@ impl<'de> Deserialize<'de> for ActorID {
         })
     }
 }
-
-/// Errors that can occur when deserializing an `ActorID` from bytes.
-#[derive(Debug)]
-pub enum ActorIDFromBytesError {
-    /// The byte slice doesn't contain enough data for the `sequence_id`.
-    MissingSequenceID,
-    /// An error occurred while parsing the `PeerId`.
-    ParsePeerID(ParseError),
-}
-
-impl From<ParseError> for ActorIDFromBytesError {
-    fn from(err: ParseError) -> Self {
-        ActorIDFromBytesError::ParsePeerID(err)
-    }
-}
-
-impl fmt::Display for ActorIDFromBytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ActorIDFromBytesError::MissingSequenceID => write!(f, "missing instance ID"),
-            ActorIDFromBytesError::ParsePeerID(err) => err.fmt(f),
-        }
-    }
-}
-
-impl error::Error for ActorIDFromBytesError {}
