@@ -1,7 +1,11 @@
 {
   "name": "Kameo",
-  "description": "Fault-tolerant Async Actors Built on Tokio",
+  "description": "Distributed, Fault-tolerant Async Actors Powered by Tokio",
   "socialPreview": "https://repository-images.githubusercontent.com/779318723/b1ce92be-760d-427b-b3a6-ffca8cbc2e6a",
+  "logo": {
+    "light": "https://github.com/tqwewe/kameo/raw/refs/heads/main/docs/farron.png",
+    "dark": "https://github.com/tqwewe/kameo/raw/refs/heads/main/docs/farron.png"
+  },
   "scripts": {
     "googleAnalytics": "G-FES40CNKHX"
   },
@@ -83,6 +87,16 @@
           "title": "Messaging Remote Actors",
           "href": "/distributed-actors/messaging-remote-actors",
           "icon": "envelope-open-text"
+        }
+      ]
+    },
+    {
+      "group": "Additional Resources",
+      "pages": [
+        {
+          "title": "FAQ",
+          "href": "/faq",
+          "icon": "question-circle"
         }
       ]
     }
