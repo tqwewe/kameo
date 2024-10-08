@@ -1,0 +1,63 @@
+---
+title: Frequently Asked Questions (FAQ)
+---
+
+## How does Kameo handle communication over a network?
+
+Kameo uses [libp2p](https://libp2p.io) for networking, with Kademlia Distributed Hash Table (DHT) under the hood for actor registration and lookup. This allows actors to communicate across nodes without needing a predefined schema, and messages are routed using multiaddresses, supporting a variety of protocols such as TCP/IP and QUIC.
+
+---
+
+## How do I query an actor's state?
+
+You can query an actor’s state by sending a message using the `ask` pattern, which allows you to request a response without modifying the actor's state.
+
+```rust
+let result = actor_ref.ask(QueryState).send().await?;
+println!("Actor state: {:?}", result);
+```
+
+However, it’s often better to design actors in a way where they notify each other of state changes. In this push model, actors send updates when their state changes, reducing the need for constant querying and keeping interactions more efficient and decoupled.
+
+---
+
+## How is Kameo different from gRPC?
+
+Unlike gRPC, which requires predefined schemas and often involves significant boilerplate, Kameo allows dynamic communication with actors across nodes without the need for code generation or schema management. Actors communicate via `RemoteActorRef`, and messages are passed just like with local actors, making it more flexible and less rigid than gRPC.
+
+---
+
+## Why does Kameo use async for actors?
+
+Kameo's async nature allows multiple actors to run on a single thread using Tokio's runtime, which is highly efficient for handling IO-bound tasks. While many actors may be CPU-bound, async ensures that non-blocking tasks, such as network operations, can proceed without stalling other actors.
+
+---
+
+## Can Kameo be used for distributed systems?
+
+Yes, Kameo is built for distributed systems. Using libp2p and Kademlia DHT, actors can be registered and discovered across nodes, and they can communicate as if they were local. This makes Kameo ideal for distributed microservices or systems where actors are spread across different machines.
+
+---
+
+## Can Kameo be used for building parallel applications?
+
+Yes. Kameo runs on the Tokio runtime, which can be configured with the `rt-multi-thread` feature to utilize multiple cores. This allows actors to be distributed across all CPU cores, handling parallel workloads efficiently.
+
+---
+
+## Is Kameo production-ready?
+
+Kameo is still relatively new and under active development. It is being tested in real-world projects, but the API has seen many iterations. While Kameo is not yet widely adopted in production, it is rapidly maturing to meet production-level standards.
+
+---
+
+## Why are messages processed sequentially in an actor?
+
+Messages are processed sequentially within each actor to maintain consistency and correctness. This ensures that state changes happen in a well-defined order, which is crucial in applications where message processing order matters.
+
+---
+
+## How does Kameo compare to other Rust actor libraries like Actix or Ractor?
+
+- **Actix**: Kameo offers a simpler API with less boilerplate, especially for async use cases. Actix has seen many changes in its runtime over time, while Kameo is built directly on Tokio for more native async support.
+- **Ractor**: Kameo differs in several ways. Messages in Kameo are implemented as separate structs with their own `Message` trait, while Ractor uses a single enum for messages. Additionally, in Kameo, the actor itself is the state, while Ractor separates the state and actor.
