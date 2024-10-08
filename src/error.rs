@@ -14,8 +14,6 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use libp2p::TransportError;
-use libp2p_identity::ParseError;
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -235,11 +233,15 @@ pub enum BootstrapError {
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
     /// An error during listening on a Transport.
-    Transport(TransportError<io::Error>),
+    #[cfg(feature = "remote")]
+    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
+    Transport(libp2p::TransportError<io::Error>),
 }
 
-impl From<TransportError<io::Error>> for BootstrapError {
-    fn from(err: TransportError<io::Error>) -> Self {
+#[cfg(feature = "remote")]
+#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
+impl From<libp2p::TransportError<io::Error>> for BootstrapError {
+    fn from(err: libp2p::TransportError<io::Error>) -> Self {
         BootstrapError::Transport(err)
     }
 }
@@ -248,6 +250,7 @@ impl fmt::Display for BootstrapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BootstrapError::BehaviourError(err) => err.fmt(f),
+            #[cfg(feature = "remote")]
             BootstrapError::Transport(err) => err.fmt(f),
         }
     }
@@ -627,11 +630,15 @@ pub enum ActorIDFromBytesError {
     /// The byte slice doesn't contain enough data for the `sequence_id`.
     MissingSequenceID,
     /// An error occurred while parsing the `PeerId`.
-    ParsePeerID(ParseError),
+    #[cfg(feature = "remote")]
+    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
+    ParsePeerID(libp2p_identity::ParseError),
 }
 
-impl From<ParseError> for ActorIDFromBytesError {
-    fn from(err: ParseError) -> Self {
+#[cfg(feature = "remote")]
+#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
+impl From<libp2p_identity::ParseError> for ActorIDFromBytesError {
+    fn from(err: libp2p_identity::ParseError) -> Self {
         ActorIDFromBytesError::ParsePeerID(err)
     }
 }
@@ -640,6 +647,7 @@ impl fmt::Display for ActorIDFromBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActorIDFromBytesError::MissingSequenceID => write!(f, "missing instance ID"),
+            #[cfg(feature = "remote")]
             ActorIDFromBytesError::ParsePeerID(err) => err.fmt(f),
         }
     }
