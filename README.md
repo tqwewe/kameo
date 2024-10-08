@@ -10,7 +10,7 @@
 [![GitHub Contributors](https://img.shields.io/github/contributors-anon/tqwewe/kameo)](https://github.com/tqwewe/kameo/graphs/contributors)
 [![GitHub Stars](https://img.shields.io/github/stars/tqwewe/kameo)](https://github.com/tqwewe/kameo/stargazers)
 
-[![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/banner.png?raw=true)](https://github.com/tqwewe/kameo)
+[![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/docs/banner.png?raw=true)](https://github.com/tqwewe/kameo)
 
 ## What is Kameo
 
