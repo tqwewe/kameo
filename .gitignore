@@ -5,3 +5,4 @@ Cargo.lock
 .makemd
 .obsidian
 .space
+flake.lock
