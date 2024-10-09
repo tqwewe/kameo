@@ -244,6 +244,7 @@ impl From<libp2p::TransportError<io::Error>> for BootstrapError {
     }
 }
 
+#[cfg(feature = "remote")]
 impl fmt::Display for BootstrapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -254,6 +255,7 @@ impl fmt::Display for BootstrapError {
     }
 }
 
+#[cfg(feature = "remote")]
 impl error::Error for BootstrapError {}
 
 /// An error that can occur when registering & looking up actors by name.
