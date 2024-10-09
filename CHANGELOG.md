@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0-alpha.1] - 2024-10-09
+
+* @shusvr made their first contribution
+* @marcaddeo made their first contribution in #47
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Make `Links` private (#57)
+- **BREAKING:** Move actor pool and pubsub to their own modules (#56)
+- **BREAKING:** Move `ActorIDFromBytesError` to `error` module [</>](https://github.com/tqwewe/kameo/commit/816eb931fe89a799b0a7cbda59b879d67a9ec329)
+- **BREAKING:** Move remote actor functionality behind `remote` feature (#60) [</>](https://github.com/tqwewe/kameo/commit/ce4c73b7425ef1d6dce89585141fd8d13065b32e)
+- ActorID and improve documentation (#48)
+
+### <!-- 4 -->Documentation
+
+- Remove benchmark from README.md [</>](https://github.com/tqwewe/kameo/commit/342b8e0247073e47f7696c93d020f9cf7b8009e2)
+- Add contributors badge to README.md [</>](https://github.com/tqwewe/kameo/commit/2beefa5b916b660fcec425ce903de2016676de9a)
+- Add Discord badge to README.md [</>](https://github.com/tqwewe/kameo/commit/ce6e74f89a3e669176dd6e197b6fc331052e97a7)
+- Add book badge to README.md [</>](https://github.com/tqwewe/kameo/commit/b4f14c072919445bf7d5371a3cdf3b65da08bec9)
+- Add getting help section to README.md [</>](https://github.com/tqwewe/kameo/commit/9e86c0e1a39a930d9c335aa9bab5897ee3a25795)
+- Improve README with use cases, additional resources, and clearer structure [</>](https://github.com/tqwewe/kameo/commit/e2a2f94b20ef90d6fff1d019683ad99efa0ef98e)
+- Add support section to README.md [</>](https://github.com/tqwewe/kameo/commit/8fc01b8fae217c3ec6bf5fe68cd450e829adb69c)
+- Add Distributed Actor Communication section to README.md [</>](https://github.com/tqwewe/kameo/commit/66fd9473935f80e86498593b4eae5a1a338ef16d)
+- Improve code docs for remote module [</>](https://github.com/tqwewe/kameo/commit/d8bb7172ca11909f9492ba79ee12367c9117f57b)
+- Add in-depth distributed actors information to kameo book (#51)
+- Update heading levels in book [</>](https://github.com/tqwewe/kameo/commit/7cbbc151299f3311b46fd439ff7c00bd9a039750)
+- Improve code docs and examples with all tests passing (#54)
+- Add FAQ to book (#59)
+
+### <!-- 5 -->Misc
+
+- Add links to README badges (#47)
+- Add gtag to kameo book (#52)
+- Add Github CI [</>](https://github.com/tqwewe/kameo/commit/68c3e125f4b09fc4063b724f653f69c5cf7baff7)
+- Remote beta and nightly toolchains from CI [</>](https://github.com/tqwewe/kameo/commit/2ff1c5dde18753f25fa27046c5dfe63de080cde9)
+- Create CODE_OF_CONDUCT.md [</>](https://github.com/tqwewe/kameo/commit/d0b2f5360ce0ac65d2334c01aecf6395617de373)
+- Add CONTRIBUTING.md [</>](https://github.com/tqwewe/kameo/commit/c106d45ae8bbb8bc009be00c987d15eb4fbcc81b)
+- Add github issue templates [</>](https://github.com/tqwewe/kameo/commit/463e3a707e1d56c240caa44084196d8e734809ec)
+- Move banner.png into docs directory [</>](https://github.com/tqwewe/kameo/commit/ddc85ce8e36f1491f21258013ae2aa708966bcce)
+- Add .envrc to .gitignore [</>](https://github.com/tqwewe/kameo/commit/79589c7fbd05fa63c962b35266c1ee199b2de8fc)
+- Add pr detection to git cliff contributors [</>](https://github.com/tqwewe/kameo/commit/1f800bdc8be30e2d76b39a723a36bfabfa83813f)
+
 ## [0.11.0] - 2024-09-29
 
 
@@ -301,6 +343,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.12.0-alpha.1]: https://github.com/tqwewe/kameo/compare/v0.11.0..0.12.0-alpha.1
 [0.11.0]: https://github.com/tqwewe/kameo/compare/v0.10.0..v0.11.0
 [0.10.0]: https://github.com/tqwewe/kameo/compare/v0.9.0..v0.10.0
 [0.9.0]: https://github.com/tqwewe/kameo/compare/v0.8.1..v0.9.0
