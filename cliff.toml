@@ -23,10 +23,19 @@ body = """
     ## [Unreleased]
 {% endif -%}
 {% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
-  * @{{ contributor.username }} made their first contribution in #{{ contributor.pr_number }}
-{%- endfor -%}
-{%- if github.contributors | length > 0 %}
-{% endif -%}
+  * @{{ contributor.username }} made their first contribution
+    {%- if contributor.pr_number %} in #{{ contributor.pr_number -}}
+    {%- else -%}
+        {#- find the commit -#}
+        {% for commit in commits -%}
+            {%- if commit.id == commit_id -%}
+                {%- set pr = commit.message | split(pat="#") | last | trim_end_matches(pat=")") -%}
+                {%- if pr is matching("^\\d+$") %} in #{{ pr }}{%- endif -%}
+                {%- break -%}
+            {%- endif -%}
+        {%- endfor -%}
+    {%- endif -%}
+{%- endfor %}
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | upper_first }}
     {% for commit in commits | sort(attribute="author.timestamp") | reverse | sort(attribute="breaking") | reverse %}
