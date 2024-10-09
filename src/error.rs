@@ -6,16 +6,11 @@
 
 use std::{
     any::{self, Any},
-    borrow::Cow,
     cmp, error, fmt,
     hash::{Hash, Hasher},
-    io,
-    num::NonZero,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
-use libp2p::TransportError;
-use libp2p_identity::ParseError;
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -230,32 +225,38 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
 /// An error that can occur when bootstrapping the actor swarm.
+#[cfg(feature = "remote")]
 #[derive(Debug)]
 pub enum BootstrapError {
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
     /// An error during listening on a Transport.
-    Transport(TransportError<io::Error>),
+    Transport(libp2p::TransportError<std::io::Error>),
 }
 
-impl From<TransportError<io::Error>> for BootstrapError {
-    fn from(err: TransportError<io::Error>) -> Self {
+#[cfg(feature = "remote")]
+impl From<libp2p::TransportError<std::io::Error>> for BootstrapError {
+    fn from(err: libp2p::TransportError<std::io::Error>) -> Self {
         BootstrapError::Transport(err)
     }
 }
 
+#[cfg(feature = "remote")]
 impl fmt::Display for BootstrapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BootstrapError::BehaviourError(err) => err.fmt(f),
+            #[cfg(feature = "remote")]
             BootstrapError::Transport(err) => err.fmt(f),
         }
     }
 }
 
+#[cfg(feature = "remote")]
 impl error::Error for BootstrapError {}
 
 /// An error that can occur when registering & looking up actors by name.
+#[cfg(feature = "remote")]
 #[derive(Clone, Debug)]
 pub enum RegistrationError {
     /// The actor swarm has not been bootstrapped.
@@ -265,12 +266,13 @@ pub enum RegistrationError {
     /// Quorum failed.
     QuorumFailed {
         /// Required quorum.
-        quorum: NonZero<usize>,
+        quorum: std::num::NonZero<usize>,
     },
     /// Timeout.
     Timeout,
 }
 
+#[cfg(feature = "remote")]
 impl fmt::Display for RegistrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -284,9 +286,11 @@ impl fmt::Display for RegistrationError {
     }
 }
 
+#[cfg(feature = "remote")]
 impl error::Error for RegistrationError {}
 
 /// Error that can occur when sending a message to an actor.
+#[cfg(feature = "remote")]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RemoteSendError<E> {
     /// The actor isn't running.
@@ -301,9 +305,9 @@ pub enum RemoteSendError<E> {
     /// The message remote ID was not found for the actor.
     UnknownMessage {
         /// The remote ID of the actor.
-        actor_remote_id: Cow<'static, str>,
+        actor_remote_id: std::borrow::Cow<'static, str>,
         /// The remote ID of the message.
-        message_remote_id: Cow<'static, str>,
+        message_remote_id: std::borrow::Cow<'static, str>,
     },
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
@@ -338,9 +342,10 @@ pub enum RemoteSendError<E> {
     ConnectionClosed,
     /// An IO failure happened on an outbound stream.
     #[serde(skip)]
-    Io(Option<io::Error>),
+    Io(Option<std::io::Error>),
 }
 
+#[cfg(feature = "remote")]
 impl<E> RemoteSendError<E> {
     /// Maps the inner error to another type if the variant is [`HandlerError`](RemoteSendError::HandlerError).
     pub fn map_err<F, O>(self, mut op: O) -> RemoteSendError<F>
@@ -381,6 +386,7 @@ impl<E> RemoteSendError<E> {
     }
 }
 
+#[cfg(feature = "remote")]
 impl<E> RemoteSendError<RemoteSendError<E>> {
     /// Flattens a nested SendError.
     pub fn flatten(self) -> RemoteSendError<E> {
@@ -425,6 +431,7 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
     }
 }
 
+#[cfg(feature = "remote")]
 impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
     fn from(err: SendError<M, E>) -> Self {
         match err {
@@ -437,6 +444,7 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
     }
 }
 
+#[cfg(feature = "remote")]
 impl<E> fmt::Display for RemoteSendError<E>
 where
     E: fmt::Display,
@@ -483,6 +491,7 @@ where
     }
 }
 
+#[cfg(feature = "remote")]
 impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
@@ -627,11 +636,13 @@ pub enum ActorIDFromBytesError {
     /// The byte slice doesn't contain enough data for the `sequence_id`.
     MissingSequenceID,
     /// An error occurred while parsing the `PeerId`.
-    ParsePeerID(ParseError),
+    #[cfg(feature = "remote")]
+    ParsePeerID(libp2p_identity::ParseError),
 }
 
-impl From<ParseError> for ActorIDFromBytesError {
-    fn from(err: ParseError) -> Self {
+#[cfg(feature = "remote")]
+impl From<libp2p_identity::ParseError> for ActorIDFromBytesError {
+    fn from(err: libp2p_identity::ParseError) -> Self {
         ActorIDFromBytesError::ParsePeerID(err)
     }
 }
@@ -640,6 +651,7 @@ impl fmt::Display for ActorIDFromBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActorIDFromBytesError::MissingSequenceID => write!(f, "missing instance ID"),
+            #[cfg(feature = "remote")]
             ActorIDFromBytesError::ParsePeerID(err) => err.fmt(f),
         }
     }

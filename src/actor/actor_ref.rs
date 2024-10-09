@@ -1,18 +1,21 @@
-use std::{cell::Cell, collections::HashMap, fmt, marker::PhantomData, ops, sync::Arc};
+use std::{cell::Cell, collections::HashMap, fmt, ops, sync::Arc};
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
-use serde::{de::DeserializeOwned, Serialize};
 use tokio::{sync::Mutex, task::JoinHandle, task_local};
 
+#[cfg(feature = "remote")]
+use crate::remote;
+#[cfg(feature = "remote")]
+use std::marker::PhantomData;
+
 use crate::{
-    error::{RegistrationError, SendError},
+    error::{self, SendError},
     mailbox::{Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
-    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmSender},
     reply::Reply,
     request::{
-        AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, RemoteAskRequest,
-        RemoteTellRequest, TellRequest, WithoutRequestTimeout,
+        self, AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, TellRequest,
+        WithoutRequestTimeout,
     },
     Actor,
 };
@@ -23,7 +26,7 @@ task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorID;
 }
 thread_local! {
-    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorID>> = Cell::new(None);
+    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorID>> = const { Cell::new(None) };
 }
 
 /// A reference to an actor, used for sending messages and managing its lifecycle.
@@ -67,12 +70,13 @@ where
     /// Registers the actor under a given name within the actor swarm.
     ///
     /// This makes the actor discoverable by other nodes in the distributed system.
-    pub async fn register(&self, name: &str) -> Result<(), RegistrationError>
+    #[cfg(feature = "remote")]
+    pub async fn register(&self, name: &str) -> Result<(), error::RegistrationError>
     where
-        A: RemoteActor + 'static,
+        A: remote::RemoteActor + 'static,
     {
-        ActorSwarm::get()
-            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+        remote::ActorSwarm::get()
+            .ok_or(error::RegistrationError::SwarmNotBootstrapped)?
             .register(self.clone(), name.to_string())
             .await
     }
@@ -80,12 +84,13 @@ where
     /// Looks up an actor registered locally by its name.
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
-    pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
+    #[cfg(feature = "remote")]
+    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistrationError>
     where
-        A: RemoteActor + 'static,
+        A: remote::RemoteActor + 'static,
     {
-        ActorSwarm::get()
-            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+        remote::ActorSwarm::get()
+            .ok_or(error::RegistrationError::SwarmNotBootstrapped)?
             .lookup_local(name.to_string())
             .await
     }
@@ -133,7 +138,7 @@ where
     /// This method ensures that the actor finishes processing any messages that were already in the queue
     /// before it shuts down. Any new messages sent after the stop signal will be ignored.
     #[inline]
-    pub async fn stop_gracefully(&self) -> Result<(), SendError> {
+    pub async fn stop_gracefully(&self) -> Result<(), error::SendError> {
         self.mailbox.signal_stop().await
     }
 
@@ -456,7 +461,7 @@ where
             A::Mailbox,
             StreamMessage<M, T, F>,
             WithoutRequestTimeout,
-        >: MessageSend<
+        >: request::MessageSend<
             Ok = (),
             Error = SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>,
         >,
@@ -541,14 +546,16 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 ///
 /// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
 /// It supports the same messaging patterns as `ActorRef` for local actors, including `ask` and `tell` messaging.
+#[cfg(feature = "remote")]
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
-    swarm_tx: SwarmSender,
+    swarm_tx: remote::SwarmSender,
     phantom: PhantomData<A::Mailbox>,
 }
 
+#[cfg(feature = "remote")]
 impl<A: Actor> RemoteActorRef<A> {
-    pub(crate) fn new(id: ActorID, swarm_tx: SwarmSender) -> Self {
+    pub(crate) fn new(id: ActorID, swarm_tx: remote::SwarmSender) -> Self {
         RemoteActorRef {
             id,
             swarm_tx,
@@ -564,12 +571,12 @@ impl<A: Actor> RemoteActorRef<A> {
     /// Looks up an actor registered by name across the distributed network.
     ///
     /// Returns `Some` if the actor is found, or `None` if no actor with the given name is registered.
-    pub async fn lookup(name: &str) -> Result<Option<Self>, RegistrationError>
+    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistrationError>
     where
-        A: RemoteActor + 'static,
+        A: remote::RemoteActor + 'static,
     {
-        ActorSwarm::get()
-            .ok_or(RegistrationError::SwarmNotBootstrapped)?
+        remote::ActorSwarm::get()
+            .ok_or(error::RegistrationError::SwarmNotBootstrapped)?
             .lookup(name.to_string())
             .await
     }
@@ -610,16 +617,16 @@ impl<A: Actor> RemoteActorRef<A> {
         &'a self,
         msg: &'a M,
     ) -> AskRequest<
-        RemoteAskRequest<'a, A, M>,
+        request::RemoteAskRequest<'a, A, M>,
         A::Mailbox,
         M,
         WithoutRequestTimeout,
         WithoutRequestTimeout,
     >
     where
-        A: RemoteActor + Message<M> + RemoteMessage<M>,
-        M: Serialize,
-        <A::Reply as Reply>::Ok: DeserializeOwned,
+        A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
+        M: serde::Serialize,
+        <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
     {
         AskRequest::new_remote(self, msg)
     }
@@ -659,7 +666,7 @@ impl<A: Actor> RemoteActorRef<A> {
     pub fn tell<'a, M>(
         &'a self,
         msg: &'a M,
-    ) -> TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
+    ) -> TellRequest<request::RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -667,21 +674,23 @@ impl<A: Actor> RemoteActorRef<A> {
         TellRequest::new_remote(self, msg)
     }
 
-    pub(crate) fn send_to_swarm(&self, msg: SwarmCommand) {
+    pub(crate) fn send_to_swarm(&self, msg: remote::SwarmCommand) {
         self.swarm_tx.send(msg)
     }
 }
 
+#[cfg(feature = "remote")]
 impl<A: Actor> Clone for RemoteActorRef<A> {
     fn clone(&self) -> Self {
         RemoteActorRef {
-            id: self.id.clone(),
+            id: self.id,
             swarm_tx: self.swarm_tx.clone(),
             phantom: PhantomData,
         }
     }
 }
 
+#[cfg(feature = "remote")]
 impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("RemoteActorRef");
@@ -714,13 +723,11 @@ impl<A: Actor> WeakActorRef<A> {
     /// Tries to convert a `WeakActorRef` into a [`ActorRef`]. This will return `Some`
     /// if there are other `ActorRef` instances alive, otherwise `None` is returned.
     pub fn upgrade(&self) -> Option<ActorRef<A>> {
-        self.mailbox.upgrade().and_then(|mailbox| {
-            Some(ActorRef {
-                id: self.id,
-                mailbox,
-                abort_handle: self.abort_handle.clone(),
-                links: self.links.clone(),
-            })
+        self.mailbox.upgrade().map(|mailbox| ActorRef {
+            id: self.id,
+            mailbox,
+            abort_handle: self.abort_handle.clone(),
+            links: self.links.clone(),
         })
     }
 

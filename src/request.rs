@@ -47,8 +47,14 @@ use futures::Future;
 mod ask;
 mod tell;
 
-pub use ask::{AskRequest, LocalAskRequest, RemoteAskRequest};
-pub use tell::{LocalTellRequest, RemoteTellRequest, TellRequest};
+#[cfg(feature = "remote")]
+pub use ask::RemoteAskRequest;
+
+#[cfg(feature = "remote")]
+pub use tell::RemoteTellRequest;
+
+pub use ask::{AskRequest, LocalAskRequest};
+pub use tell::{LocalTellRequest, TellRequest};
 
 use crate::{error::SendError, reply::ReplySender, Reply};
 

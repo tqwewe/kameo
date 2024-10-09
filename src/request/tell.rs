@@ -1,15 +1,13 @@
 use core::panic;
-use std::{borrow::Cow, marker::PhantomData, time::Duration};
+use std::{marker::PhantomData, time::Duration};
 
-use serde::{de::DeserializeOwned, Serialize};
-use tokio::sync::oneshot;
+#[cfg(feature = "remote")]
+use crate::remote;
 
 use crate::{
-    actor::{ActorRef, RemoteActorRef},
-    error::{RemoteSendError, SendError},
+    actor, error,
     mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Signal},
     message::Message,
-    remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmReq, SwarmResp},
     Actor, Reply,
 };
 
@@ -40,11 +38,12 @@ where
 
 /// A request to a remote actor.
 #[allow(missing_debug_implementations)]
+#[cfg(feature = "remote")]
 pub struct RemoteTellRequest<'a, A, M>
 where
     A: Actor,
 {
-    actor_ref: &'a RemoteActorRef<A>,
+    actor_ref: &'a actor::RemoteActorRef<A>,
     msg: &'a M,
 }
 
@@ -54,7 +53,7 @@ where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new(actor_ref: &'a ActorRef<A>, msg: M) -> Self
+    pub(crate) fn new(actor_ref: &'a actor::ActorRef<A>, msg: M) -> Self
     where
         A: Message<M>,
         M: Send + 'static,
@@ -75,12 +74,13 @@ where
     }
 }
 
+#[cfg(feature = "remote")]
 impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
 where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new_remote(actor_ref: &'a RemoteActorRef<A>, msg: &'a M) -> Self {
+    pub(crate) fn new_remote(actor_ref: &'a actor::RemoteActorRef<A>, msg: &'a M) -> Self {
         TellRequest {
             location: RemoteTellRequest { actor_ref, msg },
             timeout: WithoutRequestTimeout,
@@ -107,6 +107,7 @@ where
     }
 }
 
+#[cfg(feature = "remote")]
 impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
     #[inline]
     pub(crate) fn into_maybe_timeouts(
@@ -138,7 +139,7 @@ macro_rules! impl_message_send {
             M: Send + 'static,
         {
             type Ok = ();
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
             async fn send(self) -> Result<Self::Ok, Self::Error> {
@@ -157,12 +158,12 @@ macro_rules! impl_message_send {
                 M,
                 $timeout,
             >: MessageSend,
-            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-            M: Serialize + Send + Sync,
-            <A::Reply as Reply>::Error: DeserializeOwned,
+            A: Actor<Mailbox = $mailbox<A>> + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+            M: serde::Serialize + Send + Sync,
+            <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
         {
             type Ok = ();
-            type Error = RemoteSendError<<A::Reply as Reply>::Error>;
+            type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
 
             #[inline]
             async fn send(self) -> Result<Self::Ok, Self::Error> {
@@ -185,7 +186,9 @@ impl_message_send!(local, BoundedMailbox, WithRequestTimeout, |req| {
         .await?;
     Ok(())
 });
+#[cfg(feature = "remote")]
 impl_message_send!(remote, BoundedMailbox, WithoutRequestTimeout, |req| None);
+#[cfg(feature = "remote")]
 impl_message_send!(remote, BoundedMailbox, WithRequestTimeout, |req| Some(
     req.timeout.0
 ));
@@ -194,6 +197,7 @@ impl_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
     req.location.mailbox.0.send(req.location.signal)?;
     Ok(())
 });
+#[cfg(feature = "remote")]
 impl_message_send!(remote, UnboundedMailbox, WithoutRequestTimeout, |req| None);
 
 impl_message_send!(local, BoundedMailbox, MaybeRequestTimeout, |req| {
@@ -246,7 +250,7 @@ macro_rules! impl_message_send_sync {
             M: 'static,
         {
             type Ok = ();
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
             fn send_sync(self) -> Result<Self::Ok, Self::Error> {
@@ -279,7 +283,7 @@ macro_rules! impl_try_message_send {
             M: Send + 'static,
         {
             type Ok = ();
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
             async fn try_send(self) -> Result<Self::Ok, Self::Error> {
@@ -298,12 +302,12 @@ macro_rules! impl_try_message_send {
                 M,
                 $timeout,
             >: TryMessageSend,
-            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-            M: Serialize + Send + Sync,
-            <A::Reply as Reply>::Error: DeserializeOwned,
+            A: Actor<Mailbox = $mailbox<A>> + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+            M: serde::Serialize + Send + Sync,
+            <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
         {
             type Ok = ();
-            type Error = RemoteSendError<<A::Reply as Reply>::Error>;
+            type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
 
             #[inline]
             async fn try_send(self) -> Result<Self::Ok, Self::Error> {
@@ -318,11 +322,13 @@ impl_try_message_send!(local, BoundedMailbox, WithoutRequestTimeout, |req| {
     req.location.mailbox.0.try_send(req.location.signal)?;
     Ok(())
 });
+#[cfg(feature = "remote")]
 impl_try_message_send!(remote, BoundedMailbox, WithoutRequestTimeout, |req| None);
 impl_try_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, |req| {
     req.location.mailbox.0.send(req.location.signal)?;
     Ok(())
 });
+#[cfg(feature = "remote")]
 impl_try_message_send!(remote, UnboundedMailbox, WithoutRequestTimeout, |req| None);
 
 impl_try_message_send!(local, BoundedMailbox, MaybeRequestTimeout, |req| {
@@ -376,7 +382,7 @@ macro_rules! impl_try_message_send_sync {
             M: 'static,
         {
             type Ok = ();
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
             fn try_send_sync(self) -> Result<Self::Ok, Self::Error> {
@@ -414,7 +420,7 @@ macro_rules! impl_blocking_message_send {
             M: 'static,
         {
             type Ok = ();
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
             fn blocking_send(self) -> Result<Self::Ok, Self::Error> {
@@ -452,7 +458,7 @@ macro_rules! impl_try_blocking_message_send {
             M: 'static,
         {
             type Ok = ();
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
             fn try_blocking_send(self) -> Result<Self::Ok, Self::Error> {
@@ -473,30 +479,34 @@ impl_try_blocking_message_send!(local, UnboundedMailbox, WithoutRequestTimeout, 
     Ok(())
 });
 
+#[cfg(feature = "remote")]
 async fn remote_tell<A, M>(
-    actor_ref: &RemoteActorRef<A>,
+    actor_ref: &actor::RemoteActorRef<A>,
     msg: &M,
     mailbox_timeout: Option<Duration>,
     immediate: bool,
-) -> Result<(), RemoteSendError<<A::Reply as Reply>::Error>>
+) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>>
 where
-    A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-    M: Serialize,
-    <A::Reply as Reply>::Error: DeserializeOwned,
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: serde::Serialize,
+    <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
 {
+    use remote::*;
+    use std::borrow::Cow;
+
     let actor_id = actor_ref.id();
-    let (reply_tx, reply_rx) = oneshot::channel();
+    let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
     actor_ref.send_to_swarm(SwarmCommand::Req {
         peer_id: actor_id
             .peer_id_intern()
             .cloned()
-            .unwrap_or_else(|| ActorSwarm::get().unwrap().local_peer_id_intern().clone()),
+            .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id_intern()),
         req: SwarmReq::Tell {
             actor_id,
             actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
             message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
             payload: rmp_serde::to_vec_named(msg)
-                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
+                .map_err(|err| error::RemoteSendError::SerializeMessage(err.to_string()))?,
             mailbox_timeout,
             immediate,
         },
@@ -508,8 +518,8 @@ where
             Ok(()) => Ok(()),
             Err(err) => Err(err
                 .map_err(|err| match rmp_serde::decode::from_slice(&err) {
-                    Ok(err) => RemoteSendError::HandlerError(err),
-                    Err(err) => RemoteSendError::DeserializeHandlerError(err.to_string()),
+                    Ok(err) => error::RemoteSendError::HandlerError(err),
+                    Err(err) => error::RemoteSendError::DeserializeHandlerError(err.to_string()),
                 })
                 .flatten()),
         },
