@@ -71,7 +71,6 @@ where
     ///
     /// This makes the actor discoverable by other nodes in the distributed system.
     #[cfg(feature = "remote")]
-    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
     pub async fn register(&self, name: &str) -> Result<(), error::RegistrationError>
     where
         A: remote::RemoteActor + 'static,
@@ -86,7 +85,6 @@ where
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
     #[cfg(feature = "remote")]
-    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
     pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistrationError>
     where
         A: remote::RemoteActor + 'static,
@@ -549,7 +547,6 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 /// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
 /// It supports the same messaging patterns as `ActorRef` for local actors, including `ask` and `tell` messaging.
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
     swarm_tx: remote::SwarmSender,
@@ -557,7 +554,6 @@ pub struct RemoteActorRef<A: Actor> {
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl<A: Actor> RemoteActorRef<A> {
     pub(crate) fn new(id: ActorID, swarm_tx: remote::SwarmSender) -> Self {
         RemoteActorRef {
@@ -684,7 +680,6 @@ impl<A: Actor> RemoteActorRef<A> {
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl<A: Actor> Clone for RemoteActorRef<A> {
     fn clone(&self) -> Self {
         RemoteActorRef {
@@ -696,7 +691,6 @@ impl<A: Actor> Clone for RemoteActorRef<A> {
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("RemoteActorRef");

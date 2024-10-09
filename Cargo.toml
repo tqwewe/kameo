@@ -24,7 +24,6 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 keywords = ["actor", "tokio"]
 
 [features]
-doc = []
 remote = ["dep:libp2p", "dep:libp2p-identity", "dep:linkme", "dep:rmp-serde", "dep:internment"]
 
 [dependencies]

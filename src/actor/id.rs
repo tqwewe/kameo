@@ -55,7 +55,6 @@ impl ActorID {
     ///
     /// A new `ActorID` instance.
     #[cfg(feature = "remote")]
-    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
     pub fn new_with_peer_id(sequence_id: u64, peer_id: libp2p::PeerId) -> Self {
         ActorID {
             sequence_id,
@@ -92,7 +91,6 @@ impl ActorID {
     ///
     /// An `Option<PeerId>`. `None` indicates a local actor.
     #[cfg(feature = "remote")]
-    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
     pub fn peer_id(&self) -> Option<libp2p::PeerId> {
         self.peer_id.map(|peer_id| *peer_id)
     }
@@ -184,16 +182,14 @@ impl ActorID {
 
 impl fmt::Display for ActorID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "ActorID({}, ", self.sequence_id)?;
+        #[cfg(not(feature = "remote"))]
+        return write!(f, "ActorID({})", self.sequence_id);
 
         #[cfg(feature = "remote")]
         match self.peer_id {
-            Some(peer_id) => write!(f, "{peer_id})"),
-            None => write!(f, "local)"),
+            Some(peer_id) => write!(f, "ActorID({}, {peer_id})", self.sequence_id),
+            None => write!(f, "ActorID({}, local)", self.sequence_id),
         }
-
-        #[cfg(not(feature = "remote"))]
-        Ok(())
     }
 }
 

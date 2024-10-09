@@ -87,7 +87,6 @@ where
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl<'a, A, M>
     AskRequest<
         RemoteAskRequest<'a, A, M>,

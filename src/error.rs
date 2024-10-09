@@ -228,18 +228,16 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
 /// An error that can occur when bootstrapping the actor swarm.
+#[cfg(feature = "remote")]
 #[derive(Debug)]
 pub enum BootstrapError {
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
     /// An error during listening on a Transport.
-    #[cfg(feature = "remote")]
-    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
     Transport(libp2p::TransportError<io::Error>),
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl From<libp2p::TransportError<io::Error>> for BootstrapError {
     fn from(err: libp2p::TransportError<io::Error>) -> Self {
         BootstrapError::Transport(err)
@@ -631,12 +629,10 @@ pub enum ActorIDFromBytesError {
     MissingSequenceID,
     /// An error occurred while parsing the `PeerId`.
     #[cfg(feature = "remote")]
-    #[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
     ParsePeerID(libp2p_identity::ParseError),
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl From<libp2p_identity::ParseError> for ActorIDFromBytesError {
     fn from(err: libp2p_identity::ParseError) -> Self {
         ActorIDFromBytesError::ParsePeerID(err)

@@ -39,7 +39,6 @@ where
 /// A request to a remote actor.
 #[allow(missing_debug_implementations)]
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 pub struct RemoteTellRequest<'a, A, M>
 where
     A: Actor,
@@ -76,7 +75,6 @@ where
 }
 
 #[cfg(feature = "remote")]
-#[cfg_attr(feature = "doc", doc(cfg(feature = "remote")))]
 impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
 where
     A: Actor,
