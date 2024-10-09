@@ -6,11 +6,8 @@
 
 use std::{
     any::{self, Any},
-    borrow::Cow,
     cmp, error, fmt,
     hash::{Hash, Hasher},
-    io,
-    num::NonZero,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
@@ -234,12 +231,12 @@ pub enum BootstrapError {
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
     /// An error during listening on a Transport.
-    Transport(libp2p::TransportError<io::Error>),
+    Transport(libp2p::TransportError<std::io::Error>),
 }
 
 #[cfg(feature = "remote")]
-impl From<libp2p::TransportError<io::Error>> for BootstrapError {
-    fn from(err: libp2p::TransportError<io::Error>) -> Self {
+impl From<libp2p::TransportError<std::io::Error>> for BootstrapError {
+    fn from(err: libp2p::TransportError<std::io::Error>) -> Self {
         BootstrapError::Transport(err)
     }
 }
@@ -259,6 +256,7 @@ impl fmt::Display for BootstrapError {
 impl error::Error for BootstrapError {}
 
 /// An error that can occur when registering & looking up actors by name.
+#[cfg(feature = "remote")]
 #[derive(Clone, Debug)]
 pub enum RegistrationError {
     /// The actor swarm has not been bootstrapped.
@@ -268,12 +266,13 @@ pub enum RegistrationError {
     /// Quorum failed.
     QuorumFailed {
         /// Required quorum.
-        quorum: NonZero<usize>,
+        quorum: std::num::NonZero<usize>,
     },
     /// Timeout.
     Timeout,
 }
 
+#[cfg(feature = "remote")]
 impl fmt::Display for RegistrationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -287,9 +286,11 @@ impl fmt::Display for RegistrationError {
     }
 }
 
+#[cfg(feature = "remote")]
 impl error::Error for RegistrationError {}
 
 /// Error that can occur when sending a message to an actor.
+#[cfg(feature = "remote")]
 #[derive(Debug, Serialize, Deserialize)]
 pub enum RemoteSendError<E> {
     /// The actor isn't running.
@@ -304,9 +305,9 @@ pub enum RemoteSendError<E> {
     /// The message remote ID was not found for the actor.
     UnknownMessage {
         /// The remote ID of the actor.
-        actor_remote_id: Cow<'static, str>,
+        actor_remote_id: std::borrow::Cow<'static, str>,
         /// The remote ID of the message.
-        message_remote_id: Cow<'static, str>,
+        message_remote_id: std::borrow::Cow<'static, str>,
     },
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
@@ -341,9 +342,10 @@ pub enum RemoteSendError<E> {
     ConnectionClosed,
     /// An IO failure happened on an outbound stream.
     #[serde(skip)]
-    Io(Option<io::Error>),
+    Io(Option<std::io::Error>),
 }
 
+#[cfg(feature = "remote")]
 impl<E> RemoteSendError<E> {
     /// Maps the inner error to another type if the variant is [`HandlerError`](RemoteSendError::HandlerError).
     pub fn map_err<F, O>(self, mut op: O) -> RemoteSendError<F>
@@ -384,6 +386,7 @@ impl<E> RemoteSendError<E> {
     }
 }
 
+#[cfg(feature = "remote")]
 impl<E> RemoteSendError<RemoteSendError<E>> {
     /// Flattens a nested SendError.
     pub fn flatten(self) -> RemoteSendError<E> {
@@ -428,6 +431,7 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
     }
 }
 
+#[cfg(feature = "remote")]
 impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
     fn from(err: SendError<M, E>) -> Self {
         match err {
@@ -440,6 +444,7 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
     }
 }
 
+#[cfg(feature = "remote")]
 impl<E> fmt::Display for RemoteSendError<E>
 where
     E: fmt::Display,
@@ -486,6 +491,7 @@ where
     }
 }
 
+#[cfg(feature = "remote")]
 impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
