@@ -5,10 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.12.0-alpha.1] - 2024-10-09
+## [0.12.0] - 2024-10-11
 
-* @shusvr made their first contribution
+* @shusvr made their first contribution in #60
 * @marcaddeo made their first contribution in #47
+
+### <!-- 0 -->Added
+
+- Add `ActorRef::wait_startup` method (#63)
 
 ### <!-- 1 -->Changed
 
@@ -343,7 +347,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
-[0.12.0-alpha.1]: https://github.com/tqwewe/kameo/compare/v0.11.0..0.12.0-alpha.1
+[0.12.0]: https://github.com/tqwewe/kameo/compare/v0.12.0-alpha.1..0.12.0
 [0.11.0]: https://github.com/tqwewe/kameo/compare/v0.10.0..v0.11.0
 [0.10.0]: https://github.com/tqwewe/kameo/compare/v0.9.0..v0.10.0
 [0.9.0]: https://github.com/tqwewe/kameo/compare/v0.8.1..v0.9.0
