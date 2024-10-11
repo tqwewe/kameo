@@ -1,10 +1,13 @@
-use std::{convert, mem, panic::AssertUnwindSafe};
+use std::{convert, mem, panic::AssertUnwindSafe, sync::Arc};
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
     Future, FutureExt,
 };
-use tokio::runtime::{Handle, RuntimeFlavor};
+use tokio::{
+    runtime::{Handle, RuntimeFlavor},
+    sync::Semaphore,
+};
 use tracing::{error, trace};
 
 use crate::{
@@ -138,7 +141,13 @@ where
     let (mailbox, mailbox_rx) = A::new_mailbox();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let links = Links::default();
-    let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
+    let startup_semaphore = Arc::new(Semaphore::new(0));
+    let actor_ref = ActorRef::new(
+        mailbox,
+        abort_handle,
+        links.clone(),
+        startup_semaphore.clone(),
+    );
     let id = actor_ref.id();
     let actor = f(&actor_ref).await;
 
@@ -147,8 +156,15 @@ where
         tokio::spawn(CURRENT_ACTOR_ID.scope(id, {
             let actor_ref = actor_ref.clone();
             async move {
-                run_actor_lifecycle::<A, S>(actor_ref, actor, mailbox_rx, abort_registration, links)
-                    .await
+                run_actor_lifecycle::<A, S>(
+                    actor_ref,
+                    actor,
+                    mailbox_rx,
+                    abort_registration,
+                    links,
+                    startup_semaphore,
+                )
+                .await
             }
         }));
     }
@@ -166,6 +182,7 @@ where
                         mailbox_rx,
                         abort_registration,
                         links,
+                        startup_semaphore,
                     )
                     .await
                 }
@@ -190,7 +207,13 @@ where
     let (mailbox, mailbox_rx) = A::new_mailbox();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let links = Links::default();
-    let actor_ref = ActorRef::new(mailbox, abort_handle, links.clone());
+    let startup_semaphore = Arc::new(Semaphore::new(0));
+    let actor_ref = ActorRef::new(
+        mailbox,
+        abort_handle,
+        links.clone(),
+        startup_semaphore.clone(),
+    );
     let id = actor_ref.id();
 
     std::thread::Builder::new()
@@ -206,6 +229,7 @@ where
                         mailbox_rx,
                         abort_registration,
                         links,
+                        startup_semaphore,
                     ),
                 ))
             }
@@ -222,6 +246,7 @@ async fn run_actor_lifecycle<A, S>(
     mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     abort_registration: AbortRegistration,
     links: Links,
+    startup_semaphore: Arc<Semaphore>,
 ) where
     A: Actor,
     S: ActorState<A>,
@@ -264,7 +289,7 @@ async fn run_actor_lifecycle<A, S>(
     let mut state = S::new_from_actor(actor, actor_ref.clone());
 
     let reason = Abortable::new(
-        abortable_actor_loop(&mut state, mailbox_rx),
+        abortable_actor_loop(&mut state, mailbox_rx, startup_semaphore),
         abort_registration,
     )
     .await
@@ -287,13 +312,14 @@ async fn run_actor_lifecycle<A, S>(
 async fn abortable_actor_loop<A, S>(
     state: &mut S,
     mut mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
+    startup_semaphore: Arc<Semaphore>,
 ) -> ActorStopReason
 where
     A: Actor,
     S: ActorState<A>,
 {
     loop {
-        let reason = recv_mailbox_loop(state, &mut mailbox_rx).await;
+        let reason = recv_mailbox_loop(state, &mut mailbox_rx, &startup_semaphore).await;
         if let Some(reason) = state.on_shutdown(reason).await {
             return reason;
         }
@@ -303,6 +329,7 @@ where
 async fn recv_mailbox_loop<A, S>(
     state: &mut S,
     mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
+    startup_semaphore: &Semaphore,
 ) -> ActorStopReason
 where
     A: Actor,
@@ -311,6 +338,7 @@ where
     loop {
         match mailbox_rx.recv().await {
             Some(Signal::StartupFinished) => {
+                startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
                 if let Some(reason) = state.handle_startup_finished().await {
                     return reason;
                 }
