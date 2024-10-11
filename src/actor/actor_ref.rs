@@ -1,7 +1,11 @@
 use std::{cell::Cell, collections::HashMap, fmt, ops, sync::Arc};
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
-use tokio::{sync::Mutex, task::JoinHandle, task_local};
+use tokio::{
+    sync::{Mutex, Semaphore},
+    task::JoinHandle,
+    task_local,
+};
 
 #[cfg(feature = "remote")]
 use crate::remote;
@@ -39,6 +43,7 @@ pub struct ActorRef<A: Actor> {
     mailbox: A::Mailbox,
     abort_handle: AbortHandle,
     links: Links,
+    startup_semaphore: Arc<Semaphore>,
 }
 
 impl<A> ActorRef<A>
@@ -46,12 +51,18 @@ where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new(mailbox: A::Mailbox, abort_handle: AbortHandle, links: Links) -> Self {
+    pub(crate) fn new(
+        mailbox: A::Mailbox,
+        abort_handle: AbortHandle,
+        links: Links,
+        startup_semaphore: Arc<Semaphore>,
+    ) -> Self {
         ActorRef {
             id: ActorID::generate(),
             mailbox,
             abort_handle,
             links,
+            startup_semaphore,
         }
     }
 
@@ -107,6 +118,7 @@ where
             mailbox: self.mailbox.downgrade(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
+            startup_notify: self.startup_semaphore.clone(),
         }
     }
 
@@ -152,6 +164,45 @@ where
     #[inline]
     pub fn kill(&self) {
         self.abort_handle.abort()
+    }
+
+    /// Waits for the actor to finish startup and become ready to process messages.
+    ///
+    /// This method ensures the actors on_start lifecycle hook has been fully processed.
+    /// If `wait_startup` is called after the actor has already started up, this will return immediately.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::time::Duration;
+    ///
+    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::error::BoxError;
+    /// use kameo::mailbox::unbounded::UnboundedMailbox;
+    /// use kameo::request::MessageSend;
+    /// use tokio::time::sleep;
+    ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Mailbox = UnboundedMailbox<Self>;
+    ///
+    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    ///         sleep(Duration::from_secs(2)).await; // Some io operation
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// actor_ref.wait_startup().await;
+    /// println!("Actor ready to handle messages!");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn wait_startup(&self) {
+        let _ = self.startup_semaphore.acquire().await;
     }
 
     /// Waits for the actor to finish processing and stop.
@@ -516,6 +567,7 @@ impl<A: Actor> Clone for ActorRef<A> {
             mailbox: self.mailbox.clone(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
+            startup_semaphore: self.startup_semaphore.clone(),
         }
     }
 }
@@ -712,6 +764,7 @@ pub struct WeakActorRef<A: Actor> {
     mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
     abort_handle: AbortHandle,
     links: Links,
+    startup_notify: Arc<Semaphore>,
 }
 
 impl<A: Actor> WeakActorRef<A> {
@@ -728,6 +781,7 @@ impl<A: Actor> WeakActorRef<A> {
             mailbox,
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
+            startup_semaphore: self.startup_notify.clone(),
         })
     }
 
@@ -749,6 +803,7 @@ impl<A: Actor> Clone for WeakActorRef<A> {
             mailbox: self.mailbox.clone(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
+            startup_notify: self.startup_notify.clone(),
         }
     }
 }
