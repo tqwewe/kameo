@@ -31,6 +31,7 @@
 //! | [`blocking_send`]     |       ✅       |        ✅        |        ✅       |         ✅        |
 //! | [`try_blocking_send`] |       ✅       |        ✅        |        ✅       |         ✅        |
 //! | [`forward`]           |      ✅ 📬      |        ✅        |        ❌       |         ❌        |
+//! | [`forward_sync`]      |       ❌       |        ✅        |        ❌       |         ❌        |
 //!
 //! [`send`]: method@MessageSend::send
 //! [`send_sync`]: method@MessageSendSync::send_sync
@@ -39,6 +40,7 @@
 //! [`blocking_send`]: method@BlockingMessageSend::blocking_send
 //! [`try_blocking_send`]: method@TryBlockingMessageSend::try_blocking_send
 //! [`forward`]: method@ForwardMessageSend::forward
+//! [`forward_sync`]: method@ForwardMessageSendSync::forward_sync
 
 use std::time::Duration;
 
@@ -140,6 +142,15 @@ pub trait ForwardMessageSend<R: Reply, M> {
         self,
         tx: ReplySender<R::Value>,
     ) -> impl Future<Output = Result<(), SendError<(M, ReplySender<R::Value>), R::Error>>> + Send;
+}
+
+/// Trait representing the ability to send a message with the reply being sent back to a channel synchronously.
+pub trait ForwardMessageSendSync<R: Reply, M> {
+    /// Sends a message synchronously with the reply being sent back to a channel.
+    fn forward_sync(
+        self,
+        tx: ReplySender<R::Value>,
+    ) -> Result<(), SendError<(M, ReplySender<R::Value>), R::Error>>;
 }
 
 /// A type for requests without any timeout set.

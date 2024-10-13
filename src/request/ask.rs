@@ -14,8 +14,8 @@ use crate::{
 };
 
 use super::{
-    BlockingMessageSend, ForwardMessageSend, MaybeRequestTimeout, MessageSend,
-    TryBlockingMessageSend, TryMessageSend, WithRequestTimeout, WithoutRequestTimeout,
+    BlockingMessageSend, ForwardMessageSend, ForwardMessageSendSync, MaybeRequestTimeout,
+    MessageSend, TryBlockingMessageSend, TryMessageSend, WithRequestTimeout, WithoutRequestTimeout,
 };
 
 /// A request to send a message to an actor, waiting for a reply.
@@ -874,6 +874,61 @@ impl_forward_message!(
 );
 
 impl_forward_message!(
+    local,
+    UnboundedMailbox,
+    WithoutRequestTimeout,
+    WithoutRequestTimeout,
+    |req, tx| {
+        match &mut req.location.signal {
+            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            _ => unreachable!("ask requests only support messages"),
+        }
+
+        req.location
+            .mailbox
+            .0
+            .send(req.location.signal)
+            .map_err(|err| match err.0 {
+                Signal::Message {
+                    message, mut reply, ..
+                } => SendError::ActorNotRunning((
+                    message.as_any().downcast::<M>().ok().map(|v| *v).unwrap(),
+                    ReplySender::new(reply.take().unwrap()),
+                )),
+                _ => unreachable!("ask requests only support messages"),
+            })
+    }
+);
+
+////////////////////////////////////
+// === ForwardMessageSendSync === //
+////////////////////////////////////
+macro_rules! impl_forward_message_sync {
+    (local, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident, $tx:ident| $($body:tt)*) => {
+        impl<'a, A, M> ForwardMessageSendSync<A::Reply, M>
+            for AskRequest<
+                LocalAskRequest<'a, A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $mailbox_timeout,
+                $reply_timeout,
+            >
+        where
+            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
+            M: Send + 'static,
+        {
+            #[inline]
+            fn forward_sync(self, $tx: ReplySender<<A::Reply as Reply>::Value>)
+                -> Result<(), SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>>
+            {
+                let mut $req = self;
+                $($body)*
+            }
+        }
+    };
+}
+
+impl_forward_message_sync!(
     local,
     UnboundedMailbox,
     WithoutRequestTimeout,
