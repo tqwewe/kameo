@@ -22,20 +22,9 @@ body = """
 {% else -%}
     ## [Unreleased]
 {% endif -%}
-{% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
-  * @{{ contributor.username }} made their first contribution
-    {%- if contributor.pr_number %} in #{{ contributor.pr_number -}}
-    {%- else -%}
-        {#- find the commit -#}
-        {% for commit in commits -%}
-            {%- if commit.id == commit_id -%}
-                {%- set pr = commit.message | split(pat="#") | last | trim_end_matches(pat=")") -%}
-                {%- if pr is matching("^\\d+$") %} in #{{ pr }}{%- endif -%}
-                {%- break -%}
-            {%- endif -%}
-        {%- endfor -%}
-    {%- endif -%}
-{%- endfor %}
+{%- for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
+  * @{{ contributor.username }} made their first contribution in #{{ contributor.pr_number }}
+{% endfor -%}
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | upper_first }}
     {% for commit in commits | sort(attribute="author.timestamp") | reverse | sort(attribute="breaking") | reverse %}
@@ -93,7 +82,7 @@ filter_commits = true
 # regex for matching git tags
 tag_pattern = "v[0-9].*"
 # regex for skipping tags
-skip_tags = "v0.1.0-beta.1"
+skip_tags = "beta|alpha"
 # regex for ignoring tags
 ignore_tags = ""
 # sort the tags topologically
