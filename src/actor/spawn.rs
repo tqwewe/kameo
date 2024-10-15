@@ -276,7 +276,7 @@ async fn run_actor_lifecycle<A, S>(
     if let Err(err) = start_res {
         let reason = ActorStopReason::Panicked(err);
         let mut state = S::new_from_actor(actor, actor_ref.clone());
-        state.on_shutdown(reason.clone()).await.unwrap();
+        let reason = state.on_shutdown(reason.clone()).await.unwrap_or(reason);
         let actor = state.shutdown().await;
         actor
             .on_stop(actor_ref.clone(), reason.clone())
