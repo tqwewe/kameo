@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2024-10-15
+
+### <!-- 0 -->Added
+
+- Add `ForwardMessageSendSync` request trait (#65)
+
+### <!-- 3 -->Fixed
+
+- Actor lifecycle error handling when `on_start` errors [</>](https://github.com/tqwewe/kameo/commit/5eb9249ff2f0ca8d450f6da33eb9f9021c93734d)
+
+### <!-- 4 -->Documentation
+
+- Add FAQ to book about reasons for actors stopping [</>](https://github.com/tqwewe/kameo/commit/5094e92ab0c4a89c05635c33380a4c2e1b41af8d)
+
+### <!-- 5 -->Misc
+
+- Ignore alpha and beta tags in cliff.toml [</>](https://github.com/tqwewe/kameo/commit/880f667a54789809566a68d5cab9f0f1f8955355)
+
 ## [0.12.0] - 2024-10-11
 
 * @shusvr made their first contribution in #60
@@ -347,7 +365,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
-[0.12.0]: https://github.com/tqwewe/kameo/compare/v0.12.0-alpha.1..0.12.0
+[0.12.1]: https://github.com/tqwewe/kameo/compare/v0.12.0..0.12.1
+[0.12.0]: https://github.com/tqwewe/kameo/compare/v0.11.0..0.12.0
 [0.11.0]: https://github.com/tqwewe/kameo/compare/v0.10.0..v0.11.0
 [0.10.0]: https://github.com/tqwewe/kameo/compare/v0.9.0..v0.10.0
 [0.9.0]: https://github.com/tqwewe/kameo/compare/v0.8.1..v0.9.0
