@@ -57,6 +57,19 @@ Messages are processed sequentially within each actor to maintain consistency an
 
 ---
 
+## Why does my actor stop unexpectedly?
+
+Actors stop running if one of the following conditions is met:
+
+- All references to the actor (`ActorRef<MyActor>`) are dropped.
+- It is explicitly stopped with `.stop_gracefully()` or `.kill()`.
+- `on_start` returns an error.
+- `on_panic` returns `Ok(Some(reason))`, or returns an error.
+
+If your actor is stopped, double check each of these reasons as its likely due to one of them occuring.
+
+---
+
 ## How does Kameo compare to other Rust actor libraries like Actix or Ractor?
 
 - **Actix**: Kameo offers a simpler API with less boilerplate, especially for async use cases. Actix has seen many changes in its runtime over time, while Kameo is built directly on Tokio for more native async support.
