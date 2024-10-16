@@ -12,58 +12,77 @@
 
 [![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/docs/banner.png?raw=true)](https://github.com/tqwewe/kameo)
 
-## What is Kameo
+## Introduction
 
-Kameo is a lightweight Rust library for building fault-tolerant, distributed, and asynchronous actors. It allows seamless communication between actors across nodes, providing [scalability](#use-cases), [backpressure](#feature-highlights), and panic recovery for robust distributed systems.
+**Kameo** is a high-performance, lightweight Rust library for building fault-tolerant, asynchronous actor-based systems. Designed to scale from small, local applications to large, distributed systems, Kameo simplifies concurrent programming by providing a robust actor model that seamlessly integrates with Rust's async ecosystem.
 
-## Feature Highlights
+Whether you're building a microservice, a real-time application, or an embedded system, Kameo offers the tools you need to manage concurrency, recover from failures, and scale efficiently.
 
-- **Async Rust**: Each actor runs as a separate Tokio task, making concurrency easy and efficient.
-- **Supervision**: Link actors to create a fault-tolerant, self-healing actor hierarchy.
-- **Remote Messaging**: Send messages to actors on different nodes seamlessly.
-- **Panic Safety**: Panics are gracefully handled, allowing the system to recover and continue running.
-- **Backpressure Management**: Supports both bounded and unbounded mpsc messaging for handling load effectively.
+## Key Features
+
+- **Lightweight Actors**: Create actors that run in their own asynchronous tasks, leveraging Tokio for efficient concurrency.
+- **Fault Tolerance**: Build resilient systems with supervision strategies that automatically recover from actor failures.
+- **Flexible Messaging**: Supports both bounded and unbounded message channels, with backpressure management for load control.
+- **Local and Distributed Communication**: Seamlessly send messages between actors, whether they're on the same node or across the network.
+- **Panic Safety**: Actors are isolated; a panic in one actor doesn't bring down the whole system.
+- **Type-Safe Interfaces**: Strong typing for messages and replies ensures compile-time correctness.
+- **Easy Integration**: Compatible with existing Rust async code, and can be integrated into larger systems effortlessly.
+
+## Why Kameo?
+
+Kameo is designed to make concurrent programming in Rust approachable and efficient. By abstracting the complexities of async and concurrent execution, Kameo lets you focus on writing the business logic of your actors without worrying about the underlying mechanics.
+
+Kameo is not just for distributed applications; it's equally powerful for local concurrent systems. Its flexible design allows you to start with a simple, single-node application and scale up to a distributed architecture when needed.
 
 ## Use Cases
 
-Kameo is versatile and can be applied in various domains, such as:
+- **Concurrent Applications**: Simplify the development of applications that require concurrency, such as web servers, data processors, or simulation engines.
+- **Distributed Systems**: Build scalable microservices, distributed databases, or message brokers that require robust communication across nodes.
+- **Real-Time Systems**: Ideal for applications where low-latency communication is critical, such as gaming servers, chat applications, or monitoring dashboards.
+- **Embedded and IoT Devices**: Deploy lightweight actors on resource-constrained devices for efficient and reliable operation.
+- **Fault-Tolerant Services**: Create services that need to remain operational even when parts of the system fail.
 
-- **Distributed Microservices**: Build resilient microservices that communicate reliably over a distributed network.
-- **Real-Time Systems**: Ideal for building chat systems, multiplayer games, or real-time monitoring dashboards where low-latency communication is essential.
-- **IoT Devices**: Deploy lightweight actors on low-resource IoT devices for seamless networked communication.
-
-# Getting Started
+## Getting Started
 
 ### Prerequisites
 
-- Rust installed (check [rustup](https://rustup.rs) for installation instructions)
-- A basic understanding of asynchronous programming in Rust
+- Rust installed (use [rustup](https://rustup.rs) for installation)
+- Familiarity with asynchronous programming in Rust (recommended but not required)
 
-## Installation
+### Installation
 
 Add kameo as a dependency in your `Cargo.toml` file:
+
+```toml
+[dependencies]
+kameo = "0.12"
+```
+
+Alternatively, you can add it via command line:
 
 ```bash
 cargo add kameo
 ```
 
-## Example: Defining an Actor
+## Basic Example
+
+### Defining an Actor
 
 ```rust,ignore
 use kameo::Actor;
 use kameo::message::{Context, Message};
 use kameo::request::MessageSend;
 
-// Define an actor that will keep a count
+// Implement the actor
 #[derive(Actor)]
 struct Counter {
     count: i64,
 }
 
-// Define the message for incrementing the count
+// Define message
 struct Inc { amount: i64 }
 
-// Implement how the actor will handle incoming messages
+// Implement message handler
 impl Message<Inc> for Counter {
     type Reply = i64;
 
@@ -74,97 +93,68 @@ impl Message<Inc> for Counter {
 }
 ```
 
-Spawn and message the actor.
+### Spawning and Interacting with the Actor
 
 ```rust,ignore
-// Spawn the actor and get a reference to it
+// Spawn the actor and obtain its reference
 let actor_ref = kameo::spawn(Counter { count: 0 });
 
-// Use the actor reference to send a message and receive a reply
+// Send messages to the actor
 let count = actor_ref.ask(Inc { amount: 42 }).send().await?;
 assert_eq!(count, 42);
 ```
 
 ## Distributed Actor Communication
 
-Kameo supports seamless messaging between actors across distributed nodes. This makes it easy to build distributed systems with actors that can communicate over the network.
+Kameo provides built-in support for distributed actors, allowing you to send messages across network boundaries as if they were local.
 
-### How Distributed Actors Work
+### Registering an Actor
 
-Distributed actors in Kameo are designed to interact with each other as if they were local, but messages are sent over the network. This is achieved through the following steps:
+```rust,ignore
+// Spawn and register the actor
+let actor_ref = kameo::spawn(MyActor::default());
+actor_ref.register("my_actor").await?;
+```
 
-1. **Actor Registration:** Actors can be registered under a unique name using `ActorRef::register`. Once registered, other actors or systems can look up this actor from a remote node. Under the hood, Kameo uses a **Kademlia Distributed Hash Table (DHT)**, provided by libp2p, to handle actor registration and lookup across nodes in a distributed manner.
+### Looking Up and Messaging a Remote Actor
 
-   ```rust,ignore
-   // On the host node, register the actor
-   let actor_ref = kameo::spawn(MyActor::default());
-   actor_ref.register("my_actor").await?;
-   ```
+```rust,ignore
+// Lookup the remote actor
+if let Some(remote_actor_ref) = RemoteActorRef::<MyActor>::lookup("my_actor").await? {
+    let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
+    println!("Incremented! Count is {count}");
+}
+```
 
-2. **Actor Lookup:** On remote nodes, actors can look up registered actors using `RemoteActorRef::lookup`. This returns a reference to the remote actor that can be messaged.
+### Under the Hood
 
-   ```rust,ignore
-   // On a guest node, lookup the remote actor
-   let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
-   ```
+Kameo uses [libp2p](https://libp2p.io) for peer-to-peer networking, enabling actors to communicate over various protocols (TCP/IP, WebSockets, QUIC, etc.) using multiaddresses. This abstraction allows you to focus on your application's logic without worrying about the complexities of network programming.
 
-3. **Message Passing:** Once the remote actor reference is obtained, you can send messages to it just like with local actors. The message is serialized, sent over the network, deserialized on the remote node, and handled by the actor.
+## Documentation and Resources
 
-   ```rust,ignore
-   if let Some(remote_actor_ref) = remote_actor_ref {
-       let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
-       println!("Incremented! Count is {count}");
-   }
-   ```
+- **[API Documentation](https://docs.rs/kameo)**: Detailed information on Kameo's API.
+- **[The Kameo Book](https://docs.page/tqwewe/kameo)**: Comprehensive guide with tutorials and advanced topics.
+- **[Crate on Crates.io](https://crates.io/crates/kameo)**: Latest releases and version information.
+- **[Community Discord](https://discord.gg/GMX4DV9fbk)**: Join the discussion, ask questions, and share your experiences.
 
-4. **Message Registration:** In order to send messages between nodes, the message type must implement `Serialize` and `Deserialize`. Additionally, it needs to be annotated with the `#[remote_message("uuid")]` macro, where the `uuid` is a unique identifier for the message type. This UUID helps identify which message implementation to use when sending and receiving messages over the network. It's important to ensure that the UUID does not conflict with other registered messages in your crate.
+## Examples
 
-   ```rust,ignore
-   #[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
-   impl Message<Inc> for MyActor {
-       type Reply = i64;
+Explore more examples in the [examples](https://github.com/tqwewe/kameo/tree/main/examples) directory of the repository.
 
-       async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
-           self.count += msg.amount as i64;
-           self.count
-       }
-   }
-   ```
-
-5. **Network Protocol:** Kameo uses the [libp2p](https://libp2p.io) library for networking, allowing actors to communicate over a variety of protocols. libp2p uses **multiaddresses**, which encode different addressing schemes such as TCP/IP, WebSockets, or QUIC. This flexibility allows Kameo to work seamlessly across different network layers.
-
-    - **Multiaddresses**: A multiaddress specifies how to reach a peer using different protocols. For example, a TCP/IP multiaddress might look like this: `/ip4/198.51.100.0/tcp/6543`.
-      Multiaddresses also support peer identity, preventing impersonation during communication, such as `/ip4/192.0.2.0/tcp/4321/p2p/QmcEPrat8ShnCph8WjkREzt5CPXF2RwhYxYBALDcLC1iV6`.
-
-    Kameo actors use these multiaddresses when communicating across nodes. The `ActorSwarm` component handles networking, allowing actors to register, look up, and send messages to remote actors, abstracting away the underlying complexity.
-
-    ```rust,ignore
-    // Bootstrap the actor swarm and listen on a UDP port 8020
-    ActorSwarm::bootstrap()?
-        .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
-        .await?;
-    ```
-
-See the [kameo book](https://docs.page/tqwewe/kameo/distributed-actors) for in-depth information on distributed actors in kameo.
-Additionally, a full example can be found in [examples/remote.rs](examples/remote.rs).
-
-## Additional Resources
-
-- [Documentation](https://docs.rs/kameo)
-- [The Kameo Book](https://docs.page/tqwewe/kameo)
-- [Crates.io](https://crates.io/crates/kameo)
-- [Discord](https://discord.gg/GMX4DV9fbk)
+- **Basic Actor**: How to define and interact with a simple actor.
+- **Distributed Actors**: Setting up actors that communicate over the network.
+- **Actor Pools**: Using an actor pool with the `ActorPool` actor.
+- **PubSub Actors**: Using a pubsub pattern with the `PubSub` actor.
+- **Attaching Streams**: Attaching streams to an actor.
 
 ## Contributing
 
-Contributions are welcome! Whether you are a beginner or an experienced Rust developer, there are many ways to contribute:
+We welcome contributions from the community! Here are ways you can contribute:
 
-- Report issues or bugs
-- Improve documentation
-- Submit pull requests for new features or bug fixes
-- Suggest new ideas in discussions
-
-Join our community on [Discord](https://discord.gg/GMX4DV9fbk) to connect with fellow contributors!
+- **Reporting Issues**: Found a bug or have a feature request? [Open an issue](https://github.com/tqwewe/kameo/issues).
+- **Improving Documentation**: Help make our documentation better by submitting pull requests.
+- **Contributing Code**: Check out the [CONTRIBUTING.md](https://github.com/tqwewe/kameo/blob/main/CONTRIBUTING.md) for guidelines.
+- **Join the Discussion**: Participate in discussions on [Discord](https://discord.gg/GMX4DV9fbk).
 
 ## Support
 
@@ -181,8 +171,9 @@ Thank you for your support! 💖
 - MIT License ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 - Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
 
-at your option.
+You may choose either license to use this software.
 
 ---
 
-[Home](#kameo-) | [Features](#feature-highlights) | [Use Cases](#use-cases) | [Get Started](#getting-started) | [Distributed Actor Communication](#distributed-actor-communication) | [Additional Resources](#additional-resources) | [Contributing](#contributing) | [Support](#support) | [License](#license)
+[Introduction](#introduction) | [Key Features](#key-features) | [Why Kameo?](#why-kameo) | [Use Cases](#use-cases) | [Getting Started](#getting-started) | [Basic Example](#basic-example) | [Distributed Actor Communication](#distributed-actor-communication) | [Examples](#examples) | [Documentation](#documentation-and-resources) | [Contributing](#contributing) | [Support](#support) | [License](#license)
+
