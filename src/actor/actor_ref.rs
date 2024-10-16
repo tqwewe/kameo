@@ -42,8 +42,8 @@ pub struct ActorRef<A: Actor> {
     id: ActorID,
     mailbox: A::Mailbox,
     abort_handle: AbortHandle,
-    links: Links,
-    startup_semaphore: Arc<Semaphore>,
+    pub(crate) links: Links,
+    pub(crate) startup_semaphore: Arc<Semaphore>,
 }
 
 impl<A> ActorRef<A>
@@ -306,6 +306,83 @@ where
         TellRequest::new(self, msg)
     }
 
+    /// Links two actors as siblings, ensuring they notify each other if either one dies.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    ///
+    /// actor_ref.link(&sibbling_ref).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn link<B>(&self, sibbling_ref: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == sibbling_ref.id() {
+            return;
+        }
+
+        let (mut this_links, mut sibbling_links) =
+            tokio::join!(self.links.lock(), sibbling_ref.links.lock());
+        this_links.insert(sibbling_ref.id(), sibbling_ref.weak_signal_mailbox());
+        sibbling_links.insert(self.id, self.weak_signal_mailbox());
+    }
+
+    /// Unlinks two previously linked sibling actors.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    ///
+    /// actor_ref.link(&sibbling_ref).await;
+    /// actor_ref.unlink(&sibbling_ref).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub async fn unlink<B>(&self, sibbling: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == sibbling.id() {
+            return;
+        }
+
+        let (mut this_links, mut sibbling_links) =
+            tokio::join!(self.links.lock(), sibbling.links.lock());
+        this_links.remove(&sibbling.id());
+        sibbling_links.remove(&self.id);
+    }
+
     /// Links this actor with a child actor, establishing a parent-child relationship.
     ///
     /// If the parent dies, the child actor will be notified with a "link died" signal.
@@ -330,6 +407,10 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    #[deprecated(
+        since = "0.13.0",
+        note = "child linking is being phased out in favor of bidirectional links – use the `ActorRef::link` method instead"
+    )]
     #[inline]
     pub async fn link_child<B>(&self, child: &ActorRef<B>)
     where
@@ -367,6 +448,10 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    #[deprecated(
+        since = "0.13.0",
+        note = "child linking is being phased out in favor of bidirectional links – use the `ActorRef::unlink` method instead"
+    )]
     #[inline]
     pub async fn unlink_child<B>(&self, child: &ActorRef<B>)
     where
@@ -401,6 +486,10 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    #[deprecated(
+        since = "0.13.0",
+        note = "this method has been renamed to `ActorRef::link`"
+    )]
     #[inline]
     pub async fn link_together<B>(&self, sibbling_ref: &ActorRef<B>)
     where
@@ -439,6 +528,10 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    #[deprecated(
+        since = "0.13.0",
+        note = "this method has been renamed to `ActorRef::unlink`"
+    )]
     #[inline]
     pub async fn unlink_together<B>(&self, sibbling: &ActorRef<B>)
     where

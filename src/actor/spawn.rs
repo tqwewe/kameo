@@ -1,4 +1,4 @@
-use std::{convert, mem, panic::AssertUnwindSafe, sync::Arc};
+use std::{convert, panic::AssertUnwindSafe, sync::Arc};
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
@@ -45,9 +45,43 @@ pub fn spawn<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
 {
-    spawn_inner::<A, ActorBehaviour<A>, _, _>(|_| async move { actor })
-        .now_or_never()
-        .unwrap()
+    let (actor_ref, mailbox_rx, abort_registration) = initialize_actor();
+    spawn_inner::<A, ActorBehaviour<A>>(actor, actor_ref.clone(), mailbox_rx, abort_registration);
+    actor_ref
+}
+
+/// Spawns and links an actor in a Tokio task, running asynchronously.
+///
+/// This function is used to ensure an actor is linked with another actor before its truly spawned,
+/// which avoids possible edge cases where the actor could die before having the chance to be linked.
+///
+/// # Example
+///
+/// ```
+/// use kameo::Actor;
+///
+/// #[derive(Actor)]
+/// struct FooActor;
+///
+/// #[derive(Actor)]
+/// struct BarActor;
+///
+/// # tokio_test::block_on(async {
+/// let link_ref = kameo::spawn(FooActor);
+/// let actor_ref = kameo::actor::spawn_link(&link_ref, BarActor).await;
+/// # })
+/// ```
+///
+/// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
+pub async fn spawn_link<A, L>(link_ref: &ActorRef<L>, actor: A) -> ActorRef<A>
+where
+    A: Actor,
+    L: Actor,
+{
+    let (actor_ref, mailbox_rx, abort_registration) = initialize_actor();
+    actor_ref.link(link_ref).await;
+    spawn_inner::<A, ActorBehaviour<A>>(actor, actor_ref.clone(), mailbox_rx, abort_registration);
+    actor_ref
 }
 
 /// Spawns an actor in a Tokio task, using a factory function that provides access to the [`ActorRef`].
@@ -83,7 +117,10 @@ where
     F: FnOnce(&ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
-    spawn_inner::<A, ActorBehaviour<A>, _, _>(f).await
+    let (actor_ref, mailbox_rx, abort_registration) = initialize_actor();
+    let actor = f(&actor_ref).await;
+    spawn_inner::<A, ActorBehaviour<A>>(actor, actor_ref.clone(), mailbox_rx, abort_registration);
+    actor_ref
 }
 
 /// Spawns an actor in its own dedicated thread, allowing for blocking operations.
@@ -127,45 +164,55 @@ pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
 {
-    spawn_in_thread_inner::<A, ActorBehaviour<A>>(actor)
+    let (actor_ref, mailbox_rx, abort_registration) = initialize_actor();
+    spawn_in_thread_inner::<A, ActorBehaviour<A>>(
+        actor,
+        actor_ref.clone(),
+        mailbox_rx,
+        abort_registration,
+    );
+    actor_ref
 }
 
 #[inline]
-async fn spawn_inner<A, S, F, Fu>(f: F) -> ActorRef<A>
+fn initialize_actor<A>() -> (
+    ActorRef<A>,
+    <A::Mailbox as Mailbox<A>>::Receiver,
+    AbortRegistration,
+)
 where
     A: Actor,
-    S: ActorState<A> + Send,
-    F: FnOnce(&ActorRef<A>) -> Fu,
-    Fu: Future<Output = A>,
 {
     let (mailbox, mailbox_rx) = A::new_mailbox();
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let links = Links::default();
     let startup_semaphore = Arc::new(Semaphore::new(0));
-    let actor_ref = ActorRef::new(
-        mailbox,
-        abort_handle,
-        links.clone(),
-        startup_semaphore.clone(),
-    );
-    let id = actor_ref.id();
-    let actor = f(&actor_ref).await;
+    (
+        ActorRef::new(
+            mailbox,
+            abort_handle,
+            links.clone(),
+            startup_semaphore.clone(),
+        ),
+        mailbox_rx,
+        abort_registration,
+    )
+}
 
+#[inline]
+fn spawn_inner<A, S>(
+    actor: A,
+    actor_ref: ActorRef<A>,
+    mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
+    abort_registration: AbortRegistration,
+) where
+    A: Actor,
+    S: ActorState<A> + Send,
+{
     #[cfg(not(tokio_unstable))]
     {
-        tokio::spawn(CURRENT_ACTOR_ID.scope(id, {
-            let actor_ref = actor_ref.clone();
-            async move {
-                run_actor_lifecycle::<A, S>(
-                    actor_ref,
-                    actor,
-                    mailbox_rx,
-                    abort_registration,
-                    links,
-                    startup_semaphore,
-                )
-                .await
-            }
+        tokio::spawn(CURRENT_ACTOR_ID.scope(actor_ref.id(), async move {
+            run_actor_lifecycle::<A, S>(actor, actor_ref, mailbox_rx, abort_registration).await
         }));
     }
 
@@ -173,28 +220,20 @@ where
     {
         tokio::task::Builder::new()
             .name(A::name())
-            .spawn(CURRENT_ACTOR_ID.scope(id, {
-                let actor_ref = actor_ref.clone();
-                async move {
-                    run_actor_lifecycle::<A, S>(
-                        actor_ref,
-                        actor,
-                        mailbox_rx,
-                        abort_registration,
-                        links,
-                        startup_semaphore,
-                    )
-                    .await
-                }
+            .spawn(CURRENT_ACTOR_ID.scope(actor_ref.id(), async move {
+                run_actor_lifecycle::<A, S>(actor, actor_ref, mailbox_rx, abort_registration).await
             }))
             .unwrap();
     }
-
-    actor_ref
 }
 
 #[inline]
-fn spawn_in_thread_inner<A, S>(actor: A) -> ActorRef<A>
+fn spawn_in_thread_inner<A, S>(
+    actor: A,
+    actor_ref: ActorRef<A>,
+    mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
+    abort_registration: AbortRegistration,
+) -> ActorRef<A>
 where
     A: Actor,
     S: ActorState<A> + Send,
@@ -204,33 +243,14 @@ where
         panic!("threaded actors are not supported in a single threaded tokio runtime");
     }
 
-    let (mailbox, mailbox_rx) = A::new_mailbox();
-    let (abort_handle, abort_registration) = AbortHandle::new_pair();
-    let links = Links::default();
-    let startup_semaphore = Arc::new(Semaphore::new(0));
-    let actor_ref = ActorRef::new(
-        mailbox,
-        abort_handle,
-        links.clone(),
-        startup_semaphore.clone(),
-    );
-    let id = actor_ref.id();
-
     std::thread::Builder::new()
         .name(A::name().to_string())
         .spawn({
             let actor_ref = actor_ref.clone();
             move || {
                 handle.block_on(CURRENT_ACTOR_ID.scope(
-                    id,
-                    run_actor_lifecycle::<A, S>(
-                        actor_ref,
-                        actor,
-                        mailbox_rx,
-                        abort_registration,
-                        links,
-                        startup_semaphore,
-                    ),
+                    actor_ref.id(),
+                    run_actor_lifecycle::<A, S>(actor, actor_ref, mailbox_rx, abort_registration),
                 ))
             }
         })
@@ -241,12 +261,10 @@ where
 
 #[inline]
 async fn run_actor_lifecycle<A, S>(
-    actor_ref: ActorRef<A>,
     mut actor: A,
+    actor_ref: ActorRef<A>,
     mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     abort_registration: AbortRegistration,
-    links: Links,
-    startup_semaphore: Arc<Semaphore>,
 ) where
     A: Actor,
     S: ActorState<A>,
@@ -266,11 +284,10 @@ async fn run_actor_lifecycle<A, S>(
         .weak_signal_mailbox()
         .signal_startup_finished()
         .await;
-    let actor_ref = {
+    let (actor_ref, links, startup_semaphore) = {
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
-        mem::drop(actor_ref);
-        weak_actor_ref
+        (weak_actor_ref, actor_ref.links, actor_ref.startup_semaphore)
     };
 
     if let Err(err) = start_res {

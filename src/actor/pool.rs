@@ -173,7 +173,7 @@ where
 
     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
         for worker in &self.workers {
-            worker.link_child(&actor_ref).await;
+            worker.link(&actor_ref).await;
         }
 
         Ok(())
@@ -201,7 +201,7 @@ where
             Factory::Sync(f) => f(),
             Factory::Async(f) => f().await,
         };
-        self.workers[i].link_child(&actor_ref).await;
+        self.workers[i].link(&actor_ref).await;
 
         Ok(None)
     }
