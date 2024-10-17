@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2024-10-17
+
+### <!-- 0 -->Added
+
+- Add spawn_link and link/unlink functions (#67)
+
+### <!-- 4 -->Documentation
+
+- Update README with improved content [</>](https://github.com/tqwewe/kameo/commit/0265e48b5e51e73d1b98a9d9cf7738bf6f7c4eff)
+
+### <!-- 5 -->Misc
+
+- Add release script [</>](https://github.com/tqwewe/kameo/commit/74abeb18d7c5cfaa630990ad99cb07170e23af84)
+
 ## [0.12.1] - 2024-10-15
 
 ### <!-- 0 -->Added
