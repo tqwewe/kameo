@@ -1,0 +1,69 @@
+# /bin/bash
+
+# Check if the version argument is provided
+if [ -z "$1" ]; then
+  echo "Usage: $0 <version>"
+  echo "Please provide the new version number as an argument."
+  exit 1
+fi
+
+NEW_VERSION="$1"
+MAJOR_MINOR_VERSION="${NEW_VERSION%.*}"
+VERSION_LINK="${NEW_VERSION//./}"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+if [ "$BRANCH" != "main" ]; then
+  echo "Publish can only be used when checked out to \`main\` branch. You're currently checked out to \`$BRANCH\`."
+  exit 1
+fi
+
+echo "Updating changelog"
+git cliff --tag "$NEW_VERSION" --prepend ./CHANGELOG.md --unreleased
+
+echo "Updating Cargo.toml package version to $NEW_VERSION"
+sed -i '' '/^\[package\]/,/^\[/{s/^version = ".*"$/version = "'"$NEW_VERSION"'"/;}' ./Cargo.toml
+
+echo "Updating Cargo.toml kameo_macros dependency version to $NEW_VERSION"
+sed -i '' 's/\(kameo_macros = { version = "\)[^"]*\(", path = ".\/macros" }\)/\1'"$NEW_VERSION"'\2/' ./Cargo.toml
+
+echo "Updating kameo macros Cargo.toml package version to $NEW_VERSION"
+sed -i '' '/^\[package\]/,/^\[/{s/^version = ".*"$/version = "'"$NEW_VERSION"'"/;}' ./macros/Cargo.toml
+
+echo "Updating README.md version to $MAJOR_MINOR_VERSION"
+sed -i '' 's/\(kameo *= *"\)[^"]*\(".*\)/\1'"$MAJOR_MINOR_VERSION"'\2/' README.md
+
+echo "Publishing kameo_macros version $NEW_VERSION"
+cargo publish -p kameo_macros --allow-dirty
+
+echo "Publishing kameo version $NEW_VERSION"
+cargo publish -p kameo --allow-dirty
+
+echo "Creating bump git commit"
+git add Cargo.toml macros/Cargo.toml CHANGELOG.md README.md
+git commit -m "chore: bump to version $NEW_VERSION"
+git push origin main
+
+echo "Creating git tag v$NEW_VERSION and pushing to remote"
+git tag -a "v$NEW_VERSION"
+git push origin "v$NEW_VERSION"
+
+echo "Creating CHANGELOG-Release.md for release notes"
+git cliff --tag "$NEW_VERSION" --output ./CHANGELOG-Release.md --unreleased
+
+# Extract the release date from the CHANGELOG-Release.md file
+RELEASE_DATE=$(grep '^## \['"$NEW_VERSION"'\] - ' CHANGELOG-Release.md | sed -E 's/.* - ([0-9]{4}-[0-9]{2}-[0-9]{2})$/\1/')
+
+# Remove lines before the first '### ' heading, but keep the heading
+sed -i '' '1,/^### /{ /^### /!d; }' CHANGELOG-Release.md
+
+# Remove lines from the '[...]: ...' line to the end of the file
+sed -i '' '/^\[.*\]:.*$/,$d' CHANGELOG-Release.md
+
+# Append the footer with the extracted release date
+echo '---\n\nSee the full [CHANGELOG.md](https://github.com/tqwewe/kameo/blob/main/CHANGELOG.md#'"$VERSION_LINK"'---'"$RELEASE_DATE"')' >> CHANGELOG-Release.md
+
+echo "Creating GitHub release with changelog"
+gh release create "v$NEW_VERSION" -F CHANGELOG-Release.md
+
+# Clean up the temporary file
+rm CHANGELOG-Release.md
