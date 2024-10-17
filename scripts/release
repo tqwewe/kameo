@@ -44,7 +44,7 @@ git commit -m "chore: bump to version $NEW_VERSION"
 git push origin main
 
 echo "Creating git tag v$NEW_VERSION and pushing to remote"
-git tag -a "v$NEW_VERSION"
+git tag -a "v$NEW_VERSION" -m ""
 git push origin "v$NEW_VERSION"
 
 echo "Creating CHANGELOG-Release.md for release notes"
