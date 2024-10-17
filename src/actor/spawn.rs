@@ -99,11 +99,8 @@ where
 /// struct MyActor { actor_ref: ActorRef<Self> }
 ///
 /// # tokio_test::block_on(async {
-/// let actor_ref = kameo::actor::spawn_with(|actor_ref| {
-///     let actor = MyActor {
-///         actor_ref: actor_ref.clone(),
-///     };
-///     async { actor }
+/// let actor_ref = kameo::actor::spawn_with(|actor_ref| async move {
+///     MyActor { actor_ref }
 /// })
 /// .await;
 /// # })
@@ -111,14 +108,14 @@ where
 ///
 /// This allows the actor to have access to its own `ActorRef` during creation, which can be useful for actors
 /// that need to communicate with themselves or manage internal state more effectively.
-pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
+pub async fn spawn_with<A, F, Fut>(f: F) -> ActorRef<A>
 where
     A: Actor,
-    F: FnOnce(&ActorRef<A>) -> Fu,
-    Fu: Future<Output = A>,
+    F: FnOnce(ActorRef<A>) -> Fut,
+    Fut: Future<Output = A>,
 {
     let (actor_ref, mailbox_rx, abort_registration) = initialize_actor();
-    let actor = f(&actor_ref).await;
+    let actor = f(actor_ref.clone()).await;
     spawn_inner::<A, ActorBehaviour<A>>(actor, actor_ref.clone(), mailbox_rx, abort_registration);
     actor_ref
 }
