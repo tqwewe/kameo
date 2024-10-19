@@ -7,12 +7,12 @@ pub mod unbounded;
 
 use dyn_clone::DynClone;
 use futures::{future::BoxFuture, Future};
-use tokio::sync::oneshot;
 
 use crate::{
     actor::{ActorID, ActorRef},
-    error::{ActorStopReason, BoxSendError, SendError},
-    message::{BoxReply, DynMessage},
+    error::{ActorStopReason, SendError},
+    message::DynMessage,
+    reply::BoxReplySender,
     Actor,
 };
 
@@ -68,7 +68,7 @@ pub enum Signal<A: Actor> {
     Message {
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        reply: Option<BoxReplySender>,
         sent_within_actor: bool,
     },
     LinkDied {
