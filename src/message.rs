@@ -35,7 +35,7 @@ pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 /// Messages are processed sequentially one at a time, with exclusive mutable access to the actors state.
 ///
 /// The reply type must implement [Reply].
-pub trait Message<T>: Actor {
+pub trait Message<T: Send + 'static>: Actor {
     /// The reply sent back to the message caller.
     type Reply: Reply;
 

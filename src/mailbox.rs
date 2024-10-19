@@ -30,6 +30,10 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
         &self,
         signal: Signal<A>,
     ) -> impl Future<Output = Result<(), SendError<Signal<A>, E>>> + Send + '_;
+    /// Tries to send a signal to the mailbox, failing if the mailbox is full.
+    fn try_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>>;
+    /// Sends a signal to the mailbox, blocking the current thread.
+    fn blocking_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>>;
     /// Waits for the mailbox to be closed.
     fn closed(&self) -> impl Future<Output = ()> + Send + '_;
     /// Checks if the mailbox is closed.

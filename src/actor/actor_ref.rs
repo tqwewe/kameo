@@ -770,7 +770,7 @@ impl<A: Actor> RemoteActorRef<A> {
     >
     where
         A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
-        M: serde::Serialize,
+        M: serde::Serialize + Send + 'static,
         <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
     {
         AskRequest::new_remote(self, msg)
