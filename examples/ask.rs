@@ -3,7 +3,7 @@ use std::time::Duration;
 use kameo::{
     mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message},
-    request::{MessageSend, MessageSendSync},
+    request::MessageSendSync,
     Actor,
 };
 use tracing::info;
@@ -53,7 +53,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let count = my_actor_ref
         .ask(Inc { amount: 3 })
         .reply_timeout(Duration::from_millis(10))
-        .send()
         .await?;
     info!("Count is {count}");
 

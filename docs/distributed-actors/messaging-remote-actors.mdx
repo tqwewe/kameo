@@ -17,7 +17,7 @@ let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
 
 // Send a message and await the reply
 if let Some(actor) = remote_actor_ref {
-    let result = actor.ask(&Inc { amount: 10 }).send().await?;
+    let result = actor.ask(&Inc { amount: 10 }).await?;
     println!("Incremented count: {result}");
 }
 ```
@@ -30,7 +30,7 @@ If you don’t need a response from the actor, you can use the `tell` method to 
 
 ```rust
 // Send a fire-and-forget message
-actor.tell(&LogMessage { text: String::from("Logging event") }).send().await?;
+actor.tell(&LogMessage { text: String::from("Logging event") }).await?;
 ```
 
 The `tell` method is useful for one-way communication where no acknowledgment is required, such as logging or notification systems.
@@ -84,7 +84,7 @@ By using the `#[remote_message]` macro, Kameo registers each message type during
 When sending a message using the `ask` pattern, you’ll typically want to handle a response from the remote actor. The reply type is specified in the actor’s message handler and can be awaited asynchronously.
 
 ```rust
-let result = actor.ask(&Inc { amount: 10 }).send().await?;
+let result = actor.ask(&Inc { amount: 10 }).await?;
 println!("Received reply: {}", result);
 ```
 
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(actor) = remote_actor_ref {
         // Send a message and await the reply
-        let result = actor.ask(&Inc { amount: 10 }).send().await?;
+        let result = actor.ask(&Inc { amount: 10 }).await?;
         println!("Incremented count: {result}");
     } else {
         println!("Actor not found");

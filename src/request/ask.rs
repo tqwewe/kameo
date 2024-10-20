@@ -1,4 +1,5 @@
-use std::{marker::PhantomData, time::Duration};
+use futures::{future::BoxFuture, FutureExt};
+use std::{future::IntoFuture, marker::PhantomData, time::Duration};
 use tokio::{sync::oneshot, time::timeout};
 
 #[cfg(feature = "remote")]
@@ -155,6 +156,47 @@ impl<L, Mb, M, Tm, Tr> AskRequest<L, Mb, M, Tm, Tr> {
             reply_timeout,
             phantom: PhantomData,
         }
+    }
+}
+
+impl<'a, A, M, Tm, Tr> IntoFuture
+    for AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    Tm: 'static,
+    Tr: 'static,
+    AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>: MessageSend<
+        Ok = <A::Reply as Reply>::Ok,
+        Error = error::SendError<M, <A::Reply as Reply>::Error>,
+    >,
+{
+    type Output = Result<<A::Reply as Reply>::Ok, error::SendError<M, <A::Reply as Reply>::Error>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        MessageSend::send(self).boxed()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<'a, A, M, Tm, Tr> IntoFuture for AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, Tm, Tr>
+where
+    A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Send + 'static,
+    Tm: 'static,
+    Tr: 'static,
+    AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, Tm, Tr>: MessageSend<
+        Ok = <A::Reply as Reply>::Ok,
+        Error = error::RemoteSendError<<A::Reply as Reply>::Error>,
+    >,
+{
+    type Output =
+        Result<<A::Reply as Reply>::Ok, error::RemoteSendError<<A::Reply as Reply>::Error>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        MessageSend::send(self).boxed()
     }
 }
 

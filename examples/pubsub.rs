@@ -1,7 +1,6 @@
 use kameo::{
     actor::pubsub::{PubSub, Publish, Subscribe},
     message::{Context, Message},
-    request::MessageSend,
     Actor,
 };
 use tracing_subscriber::EnvFilter;
@@ -50,9 +49,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pubsub = kameo::spawn(PubSub::<PrintActorID>::new());
     let actor_a = kameo::spawn(ActorA);
     let actor_b = kameo::spawn(ActorB);
-    pubsub.ask(Subscribe(actor_a)).send().await?;
-    pubsub.ask(Subscribe(actor_b)).send().await?;
-    pubsub.ask(Publish(PrintActorID)).send().await?;
+    pubsub.ask(Subscribe(actor_a)).await?;
+    pubsub.ask(Subscribe(actor_b)).await?;
+    pubsub.ask(Publish(PrintActorID)).await?;
 
     Ok(())
 }

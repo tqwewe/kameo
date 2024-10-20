@@ -4,7 +4,6 @@ use kameo::{
     actor::RemoteActorRef,
     message::{Context, Message},
     remote::{dial_opts::DialOpts, ActorSwarm},
-    request::MessageSend,
     Actor,
 };
 use kameo_macros::{remote_message, RemoteActor};
@@ -93,7 +92,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
             match remote_actor_ref {
                 Some(remote_actor_ref) => {
-                    let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
+                    let count = remote_actor_ref.ask(&Inc { amount: 10 }).await?;
+                    remote_actor_ref.tell(&Inc { amount: 10 }).await?;
                     println!("Incremented! Count is {count}");
                 }
                 None => {

@@ -71,7 +71,6 @@ cargo add kameo
 ```rust,ignore
 use kameo::Actor;
 use kameo::message::{Context, Message};
-use kameo::request::MessageSend;
 
 // Implement the actor
 #[derive(Actor)]
@@ -100,7 +99,7 @@ impl Message<Inc> for Counter {
 let actor_ref = kameo::spawn(Counter { count: 0 });
 
 // Send messages to the actor
-let count = actor_ref.ask(Inc { amount: 42 }).send().await?;
+let count = actor_ref.ask(Inc { amount: 42 }).await?;
 assert_eq!(count, 42);
 ```
 
@@ -121,7 +120,7 @@ actor_ref.register("my_actor").await?;
 ```rust,ignore
 // Lookup the remote actor
 if let Some(remote_actor_ref) = RemoteActorRef::<MyActor>::lookup("my_actor").await? {
-    let count = remote_actor_ref.ask(&Inc { amount: 10 }).send().await?;
+    let count = remote_actor_ref.ask(&Inc { amount: 10 }).await?;
     println!("Incremented! Count is {count}");
 }
 ```
