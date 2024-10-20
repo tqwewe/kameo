@@ -56,7 +56,6 @@ To interact with the `HelloWorldActor`, we spawn it and send a `Greet` message. 
 
 ```rust
 use kameo::spawn;
-use kameo::request::MessageSend;
 
 #[tokio::main] // Mark the entry point as an asynchronous main function
 async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result return type for error handling
@@ -66,7 +65,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result retu
     // Send a Greet message to the actor
     actor_ref
         .tell(Greet("Hello, world!".to_string()))
-        .send()
         .await?;
 
     Ok(())

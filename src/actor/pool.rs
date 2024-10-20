@@ -20,7 +20,6 @@
 //! use kameo::Actor;
 //! use kameo::actor::pool::{ActorPool, WorkerMsg, BroadcastMsg};
 //! # use kameo::message::{Context, Message};
-//! use kameo::request::MessageSend;
 //!
 //! #[derive(Actor)]
 //! struct MyWorker;
@@ -35,8 +34,8 @@
 //! let pool_actor = kameo::spawn(ActorPool::new(4, || kameo::spawn(MyWorker)));
 //!
 //! // Send tasks to the pool
-//! pool_actor.tell(WorkerMsg("Hello worker!")).send().await?;
-//! pool_actor.tell(BroadcastMsg("Hello all workers!")).send().await?;
+//! pool_actor.tell(WorkerMsg("Hello worker!")).await?;
+//! pool_actor.tell(BroadcastMsg("Hello all workers!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! # });
 //! ```
@@ -212,6 +211,7 @@ where
 pub enum WorkerReply<A, M>
 where
     A: Actor + Message<M>,
+    M: Send + 'static,
 {
     /// The message was forwarded to a worker.
     Forwarded,

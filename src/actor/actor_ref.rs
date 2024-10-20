@@ -179,7 +179,6 @@ where
     /// use kameo::actor::{Actor, ActorRef};
     /// use kameo::error::BoxError;
     /// use kameo::mailbox::unbounded::UnboundedMailbox;
-    /// use kameo::request::MessageSend;
     /// use tokio::time::sleep;
     ///
     /// struct MyActor;
@@ -229,7 +228,6 @@ where
     ///
     /// ```
     /// use kameo::actor::ActorRef;
-    /// use kameo::request::MessageSend;
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -244,7 +242,7 @@ where
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
-    /// let reply = actor_ref.ask(msg).send().await?;
+    /// let reply = actor_ref.ask(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
@@ -275,7 +273,6 @@ where
     ///
     /// ```
     /// use kameo::actor::ActorRef;
-    /// use kameo::request::MessageSend;
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -290,7 +287,7 @@ where
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
-    /// actor_ref.tell(msg).send().await?;
+    /// actor_ref.tell(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
@@ -735,7 +732,6 @@ impl<A: Actor> RemoteActorRef<A> {
     ///
     /// ```no_run
     /// use kameo::actor::RemoteActorRef;
-    /// use kameo::request::MessageSend;
     ///
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
     /// # #[actor(mailbox = bounded)]
@@ -753,7 +749,7 @@ impl<A: Actor> RemoteActorRef<A> {
     /// # tokio_test::block_on(async {
     /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
     /// # let msg = Msg;
-    /// let reply = remote_actor_ref.ask(&msg).send().await?;
+    /// let reply = remote_actor_ref.ask(&msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
@@ -770,7 +766,7 @@ impl<A: Actor> RemoteActorRef<A> {
     >
     where
         A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
-        M: serde::Serialize,
+        M: serde::Serialize + Send + 'static,
         <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
     {
         AskRequest::new_remote(self, msg)
@@ -785,7 +781,6 @@ impl<A: Actor> RemoteActorRef<A> {
     ///
     /// ```no_run
     /// use kameo::actor::RemoteActorRef;
-    /// use kameo::request::MessageSend;
     ///
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
     /// # #[actor(mailbox = bounded)]
@@ -803,7 +798,7 @@ impl<A: Actor> RemoteActorRef<A> {
     /// # tokio_test::block_on(async {
     /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
     /// # let msg = Msg;
-    /// remote_actor_ref.tell(&msg).send().await?;
+    /// remote_actor_ref.tell(&msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```

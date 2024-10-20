@@ -1,4 +1,5 @@
-use std::{marker::PhantomData, time::Duration};
+use futures::{future::BoxFuture, FutureExt};
+use std::{future::IntoFuture, marker::PhantomData, time::Duration};
 use tokio::{sync::oneshot, time::timeout};
 
 #[cfg(feature = "remote")]
@@ -7,7 +8,7 @@ use crate::remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmR
 use crate::{
     actor,
     error::{self, SendError},
-    mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Signal},
+    mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Mailbox, Signal},
     message::{BoxReply, Message},
     reply::ReplySender,
     Actor, Reply,
@@ -158,12 +159,73 @@ impl<L, Mb, M, Tm, Tr> AskRequest<L, Mb, M, Tm, Tr> {
     }
 }
 
-/////////////////////////
-// === MessageSend === //
-/////////////////////////
-macro_rules! impl_message_send {
-    (local, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> MessageSend
+impl<'a, A, M, Tm, Tr> IntoFuture
+    for AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    Tm: 'static,
+    Tr: 'static,
+    AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>: MessageSend<
+        Ok = <A::Reply as Reply>::Ok,
+        Error = error::SendError<M, <A::Reply as Reply>::Error>,
+    >,
+{
+    type Output = Result<<A::Reply as Reply>::Ok, error::SendError<M, <A::Reply as Reply>::Error>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        MessageSend::send(self).boxed()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<'a, A, M, Tm, Tr> IntoFuture for AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, Tm, Tr>
+where
+    A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
+    M: Send + 'static,
+    Tm: 'static,
+    Tr: 'static,
+    AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, Tm, Tr>: MessageSend<
+        Ok = <A::Reply as Reply>::Ok,
+        Error = error::RemoteSendError<<A::Reply as Reply>::Error>,
+    >,
+{
+    type Output =
+        Result<<A::Reply as Reply>::Ok, error::RemoteSendError<<A::Reply as Reply>::Error>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        MessageSend::send(self).boxed()
+    }
+}
+
+macro_rules! impl_message_trait {
+    (local, $($async:ident)? => $trait:ident :: $method:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<'a, A, M> $trait
+            for AskRequest<
+                LocalAskRequest<'a, A, A::Mailbox>,
+                A::Mailbox,
+                M,
+                $mailbox_timeout,
+                $reply_timeout,
+            >
+        where
+            A: Actor + Message<M>,
+            M: Send + 'static,
+        {
+            type Ok = <A::Reply as Reply>::Ok;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
+
+            #[inline]
+            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                $($body)*
+            }
+        }
+    };
+    (local, $($async:ident)? => $trait:ident :: $method:ident, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| $($body:tt)*) => {
+        impl<'a, A, M> $trait
             for AskRequest<
                 LocalAskRequest<'a, A, $mailbox<A>>,
                 $mailbox<A>,
@@ -176,34 +238,28 @@ macro_rules! impl_message_send {
             M: Send + 'static,
         {
             type Ok = <A::Reply as Reply>::Ok;
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
+            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
 
             #[inline]
-            async fn send(self) -> Result<Self::Ok, Self::Error> {
+            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 $($body)*
             }
         }
     };
-    (remote, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| ($mailbox_timeout_body:expr, $reply_timeout_body:expr)) => {
-        impl<'a, A, M> MessageSend
-            for AskRequest<
-                RemoteAskRequest<'a, A, M>,
-                $mailbox<A>,
-                M,
-                $mailbox_timeout,
-                $reply_timeout,
-            >
+    (remote, $($async:ident)? => $trait:ident :: $method:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| ($mailbox_timeout_body:expr, $reply_timeout_body:expr)) => {
+        impl<'a, A, M> $trait
+            for AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, $mailbox_timeout, $reply_timeout>
         where
             AskRequest<
-                LocalAskRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
+                LocalAskRequest<'a, A, A::Mailbox>,
+                A::Mailbox,
                 M,
                 $mailbox_timeout,
                 $reply_timeout,
-            >: MessageSend,
-            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-            M: serde::Serialize + Send + Sync,
+            >: $trait,
+            A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
+            M: serde::Serialize + Send + Sync + 'static,
             <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
             <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
         {
@@ -211,7 +267,39 @@ macro_rules! impl_message_send {
             type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
 
             #[inline]
-            async fn send(self) -> Result<Self::Ok, Self::Error> {
+            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
+                let $req = self;
+                remote_ask(
+                    $req.location.actor_ref,
+                    &$req.location.msg,
+                    $mailbox_timeout_body,
+                    $reply_timeout_body,
+                    false
+                ).await
+            }
+        }
+    };
+    (remote, $($async:ident)? => $trait:ident :: $method:ident, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| ($mailbox_timeout_body:expr, $reply_timeout_body:expr)) => {
+        impl<'a, A, M> $trait
+            for AskRequest<RemoteAskRequest<'a, A, M>, $mailbox<A>, M, $mailbox_timeout, $reply_timeout>
+        where
+            AskRequest<
+                LocalAskRequest<'a, A, $mailbox<A>>,
+                $mailbox<A>,
+                M,
+                $mailbox_timeout,
+                $reply_timeout,
+            >: $trait,
+            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
+            M: serde::Serialize + Send + Sync + 'static,
+            <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
+            <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
+        {
+            type Ok = <A::Reply as Reply>::Ok;
+            type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
+
+            #[inline]
+            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
                 let $req = self;
                 remote_ask(
                     $req.location.actor_ref,
@@ -225,21 +313,26 @@ macro_rules! impl_message_send {
     };
 }
 
-impl_message_send!(
+/////////////////////////
+// === MessageSend === //
+/////////////////////////
+impl_message_trait!(
     local,
-    BoundedMailbox,
+    async => MessageSend::send,
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.0.send(req.location.signal).await?;
+        req.location.mailbox.send(req.location.signal).await
+            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
         match req.location.rx.await? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
         }
     }
 );
-impl_message_send!(
+impl_message_trait!(
     local,
+    async => MessageSend::send,
     BoundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
@@ -251,8 +344,9 @@ impl_message_send!(
         }
     }
 );
-impl_message_send!(
+impl_message_trait!(
     local,
+    async => MessageSend::send,
     BoundedMailbox,
     WithRequestTimeout,
     WithoutRequestTimeout,
@@ -268,8 +362,9 @@ impl_message_send!(
         }
     }
 );
-impl_message_send!(
+impl_message_trait!(
     local,
+    async => MessageSend::send,
     BoundedMailbox,
     WithRequestTimeout,
     WithRequestTimeout,
@@ -286,21 +381,9 @@ impl_message_send!(
     }
 );
 
-impl_message_send!(
+impl_message_trait!(
     local,
-    UnboundedMailbox,
-    WithoutRequestTimeout,
-    WithoutRequestTimeout,
-    |req| {
-        req.location.mailbox.0.send(req.location.signal)?;
-        match req.location.rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
-        }
-    }
-);
-impl_message_send!(
-    local,
+    async => MessageSend::send,
     UnboundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
@@ -314,32 +397,35 @@ impl_message_send!(
 );
 
 #[cfg(feature = "remote")]
-impl_message_send!(
+impl_message_trait!(
     remote,
-    BoundedMailbox,
+    async => MessageSend::send,
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| (None, None)
 );
 #[cfg(feature = "remote")]
-impl_message_send!(
+impl_message_trait!(
     remote,
+    async => MessageSend::send,
     BoundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
     |req| (None, Some(req.reply_timeout.0))
 );
 #[cfg(feature = "remote")]
-impl_message_send!(
+impl_message_trait!(
     remote,
+    async => MessageSend::send,
     BoundedMailbox,
     WithRequestTimeout,
     WithoutRequestTimeout,
     |req| (Some(req.mailbox_timeout.0), None)
 );
 #[cfg(feature = "remote")]
-impl_message_send!(
+impl_message_trait!(
     remote,
+    async => MessageSend::send,
     BoundedMailbox,
     WithRequestTimeout,
     WithRequestTimeout,
@@ -347,24 +433,18 @@ impl_message_send!(
 );
 
 #[cfg(feature = "remote")]
-impl_message_send!(
+impl_message_trait!(
     remote,
-    UnboundedMailbox,
-    WithoutRequestTimeout,
-    WithoutRequestTimeout,
-    |req| (None, None)
-);
-#[cfg(feature = "remote")]
-impl_message_send!(
-    remote,
+    async => MessageSend::send,
     UnboundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
     |req| (None, Some(req.reply_timeout.0))
 );
 
-impl_message_send!(
+impl_message_trait!(
     local,
+    async => MessageSend::send,
     BoundedMailbox,
     MaybeRequestTimeout,
     MaybeRequestTimeout,
@@ -417,8 +497,9 @@ impl_message_send!(
     }
 );
 
-impl_message_send!(
+impl_message_trait!(
     local,
+    async => MessageSend::send,
     UnboundedMailbox,
     MaybeRequestTimeout,
     MaybeRequestTimeout,
@@ -454,88 +535,26 @@ impl_message_send!(
     }
 );
 
-/////////////////////////
-// === MessageSend === //
-/////////////////////////
-macro_rules! impl_try_message_send {
-    (local, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> TryMessageSend
-            for AskRequest<
-                LocalAskRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
-                M,
-                $mailbox_timeout,
-                $reply_timeout,
-            >
-        where
-            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
-            M: Send + 'static,
-        {
-            type Ok = <A::Reply as Reply>::Ok;
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-            #[inline]
-            async fn try_send(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                $($body)*
-            }
-        }
-    };
-    (remote, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| ($mailbox_timeout_body:expr, $reply_timeout_body:expr)) => {
-        impl<'a, A, M> TryMessageSend
-            for AskRequest<
-                RemoteAskRequest<'a, A, M>,
-                $mailbox<A>,
-                M,
-                $mailbox_timeout,
-                $reply_timeout,
-            >
-        where
-            AskRequest<
-                LocalAskRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
-                M,
-                $mailbox_timeout,
-                $reply_timeout,
-            >: TryMessageSend,
-            A: Actor<Mailbox = $mailbox<A>> + Message<M> + RemoteActor + RemoteMessage<M>,
-            M: serde::Serialize + Send + Sync,
-            <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
-            <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
-        {
-            type Ok = <A::Reply as Reply>::Ok;
-            type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
-
-            #[inline]
-            async fn try_send(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                remote_ask(
-                    $req.location.actor_ref,
-                    &$req.location.msg,
-                    $mailbox_timeout_body,
-                    $reply_timeout_body,
-                    true
-                ).await
-            }
-        }
-    };
-}
-
-impl_try_message_send!(
+////////////////////////////
+// === TryMessageSend === //
+////////////////////////////
+impl_message_trait!(
     local,
-    BoundedMailbox,
+    async => TryMessageSend::try_send,
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.0.try_send(req.location.signal)?;
+        req.location.mailbox.try_send(req.location.signal)
+            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
         match req.location.rx.await? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
         }
     }
 );
-impl_try_message_send!(
+impl_message_trait!(
     local,
+    async => TryMessageSend::try_send,
     BoundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
@@ -548,21 +567,9 @@ impl_try_message_send!(
     }
 );
 
-impl_try_message_send!(
+impl_message_trait!(
     local,
-    UnboundedMailbox,
-    WithoutRequestTimeout,
-    WithoutRequestTimeout,
-    |req| {
-        req.location.mailbox.0.send(req.location.signal)?;
-        match req.location.rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
-        }
-    }
-);
-impl_try_message_send!(
-    local,
+    async => TryMessageSend::try_send,
     UnboundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
@@ -576,16 +583,17 @@ impl_try_message_send!(
 );
 
 #[cfg(feature = "remote")]
-impl_try_message_send!(
+impl_message_trait!(
     remote,
-    BoundedMailbox,
+    async => TryMessageSend::try_send,
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| (None, None)
 );
 #[cfg(feature = "remote")]
-impl_try_message_send!(
+impl_message_trait!(
     remote,
+    async => TryMessageSend::try_send,
     BoundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
@@ -593,24 +601,18 @@ impl_try_message_send!(
 );
 
 #[cfg(feature = "remote")]
-impl_try_message_send!(
+impl_message_trait!(
     remote,
-    UnboundedMailbox,
-    WithoutRequestTimeout,
-    WithoutRequestTimeout,
-    |req| (None, None)
-);
-#[cfg(feature = "remote")]
-impl_try_message_send!(
-    remote,
+    async => TryMessageSend::try_send,
     UnboundedMailbox,
     WithoutRequestTimeout,
     WithRequestTimeout,
     |req| (None, Some(req.reply_timeout.0))
 );
 
-impl_try_message_send!(
+impl_message_trait!(
     local,
+    async => TryMessageSend::try_send,
     BoundedMailbox,
     MaybeRequestTimeout,
     MaybeRequestTimeout,
@@ -646,8 +648,9 @@ impl_try_message_send!(
     }
 );
 
-impl_try_message_send!(
+impl_message_trait!(
     local,
+    async => TryMessageSend::try_send,
     UnboundedMailbox,
     MaybeRequestTimeout,
     MaybeRequestTimeout,
@@ -686,39 +689,14 @@ impl_try_message_send!(
 /////////////////////////////////
 // === BlockingMessageSend === //
 /////////////////////////////////
-macro_rules! impl_blocking_message_send {
-    (local, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> BlockingMessageSend
-            for AskRequest<
-                LocalAskRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
-                M,
-                $mailbox_timeout,
-                $reply_timeout,
-            >
-        where
-            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
-            M: 'static,
-        {
-            type Ok = <A::Reply as Reply>::Ok;
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-            #[inline]
-            fn blocking_send(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                $($body)*
-            }
-        }
-    };
-}
-
-impl_blocking_message_send!(
+impl_message_trait!(
     local,
-    BoundedMailbox,
+    => BlockingMessageSend::blocking_send,
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.0.blocking_send(req.location.signal)?;
+        req.location.mailbox.blocking_send(req.location.signal)
+            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
         match req.location.rx.blocking_recv()? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
@@ -726,70 +704,17 @@ impl_blocking_message_send!(
     }
 );
 
-impl_blocking_message_send!(
+////////////////////////////////////
+// === TryBlockingMessageSend === //
+////////////////////////////////////
+impl_message_trait!(
     local,
-    UnboundedMailbox,
+    => TryBlockingMessageSend::try_blocking_send,
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.0.send(req.location.signal)?;
-        match req.location.rx.blocking_recv()? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
-        }
-    }
-);
-
-/////////////////////////////////
-// === BlockingMessageSend === //
-/////////////////////////////////
-macro_rules! impl_try_blocking_message_send {
-    (local, $mailbox:ident, $mailbox_timeout:ident, $reply_timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> TryBlockingMessageSend
-            for AskRequest<
-                LocalAskRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
-                M,
-                $mailbox_timeout,
-                $reply_timeout,
-            >
-        where
-            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
-            M: 'static,
-        {
-            type Ok = <A::Reply as Reply>::Ok;
-            type Error = SendError<M, <A::Reply as Reply>::Error>;
-
-            #[inline]
-            fn try_blocking_send(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                $($body)*
-            }
-        }
-    };
-}
-
-impl_try_blocking_message_send!(
-    local,
-    BoundedMailbox,
-    WithoutRequestTimeout,
-    WithoutRequestTimeout,
-    |req| {
-        req.location.mailbox.0.try_send(req.location.signal)?;
-        match req.location.rx.blocking_recv()? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
-        }
-    }
-);
-
-impl_try_blocking_message_send!(
-    local,
-    UnboundedMailbox,
-    WithoutRequestTimeout,
-    WithoutRequestTimeout,
-    |req| {
-        req.location.mailbox.0.send(req.location.signal)?;
+        req.location.mailbox.try_send(req.location.signal)
+            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
         match req.location.rx.blocking_recv()? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
@@ -965,7 +890,7 @@ async fn remote_ask<'a, A, M>(
 ) -> Result<<A::Reply as Reply>::Ok, error::RemoteSendError<<A::Reply as Reply>::Error>>
 where
     A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-    M: serde::Serialize,
+    M: serde::Serialize + Send + 'static,
     <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
     <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
 {
