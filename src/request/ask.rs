@@ -180,19 +180,19 @@ where
 }
 
 #[cfg(feature = "remote")]
-impl<'a, A, M, Tm, Tr> IntoFuture
-    for AskRequest<RemoteAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
+impl<'a, A, M, Tm, Tr> IntoFuture for AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, Tm, Tr>
 where
-    A: Actor + Message<M>,
+    A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
     M: Send + 'static,
     Tm: 'static,
     Tr: 'static,
-    AskRequest<RemoteAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>: MessageSend<
+    AskRequest<RemoteAskRequest<'a, A, M>, A::Mailbox, M, Tm, Tr>: MessageSend<
         Ok = <A::Reply as Reply>::Ok,
-        Error = error::SendError<M, <A::Reply as Reply>::Error>,
+        Error = error::RemoteSendError<<A::Reply as Reply>::Error>,
     >,
 {
-    type Output = Result<<A::Reply as Reply>::Ok, error::SendError<M, <A::Reply as Reply>::Error>>;
+    type Output =
+        Result<<A::Reply as Reply>::Ok, error::RemoteSendError<<A::Reply as Reply>::Error>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
