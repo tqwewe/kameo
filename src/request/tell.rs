@@ -1,5 +1,7 @@
 use core::panic;
-use std::{marker::PhantomData, time::Duration};
+use std::{future::IntoFuture, marker::PhantomData, time::Duration};
+
+use futures::{future::BoxFuture, FutureExt};
 
 #[cfg(feature = "remote")]
 use crate::remote;
@@ -119,6 +121,39 @@ impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
             timeout: mailbox_timeout,
             phantom: PhantomData,
         }
+    }
+}
+
+impl<'a, A, M, T> IntoFuture for TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    T: 'static,
+    TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>:
+        MessageSend<Ok = (), Error = error::SendError<M, <A::Reply as Reply>::Error>>,
+{
+    type Output = Result<(), error::SendError<M, <A::Reply as Reply>::Error>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        MessageSend::send(self).boxed()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<'a, A, M, T> IntoFuture for TellRequest<RemoteTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    T: 'static,
+    TellRequest<RemoteTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>:
+        MessageSend<Ok = (), Error = error::SendError<M, <A::Reply as Reply>::Error>>,
+{
+    type Output = Result<(), error::SendError<M, <A::Reply as Reply>::Error>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        MessageSend::send(self).boxed()
     }
 }
 
