@@ -212,6 +212,7 @@ where
 pub enum WorkerReply<A, M>
 where
     A: Actor + Message<M>,
+    M: Send + 'static,
 {
     /// The message was forwarded to a worker.
     Forwarded,

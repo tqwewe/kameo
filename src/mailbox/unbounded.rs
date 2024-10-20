@@ -40,6 +40,16 @@ impl<A: Actor> Mailbox<A> for UnboundedMailbox<A> {
     }
 
     #[inline]
+    fn try_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
+        Ok(self.0.send(signal)?)
+    }
+
+    #[inline]
+    fn blocking_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
+        Ok(self.0.send(signal)?)
+    }
+
+    #[inline]
     async fn closed(&self) {
         self.0.closed().await
     }
