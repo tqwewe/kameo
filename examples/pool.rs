@@ -3,7 +3,6 @@ use std::time::Duration;
 use kameo::{
     actor::pool::{ActorPool, BroadcastMsg, WorkerMsg},
     message::{Context, Message},
-    request::MessageSend,
     Actor,
 };
 use tracing_subscriber::EnvFilter;
@@ -49,18 +48,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print IDs from 0..=4
     for _ in 0..5 {
-        pool.ask(WorkerMsg(PrintActorID)).send().await?;
+        pool.ask(WorkerMsg(PrintActorID)).await?;
     }
 
     // Force all workers to stop, causing them to be restarted
-    pool.ask(BroadcastMsg(ForceStop)).send().await?;
+    pool.ask(BroadcastMsg(ForceStop)).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     println!("Restarted all workers");
 
     // New IDs from 6..=10 will be printed
     for _ in 0..5 {
-        pool.ask(WorkerMsg(PrintActorID)).send().await?;
+        pool.ask(WorkerMsg(PrintActorID)).await?;
     }
 
     Ok(())

@@ -1,7 +1,7 @@
 use kameo::{
     mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message},
-    request::{MessageSend, MessageSendSync},
+    request::MessageSendSync,
     Actor,
 };
 use tracing::info;
@@ -60,21 +60,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let my_actor_ref = kameo::spawn(MyActor::default());
 
     // Increment the count by 3
-    let count = my_actor_ref.ask(Inc { amount: 3 }).send().await?;
+    let count = my_actor_ref.ask(Inc { amount: 3 }).await?;
     info!("Count is {count}");
 
     // Increment the count by 50 in the background
-    my_actor_ref.tell(Inc { amount: 50 }).send_sync()?;
+    my_actor_ref.tell(Inc { amount: 50 }).await?;
 
     // Increment the count by 2
-    let count = my_actor_ref.ask(Inc { amount: 2 }).send().await?;
+    let count = my_actor_ref.ask(Inc { amount: 2 }).await?;
     info!("Count is {count}");
 
     // Async messages that return an Err will cause the actor to panic
+    // send_sync is possible since the mailbox is unbounded, so we don't need to wait for any capacity
     my_actor_ref.tell(ForceErr).send_sync()?;
 
     // Actor should be stopped, so we cannot send more messages to it
-    assert!(my_actor_ref.ask(Inc { amount: 2 }).send().await.is_err());
+    assert!(my_actor_ref.ask(Inc { amount: 2 }).await.is_err());
 
     Ok(())
 }

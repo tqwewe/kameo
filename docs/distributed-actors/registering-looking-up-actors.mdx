@@ -28,7 +28,7 @@ let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
 
 if let Some(actor) = remote_actor_ref {
     // Use the actor reference to send a message
-    let result = actor.ask(&Inc { amount: 10 }).send().await?;
+    let result = actor.ask(&Inc { amount: 10 }).await?;
     println!("Incremented count: {result}");
 } else {
     println!("Actor not found");
@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Node 2: Lookup the actor and send a message
     let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
     if let Some(actor) = remote_actor_ref {
-        let result = actor.ask(&Inc { amount: 10 }).send().await?;
+        let result = actor.ask(&Inc { amount: 10 }).await?;
         println!("Incremented count: {result}");
     } else {
         println!("Actor not found");

@@ -13,7 +13,7 @@ Kameo uses [libp2p](https://libp2p.io) for networking, with Kademlia Distributed
 You can query an actor’s state by sending a message using the `ask` pattern, which allows you to request a response without modifying the actor's state.
 
 ```rust
-let result = actor_ref.ask(QueryState).send().await?;
+let result = actor_ref.ask(QueryState).await?;
 println!("Actor state: {:?}", result);
 ```
 
