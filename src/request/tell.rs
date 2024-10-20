@@ -360,14 +360,9 @@ impl_message_trait!(local, async => TryMessageSend::try_send, UnboundedMailbox, 
 ////////////////////////////////
 // === TryMessageSendSync === //
 ////////////////////////////////
-impl_message_trait!(local, => TryMessageSendSync::try_send_sync, BoundedMailbox, WithoutRequestTimeout, |req| {
-    req.location.mailbox.0.try_send(req.location.signal)?;
-    Ok(())
-});
-
-impl_message_trait!(local, => TryMessageSendSync::try_send_sync, UnboundedMailbox, WithoutRequestTimeout, |req| {
-    req.location.mailbox.0.send(req.location.signal)?;
-    Ok(())
+impl_message_trait!(local, => TryMessageSendSync::try_send_sync, WithoutRequestTimeout, |req| {
+    req.location.mailbox.try_send(req.location.signal)
+        .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))
 });
 
 ////////////////////////////////
