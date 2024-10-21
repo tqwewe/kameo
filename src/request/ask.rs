@@ -756,7 +756,7 @@ impl_forward_message!(
     WithoutRequestTimeout,
     |req, tx| {
         match &mut req.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            Signal::Message { reply, .. } => *reply = Some(tx.boxed()),
             _ => unreachable!("ask requests only support messages"),
         }
 
@@ -784,7 +784,7 @@ impl_forward_message!(
     WithoutRequestTimeout,
     |req, tx| {
         match &mut req.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            Signal::Message { reply, .. } => *reply = Some(tx.boxed()),
             _ => unreachable!("ask requests only support messages"),
         }
 
@@ -805,7 +805,7 @@ impl_forward_message!(
     WithoutRequestTimeout,
     |req, tx| {
         match &mut req.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            Signal::Message { reply, .. } => *reply = Some(tx.boxed()),
             _ => unreachable!("ask requests only support messages"),
         }
 
@@ -860,7 +860,7 @@ impl_forward_message_sync!(
     WithoutRequestTimeout,
     |req, tx| {
         match &mut req.location.signal {
-            Signal::Message { reply, .. } => *reply = Some(tx.box_sender()),
+            Signal::Message { reply, .. } => *reply = Some(tx.boxed()),
             _ => unreachable!("ask requests only support messages"),
         }
 

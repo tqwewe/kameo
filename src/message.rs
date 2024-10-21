@@ -17,12 +17,11 @@
 use std::{any, fmt};
 
 use futures::{future::BoxFuture, Future, FutureExt};
-use tokio::sync::oneshot;
 
 use crate::{
     actor::ActorRef,
-    error::{BoxSendError, SendError},
-    reply::{DelegatedReply, ForwardedReply, Reply, ReplySender},
+    error::SendError,
+    reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplySender},
     request::{AskRequest, LocalAskRequest, MessageSend, WithoutRequestTimeout},
     Actor,
 };
@@ -139,6 +138,7 @@ where
     ///
     /// It is important to ensure that [ReplySender::send] is called to complete the transaction and send the response
     /// back to the requester. Failure to do so could result in the requester waiting indefinitely for a response.
+    #[must_use]
     pub fn reply_sender(&mut self) -> (DelegatedReply<R::Value>, Option<ReplySender<R::Value>>) {
         (DelegatedReply::new(), self.reply.take())
     }
@@ -178,18 +178,24 @@ where
     }
 }
 
-#[doc(hidden)]
+/// An object safe message which can be handled by an actor `A`.
+///
+/// This trait is implemented for all types which implement [`Message`], and is typically used for advanced cases such
+/// as buffering actor messages.
 pub trait DynMessage<A>
 where
     Self: Send,
     A: Actor,
 {
+    /// Handles the dyn message with the provided actor state, ref, and reply sender.
     fn handle_dyn(
         self: Box<Self>,
         state: &mut A,
         actor_ref: ActorRef<A>,
-        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        tx: Option<BoxReplySender>,
     ) -> BoxFuture<'_, Option<BoxDebug>>;
+
+    /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
 }
 
@@ -202,7 +208,7 @@ where
         self: Box<Self>,
         state: &mut A,
         actor_ref: ActorRef<A>,
-        tx: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        tx: Option<BoxReplySender>,
     ) -> BoxFuture<'_, Option<BoxDebug>> {
         async move {
             let mut reply_sender = tx.map(ReplySender::new);

@@ -1,13 +1,13 @@
 use std::{collections::VecDeque, mem, panic::AssertUnwindSafe};
 
 use futures::{Future, FutureExt};
-use tokio::sync::oneshot;
 
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
-    error::{ActorStopReason, BoxSendError, PanicError},
+    error::{ActorStopReason, PanicError},
     mailbox::Signal,
-    message::{BoxReply, DynMessage},
+    message::DynMessage,
+    reply::BoxReplySender,
 };
 
 use super::ActorID;
@@ -21,7 +21,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
         &mut self,
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        reply: Option<BoxReplySender>,
         sent_within_actor: bool,
     ) -> impl Future<Output = Option<ActorStopReason>> + Send;
 
@@ -91,7 +91,7 @@ where
         &mut self,
         message: Box<dyn DynMessage<A>>,
         actor_ref: ActorRef<A>,
-        reply: Option<oneshot::Sender<Result<BoxReply, BoxSendError>>>,
+        reply: Option<BoxReplySender>,
         sent_within_actor: bool,
     ) -> Option<ActorStopReason> {
         if !sent_within_actor && !self.finished_startup {
