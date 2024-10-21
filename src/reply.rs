@@ -48,6 +48,11 @@ use crate::{
     message::{BoxDebug, BoxReply},
 };
 
+/// A boxed reply sender which will be downcasted to the correct type when receiving a reply.
+///
+/// This is reserved for advanced use cases, and misuse of this can result in panics.
+pub type BoxReplySender = oneshot::Sender<Result<BoxReply, BoxSendError>>;
+
 /// A deligated reply that has been forwarded to another actor.
 pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>>>;
 
@@ -152,19 +157,20 @@ where
 
 #[must_use = "the receiver expects a reply to be sent"]
 pub struct ReplySender<R: ?Sized> {
-    tx: oneshot::Sender<Result<BoxReply, BoxSendError>>,
+    tx: BoxReplySender,
     phantom: PhantomData<R>,
 }
 
 impl<R> ReplySender<R> {
-    pub(crate) fn new(tx: oneshot::Sender<Result<BoxReply, BoxSendError>>) -> Self {
+    pub(crate) fn new(tx: BoxReplySender) -> Self {
         ReplySender {
             tx,
             phantom: PhantomData,
         }
     }
 
-    pub(crate) fn box_sender(self) -> oneshot::Sender<Result<BoxReply, BoxSendError>> {
+    /// Converts the reply sender to a generic `BoxReplySender`.
+    pub fn boxed(self) -> BoxReplySender {
         self.tx
     }
 
