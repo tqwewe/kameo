@@ -322,7 +322,7 @@ impl<A: Actor> PreparedActor<A> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn run(self) {
+    pub async fn run(self) -> (A, ActorStopReason) {
         run_actor_lifecycle::<A, ActorBehaviour<A>>(
             self.actor,
             self.actor_ref,
@@ -335,7 +335,7 @@ impl<A: Actor> PreparedActor<A> {
     /// Spawns the actor in a new background tokio task, returning the `JoinHandle`.
     ///
     /// See [`spawn`] for more information.
-    pub fn spawn(self) -> JoinHandle<()> {
+    pub fn spawn(self) -> JoinHandle<(A, ActorStopReason)> {
         #[cfg(not(tokio_unstable))]
         {
             tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run()))
@@ -353,7 +353,7 @@ impl<A: Actor> PreparedActor<A> {
     /// Spawns the actor in a new background thread, returning the `JoinHandle`.
     ///
     /// See [`spawn_in_thread`] for more information.
-    pub fn spawn_in_thread(self) -> thread::JoinHandle<()> {
+    pub fn spawn_in_thread(self) -> thread::JoinHandle<(A, ActorStopReason)> {
         let handle = Handle::current();
         if matches!(handle.runtime_flavor(), RuntimeFlavor::CurrentThread) {
             panic!("threaded actors are not supported in a single threaded tokio runtime");
@@ -375,7 +375,8 @@ async fn run_actor_lifecycle<A, S>(
     actor_ref: ActorRef<A>,
     mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     abort_registration: AbortRegistration,
-) where
+) -> (A, ActorStopReason)
+where
     A: Actor,
     S: ActorState<A>,
 {
@@ -404,13 +405,13 @@ async fn run_actor_lifecycle<A, S>(
         let reason = ActorStopReason::Panicked(err);
         let mut state = S::new_from_actor(actor, actor_ref.clone());
         let reason = state.on_shutdown(reason.clone()).await.unwrap_or(reason);
-        let actor = state.shutdown().await;
+        let mut actor = state.shutdown().await;
         actor
             .on_stop(actor_ref.clone(), reason.clone())
             .await
             .unwrap();
         log_actor_stop_reason(id, name, &reason);
-        return;
+        return (actor, reason);
     }
 
     let mut state = S::new_from_actor(actor, actor_ref.clone());
@@ -422,7 +423,7 @@ async fn run_actor_lifecycle<A, S>(
     .await
     .unwrap_or(ActorStopReason::Killed);
 
-    let actor = state.shutdown().await;
+    let mut actor = state.shutdown().await;
 
     {
         let mut links = links.lock().await;
@@ -434,6 +435,8 @@ async fn run_actor_lifecycle<A, S>(
     let on_stop_res = actor.on_stop(actor_ref, reason.clone()).await;
     log_actor_stop_reason(id, name, &reason);
     on_stop_res.unwrap();
+
+    (actor, reason)
 }
 
 async fn abortable_actor_loop<A, S>(

@@ -204,7 +204,7 @@ pub trait Actor: Sized + Send + 'static {
     /// - `reason`: The reason why the actor is being stopped.
     #[allow(unused_variables)]
     fn on_stop(
-        self,
+        &mut self,
         actor_ref: WeakActorRef<Self>,
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<(), BoxError>> + Send {
