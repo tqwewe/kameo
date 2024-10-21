@@ -10,7 +10,7 @@ use crate::{
     error::{self, SendError},
     mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Mailbox, Signal},
     message::{BoxReply, Message},
-    reply::ReplySender,
+    reply::{BoxReplySender, ReplySender},
     Actor, Reply,
 };
 
@@ -36,7 +36,7 @@ where
 {
     mailbox: &'a Mb,
     signal: Signal<A>,
-    rx: oneshot::Receiver<Result<BoxReply, error::BoxSendError>>,
+    rx: BoxReplySender,
 }
 
 /// A request to a remote actor.
