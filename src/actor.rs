@@ -80,7 +80,7 @@ pub use spawn::*;
 ///     }
 ///
 ///     async fn on_stop(
-///         self,
+///         &mut self,
 ///         actor_ref: WeakActorRef<Self>,
 ///         reason: ActorStopReason,
 ///     ) -> Result<(), BoxError> {
