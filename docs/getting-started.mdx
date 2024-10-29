@@ -55,6 +55,7 @@ impl Message<Greet> for HelloWorldActor {
 To interact with the `HelloWorldActor`, we spawn it and send a `Greet` message. This is done using the `spawn` function from Kameo and the `tell` method provided by the actor's reference, `actor_ref`.
 
 ```rust
+use kameo::request::MessageSend;
 use kameo::spawn;
 
 #[tokio::main] // Mark the entry point as an asynchronous main function
@@ -65,6 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result retu
     // Send a Greet message to the actor
     actor_ref
         .tell(Greet("Hello, world!".to_string()))
+        .send()
         .await?;
 
     Ok(())
