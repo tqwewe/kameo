@@ -14,10 +14,7 @@ Beyond individual actor behavior, Kameo supports linking actors together to crea
 
 ### Actor Links
 
-Actors can be linked using two primary methods, which establish parent-child and sibling relationships:
-
-- `ActorRef::link_child`
-- `ActorRef::link_together`
+Actors can be linked using two `ActorRef::link`, which establishs a sibling relationship between the two actors:
 
 ### Handling Link Failures
 
@@ -27,12 +24,11 @@ The default behavior for `on_link_died` is to stop the current actor if the li
 
 ## Unlinking Actors
 
-In some scenarios, it may be necessary to remove links between actors, either to restructure the supervision tree or in response to changing application dynamics. Kameo provides methods for this purpose:
+In some scenarios, it may be necessary to remove links between actors, either to restructure the supervision tree or in response to changing application dynamics. Kameo provides the followign method for this purpose:
 
-- `ActorRef::unlink_child`: Removes the link between a parent and its child actor.
-- `ActorRef::unlink_together`: Removes the link between sibling actors.
+- `ActorRef::unlink`: Unlinks two previously linked sibling actors.
 
-These methods allow for dynamic adjustments to the actor supervision hierarchy, ensuring that the system can adapt to new requirements or recover from errors by reorganizing actor relationships.
+This method allows for dynamic adjustments to the actor supervision hierarchy, ensuring that the system can adapt to new requirements or recover from errors by reorganizing actor relationships.
 
 ---
 
