@@ -13,7 +13,7 @@ all-features = true
 [package]
 name = "kameo"
 description = "Fault-tolerant Async Actors Built on Tokio"
-version = "0.12.2"
+version = "0.13.0"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/tqwewe/kameo"
@@ -25,7 +25,7 @@ keywords = ["actor", "tokio"]
 remote = ["dep:libp2p", "dep:libp2p-identity", "dep:linkme", "dep:rmp-serde", "dep:internment"]
 
 [dependencies]
-kameo_macros = { version = "0.12.2", path = "./macros" }
+kameo_macros = { version = "0.13.0", path = "./macros" }
 
 dyn-clone = "1.0"
 futures = "0.3"

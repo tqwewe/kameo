@@ -55,7 +55,7 @@ Add kameo as a dependency in your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-kameo = "0.12"
+kameo = "0.13"
 ```
 
 Alternatively, you can add it via command line:

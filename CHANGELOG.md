@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2024-11-15
+
+* @13r0ck made their first contribution in #79
+
+### <!-- 0 -->Added
+
+- Impl `IntoFuture` for requests (#72)
+- Add public `BoxReplySender` type alias (#70)
+- Add support for preparing an actor and running it outside a spawned task (#69)
+- Add `Context::reply` shorthand method [</>](https://github.com/tqwewe/kameo/commit/5ebef48110d6d6e007f1d478251a4710203b33e5)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Relax request impls to be generic to any mailbox (#71)
+- **BREAKING:** Use owned actor ref in `spawn_with` function (#68)
+
+### <!-- 3 -->Fixed
+
+- **BREAKING:** Startup deadlock on small bounded mailboxes (#84)
+- Tokio_unstable compile error in `spawn` [</>](https://github.com/tqwewe/kameo/commit/6b10a3b1b90d1e8dee29250851cfcd5d6bfc2934)
+- Request downcasting and added tests (#85)
+
+### <!-- 4 -->Documentation
+
+- Remove reverences to deprecated linking methods (#79)
+
+### <!-- 5 -->Misc
+
+- Add empty message to git tag release script [</>](https://github.com/tqwewe/kameo/commit/c093fdf465c21fd98ff4aa27370dce730297e8e9)
+- Remove msrv from Cargo.toml (#82)
+
 ## [0.12.2] - 2024-10-17
 
 ### <!-- 0 -->Added
