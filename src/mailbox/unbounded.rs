@@ -146,13 +146,10 @@ impl<A> SignalMailbox for UnboundedMailbox<A>
 where
     A: Actor,
 {
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::StartupFinished)
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
+    fn signal_startup_finished(&self) -> Result<(), SendError> {
+        self.0
+            .send(Signal::StartupFinished)
+            .map_err(|_| SendError::ActorNotRunning(()))
     }
 
     fn signal_link_died(
@@ -182,14 +179,11 @@ impl<A> SignalMailbox for WeakUnboundedMailbox<A>
 where
     A: Actor,
 {
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            match self.upgrade() {
-                Some(mb) => mb.signal_startup_finished().await,
-                None => Err(SendError::ActorNotRunning(())),
-            }
+    fn signal_startup_finished(&self) -> Result<(), SendError> {
+        match self.upgrade() {
+            Some(mb) => mb.signal_startup_finished(),
+            None => Err(SendError::ActorNotRunning(())),
         }
-        .boxed()
     }
 
     fn signal_link_died(
