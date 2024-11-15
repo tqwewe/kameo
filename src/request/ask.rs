@@ -322,8 +322,7 @@ impl_message_trait!(
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.send(req.location.signal).await
-            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
+        req.location.mailbox.send(req.location.signal).await?;
         match req.location.rx.await? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
@@ -544,8 +543,7 @@ impl_message_trait!(
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.try_send(req.location.signal)
-            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
+        req.location.mailbox.try_send(req.location.signal)?;
         match req.location.rx.await? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
@@ -695,8 +693,7 @@ impl_message_trait!(
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.blocking_send(req.location.signal)
-            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
+        req.location.mailbox.blocking_send(req.location.signal)?;
         match req.location.rx.blocking_recv()? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
@@ -713,8 +710,7 @@ impl_message_trait!(
     WithoutRequestTimeout,
     WithoutRequestTimeout,
     |req| {
-        req.location.mailbox.try_send(req.location.signal)
-            .map_err(|err| err.map_msg(|signal| signal.downcast_message().unwrap()))?;
+        req.location.mailbox.try_send(req.location.signal)?;
         match req.location.rx.blocking_recv()? {
             Ok(val) => Ok(*val.downcast().unwrap()),
             Err(err) => Err(err.downcast()),
@@ -931,5 +927,420 @@ where
             Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
         }
         _ => panic!("unexpected response"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::{
+        error::SendError,
+        mailbox::{
+            bounded::{BoundedMailbox, BoundedMailboxReceiver},
+            unbounded::UnboundedMailbox,
+        },
+        message::{Context, Message},
+        request::{
+            BlockingMessageSend, MessageSend, MessageSendSync, TryBlockingMessageSend,
+            TryMessageSend, TryMessageSendSync,
+        },
+        spawn, Actor,
+    };
+
+    #[tokio::test]
+    async fn bounded_ask_requests() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = BoundedMailbox<Self>;
+        }
+
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+
+        assert_eq!(actor_ref.ask(Msg).await?, true); // Should be a regular MessageSend request
+        assert_eq!(actor_ref.ask(Msg).send().await?, true);
+        assert_eq!(actor_ref.ask(Msg).try_send().await?, true);
+        assert_eq!(
+            tokio::task::spawn_blocking({
+                let actor_ref = actor_ref.clone();
+                move || actor_ref.ask(Msg).blocking_send()
+            })
+            .await??,
+            true
+        );
+        assert_eq!(
+            tokio::task::spawn_blocking({
+                let actor_ref = actor_ref.clone();
+                move || actor_ref.ask(Msg).try_blocking_send()
+            })
+            .await??,
+            true
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unbounded_ask_requests() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = UnboundedMailbox<Self>;
+        }
+
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+
+        assert_eq!(actor_ref.ask(Msg).await?, true); // Should be a regular MessageSend request
+        assert_eq!(actor_ref.ask(Msg).send().await?, true);
+        assert_eq!(actor_ref.ask(Msg).try_send().await?, true);
+        assert_eq!(
+            tokio::task::spawn_blocking({
+                let actor_ref = actor_ref.clone();
+                move || actor_ref.ask(Msg).blocking_send()
+            })
+            .await??,
+            true
+        );
+        assert_eq!(
+            tokio::task::spawn_blocking({
+                let actor_ref = actor_ref.clone();
+                move || actor_ref.ask(Msg).try_blocking_send()
+            })
+            .await??,
+            true
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_ask_requests_actor_not_running() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = BoundedMailbox<Self>;
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+        actor_ref.stop_gracefully().await?;
+        actor_ref.wait_for_stop().await;
+
+        assert_eq!(
+            actor_ref.ask(Msg).send().await,
+            Err(SendError::ActorNotRunning(Msg))
+        );
+        assert_eq!(
+            actor_ref.ask(Msg).try_send().await,
+            Err(SendError::ActorNotRunning(Msg))
+        );
+        assert_eq!(
+            tokio::task::spawn_blocking({
+                let actor_ref = actor_ref.clone();
+                move || actor_ref.ask(Msg).blocking_send()
+            })
+            .await?,
+            Err(SendError::ActorNotRunning(Msg))
+        );
+        assert_eq!(
+            actor_ref.ask(Msg).try_blocking_send(),
+            Err(SendError::ActorNotRunning(Msg))
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unbounded_ask_requests_actor_not_running() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = UnboundedMailbox<Self>;
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+        actor_ref.stop_gracefully().await?;
+        actor_ref.wait_for_stop().await;
+
+        assert_eq!(
+            actor_ref.ask(Msg).send().await,
+            Err(SendError::ActorNotRunning(Msg))
+        );
+        assert_eq!(
+            actor_ref.ask(Msg).try_send().await,
+            Err(SendError::ActorNotRunning(Msg))
+        );
+        assert_eq!(
+            tokio::task::spawn_blocking({
+                let actor_ref = actor_ref.clone();
+                move || actor_ref.ask(Msg).blocking_send()
+            })
+            .await?,
+            Err(SendError::ActorNotRunning(Msg))
+        );
+        assert_eq!(
+            actor_ref.ask(Msg).try_blocking_send(),
+            Err(SendError::ActorNotRunning(Msg))
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_ask_requests_mailbox_full() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = BoundedMailbox<Self>;
+
+            fn new_mailbox() -> (BoundedMailbox<Self>, BoundedMailboxReceiver<Self>) {
+                BoundedMailbox::new(1)
+            }
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+        assert_eq!(actor_ref.tell(Msg).try_send().await, Ok(()));
+        assert_eq!(
+            actor_ref.ask(Msg).try_send().await,
+            Err(SendError::MailboxFull(Msg))
+        );
+        actor_ref.kill();
+
+        let actor_ref = spawn(MyActor);
+        assert_eq!(actor_ref.tell(Msg).try_blocking_send(), Ok(()));
+        assert_eq!(
+            actor_ref.ask(Msg).try_blocking_send(),
+            Err(SendError::MailboxFull(Msg))
+        );
+        actor_ref.kill();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_ask_requests_mailbox_timeout() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = BoundedMailbox<Self>;
+
+            fn new_mailbox() -> (BoundedMailbox<Self>, BoundedMailboxReceiver<Self>) {
+                BoundedMailbox::new(1)
+            }
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Sleep(Duration);
+
+        impl Message<Sleep> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                Sleep(duration): Sleep,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                tokio::time::sleep(duration).await;
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+        // Mailbox empty, this will succeed
+        assert_eq!(
+            actor_ref
+                .tell(Sleep(Duration::from_millis(100)))
+                .mailbox_timeout(Duration::from_millis(10))
+                .send()
+                .await,
+            Ok(())
+        );
+        // Mailbox still empty, this will add one message to it
+        assert_eq!(
+            actor_ref
+                .tell(Sleep(Duration::from_millis(100)))
+                .mailbox_timeout(Duration::from_millis(10))
+                .send()
+                .await,
+            Ok(())
+        );
+        // Mailbox has one item, this will fail
+        assert_eq!(
+            actor_ref
+                .ask(Sleep(Duration::from_millis(100)))
+                .mailbox_timeout(Duration::from_millis(50))
+                .send()
+                .await,
+            Err(SendError::Timeout(Some(Sleep(Duration::from_millis(100)))))
+        );
+        actor_ref.kill();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_ask_requests_reply_timeout() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = BoundedMailbox<Self>;
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Sleep(Duration);
+
+        impl Message<Sleep> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                Sleep(duration): Sleep,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                tokio::time::sleep(duration).await;
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+        assert_eq!(
+            actor_ref
+                .ask(Sleep(Duration::from_millis(100)))
+                .reply_timeout(Duration::from_millis(120))
+                .send()
+                .await,
+            Ok(true)
+        );
+        assert_eq!(
+            actor_ref
+                .ask(Sleep(Duration::from_millis(100)))
+                .reply_timeout(Duration::from_millis(90))
+                .send()
+                .await,
+            Err(SendError::Timeout(None))
+        );
+        actor_ref.kill();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn unbounded_ask_requests_reply_timeout() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Mailbox = UnboundedMailbox<Self>;
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Sleep(Duration);
+
+        impl Message<Sleep> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                Sleep(duration): Sleep,
+                _ctx: Context<'_, Self, Self::Reply>,
+            ) -> Self::Reply {
+                tokio::time::sleep(duration).await;
+                true
+            }
+        }
+
+        let actor_ref = spawn(MyActor);
+        assert_eq!(
+            actor_ref
+                .ask(Sleep(Duration::from_millis(100)))
+                .reply_timeout(Duration::from_millis(120))
+                .send()
+                .await,
+            Ok(true)
+        );
+        assert_eq!(
+            actor_ref
+                .ask(Sleep(Duration::from_millis(100)))
+                .reply_timeout(Duration::from_millis(90))
+                .send()
+                .await,
+            Err(SendError::Timeout(None))
+        );
+        actor_ref.kill();
+
+        Ok(())
     }
 }

@@ -35,18 +35,18 @@ impl<A: Actor> Mailbox<A> for BoundedMailbox<A> {
     }
 
     #[inline]
-    async fn send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
-        Ok(self.0.send(signal).await?)
+    async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
+        self.0.send(signal).await
     }
 
     #[inline]
-    fn try_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
-        Ok(self.0.try_send(signal)?)
+    fn try_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::TrySendError<Signal<A>>> {
+        self.0.try_send(signal)
     }
 
     #[inline]
-    fn blocking_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
-        Ok(self.0.blocking_send(signal)?)
+    fn blocking_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
+        self.0.blocking_send(signal)
     }
 
     #[inline]

@@ -7,6 +7,7 @@ pub mod unbounded;
 
 use dyn_clone::DynClone;
 use futures::{future::BoxFuture, Future};
+use tokio::sync::mpsc;
 
 use crate::{
     actor::{ActorID, ActorRef},
@@ -26,14 +27,14 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
     /// Creates a default mailbox and receiver.
     fn default_mailbox() -> (Self, Self::Receiver);
     /// Sends a signal to the mailbox.
-    fn send<E: 'static>(
+    fn send(
         &self,
         signal: Signal<A>,
-    ) -> impl Future<Output = Result<(), SendError<Signal<A>, E>>> + Send + '_;
+    ) -> impl Future<Output = Result<(), mpsc::error::SendError<Signal<A>>>> + Send + '_;
     /// Tries to send a signal to the mailbox, failing if the mailbox is full.
-    fn try_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>>;
+    fn try_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::TrySendError<Signal<A>>>;
     /// Sends a signal to the mailbox, blocking the current thread.
-    fn blocking_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>>;
+    fn blocking_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>>;
     /// Waits for the mailbox to be closed.
     fn closed(&self) -> impl Future<Output = ()> + Send + '_;
     /// Checks if the mailbox is closed.
