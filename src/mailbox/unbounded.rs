@@ -35,17 +35,17 @@ impl<A: Actor> Mailbox<A> for UnboundedMailbox<A> {
     }
 
     #[inline]
-    async fn send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
+    async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
         Ok(self.0.send(signal)?)
     }
 
     #[inline]
-    fn try_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
+    fn try_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::TrySendError<Signal<A>>> {
         Ok(self.0.send(signal)?)
     }
 
     #[inline]
-    fn blocking_send<E: 'static>(&self, signal: Signal<A>) -> Result<(), SendError<Signal<A>, E>> {
+    fn blocking_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
         Ok(self.0.send(signal)?)
     }
 
