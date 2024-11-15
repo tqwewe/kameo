@@ -143,6 +143,16 @@ where
         (DelegatedReply::new(), self.reply.take())
     }
 
+    /// Sends a reply to the caller early, returning a `DelegatedReply`.
+    ///
+    /// This is a shortcut for creating a `DelegatedReply` in cases where you didn't need access to the `ReplySender`.
+    pub fn reply(&mut self, reply: R::Value) -> DelegatedReply<R::Value> {
+        if let Some(reply_sender) = self.reply.take() {
+            reply_sender.send(reply);
+        }
+        DelegatedReply::new()
+    }
+
     /// Forwards the message to another actor, returning a [ForwardedReply].
     ///
     /// The message will be sent handled by another actor without blocking the current actor.
