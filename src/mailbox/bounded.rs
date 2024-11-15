@@ -146,14 +146,13 @@ impl<A> SignalMailbox for BoundedMailbox<A>
 where
     A: Actor,
 {
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            self.0
-                .send(Signal::StartupFinished)
-                .await
-                .map_err(|_| SendError::ActorNotRunning(()))
-        }
-        .boxed()
+    fn signal_startup_finished(&self) -> Result<(), SendError> {
+        self.0
+            .try_send(Signal::StartupFinished)
+            .map_err(|err| match err {
+                mpsc::error::TrySendError::Full(_) => SendError::MailboxFull(()),
+                mpsc::error::TrySendError::Closed(_) => SendError::ActorNotRunning(()),
+            })
     }
 
     fn signal_link_died(
@@ -185,14 +184,11 @@ impl<A> SignalMailbox for WeakBoundedMailbox<A>
 where
     A: Actor,
 {
-    fn signal_startup_finished(&self) -> BoxFuture<'_, Result<(), SendError>> {
-        async move {
-            match self.upgrade() {
-                Some(mb) => mb.signal_startup_finished().await,
-                None => Err(SendError::ActorNotRunning(())),
-            }
+    fn signal_startup_finished(&self) -> Result<(), SendError> {
+        match self.upgrade() {
+            Some(mb) => mb.signal_startup_finished(),
+            None => Err(SendError::ActorNotRunning(())),
         }
-        .boxed()
     }
 
     fn signal_link_died(

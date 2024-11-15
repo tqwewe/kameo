@@ -16,7 +16,7 @@ use crate::{
         kind::{ActorBehaviour, ActorState},
         Actor, ActorRef, Links, CURRENT_ACTOR_ID,
     },
-    error::{ActorStopReason, PanicError},
+    error::{ActorStopReason, PanicError, SendError},
     mailbox::{Mailbox, MailboxReceiver, Signal},
 };
 
@@ -391,10 +391,13 @@ where
         .map_err(PanicError::new_boxed)
         .and_then(convert::identity);
 
-    let _ = actor_ref
-        .weak_signal_mailbox()
-        .signal_startup_finished()
-        .await;
+    let mut startup_finished = false;
+    if let Err(SendError::MailboxFull(())) =
+        actor_ref.weak_signal_mailbox().signal_startup_finished()
+    {
+        startup_finished = true;
+    }
+
     let (actor_ref, links, startup_semaphore) = {
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
@@ -417,7 +420,7 @@ where
     let mut state = S::new_from_actor(actor, actor_ref.clone());
 
     let reason = Abortable::new(
-        abortable_actor_loop(&mut state, mailbox_rx, startup_semaphore),
+        abortable_actor_loop(&mut state, mailbox_rx, startup_semaphore, startup_finished),
         abort_registration,
     )
     .await
@@ -443,11 +446,17 @@ async fn abortable_actor_loop<A, S>(
     state: &mut S,
     mut mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     startup_semaphore: Arc<Semaphore>,
+    startup_finished: bool,
 ) -> ActorStopReason
 where
     A: Actor,
     S: ActorState<A>,
 {
+    if startup_finished {
+        if let Some(reason) = state.handle_startup_finished().await {
+            return reason;
+        }
+    }
     loop {
         let reason = recv_mailbox_loop(state, &mut mailbox_rx, &startup_semaphore).await;
         if let Some(reason) = state.on_shutdown(reason).await {
