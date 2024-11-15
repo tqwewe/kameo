@@ -48,7 +48,7 @@ git tag -a "v$NEW_VERSION" -m ""
 git push origin "v$NEW_VERSION"
 
 echo "Creating CHANGELOG-Release.md for release notes"
-git cliff --tag "$NEW_VERSION" --output ./CHANGELOG-Release.md --unreleased
+git cliff --tag "$NEW_VERSION" --output ./CHANGELOG-Release.md --current
 
 # Extract the release date from the CHANGELOG-Release.md file
 RELEASE_DATE=$(grep '^## \['"$NEW_VERSION"'\] - ' CHANGELOG-Release.md | sed -E 's/.* - ([0-9]{4}-[0-9]{2}-[0-9]{2})$/\1/')
