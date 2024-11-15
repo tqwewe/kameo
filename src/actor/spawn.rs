@@ -102,11 +102,8 @@ where
 /// struct MyActor { actor_ref: ActorRef<Self> }
 ///
 /// # tokio_test::block_on(async {
-/// let actor_ref = kameo::actor::spawn_with(|actor_ref| {
-///     let actor = MyActor {
-///         actor_ref: actor_ref.clone(),
-///     };
-///     async { actor }
+/// let actor_ref = kameo::actor::spawn_with(|actor_ref| async move {
+///     MyActor { actor_ref }
 /// })
 /// .await;
 /// # })
@@ -117,7 +114,7 @@ where
 pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
 where
     A: Actor,
-    F: FnOnce(&ActorRef<A>) -> Fu,
+    F: FnOnce(ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
     let prepared_actor = prepare_with(f).await;
@@ -218,7 +215,7 @@ where
 async fn prepare_with<A, F, Fu>(f: F) -> PreparedActor<A>
 where
     A: Actor,
-    F: FnOnce(&ActorRef<A>) -> Fu,
+    F: FnOnce(ActorRef<A>) -> Fu,
     Fu: Future<Output = A>,
 {
     PreparedActor::new_with(f).await
@@ -261,7 +258,7 @@ impl<A: Actor> PreparedActor<A> {
 
     async fn new_with<F, Fu>(f: F) -> Self
     where
-        F: FnOnce(&ActorRef<A>) -> Fu,
+        F: FnOnce(ActorRef<A>) -> Fu,
         Fu: Future<Output = A>,
     {
         let (mailbox, mailbox_rx) = A::new_mailbox();
@@ -274,7 +271,7 @@ impl<A: Actor> PreparedActor<A> {
             links.clone(),
             startup_semaphore.clone(),
         );
-        let actor = f(&actor_ref).await;
+        let actor = f(actor_ref.clone()).await;
 
         PreparedActor {
             actor,
