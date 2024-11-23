@@ -35,6 +35,8 @@ use futures::Future;
 use crate::{
     error::{ActorStopReason, BoxError, PanicError},
     mailbox::Mailbox,
+    message::{BoxDebug, BoxMessage},
+    reply::BoxReplySender,
 };
 
 pub use actor_ref::*;
@@ -92,6 +94,7 @@ pub use spawn::*;
 ///
 /// # Lifecycle Hooks
 /// - `on_start`: Called when the actor starts. This is where initialization happens.
+/// - `on_message`: Called when the actor receives a message to be processed.
 /// - `on_panic`: Called when the actor encounters a panic or an error while processing a "tell" message.
 /// - `on_stop`: Called before the actor is stopped. This allows for cleanup tasks.
 /// - `on_link_died`: Hook that is invoked when a linked actor dies.
@@ -121,6 +124,7 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// # Default Implementation
     /// By default, this returns the type name of the actor.
+    #[inline]
     fn name() -> &'static str {
         any::type_name::<Self>()
     }
@@ -131,6 +135,7 @@ pub trait Actor: Sized + Send + 'static {
     /// A tuple containing:
     /// - The created mailbox for sending messages.
     /// - The receiver for processing messages.
+    #[inline]
     fn new_mailbox() -> (Self::Mailbox, <Self::Mailbox as Mailbox<Self>>::Receiver) {
         Self::Mailbox::default_mailbox()
     }
@@ -142,11 +147,44 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// This ensures that the actor can properly initialize before handling external messages.
     #[allow(unused_variables)]
+    #[inline]
     fn on_start(
         &mut self,
         actor_ref: ActorRef<Self>,
     ) -> impl Future<Output = Result<(), BoxError>> + Send {
         async { Ok(()) }
+    }
+
+    /// Called when the actor receives a message to be processed.
+    ///
+    /// By default, this method handles the incoming message immediately using the actor's standard message handling logic.
+    ///
+    /// Advanced use cases can override this method to customize how messages are processed, such as buffering messages for later processing or implementing custom scheduling.
+    ///
+    /// # Parameters
+    /// - `msg`: The incoming message, wrapped in a `BoxMessage<Self>`.
+    /// - `actor_ref`: A reference to the actor itself.
+    /// - `tx`: An optional reply sender, used when the message expects a response.
+    ///
+    /// # Returns
+    /// A future that resolves to `Result<(), BoxDebug>`. An `Ok(())` indicates successful processing, while an `Err` indicates an error occurred during message handling.
+    ///
+    /// # Default Implementation
+    /// The default implementation handles the message immediately by calling `msg.handle_dyn(self, actor_ref, tx).await`.
+    ///
+    /// # Notes
+    /// - Overriding this method allows you to intercept and manipulate messages before they are processed.
+    /// - Be cautious when buffering messages, as unbounded buffering can lead to increased memory usage.
+    /// - Custom implementations should ensure that messages are eventually handled or appropriately discarded to prevent message loss.
+    /// - The `tx` (reply sender) is tied to the specific `BoxMessage` it corresponds to, and passing an incorrect or mismatched `tx` can lead to a panic.
+    #[inline]
+    fn on_message(
+        &mut self,
+        msg: BoxMessage<Self>,
+        actor_ref: ActorRef<Self>,
+        tx: Option<BoxReplySender>,
+    ) -> impl Future<Output = Result<(), BoxDebug>> + Send {
+        async move { msg.handle_dyn(self, actor_ref, tx).await }
     }
 
     /// Called when the actor encounters a panic or an error during "tell" message handling.
@@ -161,6 +199,7 @@ pub trait Actor: Sized + Send + 'static {
     /// - `Some(ActorStopReason)`: Stops the actor.
     /// - `None`: Allows the actor to continue processing messages.
     #[allow(unused_variables)]
+    #[inline]
     fn on_panic(
         &mut self,
         actor_ref: WeakActorRef<Self>,
@@ -177,6 +216,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # Returns
     /// Whether the actor should stop or continue processing messages.
     #[allow(unused_variables)]
+    #[inline]
     fn on_link_died(
         &mut self,
         actor_ref: WeakActorRef<Self>,
@@ -203,6 +243,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # Parameters
     /// - `reason`: The reason why the actor is being stopped.
     #[allow(unused_variables)]
+    #[inline]
     fn on_stop(
         &mut self,
         actor_ref: WeakActorRef<Self>,

@@ -6,7 +6,7 @@ use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, PanicError},
     mailbox::Signal,
-    message::DynMessage,
+    message::BoxMessage,
     reply::BoxReplySender,
 };
 
@@ -19,7 +19,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 
     fn handle_message(
         &mut self,
-        message: Box<dyn DynMessage<A>>,
+        message: BoxMessage<A>,
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
@@ -89,7 +89,7 @@ where
     #[inline]
     async fn handle_message(
         &mut self,
-        message: Box<dyn DynMessage<A>>,
+        message: BoxMessage<A>,
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
@@ -105,12 +105,12 @@ where
             return None;
         }
 
-        let res = AssertUnwindSafe(message.handle_dyn(&mut self.state, actor_ref, reply))
+        let res = AssertUnwindSafe(self.state.on_message(message, actor_ref, reply))
             .catch_unwind()
             .await;
         match res {
-            Ok(None) => None,
-            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Ok(Ok(())) => None,
+            Ok(Err(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
         }
     }
