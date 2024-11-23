@@ -25,6 +25,8 @@ pub struct AskRequest<L, Mb, M, Tm, Tr> {
     location: L,
     mailbox_timeout: Tm,
     reply_timeout: Tr,
+    #[cfg(debug_assertions)]
+    called_at: &'static std::panic::Location<'static>,
     phantom: PhantomData<(Mb, M)>,
 }
 
@@ -62,7 +64,11 @@ where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new(actor_ref: &'a actor::ActorRef<A>, msg: M) -> Self
+    pub(crate) fn new(
+        actor_ref: &'a actor::ActorRef<A>,
+        msg: M,
+        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+    ) -> Self
     where
         A: Message<M>,
         M: Send + 'static,
@@ -82,7 +88,28 @@ where
             },
             mailbox_timeout: WithoutRequestTimeout,
             reply_timeout: WithoutRequestTimeout,
+            #[cfg(debug_assertions)]
+            called_at,
             phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, A, M, Tm, Tr> AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
+where
+    A: Actor,
+{
+    #[cfg(debug_assertions)]
+    fn warn_deadlock(&self, msg: &'static str) {
+        use tracing::warn;
+
+        match &self.location.signal {
+            Signal::Message { actor_ref, .. } => {
+                if actor_ref.is_current() {
+                    warn!("At {}, {msg}", self.called_at);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -100,11 +127,17 @@ where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new_remote(actor_ref: &'a actor::RemoteActorRef<A>, msg: &'a M) -> Self {
+    pub(crate) fn new_remote(
+        actor_ref: &'a actor::RemoteActorRef<A>,
+        msg: &'a M,
+        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+    ) -> Self {
         AskRequest {
             location: RemoteAskRequest { actor_ref, msg },
             mailbox_timeout: WithoutRequestTimeout,
             reply_timeout: WithoutRequestTimeout,
+            #[cfg(debug_assertions)]
+            called_at,
             phantom: PhantomData,
         }
     }
@@ -124,6 +157,8 @@ where
             location: self.location,
             mailbox_timeout: WithRequestTimeout(duration),
             reply_timeout: self.reply_timeout,
+            #[cfg(debug_assertions)]
+            called_at: self.called_at,
             phantom: PhantomData,
         }
     }
@@ -137,6 +172,8 @@ impl<L, Mb, M, Tm, Tr> AskRequest<L, Mb, M, Tm, Tr> {
             location: self.location,
             mailbox_timeout: self.mailbox_timeout,
             reply_timeout: WithRequestTimeout(duration),
+            #[cfg(debug_assertions)]
+            called_at: self.called_at,
             phantom: PhantomData,
         }
     }
@@ -154,6 +191,8 @@ impl<L, Mb, M, Tm, Tr> AskRequest<L, Mb, M, Tm, Tr> {
             location: self.location,
             mailbox_timeout,
             reply_timeout,
+            #[cfg(debug_assertions)]
+            called_at: self.called_at,
             phantom: PhantomData,
         }
     }
@@ -219,6 +258,9 @@ macro_rules! impl_message_trait {
 
             #[inline]
             $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
+                #[cfg(debug_assertions)]
+                self.warn_deadlock("An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.");
+
                 let $req = self;
                 $($body)*
             }
@@ -454,6 +496,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithoutRequestTimeout,
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -464,6 +508,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithRequestTimeout(reply_timeout),
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -474,6 +520,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithRequestTimeout(mailbox_timeout),
                     reply_timeout: WithoutRequestTimeout,
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -487,6 +535,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithRequestTimeout(mailbox_timeout),
                     reply_timeout: WithRequestTimeout(reply_timeout),
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -509,6 +559,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithoutRequestTimeout,
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -519,6 +571,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithRequestTimeout(reply_timeout),
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -621,6 +675,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithoutRequestTimeout,
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .try_send()
@@ -631,6 +687,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithRequestTimeout(reply_timeout),
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .try_send()
@@ -659,6 +717,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithoutRequestTimeout,
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .try_send()
@@ -669,6 +729,8 @@ impl_message_trait!(
                     location: req.location,
                     mailbox_timeout: WithoutRequestTimeout,
                     reply_timeout: WithRequestTimeout(reply_timeout),
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .try_send()
@@ -941,10 +1003,7 @@ mod tests {
             unbounded::UnboundedMailbox,
         },
         message::{Context, Message},
-        request::{
-            BlockingMessageSend, MessageSend, MessageSendSync, TryBlockingMessageSend,
-            TryMessageSend, TryMessageSendSync,
-        },
+        request::{BlockingMessageSend, MessageSend, TryBlockingMessageSend, TryMessageSend},
         spawn, Actor,
     };
 

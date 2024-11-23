@@ -25,6 +25,8 @@ use super::{
 pub struct TellRequest<L, Mb, M, T> {
     location: L,
     timeout: T,
+    #[cfg(debug_assertions)]
+    called_at: &'static std::panic::Location<'static>,
     phantom: PhantomData<(Mb, M)>,
 }
 
@@ -55,7 +57,11 @@ where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new(actor_ref: &'a actor::ActorRef<A>, msg: M) -> Self
+    pub(crate) fn new(
+        actor_ref: &'a actor::ActorRef<A>,
+        msg: M,
+        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+    ) -> Self
     where
         A: Message<M>,
         M: Send + 'static,
@@ -71,7 +77,28 @@ where
                 },
             },
             timeout: WithoutRequestTimeout,
+            #[cfg(debug_assertions)]
+            called_at,
             phantom: PhantomData,
+        }
+    }
+}
+
+impl<'a, A, M, T> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>
+where
+    A: Actor,
+{
+    #[cfg(debug_assertions)]
+    fn warn_deadlock(&self, msg: &'static str) {
+        use tracing::warn;
+
+        match &self.location.signal {
+            Signal::Message { actor_ref, .. } => {
+                if actor_ref.is_current() {
+                    warn!("At {}, {msg}", self.called_at);
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -82,10 +109,16 @@ where
     A: Actor,
 {
     #[inline]
-    pub(crate) fn new_remote(actor_ref: &'a actor::RemoteActorRef<A>, msg: &'a M) -> Self {
+    pub(crate) fn new_remote(
+        actor_ref: &'a actor::RemoteActorRef<A>,
+        msg: &'a M,
+        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+    ) -> Self {
         TellRequest {
             location: RemoteTellRequest { actor_ref, msg },
             timeout: WithoutRequestTimeout,
+            #[cfg(debug_assertions)]
+            called_at,
             phantom: PhantomData,
         }
     }
@@ -104,6 +137,8 @@ where
         TellRequest {
             location: self.location,
             timeout: WithRequestTimeout(duration),
+            #[cfg(debug_assertions)]
+            called_at: self.called_at,
             phantom: PhantomData,
         }
     }
@@ -119,6 +154,8 @@ impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
         TellRequest {
             location: self.location,
             timeout: mailbox_timeout,
+            #[cfg(debug_assertions)]
+            called_at: self.called_at,
             phantom: PhantomData,
         }
     }
@@ -256,6 +293,9 @@ macro_rules! impl_message_trait {
 // === MessageSend === //
 /////////////////////////
 impl_message_trait!(local, async => MessageSend::send, WithoutRequestTimeout, |req| {
+    #[cfg(debug_assertions)]
+    req.warn_deadlock("An actor is sending a `tell` request to itself using a bounded mailbox without a timeout, which may lead to a deadlock. To avoid this, use a timeout or switch to `.try_send()`.");
+
     Ok(req.location
         .mailbox
         .send(req.location.signal)
@@ -319,6 +359,8 @@ impl_message_trait!(
                 TellRequest {
                     location: req.location,
                     timeout: WithoutRequestTimeout,
+                    #[cfg(debug_assertions)]
+                    called_at: req.called_at,
                     phantom: PhantomData,
                 }
                 .send()
@@ -362,6 +404,8 @@ impl_message_trait!(local, async => TryMessageSend::try_send, BoundedMailbox, Ma
             TellRequest {
                 location: req.location,
                 timeout: WithoutRequestTimeout,
+                #[cfg(debug_assertions)]
+                called_at: req.called_at,
                 phantom: PhantomData,
             }
             .try_send()
@@ -379,6 +423,8 @@ impl_message_trait!(local, async => TryMessageSend::try_send, UnboundedMailbox, 
             TellRequest {
                 location: req.location,
                 timeout: WithoutRequestTimeout,
+                #[cfg(debug_assertions)]
+                called_at: req.called_at,
                 phantom: PhantomData,
             }
             .try_send()
@@ -401,6 +447,9 @@ impl_message_trait!(local, => TryMessageSendSync::try_send_sync, WithoutRequestT
 // === BlockingMessageSend === //
 ////////////////////////////////
 impl_message_trait!(local, => BlockingMessageSend::blocking_send, WithoutRequestTimeout, |req| {
+    #[cfg(debug_assertions)]
+    req.warn_deadlock("An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.");
+
     Ok(req.location.mailbox.blocking_send(req.location.signal)?)
 });
 
