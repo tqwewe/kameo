@@ -247,6 +247,7 @@ where
     /// # });
     /// ```
     #[inline]
+    #[track_caller]
     pub fn ask<M>(
         &self,
         msg: M,
@@ -261,7 +262,12 @@ where
         A: Message<M>,
         M: Send + 'static,
     {
-        AskRequest::new(self, msg)
+        AskRequest::new(
+            self,
+            msg,
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        )
     }
 
     /// Sends a message to the actor without waiting for a reply.
@@ -292,6 +298,7 @@ where
     /// # });
     /// ```
     #[inline]
+    #[track_caller]
     pub fn tell<M>(
         &self,
         msg: M,
@@ -300,7 +307,12 @@ where
         A: Message<M>,
         M: Send + 'static,
     {
-        TellRequest::new(self, msg)
+        TellRequest::new(
+            self,
+            msg,
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        )
     }
 
     /// Links two actors as siblings, ensuring they notify each other if either one dies.
@@ -754,6 +766,7 @@ impl<A: Actor> RemoteActorRef<A> {
     /// # });
     /// ```
     #[inline]
+    #[track_caller]
     pub fn ask<'a, M>(
         &'a self,
         msg: &'a M,
@@ -769,7 +782,12 @@ impl<A: Actor> RemoteActorRef<A> {
         M: serde::Serialize + Send + 'static,
         <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
     {
-        AskRequest::new_remote(self, msg)
+        AskRequest::new_remote(
+            self,
+            msg,
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        )
     }
 
     /// Sends a message to the remote actor without waiting for a reply.
@@ -803,6 +821,7 @@ impl<A: Actor> RemoteActorRef<A> {
     /// # });
     /// ```
     #[inline]
+    #[track_caller]
     pub fn tell<'a, M>(
         &'a self,
         msg: &'a M,
@@ -811,7 +830,12 @@ impl<A: Actor> RemoteActorRef<A> {
         A: Message<M>,
         M: Send + 'static,
     {
-        TellRequest::new_remote(self, msg)
+        TellRequest::new_remote(
+            self,
+            msg,
+            #[cfg(debug_assertions)]
+            std::panic::Location::caller(),
+        )
     }
 
     pub(crate) fn send_to_swarm(&self, msg: remote::SwarmCommand) {
