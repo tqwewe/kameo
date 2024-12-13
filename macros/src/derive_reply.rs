@@ -18,7 +18,7 @@ impl ToTokens for DeriveReply {
             #[automatically_derived]
             impl #impl_generics ::kameo::Reply for #ident #ty_generics #where_clause {
                 type Ok = Self;
-                type Error = ();
+                type Error = ::kameo::error::Infallible;
                 type Value = Self;
 
                 #[inline]
