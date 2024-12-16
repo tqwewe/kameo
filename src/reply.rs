@@ -30,6 +30,7 @@ use std::{
         NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
         NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,
     },
+    path::{Path, PathBuf},
     sync::{
         atomic::{
             AtomicBool, AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicIsize, AtomicPtr,
@@ -301,6 +302,8 @@ impl_infallible_reply!([
     bool,
     &'static str,
     String,
+    &'static Path,
+    PathBuf,
     {T: 'static + Send} Option<T>,
     {T: Clone + Send + Sync} Cow<'static, T>,
     {T: 'static + Send + Sync} Arc<T>,
