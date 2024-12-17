@@ -73,6 +73,11 @@ impl<A: Actor> Mailbox<A> for BoundedMailbox<A> {
     fn weak_count(&self) -> usize {
         self.0.weak_count()
     }
+
+    #[inline]
+    fn capacity(&self) -> Option<usize> {
+        Some(self.0.max_capacity())
+    }
 }
 
 impl<A: Actor> Clone for BoundedMailbox<A> {

@@ -92,13 +92,15 @@ where
     fn warn_deadlock(&self, msg: &'static str) {
         use tracing::warn;
 
-        match &self.location.signal {
-            Signal::Message { actor_ref, .. } => {
-                if actor_ref.is_current() {
-                    warn!("At {}, {msg}", self.called_at);
+        if self.location.mailbox.capacity().is_some() {
+            match &self.location.signal {
+                Signal::Message { actor_ref, .. } => {
+                    if actor_ref.is_current() {
+                        warn!("At {}, {msg}", self.called_at);
+                    }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
 }

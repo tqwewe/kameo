@@ -45,6 +45,8 @@ pub trait Mailbox<A: Actor>: SignalMailbox + Clone + Send + Sync {
     fn strong_count(&self) -> usize;
     /// Returns the number of weak mailboxes.
     fn weak_count(&self) -> usize;
+    /// Returns the capacity of the mailbox.
+    fn capacity(&self) -> Option<usize>;
 }
 
 /// A mailbox receiver.
