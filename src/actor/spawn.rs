@@ -2,7 +2,7 @@ use std::{convert, panic::AssertUnwindSafe, sync::Arc, thread};
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable},
-    Future, FutureExt,
+    FutureExt,
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -46,9 +46,9 @@ pub fn spawn<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
 {
-    let prepared_actor = prepare(actor);
+    let prepared_actor = PreparedActor::new();
     let actor_ref = prepared_actor.actor_ref().clone();
-    prepared_actor.spawn();
+    prepared_actor.spawn(actor);
     actor_ref
 }
 
@@ -80,46 +80,10 @@ where
     A: Actor,
     L: Actor,
 {
-    let prepared_actor = prepare(actor);
+    let prepared_actor = PreparedActor::new();
     let actor_ref = prepared_actor.actor_ref().clone();
     actor_ref.link(link_ref).await;
-    prepared_actor.spawn();
-    actor_ref
-}
-
-/// Spawns an actor in a Tokio task, using a factory function that provides access to the [`ActorRef`].
-///
-/// This function is useful when the actor requires access to its own reference during initialization. The
-/// factory function is provided with the actor reference and is responsible for returning the initialized actor.
-///
-/// # Example
-///
-/// ```
-/// use kameo::Actor;
-/// use kameo::actor::ActorRef;
-///
-/// #[derive(Actor)]
-/// struct MyActor { actor_ref: ActorRef<Self> }
-///
-/// # tokio_test::block_on(async {
-/// let actor_ref = kameo::actor::spawn_with(|actor_ref| async move {
-///     MyActor { actor_ref }
-/// })
-/// .await;
-/// # })
-/// ```
-///
-/// This allows the actor to have access to its own `ActorRef` during creation, which can be useful for actors
-/// that need to communicate with themselves or manage internal state more effectively.
-pub async fn spawn_with<A, F, Fu>(f: F) -> ActorRef<A>
-where
-    A: Actor,
-    F: FnOnce(ActorRef<A>) -> Fu,
-    Fu: Future<Output = A>,
-{
-    let prepared_actor = prepare_with(f).await;
-    let actor_ref = prepared_actor.actor_ref().clone();
-    prepared_actor.spawn();
+    prepared_actor.spawn(actor);
     actor_ref
 }
 
@@ -164,61 +128,10 @@ pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
 where
     A: Actor,
 {
-    let prepared_actor = prepare(actor);
+    let prepared_actor = PreparedActor::new();
     let actor_ref = prepared_actor.actor_ref().clone();
-    prepared_actor.spawn_in_thread();
+    prepared_actor.spawn_in_thread(actor);
     actor_ref
-}
-
-/// Prepares an actor without spawning it, returning a [`PreparedActor`].
-///
-/// The actor is fully initialized, but will not start processing messages until explicitly
-/// run or spawned. This function is useful when you need to interact with the actor through
-/// its [`ActorRef`] before it begins execution.
-///
-/// To start the actor, either run it synchronously in the current task with [`PreparedActor::run`]
-/// or spawn it into a background task with [`PreparedActor::spawn`].
-///
-/// # Example
-///
-/// ```rust
-/// # use kameo::Actor;
-/// # use kameo::message::{Context, Message};
-/// # use kameo::request::MessageSend;
-/// #
-/// # #[derive(Actor)]
-/// # struct MyActor { }
-/// #
-/// # impl Message<&'static str> for MyActor {
-/// #     type Reply = ();
-/// #     async fn handle(&mut self, msg: &'static str, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
-/// # }
-/// #
-/// # tokio_test::block_on(async {
-/// let prepared_actor = kameo::actor::prepare(MyActor { });
-///
-/// // You can now interact with the actor using its ActorRef before running it
-/// prepared_actor.actor_ref().tell("hello").send().await;
-///
-/// // Finally, spawn the actor
-/// prepared_actor.spawn();
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// # });
-/// ```
-pub fn prepare<A>(actor: A) -> PreparedActor<A>
-where
-    A: Actor,
-{
-    PreparedActor::new(actor)
-}
-
-async fn prepare_with<A, F, Fu>(f: F) -> PreparedActor<A>
-where
-    A: Actor,
-    F: FnOnce(ActorRef<A>) -> Fu,
-    Fu: Future<Output = A>,
-{
-    PreparedActor::new_with(f).await
 }
 
 /// A `PreparedActor` represents an actor that has been initialized and is ready to be either run
@@ -229,14 +142,32 @@ where
 /// synchronously in the current task or spawning it in a separate task or thread.
 #[allow(missing_debug_implementations)]
 pub struct PreparedActor<A: Actor> {
-    actor: A,
     actor_ref: ActorRef<A>,
     mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
     abort_registration: AbortRegistration,
 }
 
 impl<A: Actor> PreparedActor<A> {
-    fn new(actor: A) -> Self {
+    /// Creates a new prepared actor, allowing access to its [`ActorRef`] before spawning.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use kameo::Actor;
+    /// # use kameo::actor::PreparedActor;
+    /// #
+    /// # #[derive(Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// # let other_actor = kameo::spawn(MyActor);
+    /// let prepared_actor = PreparedActor::new();
+    /// prepared_actor.actor_ref().link(&other_actor).await;
+    /// let actor_ref = prepared_actor.spawn(MyActor);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub fn new() -> Self {
         let (mailbox, mailbox_rx) = A::new_mailbox();
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
@@ -249,32 +180,6 @@ impl<A: Actor> PreparedActor<A> {
         );
 
         PreparedActor {
-            actor,
-            actor_ref,
-            mailbox_rx,
-            abort_registration,
-        }
-    }
-
-    async fn new_with<F, Fu>(f: F) -> Self
-    where
-        F: FnOnce(ActorRef<A>) -> Fu,
-        Fu: Future<Output = A>,
-    {
-        let (mailbox, mailbox_rx) = A::new_mailbox();
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let links = Links::default();
-        let startup_semaphore = Arc::new(Semaphore::new(0));
-        let actor_ref = ActorRef::new(
-            mailbox,
-            abort_handle,
-            links.clone(),
-            startup_semaphore.clone(),
-        );
-        let actor = f(actor_ref.clone()).await;
-
-        PreparedActor {
-            actor,
             actor_ref,
             mailbox_rx,
             abort_registration,
@@ -300,6 +205,7 @@ impl<A: Actor> PreparedActor<A> {
     ///
     /// ```no_run
     /// # use kameo::Actor;
+    /// # use kameo::actor::PreparedActor;
     /// # use kameo::message::{Context, Message};
     /// # use kameo::request::MessageSend;
     /// #
@@ -312,16 +218,16 @@ impl<A: Actor> PreparedActor<A> {
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let prepared_actor = kameo::actor::prepare(MyActor);
+    /// let prepared_actor = PreparedActor::new();
     /// // Send it a message before it runs
     /// prepared_actor.actor_ref().tell("hello!").send().await?;
-    /// prepared_actor.run().await;
+    /// prepared_actor.run(MyActor).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn run(self) -> (A, ActorStopReason) {
+    pub async fn run(self, actor: A) -> (A, ActorStopReason) {
         run_actor_lifecycle::<A, ActorBehaviour<A>>(
-            self.actor,
+            actor,
             self.actor_ref,
             self.mailbox_rx,
             self.abort_registration,
@@ -332,17 +238,17 @@ impl<A: Actor> PreparedActor<A> {
     /// Spawns the actor in a new background tokio task, returning the `JoinHandle`.
     ///
     /// See [`spawn`] for more information.
-    pub fn spawn(self) -> JoinHandle<(A, ActorStopReason)> {
+    pub fn spawn(self, actor: A) -> JoinHandle<(A, ActorStopReason)> {
         #[cfg(not(tokio_unstable))]
         {
-            tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run()))
+            tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(actor)))
         }
 
         #[cfg(tokio_unstable)]
         {
             tokio::task::Builder::new()
                 .name(A::name())
-                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run()))
+                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(actor)))
                 .unwrap()
         }
     }
@@ -350,7 +256,7 @@ impl<A: Actor> PreparedActor<A> {
     /// Spawns the actor in a new background thread, returning the `JoinHandle`.
     ///
     /// See [`spawn_in_thread`] for more information.
-    pub fn spawn_in_thread(self) -> thread::JoinHandle<(A, ActorStopReason)> {
+    pub fn spawn_in_thread(self, actor: A) -> thread::JoinHandle<(A, ActorStopReason)> {
         let handle = Handle::current();
         if matches!(handle.runtime_flavor(), RuntimeFlavor::CurrentThread) {
             panic!("threaded actors are not supported in a single threaded tokio runtime");
@@ -360,7 +266,7 @@ impl<A: Actor> PreparedActor<A> {
             .name(A::name().to_string())
             .spawn({
                 let actor_ref = self.actor_ref.clone();
-                move || handle.block_on(CURRENT_ACTOR_ID.scope(actor_ref.id(), self.run()))
+                move || handle.block_on(CURRENT_ACTOR_ID.scope(actor_ref.id(), self.run(actor)))
             })
             .unwrap()
     }
