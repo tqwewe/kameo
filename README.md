@@ -161,7 +161,9 @@ We welcome contributions from the community! Here are ways you can contribute:
 
 If you find Kameo useful and would like to support its development, please consider [sponsoring me on GitHub](https://github.com/sponsors/tqwewe). Your support helps me maintain and improve the project!
 
-Thank you for your support! 💖
+### Special Thanks to Our Sponsors
+
+A huge thank you to [**Caido Community**](https://github.com/caido-community) for supporting Kameo's development! 💖
 
 ## License
 
