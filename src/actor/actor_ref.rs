@@ -863,6 +863,26 @@ impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
     }
 }
 
+#[cfg(feature = "remote")]
+impl<A: Actor> From<ActorRef<A>> for RemoteActorRef<A> {
+    fn from(actor_ref: ActorRef<A>) -> Self {
+        let swarm_tx = remote::ActorSwarm::get()
+            .expect("swarm not bootstrapped")
+            .sender();
+        RemoteActorRef::new(actor_ref.id, swarm_tx)
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<A: Actor> From<&ActorRef<A>> for RemoteActorRef<A> {
+    fn from(actor_ref: &ActorRef<A>) -> Self {
+        let swarm_tx = remote::ActorSwarm::get()
+            .expect("swarm not bootstrapped")
+            .sender();
+        RemoteActorRef::new(actor_ref.id, swarm_tx)
+    }
+}
+
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
