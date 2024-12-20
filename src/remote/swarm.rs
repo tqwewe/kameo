@@ -342,6 +342,10 @@ impl ActorSwarm {
             }
         }
     }
+
+    pub(crate) fn sender(&self) -> SwarmSender {
+        self.swarm_tx.clone()
+    }
 }
 
 struct SwarmActor {
