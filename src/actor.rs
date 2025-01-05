@@ -28,12 +28,12 @@ pub mod pool;
 pub mod pubsub;
 mod spawn;
 
-use std::any;
+use std::{any, error::Error};
 
 use futures::Future;
 
 use crate::{
-    error::{ActorStopReason, BoxError, PanicError},
+    error::{ActorStopReason, PanicError},
     mailbox::Mailbox,
 };
 
@@ -117,6 +117,9 @@ pub trait Actor: Sized + Send + 'static {
     /// - **Unbounded Mailbox**: Allows an infinite number of messages, but can consume large amounts of memory.
     type Mailbox: Mailbox<Self>;
 
+    /// The error type which can occur in the actors lifecycle hooks.
+    type Error: Error + Send;
+
     /// The name of the actor, which can be useful for logging or debugging.
     ///
     /// # Default Implementation
@@ -145,7 +148,7 @@ pub trait Actor: Sized + Send + 'static {
     fn on_start(
         &mut self,
         actor_ref: ActorRef<Self>,
-    ) -> impl Future<Output = Result<(), BoxError>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
     }
 
@@ -165,7 +168,7 @@ pub trait Actor: Sized + Send + 'static {
         &mut self,
         actor_ref: WeakActorRef<Self>,
         err: PanicError,
-    ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
+    ) -> impl Future<Output = Result<Option<ActorStopReason>, Self::Error>> + Send {
         async move { Ok(Some(ActorStopReason::Panicked(err))) }
     }
 
@@ -182,7 +185,7 @@ pub trait Actor: Sized + Send + 'static {
         actor_ref: WeakActorRef<Self>,
         id: ActorID,
         reason: ActorStopReason,
-    ) -> impl Future<Output = Result<Option<ActorStopReason>, BoxError>> + Send {
+    ) -> impl Future<Output = Result<Option<ActorStopReason>, Self::Error>> + Send {
         async move {
             match &reason {
                 ActorStopReason::Normal => Ok(None),
@@ -207,7 +210,7 @@ pub trait Actor: Sized + Send + 'static {
         &mut self,
         actor_ref: WeakActorRef<Self>,
         reason: ActorStopReason,
-    ) -> impl Future<Output = Result<(), BoxError>> + Send {
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
     }
 }
