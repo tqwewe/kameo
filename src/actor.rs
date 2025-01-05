@@ -66,15 +66,16 @@ pub use spawn::*;
 ///
 /// ```
 /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
-/// use kameo::error::{ActorStopReason, BoxError};
+/// use kameo::error::{ActorStopReason, Infallible};
 /// use kameo::mailbox::unbounded::UnboundedMailbox;
 ///
 /// struct MyActor;
 ///
 /// impl Actor for MyActor {
 ///     type Mailbox = UnboundedMailbox<Self>;
+///     type Error = Infallible;
 ///
-///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Infallible> {
 ///         println!("actor started");
 ///         Ok(())
 ///     }
@@ -83,7 +84,7 @@ pub use spawn::*;
 ///         &mut self,
 ///         actor_ref: WeakActorRef<Self>,
 ///         reason: ActorStopReason,
-///     ) -> Result<(), BoxError> {
+///     ) -> Result<(), Infallible> {
 ///         println!("actor stopped");
 ///         Ok(())
 ///     }
