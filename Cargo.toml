@@ -29,7 +29,7 @@ kameo_macros = { version = "0.13.0", path = "./macros" }
 
 dyn-clone = "1.0"
 futures = "0.3"
-itertools = "0.13.0"
+itertools = "0.14.0"
 internment = { version = "0.8.5", features = ["serde"], optional = true }
 libp2p = { version = "0.54.1", features = ["cbor", "dns", "kad", "mdns", "macros", "quic", "request-response", "rsa", "serde", "tokio"], optional = true }
 libp2p-identity = { version = "0.2.9", features = ["rand", "rsa"], optional = true }
