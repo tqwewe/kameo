@@ -4,7 +4,8 @@ use kameo::{
     actor::ActorID,
     error::RemoteSendError,
     remote::{
-        ActorSwarm, ActorSwarmEvent, ActorSwarmHandler, SwarmBehaviour, SwarmRequest, SwarmResponse,
+        ActorSwarm, ActorSwarmBehaviourEvent, ActorSwarmHandler, SwarmBehaviour, SwarmRequest,
+        SwarmResponse,
     },
 };
 use libp2p::{
@@ -84,13 +85,13 @@ fn handle_event(
         }
         SwarmEvent::Behaviour(event) => match event {
             CustomBehaviourEvent::Kademlia(event) => {
-                swarm_handler.handle_event(swarm, ActorSwarmEvent::Kademlia(event))
+                swarm_handler.handle_event(swarm, ActorSwarmBehaviourEvent::Kademlia(event))
             }
             CustomBehaviourEvent::ActorRequestResponse(event) => {
-                swarm_handler.handle_event(swarm, ActorSwarmEvent::RequestResponse(event))
+                swarm_handler.handle_event(swarm, ActorSwarmBehaviourEvent::RequestResponse(event))
             }
             CustomBehaviourEvent::Mdns(event) => {
-                swarm_handler.handle_event(swarm, ActorSwarmEvent::Mdns(event))
+                swarm_handler.handle_event(swarm, ActorSwarmBehaviourEvent::Mdns(event))
             }
             CustomBehaviourEvent::CustomRequestResponse(request_response::Event::Message {
                 message,

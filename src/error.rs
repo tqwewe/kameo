@@ -230,7 +230,7 @@ pub enum BootstrapError {
     /// Swarm already bootstrapped.
     AlreadyBootstrapped(
         &'static crate::remote::ActorSwarm,
-        Option<libp2p::Swarm<crate::remote::ActorBehaviour>>,
+        Option<libp2p::Swarm<crate::remote::ActorSwarmBehaviour>>,
     ),
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
