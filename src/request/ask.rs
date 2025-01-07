@@ -3,7 +3,9 @@ use std::{future::IntoFuture, marker::PhantomData, time::Duration};
 use tokio::{sync::oneshot, time::timeout};
 
 #[cfg(feature = "remote")]
-use crate::remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmReq, SwarmResp};
+use crate::remote::{
+    ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmRequest, SwarmResponse,
+};
 
 use crate::{
     actor,
@@ -971,7 +973,7 @@ where
     });
 
     match reply_rx.await.unwrap() {
-        SwarmResp::Ask(res) => match res {
+        SwarmResponse::Ask(res) => match res {
             Ok(payload) => Ok(rmp_serde::decode::from_slice(&payload)
                 .map_err(|err| error::RemoteSendError::DeserializeMessage(err.to_string()))?),
             Err(err) => Err(err
@@ -981,7 +983,7 @@ where
                 })
                 .flatten()),
         },
-        SwarmResp::OutboundFailure(err) => {
+        SwarmResponse::OutboundFailure(err) => {
             Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
         }
         _ => panic!("unexpected response"),

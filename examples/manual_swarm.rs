@@ -4,7 +4,8 @@ use kameo::{
     actor::ActorID,
     error::RemoteSendError,
     remote::{
-        ActorSwarm, ActorSwarmBehaviour, ActorSwarmEvent, SwarmBehaviour, SwarmReq, SwarmResp,
+        ActorSwarm, ActorSwarmBehaviour, ActorSwarmEvent, SwarmBehaviour, SwarmRequest,
+        SwarmResponse,
     },
 };
 use libp2p::{
@@ -80,7 +81,7 @@ fn handle_event(
             swarm
                 .behaviour_mut()
                 .custom_request_response
-                .send_request(&peer_id, CustomReq::Greet { name });
+                .send_request(&peer_id, CustomRequest::Greet { name });
         }
         SwarmEvent::Behaviour(event) => match event {
             CustomBehaviourEvent::Kademlia(event) => {
@@ -99,13 +100,13 @@ fn handle_event(
                 request_response::Message::Request {
                     request, channel, ..
                 } => match request {
-                    CustomReq::Greet { name } => {
+                    CustomRequest::Greet { name } => {
                         swarm
                             .behaviour_mut()
                             .custom_request_response
                             .send_response(
                                 channel,
-                                CustomResp::Greeted {
+                                CustomResponse::Greeted {
                                     msg: format!("Hello, {name}"),
                                 },
                             )
@@ -113,7 +114,7 @@ fn handle_event(
                     }
                 },
                 request_response::Message::Response { response, .. } => match response {
-                    CustomResp::Greeted { msg } => {
+                    CustomResponse::Greeted { msg } => {
                         println!("Greeted: {msg}");
                     }
                 },
@@ -125,20 +126,20 @@ fn handle_event(
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum CustomReq {
+enum CustomRequest {
     Greet { name: String },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-enum CustomResp {
+enum CustomResponse {
     Greeted { msg: String },
 }
 
 #[derive(NetworkBehaviour)]
 struct CustomBehaviour {
     kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    actor_request_response: request_response::cbor::Behaviour<SwarmReq, SwarmResp>,
-    custom_request_response: request_response::cbor::Behaviour<CustomReq, CustomResp>,
+    actor_request_response: request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>,
+    custom_request_response: request_response::cbor::Behaviour<CustomRequest, CustomResponse>,
     mdns: mdns::tokio::Behaviour,
 }
 
@@ -156,7 +157,7 @@ impl SwarmBehaviour for CustomBehaviour {
     ) -> OutboundRequestId {
         self.actor_request_response.send_request(
             peer,
-            SwarmReq::Ask {
+            SwarmRequest::Ask {
                 actor_id,
                 actor_remote_id,
                 message_remote_id,
@@ -180,7 +181,7 @@ impl SwarmBehaviour for CustomBehaviour {
     ) -> OutboundRequestId {
         self.actor_request_response.send_request(
             peer,
-            SwarmReq::Tell {
+            SwarmRequest::Tell {
                 actor_id,
                 actor_remote_id,
                 message_remote_id,
@@ -193,20 +194,20 @@ impl SwarmBehaviour for CustomBehaviour {
 
     fn send_ask_response(
         &mut self,
-        channel: ResponseChannel<kameo::remote::SwarmResp>,
+        channel: ResponseChannel<kameo::remote::SwarmResponse>,
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResp> {
+    ) -> Result<(), SwarmResponse> {
         self.actor_request_response
-            .send_response(channel, SwarmResp::Ask(result))
+            .send_response(channel, SwarmResponse::Ask(result))
     }
 
     fn send_tell_response(
         &mut self,
-        channel: ResponseChannel<kameo::remote::SwarmResp>,
+        channel: ResponseChannel<kameo::remote::SwarmResponse>,
         result: Result<(), RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResp> {
+    ) -> Result<(), SwarmResponse> {
         self.actor_request_response
-            .send_response(channel, SwarmResp::Tell(result))
+            .send_response(channel, SwarmResponse::Tell(result))
     }
 
     fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate {

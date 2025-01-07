@@ -493,7 +493,7 @@ where
     });
 
     match reply_rx.await.unwrap() {
-        SwarmResp::Tell(res) => match res {
+        SwarmResponse::Tell(res) => match res {
             Ok(()) => Ok(()),
             Err(err) => Err(err
                 .map_err(|err| match rmp_serde::decode::from_slice(&err) {
@@ -502,7 +502,7 @@ where
                 })
                 .flatten()),
         },
-        SwarmResp::OutboundFailure(err) => {
+        SwarmResponse::OutboundFailure(err) => {
             Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
         }
         _ => panic!("unexpected response"),

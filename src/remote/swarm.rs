@@ -378,7 +378,7 @@ pub struct ActorSwarmBehaviour {
     get_queries:
         HashMap<kad::QueryId, oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>>,
     put_queries: HashMap<kad::QueryId, oneshot::Sender<kad::PutRecordResult>>,
-    requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResp>>,
+    requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResponse>>,
 }
 
 impl ActorSwarmBehaviour {
@@ -492,7 +492,7 @@ impl ActorSwarmBehaviour {
                             immediate,
                         )
                         .await;
-                        let _ = reply.send(SwarmResp::Ask(result));
+                        let _ = reply.send(SwarmResponse::Ask(result));
                     });
                 } else {
                     let req_id = swarm.behaviour_mut().ask(
@@ -529,7 +529,7 @@ impl ActorSwarmBehaviour {
                             immediate,
                         )
                         .await;
-                        let _ = reply.send(SwarmResp::Tell(result));
+                        let _ = reply.send(SwarmResponse::Tell(result));
                     });
                 } else {
                     let req_id = swarm.behaviour_mut().tell(
@@ -609,7 +609,7 @@ impl ActorSwarmBehaviour {
                         channel,
                     },
             }) => match request {
-                SwarmReq::Ask {
+                SwarmRequest::Ask {
                     actor_id,
                     actor_remote_id,
                     message_remote_id,
@@ -633,7 +633,7 @@ impl ActorSwarmBehaviour {
                         tx.send(SwarmCommand::SendAskResponse { result, channel });
                     });
                 }
-                SwarmReq::Tell {
+                SwarmRequest::Tell {
                     actor_id,
                     actor_remote_id,
                     message_remote_id,
@@ -683,7 +683,7 @@ impl ActorSwarmBehaviour {
                         }
                         OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
                     };
-                    let _ = tx.send(SwarmResp::OutboundFailure(err));
+                    let _ = tx.send(SwarmResponse::OutboundFailure(err));
                 }
             }
             _ => {}
@@ -697,7 +697,7 @@ pub enum ActorSwarmEvent {
     /// Kademlia event.
     Kademlia(kad::Event),
     /// Request response event.
-    RequestResponse(request_response::Event<SwarmReq, SwarmResp, SwarmResp>),
+    RequestResponse(request_response::Event<SwarmRequest, SwarmResponse, SwarmResponse>),
     /// Mdns event.
     Mdns(mdns::Event),
 }
@@ -793,7 +793,7 @@ pub enum SwarmCommand {
         /// Fail if mailbox is full.
         immediate: bool,
         /// Reply sender.
-        reply: oneshot::Sender<SwarmResp>,
+        reply: oneshot::Sender<SwarmResponse>,
     },
     /// An actor tell request.
     Tell {
@@ -812,21 +812,21 @@ pub enum SwarmCommand {
         /// Fail if mailbox is full.
         immediate: bool,
         /// Reply sender.
-        reply: oneshot::Sender<SwarmResp>,
+        reply: oneshot::Sender<SwarmResponse>,
     },
     /// Send an ask response.
     SendAskResponse {
         /// Ask result.
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
         /// Response channel.
-        channel: ResponseChannel<SwarmResp>,
+        channel: ResponseChannel<SwarmResponse>,
     },
     /// Send a tell response.
     SendTellResponse {
         /// Tell result.
         result: Result<(), RemoteSendError<Vec<u8>>>,
         /// Response channel.
-        channel: ResponseChannel<SwarmResp>,
+        channel: ResponseChannel<SwarmResponse>,
     },
 }
 
@@ -868,7 +868,7 @@ impl<'a> ActorRegistration<'a> {
 
 /// Represents different types of requests that can be made within the swarm.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum SwarmReq {
+pub enum SwarmRequest {
     /// Represents a request to ask a peer for some data or action.
     ///
     /// This variant includes information about the actor, the message, payload, and timeout settings.
@@ -921,7 +921,7 @@ pub enum SwarmReq {
 
 /// Represents different types of responses that can be sent within the swarm.
 #[derive(Debug, Serialize, Deserialize)]
-pub enum SwarmResp {
+pub enum SwarmResponse {
     /// Represents the response to an `Ask` request.
     ///
     /// Contains either the successful payload data or an error indicating why the send failed.
@@ -974,18 +974,18 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     /// This method handles the result of processing an `ask` request and sends back the appropriate response.
     fn send_ask_response(
         &mut self,
-        channel: ResponseChannel<SwarmResp>,
+        channel: ResponseChannel<SwarmResponse>,
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResp>;
+    ) -> Result<(), SwarmResponse>;
 
     /// Sends a response to a previously received `tell` request.
     ///
     /// This method handles the result of processing a `tell` request and sends back an acknowledgment.
     fn send_tell_response(
         &mut self,
-        channel: ResponseChannel<SwarmResp>,
+        channel: ResponseChannel<SwarmResponse>,
         result: Result<(), RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResp>;
+    ) -> Result<(), SwarmResponse>;
 
     /// Adds a network address for a peer to the Kademlia routing table.
     ///
@@ -1025,7 +1025,7 @@ pub trait SwarmBehaviour: NetworkBehaviour {
 #[derive(NetworkBehaviour)]
 struct Behaviour {
     kademlia: kad::Behaviour<MemoryStore>,
-    request_response: request_response::cbor::Behaviour<SwarmReq, SwarmResp>,
+    request_response: request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>,
     mdns: mdns::tokio::Behaviour,
 }
 
@@ -1043,7 +1043,7 @@ impl SwarmBehaviour for Behaviour {
     ) -> OutboundRequestId {
         self.request_response.send_request(
             peer,
-            SwarmReq::Ask {
+            SwarmRequest::Ask {
                 actor_id,
                 actor_remote_id,
                 message_remote_id,
@@ -1067,7 +1067,7 @@ impl SwarmBehaviour for Behaviour {
     ) -> OutboundRequestId {
         self.request_response.send_request(
             peer,
-            SwarmReq::Tell {
+            SwarmRequest::Tell {
                 actor_id,
                 actor_remote_id,
                 message_remote_id,
@@ -1080,20 +1080,20 @@ impl SwarmBehaviour for Behaviour {
 
     fn send_ask_response(
         &mut self,
-        channel: ResponseChannel<SwarmResp>,
+        channel: ResponseChannel<SwarmResponse>,
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResp> {
+    ) -> Result<(), SwarmResponse> {
         self.request_response
-            .send_response(channel, SwarmResp::Ask(result))
+            .send_response(channel, SwarmResponse::Ask(result))
     }
 
     fn send_tell_response(
         &mut self,
-        channel: ResponseChannel<SwarmResp>,
+        channel: ResponseChannel<SwarmResponse>,
         result: Result<(), RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResp> {
+    ) -> Result<(), SwarmResponse> {
         self.request_response
-            .send_response(channel, SwarmResp::Tell(result))
+            .send_response(channel, SwarmResponse::Tell(result))
     }
 
     fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate {
