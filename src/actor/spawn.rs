@@ -9,6 +9,7 @@ use tokio::{
     sync::Semaphore,
     task::JoinHandle,
 };
+#[cfg(feature = "tracing")]
 use tracing::{error, trace};
 
 use crate::{
@@ -285,6 +286,7 @@ where
 {
     let id = actor_ref.id();
     let name = A::name();
+    #[cfg(feature = "tracing")]
     trace!(%id, %name, "actor started");
 
     let start_res = AssertUnwindSafe(actor.on_start(actor_ref.clone()))
@@ -413,6 +415,7 @@ where
 }
 
 #[inline]
+#[cfg(feature = "tracing")]
 fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ ActorStopReason::Normal
@@ -425,3 +428,6 @@ fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
         }
     }
 }
+
+#[cfg(not(feature = "tracing"))]
+fn log_actor_stop_reason(_id: ActorID, _name: &str, _reason: &ActorStopReason) {}

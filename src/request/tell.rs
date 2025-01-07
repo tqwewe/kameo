@@ -88,7 +88,7 @@ impl<'a, A, M, T> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M
 where
     A: Actor,
 {
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "tracing"))]
     fn warn_deadlock(&self, msg: &'static str) {
         use tracing::warn;
 
@@ -103,6 +103,9 @@ where
             }
         }
     }
+
+    #[cfg(not(all(debug_assertions, feature = "tracing")))]
+    fn warn_deadlock(&self, _msg: &'static str) {}
 }
 
 #[cfg(feature = "remote")]
@@ -295,7 +298,6 @@ macro_rules! impl_message_trait {
 // === MessageSend === //
 /////////////////////////
 impl_message_trait!(local, async => MessageSend::send, WithoutRequestTimeout, |req| {
-    #[cfg(debug_assertions)]
     req.warn_deadlock("An actor is sending a `tell` request to itself using a bounded mailbox without a timeout, which may lead to a deadlock. To avoid this, use a timeout or switch to `.try_send()`.");
 
     Ok(req.location
@@ -449,7 +451,6 @@ impl_message_trait!(local, => TryMessageSendSync::try_send_sync, WithoutRequestT
 // === BlockingMessageSend === //
 ////////////////////////////////
 impl_message_trait!(local, => BlockingMessageSend::blocking_send, WithoutRequestTimeout, |req| {
-    #[cfg(debug_assertions)]
     req.warn_deadlock("An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.");
 
     Ok(req.location.mailbox.blocking_send(req.location.signal)?)
