@@ -40,13 +40,12 @@
 //! # });
 //! ```
 
-use std::fmt;
+use std::{fmt, iter::repeat};
 
 use futures::{
     future::{join_all, BoxFuture},
     Future,
 };
-use itertools::repeat_n;
 
 use crate::{
     actor::{Actor, ActorRef},
@@ -329,7 +328,9 @@ where
         join_all(
             self.workers
                 .iter()
-                .zip(repeat_n(msg, self.workers.len())) // Avoids unnecessary clone of msg on last iteration
+                .zip(
+                    repeat(msg).take(self.workers.len()), // Avoids unnecessary clone of msg on last iteration
+                )
                 .map(|(worker, msg)| worker.tell(msg).send()),
         )
         .await
