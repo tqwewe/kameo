@@ -1,7 +1,7 @@
 use core::task;
 use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
-use futures::{ready, Future, FutureExt};
+use futures::{future::BoxFuture, ready, Future, FutureExt};
 use internment::Intern;
 use libp2p::{
     core::transport::ListenerId,
@@ -21,8 +21,6 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
-#[cfg(feature = "tracing")]
-use tracing::trace;
 
 use crate::{
     actor::{ActorID, ActorRef, RemoteActorRef},
@@ -99,7 +97,7 @@ impl ActorSwarm {
             return Ok(swarm);
         }
 
-        let swarm = SwarmBuilder::with_existing_identity(keypair)
+        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
             .with_tokio()
             .with_quic()
             .with_behaviour(|key| {
@@ -130,7 +128,11 @@ impl ActorSwarm {
             let swarm_tx = SwarmSender(cmd_tx);
             tokio::spawn({
                 let swarm_tx = swarm_tx.clone();
-                async move { SwarmActor::new(swarm, swarm_tx, cmd_rx).run().await }
+                async move {
+                    DefaultSwarmBehaviour::new(swarm_tx, cmd_rx)
+                        .run(&mut swarm)
+                        .await
+                }
             });
 
             ActorSwarm {
@@ -138,6 +140,23 @@ impl ActorSwarm {
                 local_peer_id,
             }
         }))
+    }
+
+    /// Bootstraps an empty kameo swarm for manually processing a libp2p swarm.
+    pub fn bootstrap_manual(
+        local_peer_id: PeerId,
+    ) -> Option<(&'static Self, DefaultSwarmBehaviour)> {
+        let local_peer_id = Intern::new(local_peer_id);
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let swarm_tx = SwarmSender(cmd_tx);
+
+        ACTOR_SWARM
+            .try_insert(ActorSwarm {
+                swarm_tx: swarm_tx.clone(),
+                local_peer_id,
+            })
+            .map(|swarm| (swarm, DefaultSwarmBehaviour::new(swarm_tx, cmd_rx)))
+            .ok()
     }
 
     /// Starts listening on the specified multiaddress, allowing other nodes to connect
@@ -345,8 +364,7 @@ impl ActorSwarm {
     }
 }
 
-struct SwarmActor {
-    swarm: Swarm<Behaviour>,
+pub struct DefaultSwarmBehaviour {
     cmd_tx: SwarmSender,
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
     get_queries:
@@ -355,14 +373,9 @@ struct SwarmActor {
     requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResp>>,
 }
 
-impl SwarmActor {
-    fn new(
-        swarm: Swarm<Behaviour>,
-        tx: SwarmSender,
-        rx: mpsc::UnboundedReceiver<SwarmCommand>,
-    ) -> Self {
-        SwarmActor {
-            swarm,
+impl DefaultSwarmBehaviour {
+    fn new(tx: SwarmSender, rx: mpsc::UnboundedReceiver<SwarmCommand>) -> Self {
+        DefaultSwarmBehaviour {
             cmd_tx: tx,
             cmd_rx: rx,
             get_queries: HashMap::new(),
@@ -371,78 +384,87 @@ impl SwarmActor {
         }
     }
 
-    async fn run(&mut self) {
+    async fn run<B: SwarmBehaviour>(&mut self, swarm: &mut Swarm<B>)
+    where
+        SwarmEvent<B::ToSwarm>: IntoActorSwarmEvent,
+    {
         loop {
             tokio::select! {
-                Some(cmd) = self.cmd_rx.recv() => self.handle_command(cmd),
-                Some(event) = self.swarm.next() => self.handle_event(event),
+                Some(cmd) = self.cmd_rx.recv() => self.handle_command(swarm, cmd),
+                Some(event) = swarm.next() => {
+                    if let Some(event) = event.into_actor_swarm_event() {
+                        self.handle_event(swarm, event);
+                    }
+                }
                 else => unreachable!("actor swarm should never stop since its stored globally and will never return None when progressing"),
             }
         }
     }
 
-    fn handle_command(&mut self, cmd: SwarmCommand) {
+    pub async fn next_command(&mut self) -> Option<SwarmCommand> {
+        self.cmd_rx.recv().await
+    }
+
+    pub fn handle_command<B: SwarmBehaviour>(&mut self, swarm: &mut Swarm<B>, cmd: SwarmCommand) {
         match cmd {
             SwarmCommand::ListenOn { addr, reply } => {
-                let res = self.swarm.listen_on(addr);
-                self.swarm
+                let res = swarm.listen_on(addr);
+                swarm
                     .behaviour_mut()
-                    .kademlia
-                    .set_mode(Some(kad::Mode::Server));
+                    .kademlia_set_mode(Some(kad::Mode::Server));
                 let _ = reply.send(res);
             }
             SwarmCommand::Dial { opts, reply } => {
-                let res = self.swarm.dial(opts);
+                let res = swarm.dial(opts);
                 let _ = reply.send(res);
             }
             SwarmCommand::AddPeerAddress { peer_id, addr } => {
-                self.swarm.add_peer_address(peer_id, addr);
+                swarm.add_peer_address(peer_id, addr);
             }
             SwarmCommand::DisconnectPeerId { peer_id } => {
-                let _ = self.swarm.disconnect_peer_id(peer_id);
+                let _ = swarm.disconnect_peer_id(peer_id);
             }
             SwarmCommand::Lookup { key, reply } => {
-                let query_id = self.swarm.behaviour_mut().kademlia.get_record(key);
+                let query_id = swarm.behaviour_mut().kademlia_get_record(key);
                 self.get_queries.insert(query_id, reply);
             }
             SwarmCommand::LookupLocal { key, reply } => {
-                let registration = self
-                    .swarm
+                let registration = swarm
                     .behaviour_mut()
-                    .kademlia
-                    .store_mut()
-                    .get(&key)
+                    .kademlia_get_record_local(&key)
                     .map(|record| ActorRegistration::from_bytes(&record.value).into_owned());
                 let _ = reply.send(registration);
             }
             SwarmCommand::Register { record, reply } => {
-                if self.swarm.network_info().num_peers() == 0 {
+                if swarm.network_info().num_peers() == 0 {
                     let key = record.key.clone();
-                    self.swarm
+                    swarm
                         .behaviour_mut()
-                        .kademlia
-                        .store_mut()
-                        .put(record)
+                        .kademlia_put_record_local(record)
                         .unwrap();
                     let _ = reply.send(Ok(kad::PutRecordOk { key }));
                 } else {
-                    let query_id = self
-                        .swarm
+                    let query_id = swarm
                         .behaviour_mut()
-                        .kademlia
-                        .put_record(record, kad::Quorum::One)
+                        .kademlia_put_record(record, kad::Quorum::One)
                         .unwrap();
                     self.put_queries.insert(query_id, reply);
                 }
             }
-            SwarmCommand::Req {
+            SwarmCommand::Ask {
                 peer_id,
-                req,
+                actor_id,
+                actor_remote_id,
+                message_remote_id,
+                payload,
+                mailbox_timeout,
+                reply_timeout,
+                immediate,
                 reply,
             } => {
-                if self.swarm.network_info().num_peers() == 0 {
-                    match req {
-                        SwarmReq::Ask {
+                if swarm.network_info().num_peers() == 0 {
+                    tokio::spawn(async move {
+                        let result = remote::ask(
                             actor_id,
                             actor_remote_id,
                             message_remote_id,
@@ -450,86 +472,85 @@ impl SwarmActor {
                             mailbox_timeout,
                             reply_timeout,
                             immediate,
-                        } => {
-                            tokio::spawn(async move {
-                                let result = remote::ask(
-                                    actor_id,
-                                    actor_remote_id,
-                                    message_remote_id,
-                                    payload,
-                                    mailbox_timeout,
-                                    reply_timeout,
-                                    immediate,
-                                )
-                                .await;
-                                let _ = reply.send(SwarmResp::Ask(result));
-                            });
-                        }
-                        SwarmReq::Tell {
+                        )
+                        .await;
+                        let _ = reply.send(SwarmResp::Ask(result));
+                    });
+                } else {
+                    let req_id = swarm.behaviour_mut().ask(
+                        &peer_id,
+                        actor_id,
+                        actor_remote_id,
+                        message_remote_id,
+                        payload,
+                        mailbox_timeout,
+                        reply_timeout,
+                        immediate,
+                    );
+                    self.requests.insert(req_id, reply);
+                }
+            }
+            SwarmCommand::Tell {
+                peer_id,
+                actor_id,
+                actor_remote_id,
+                message_remote_id,
+                payload,
+                mailbox_timeout,
+                immediate,
+                reply,
+            } => {
+                if swarm.network_info().num_peers() == 0 {
+                    tokio::spawn(async move {
+                        let result = remote::tell(
                             actor_id,
                             actor_remote_id,
                             message_remote_id,
                             payload,
                             mailbox_timeout,
                             immediate,
-                        } => {
-                            tokio::spawn(async move {
-                                let result = remote::tell(
-                                    actor_id,
-                                    actor_remote_id,
-                                    message_remote_id,
-                                    payload,
-                                    mailbox_timeout,
-                                    immediate,
-                                )
-                                .await;
-                                let _ = reply.send(SwarmResp::Tell(result));
-                            });
-                        }
-                    }
+                        )
+                        .await;
+                        let _ = reply.send(SwarmResp::Tell(result));
+                    });
                 } else {
-                    let req_id = self
-                        .swarm
-                        .behaviour_mut()
-                        .request_response
-                        .send_request(&peer_id, req);
+                    let req_id = swarm.behaviour_mut().tell(
+                        &peer_id,
+                        actor_id,
+                        actor_remote_id,
+                        message_remote_id,
+                        payload,
+                        mailbox_timeout,
+                        immediate,
+                    );
                     self.requests.insert(req_id, reply);
                 }
             }
             SwarmCommand::SendAskResponse { result, channel } => {
-                let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, SwarmResp::Ask(result));
+                let _ = swarm.behaviour_mut().send_ask_response(channel, result);
             }
             SwarmCommand::SendTellResponse { result, channel } => {
-                let _ = self
-                    .swarm
-                    .behaviour_mut()
-                    .request_response
-                    .send_response(channel, SwarmResp::Tell(result));
+                let _ = swarm.behaviour_mut().send_tell_response(channel, result);
             }
         }
     }
 
-    fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
+    pub fn handle_event<B: SwarmBehaviour>(
+        &mut self,
+        swarm: &mut Swarm<B>,
+        event: ActorSwarmEvent,
+    ) {
         match event {
-            #[cfg(feature = "tracing")]
-            SwarmEvent::NewListenAddr { address, .. } => {
-                trace!("listening on {address:?}");
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+            ActorSwarmEvent::Mdns(mdns::Event::Discovered(list)) => {
                 for (peer_id, multiaddr) in list {
-                    self.swarm
+                    swarm
                         .behaviour_mut()
-                        .kademlia
-                        .add_address(&peer_id, multiaddr);
+                        .kademlia_add_address(&peer_id, multiaddr);
                 }
             }
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(
-                kad::Event::OutboundQueryProgressed { id, result, .. },
-            )) => match result {
+            ActorSwarmEvent::Kademlia(kad::Event::OutboundQueryProgressed {
+                id, result, ..
+            }) => match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(
                     record @ kad::PeerRecord {
                         record: kad::Record { .. },
@@ -558,17 +579,15 @@ impl SwarmActor {
                 }
                 _ => {}
             },
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::Message {
-                    peer: _,
-                    message:
-                        request_response::Message::Request {
-                            request_id: _,
-                            request,
-                            channel,
-                        },
-                },
-            )) => match request {
+            ActorSwarmEvent::RequestResponse(request_response::Event::Message {
+                peer: _,
+                message:
+                    request_response::Message::Request {
+                        request_id: _,
+                        request,
+                        channel,
+                    },
+            }) => match request {
                 SwarmReq::Ask {
                     actor_id,
                     actor_remote_id,
@@ -616,25 +635,23 @@ impl SwarmActor {
                     });
                 }
             },
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::Message {
-                    peer: _,
-                    message:
-                        request_response::Message::Response {
-                            request_id,
-                            response,
-                        },
-                },
-            )) => {
+            ActorSwarmEvent::RequestResponse(request_response::Event::Message {
+                peer: _,
+                message:
+                    request_response::Message::Response {
+                        request_id,
+                        response,
+                    },
+            }) => {
                 if let Some(tx) = self.requests.remove(&request_id) {
                     let _ = tx.send(response);
                 }
             }
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
-                request_response::Event::OutboundFailure {
-                    request_id, error, ..
-                },
-            )) => {
+            ActorSwarmEvent::RequestResponse(request_response::Event::OutboundFailure {
+                request_id,
+                error,
+                ..
+            }) => {
                 if let Some(tx) = self.requests.remove(&request_id) {
                     let err = match error {
                         OutboundFailure::DialFailure => RemoteSendError::DialFailure,
@@ -651,6 +668,12 @@ impl SwarmActor {
             _ => {}
         }
     }
+}
+
+pub enum ActorSwarmEvent {
+    Kademlia(kad::Event),
+    RequestResponse(request_response::Event<SwarmReq, SwarmResp, SwarmResp>),
+    Mdns(mdns::Event),
 }
 
 #[derive(Clone, Debug)]
@@ -675,7 +698,7 @@ impl SwarmSender {
     }
 }
 
-pub(crate) enum SwarmCommand {
+pub enum SwarmCommand {
     ListenOn {
         addr: Multiaddr,
         reply: oneshot::Sender<Result<ListenerId, TransportError<io::Error>>>,
@@ -703,9 +726,25 @@ pub(crate) enum SwarmCommand {
         record: kad::Record,
         reply: oneshot::Sender<kad::PutRecordResult>,
     },
-    Req {
+    Ask {
         peer_id: Intern<PeerId>,
-        req: SwarmReq,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
+        payload: Vec<u8>,
+        mailbox_timeout: Option<Duration>,
+        reply_timeout: Option<Duration>,
+        immediate: bool,
+        reply: oneshot::Sender<SwarmResp>,
+    },
+    Tell {
+        peer_id: Intern<PeerId>,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
+        payload: Vec<u8>,
+        mailbox_timeout: Option<Duration>,
+        immediate: bool,
         reply: oneshot::Sender<SwarmResp>,
     },
     SendAskResponse {
@@ -753,7 +792,7 @@ impl<'a> ActorRegistration<'a> {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum SwarmReq {
+pub enum SwarmReq {
     Ask {
         actor_id: ActorID,
         actor_remote_id: Cow<'static, str>,
@@ -774,10 +813,58 @@ pub(crate) enum SwarmReq {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) enum SwarmResp {
+pub enum SwarmResp {
     Ask(Result<Vec<u8>, RemoteSendError<Vec<u8>>>),
     Tell(Result<(), RemoteSendError<Vec<u8>>>),
     OutboundFailure(RemoteSendError<()>),
+}
+
+pub trait SwarmBehaviour: NetworkBehaviour {
+    fn ask(
+        &mut self,
+        peer: &PeerId,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
+        payload: Vec<u8>,
+        mailbox_timeout: Option<Duration>,
+        reply_timeout: Option<Duration>,
+        immediate: bool,
+    ) -> OutboundRequestId;
+    fn tell(
+        &mut self,
+        peer: &PeerId,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
+        payload: Vec<u8>,
+        mailbox_timeout: Option<Duration>,
+        immediate: bool,
+    ) -> OutboundRequestId;
+    fn send_ask_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResp>,
+        result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResp>;
+    fn send_tell_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResp>,
+        result: Result<(), RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResp>;
+    fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate;
+    fn kademlia_set_mode(&mut self, mode: Option<kad::Mode>);
+    fn kademlia_get_record(&mut self, key: kad::RecordKey) -> kad::QueryId;
+    fn kademlia_get_record_local(&mut self, key: &kad::RecordKey) -> Option<Cow<'_, kad::Record>>;
+    fn kademlia_put_record(
+        &mut self,
+        record: kad::Record,
+        quorum: kad::Quorum,
+    ) -> Result<kad::QueryId, kad::store::Error>;
+    fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error>;
+}
+
+pub trait IntoActorSwarmEvent {
+    fn into_actor_swarm_event(self) -> Option<ActorSwarmEvent>;
 }
 
 #[derive(NetworkBehaviour)]
@@ -785,6 +872,119 @@ struct Behaviour {
     kademlia: kad::Behaviour<MemoryStore>,
     request_response: request_response::cbor::Behaviour<SwarmReq, SwarmResp>,
     mdns: mdns::tokio::Behaviour,
+}
+
+impl SwarmBehaviour for Behaviour {
+    fn ask(
+        &mut self,
+        peer: &PeerId,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
+        payload: Vec<u8>,
+        mailbox_timeout: Option<Duration>,
+        reply_timeout: Option<Duration>,
+        immediate: bool,
+    ) -> OutboundRequestId {
+        self.request_response.send_request(
+            peer,
+            SwarmReq::Ask {
+                actor_id,
+                actor_remote_id,
+                message_remote_id,
+                payload,
+                mailbox_timeout,
+                reply_timeout,
+                immediate,
+            },
+        )
+    }
+
+    fn tell(
+        &mut self,
+        peer: &PeerId,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        message_remote_id: Cow<'static, str>,
+        payload: Vec<u8>,
+        mailbox_timeout: Option<Duration>,
+        immediate: bool,
+    ) -> OutboundRequestId {
+        self.request_response.send_request(
+            peer,
+            SwarmReq::Tell {
+                actor_id,
+                actor_remote_id,
+                message_remote_id,
+                payload,
+                mailbox_timeout,
+                immediate,
+            },
+        )
+    }
+
+    fn send_ask_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResp>,
+        result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResp> {
+        self.request_response
+            .send_response(channel, SwarmResp::Ask(result))
+    }
+
+    fn send_tell_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResp>,
+        result: Result<(), RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResp> {
+        self.request_response
+            .send_response(channel, SwarmResp::Tell(result))
+    }
+
+    fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate {
+        self.kademlia.add_address(peer, address)
+    }
+
+    fn kademlia_set_mode(&mut self, mode: Option<kad::Mode>) {
+        self.kademlia.set_mode(mode)
+    }
+
+    fn kademlia_get_record(&mut self, key: kad::RecordKey) -> kad::QueryId {
+        self.kademlia.get_record(key)
+    }
+
+    fn kademlia_get_record_local(&mut self, key: &kad::RecordKey) -> Option<Cow<'_, kad::Record>> {
+        self.kademlia.store_mut().get(key)
+    }
+
+    fn kademlia_put_record(
+        &mut self,
+        record: kad::Record,
+        quorum: kad::Quorum,
+    ) -> Result<kad::QueryId, kad::store::Error> {
+        self.kademlia.put_record(record, quorum)
+    }
+
+    fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error> {
+        self.kademlia.store_mut().put(record)
+    }
+}
+
+impl IntoActorSwarmEvent for SwarmEvent<BehaviourEvent> {
+    fn into_actor_swarm_event(self) -> Option<ActorSwarmEvent> {
+        match self {
+            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
+                Some(ActorSwarmEvent::Kademlia(event))
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(event)) => {
+                Some(ActorSwarmEvent::RequestResponse(event))
+            }
+            SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
+                Some(ActorSwarmEvent::Mdns(event))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// `SwarmFuture` represents a future that contains the response from a remote actor.
