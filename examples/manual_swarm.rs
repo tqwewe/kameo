@@ -4,7 +4,7 @@ use kameo::{
     actor::ActorID,
     error::RemoteSendError,
     remote::{
-        ActorSwarm, ActorSwarmEvent, DefaultSwarmBehaviour, SwarmBehaviour, SwarmReq, SwarmResp,
+        ActorSwarm, ActorSwarmBehaviour, ActorSwarmEvent, SwarmBehaviour, SwarmReq, SwarmResp,
     },
 };
 use libp2p::{
@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn handle_event(
     swarm: &mut Swarm<CustomBehaviour>,
-    actor_behaviour: &mut DefaultSwarmBehaviour,
+    actor_behaviour: &mut ActorSwarmBehaviour,
     event: SwarmEvent<CustomBehaviourEvent>,
 ) {
     match event {

@@ -1,7 +1,7 @@
 use core::task;
 use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
-use futures::{future::BoxFuture, ready, Future, FutureExt};
+use futures::{ready, Future, FutureExt};
 use internment::Intern;
 use libp2p::{
     core::transport::ListenerId,
@@ -129,7 +129,7 @@ impl ActorSwarm {
             tokio::spawn({
                 let swarm_tx = swarm_tx.clone();
                 async move {
-                    DefaultSwarmBehaviour::new(swarm_tx, cmd_rx)
+                    ActorSwarmBehaviour::new(swarm_tx, cmd_rx)
                         .run(&mut swarm)
                         .await
                 }
@@ -143,9 +143,7 @@ impl ActorSwarm {
     }
 
     /// Bootstraps an empty kameo swarm for manually processing a libp2p swarm.
-    pub fn bootstrap_manual(
-        local_peer_id: PeerId,
-    ) -> Option<(&'static Self, DefaultSwarmBehaviour)> {
+    pub fn bootstrap_manual(local_peer_id: PeerId) -> Option<(&'static Self, ActorSwarmBehaviour)> {
         let local_peer_id = Intern::new(local_peer_id);
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let swarm_tx = SwarmSender(cmd_tx);
@@ -155,7 +153,7 @@ impl ActorSwarm {
                 swarm_tx: swarm_tx.clone(),
                 local_peer_id,
             })
-            .map(|swarm| (swarm, DefaultSwarmBehaviour::new(swarm_tx, cmd_rx)))
+            .map(|swarm| (swarm, ActorSwarmBehaviour::new(swarm_tx, cmd_rx)))
             .ok()
     }
 
@@ -364,7 +362,17 @@ impl ActorSwarm {
     }
 }
 
-pub struct DefaultSwarmBehaviour {
+/// A concrete implementation of the `SwarmBehaviour` trait.
+///
+/// `ActorSwarmBehaviour` manages swarm-related operations, including handling
+/// commands, tracking ongoing Kademlia queries, and managing outbound requests.
+/// It facilitates communication with peers, processes incoming and outgoing messages,
+/// and interacts with the Kademlia distributed hash table (DHT) for record management.
+///
+/// This struct serves as the backbone for swarm interactions, ensuring efficient
+/// and organized handling of network behavior within the swarm.
+#[derive(Debug)]
+pub struct ActorSwarmBehaviour {
     cmd_tx: SwarmSender,
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
     get_queries:
@@ -373,9 +381,9 @@ pub struct DefaultSwarmBehaviour {
     requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResp>>,
 }
 
-impl DefaultSwarmBehaviour {
+impl ActorSwarmBehaviour {
     fn new(tx: SwarmSender, rx: mpsc::UnboundedReceiver<SwarmCommand>) -> Self {
-        DefaultSwarmBehaviour {
+        ActorSwarmBehaviour {
             cmd_tx: tx,
             cmd_rx: rx,
             get_queries: HashMap::new(),
@@ -384,16 +392,22 @@ impl DefaultSwarmBehaviour {
         }
     }
 
-    async fn run<B: SwarmBehaviour>(&mut self, swarm: &mut Swarm<B>)
-    where
-        SwarmEvent<B::ToSwarm>: IntoActorSwarmEvent,
-    {
+    async fn run(&mut self, swarm: &mut Swarm<Behaviour>) {
         loop {
             tokio::select! {
                 Some(cmd) = self.cmd_rx.recv() => self.handle_command(swarm, cmd),
                 Some(event) = swarm.next() => {
-                    if let Some(event) = event.into_actor_swarm_event() {
-                        self.handle_event(swarm, event);
+                    match event {
+                        SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
+                            self.handle_event(swarm, ActorSwarmEvent::Kademlia(event));
+                        }
+                        SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(event)) => {
+                            self.handle_event(swarm, ActorSwarmEvent::RequestResponse(event));
+                        }
+                        SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
+                            self.handle_event(swarm, ActorSwarmEvent::Mdns(event));
+                        }
+                        _ => {},
                     }
                 }
                 else => unreachable!("actor swarm should never stop since its stored globally and will never return None when progressing"),
@@ -401,10 +415,14 @@ impl DefaultSwarmBehaviour {
         }
     }
 
+    /// Waits for the next swarm command to be received.
+    ///
+    /// If the channel has been dropped, None is returned.
     pub async fn next_command(&mut self) -> Option<SwarmCommand> {
         self.cmd_rx.recv().await
     }
 
+    /// Handles a swarm command.
     pub fn handle_command<B: SwarmBehaviour>(&mut self, swarm: &mut Swarm<B>, cmd: SwarmCommand) {
         match cmd {
             SwarmCommand::ListenOn { addr, reply } => {
@@ -535,6 +553,9 @@ impl DefaultSwarmBehaviour {
         }
     }
 
+    /// Handles a swarm event.
+    ///
+    /// Mdns, Kademlia, and RequestResponse events should be handled always.
     pub fn handle_event<B: SwarmBehaviour>(
         &mut self,
         swarm: &mut Swarm<B>,
@@ -670,9 +691,14 @@ impl DefaultSwarmBehaviour {
     }
 }
 
+/// A swarm event which should be handled by the [`ActorSwarmBehaviour`].
+#[derive(Debug)]
 pub enum ActorSwarmEvent {
+    /// Kademlia event.
     Kademlia(kad::Event),
+    /// Request response event.
     RequestResponse(request_response::Event<SwarmReq, SwarmResp, SwarmResp>),
+    /// Mdns event.
     Mdns(mdns::Event),
 }
 
@@ -698,66 +724,115 @@ impl SwarmSender {
     }
 }
 
+/// A swarm command.
+#[derive(Debug)]
 pub enum SwarmCommand {
+    /// Listen on a given multiaddr.
     ListenOn {
+        /// Address to listen on.
         addr: Multiaddr,
+        /// Reply sender.
         reply: oneshot::Sender<Result<ListenerId, TransportError<io::Error>>>,
     },
+    /// Dial a peer.
     Dial {
+        /// Dial options.
         opts: DialOpts,
+        /// Reply sender.
         reply: oneshot::Sender<Result<(), DialError>>,
     },
+    /// Add a known peer id and address.
     AddPeerAddress {
+        /// Peer ID.
         peer_id: PeerId,
+        /// Peer address.
         addr: Multiaddr,
     },
+    /// Disconnect a peer by id.
     DisconnectPeerId {
+        /// Peer ID.
         peer_id: PeerId,
     },
+    /// Lookup an actor by name in the kademlia network.
     Lookup {
+        /// Kademlia record key.
         key: kad::RecordKey,
+        /// Reply sender.
         reply: oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>,
     },
+    /// Lookup an actor by name on the local node only.
     LookupLocal {
+        /// Kademlia record key.
         key: kad::RecordKey,
+        /// Reply sender.
         reply: oneshot::Sender<Option<ActorRegistration<'static>>>,
     },
+    /// Register an actor in the kademlia network.
     Register {
+        /// Kademlia record.
         record: kad::Record,
+        /// Reply sender.
         reply: oneshot::Sender<kad::PutRecordResult>,
     },
+    /// An actor ask request.
     Ask {
+        /// Peer ID.
         peer_id: Intern<PeerId>,
+        /// Actor ID.
         actor_id: ActorID,
+        /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
+        /// Message remote ID.
         message_remote_id: Cow<'static, str>,
+        /// Payload.
         payload: Vec<u8>,
+        /// Mailbox timeout.
         mailbox_timeout: Option<Duration>,
+        /// Reply timeout.
         reply_timeout: Option<Duration>,
+        /// Fail if mailbox is full.
         immediate: bool,
+        /// Reply sender.
         reply: oneshot::Sender<SwarmResp>,
     },
+    /// An actor tell request.
     Tell {
+        /// Peer ID.
         peer_id: Intern<PeerId>,
+        /// Actor ID.
         actor_id: ActorID,
+        /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
+        /// Message remote ID.
         message_remote_id: Cow<'static, str>,
+        /// Payload.
         payload: Vec<u8>,
+        /// Mailbox timeout.
         mailbox_timeout: Option<Duration>,
+        /// Fail if mailbox is full.
         immediate: bool,
+        /// Reply sender.
         reply: oneshot::Sender<SwarmResp>,
     },
+    /// Send an ask response.
     SendAskResponse {
+        /// Ask result.
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
+        /// Response channel.
         channel: ResponseChannel<SwarmResp>,
     },
+    /// Send a tell response.
     SendTellResponse {
+        /// Tell result.
         result: Result<(), RemoteSendError<Vec<u8>>>,
+        /// Response channel.
         channel: ResponseChannel<SwarmResp>,
     },
 }
 
-pub(crate) struct ActorRegistration<'a> {
+/// An actor registration record.
+#[derive(Debug)]
+pub struct ActorRegistration<'a> {
     actor_id: ActorID,
     remote_id: Cow<'a, str>,
 }
@@ -791,35 +866,83 @@ impl<'a> ActorRegistration<'a> {
     }
 }
 
+/// Represents different types of requests that can be made within the swarm.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum SwarmReq {
+    /// Represents a request to ask a peer for some data or action.
+    ///
+    /// This variant includes information about the actor, the message, payload, and timeout settings.
     Ask {
+        /// Identifier of the actor initiating the request.
         actor_id: ActorID,
+
+        /// Remote identifier of the actor as a static string.
         actor_remote_id: Cow<'static, str>,
+
+        /// Remote identifier of the message as a static string.
         message_remote_id: Cow<'static, str>,
+
+        /// The payload data to be sent with the request.
         payload: Vec<u8>,
+
+        /// Optional timeout duration for the mailbox to receive the request.
         mailbox_timeout: Option<Duration>,
+
+        /// Optional timeout duration to wait for a reply to the request.
         reply_timeout: Option<Duration>,
+
+        /// Indicates whether the request should be sent immediately.
         immediate: bool,
     },
+
+    /// Represents a request to tell a peer some information without expecting a response.
+    ///
+    /// This variant includes information about the actor, the message, payload, and timeout settings.
     Tell {
+        /// Identifier of the actor initiating the message.
         actor_id: ActorID,
+
+        /// Remote identifier of the actor as a static string.
         actor_remote_id: Cow<'static, str>,
+
+        /// Remote identifier of the message as a static string.
         message_remote_id: Cow<'static, str>,
+
+        /// The payload data to be sent with the message.
         payload: Vec<u8>,
+
+        /// Optional timeout duration for the mailbox to receive the message.
         mailbox_timeout: Option<Duration>,
+
+        /// Indicates whether the message should be sent immediately.
         immediate: bool,
     },
 }
 
+/// Represents different types of responses that can be sent within the swarm.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum SwarmResp {
+    /// Represents the response to an `Ask` request.
+    ///
+    /// Contains either the successful payload data or an error indicating why the send failed.
     Ask(Result<Vec<u8>, RemoteSendError<Vec<u8>>>),
+
+    /// Represents the response to a `Tell` request.
+    ///
+    /// Contains either a successful acknowledgment or an error indicating why the send failed.
     Tell(Result<(), RemoteSendError<Vec<u8>>>),
+
+    /// Represents a failure that occurred while attempting to send an outbound request.
+    ///
+    /// Contains the error that caused the outbound request to fail.
     OutboundFailure(RemoteSendError<()>),
 }
 
+/// Defines the behavior of a swarm, extending the capabilities of `NetworkBehaviour`.
 pub trait SwarmBehaviour: NetworkBehaviour {
+    /// Initiates a request to a specified peer with the given actor and message identifiers.
+    ///
+    /// This method sends a payload to a peer and optionally waits for a reply within specified timeouts.
     fn ask(
         &mut self,
         peer: &PeerId,
@@ -831,6 +954,10 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         reply_timeout: Option<Duration>,
         immediate: bool,
     ) -> OutboundRequestId;
+
+    /// Sends a message to a specified peer without expecting a response.
+    ///
+    /// This method is used for fire-and-forget communication with a peer.
     fn tell(
         &mut self,
         peer: &PeerId,
@@ -841,30 +968,58 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         mailbox_timeout: Option<Duration>,
         immediate: bool,
     ) -> OutboundRequestId;
+
+    /// Sends a response to a previously received `ask` request.
+    ///
+    /// This method handles the result of processing an `ask` request and sends back the appropriate response.
     fn send_ask_response(
         &mut self,
         channel: ResponseChannel<SwarmResp>,
         result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
     ) -> Result<(), SwarmResp>;
+
+    /// Sends a response to a previously received `tell` request.
+    ///
+    /// This method handles the result of processing a `tell` request and sends back an acknowledgment.
     fn send_tell_response(
         &mut self,
         channel: ResponseChannel<SwarmResp>,
         result: Result<(), RemoteSendError<Vec<u8>>>,
     ) -> Result<(), SwarmResp>;
+
+    /// Adds a network address for a peer to the Kademlia routing table.
+    ///
+    /// This method updates the routing information for a peer by adding a new address.
     fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate;
+
+    /// Sets the operational mode for the Kademlia protocol.
+    ///
+    /// This method configures the Kademlia behavior, allowing it to switch between different modes of operation.
     fn kademlia_set_mode(&mut self, mode: Option<kad::Mode>);
+
+    /// Retrieves a record from the Kademlia network using the specified key.
+    ///
+    /// This method initiates a query to fetch a record associated with the given key from the network.
     fn kademlia_get_record(&mut self, key: kad::RecordKey) -> kad::QueryId;
+
+    /// Retrieves a local record from the Kademlia store using the specified key.
+    ///
+    /// This method accesses the local storage to obtain a record without querying the network.
     fn kademlia_get_record_local(&mut self, key: &kad::RecordKey) -> Option<Cow<'_, kad::Record>>;
+
+    /// Stores a record in the Kademlia network with the specified quorum requirement.
+    ///
+    /// This method adds a new record to the network, ensuring that it meets the required quorum for replication.
     fn kademlia_put_record(
         &mut self,
         record: kad::Record,
         quorum: kad::Quorum,
     ) -> Result<kad::QueryId, kad::store::Error>;
-    fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error>;
-}
 
-pub trait IntoActorSwarmEvent {
-    fn into_actor_swarm_event(self) -> Option<ActorSwarmEvent>;
+    /// Stores a record locally in the Kademlia store without replicating it across the network.
+    ///
+    /// This method adds a new record to the local storage, bypassing network-wide replication.
+    fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error>;
 }
 
 #[derive(NetworkBehaviour)]
@@ -967,23 +1122,6 @@ impl SwarmBehaviour for Behaviour {
 
     fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error> {
         self.kademlia.store_mut().put(record)
-    }
-}
-
-impl IntoActorSwarmEvent for SwarmEvent<BehaviourEvent> {
-    fn into_actor_swarm_event(self) -> Option<ActorSwarmEvent> {
-        match self {
-            SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
-                Some(ActorSwarmEvent::Kademlia(event))
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(event)) => {
-                Some(ActorSwarmEvent::RequestResponse(event))
-            }
-            SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
-                Some(ActorSwarmEvent::Mdns(event))
-            }
-            _ => None,
-        }
     }
 }
 
