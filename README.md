@@ -8,7 +8,6 @@
 [![Crates.io Total Downloads](https://img.shields.io/crates/d/kameo)](https://crates.io/crates/kameo)
 [![Crates.io License](https://img.shields.io/crates/l/kameo)](https://crates.io/crates/kameo)
 [![GitHub Contributors](https://img.shields.io/github/contributors-anon/tqwewe/kameo)](https://github.com/tqwewe/kameo/graphs/contributors)
-[![GitHub Stars](https://img.shields.io/github/stars/tqwewe/kameo)](https://github.com/tqwewe/kameo/stargazers)
 
 [![Kameo banner image](https://github.com/tqwewe/kameo/blob/main/docs/banner.png?raw=true)](https://github.com/tqwewe/kameo)
 
