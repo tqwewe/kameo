@@ -226,8 +226,12 @@ impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {
 
 /// An error that can occur when bootstrapping the actor swarm.
 #[cfg(feature = "remote")]
-#[derive(Debug)]
 pub enum BootstrapError {
+    /// Swarm already bootstrapped.
+    AlreadyBootstrapped(
+        &'static crate::remote::ActorSwarm,
+        Option<libp2p::Swarm<crate::remote::ActorBehaviour>>,
+    ),
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
     /// An error during listening on a Transport.
@@ -242,11 +246,22 @@ impl From<libp2p::TransportError<std::io::Error>> for BootstrapError {
 }
 
 #[cfg(feature = "remote")]
+impl fmt::Debug for BootstrapError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BootstrapError::AlreadyBootstrapped(swarm, _) => swarm.fmt(f),
+            BootstrapError::BehaviourError(err) => err.fmt(f),
+            BootstrapError::Transport(err) => err.fmt(f),
+        }
+    }
+}
+
+#[cfg(feature = "remote")]
 impl fmt::Display for BootstrapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            BootstrapError::AlreadyBootstrapped(_, _) => write!(f, "swarm already bootstrapped"),
             BootstrapError::BehaviourError(err) => err.fmt(f),
-            #[cfg(feature = "remote")]
             BootstrapError::Transport(err) => err.fmt(f),
         }
     }

@@ -4,8 +4,7 @@ use kameo::{
     actor::ActorID,
     error::RemoteSendError,
     remote::{
-        ActorSwarm, ActorSwarmBehaviour, ActorSwarmEvent, SwarmBehaviour, SwarmRequest,
-        SwarmResponse,
+        ActorSwarm, ActorSwarmEvent, ActorSwarmHandler, SwarmBehaviour, SwarmRequest, SwarmResponse,
     },
 };
 use libp2p::{
@@ -55,16 +54,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
-    let (actor_swarm, mut actor_behaviour) =
+    let (actor_swarm, mut swarm_handler) =
         ActorSwarm::bootstrap_manual(swarm.local_peer_id().clone()).unwrap();
 
     actor_swarm.listen_on(format!("/ip4/0.0.0.0/udp/{port}/quic-v1").parse()?);
 
     loop {
         tokio::select! {
-            Some(cmd) = actor_behaviour.next_command() => actor_behaviour.handle_command(&mut swarm, cmd),
+            Some(cmd) = swarm_handler.next_command() => swarm_handler.handle_command(&mut swarm, cmd),
             Some(event) = swarm.next() => {
-                handle_event(&mut swarm, &mut actor_behaviour, event);
+                handle_event(&mut swarm, &mut swarm_handler, event);
             }
         }
     }
@@ -72,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn handle_event(
     swarm: &mut Swarm<CustomBehaviour>,
-    actor_behaviour: &mut ActorSwarmBehaviour,
+    swarm_handler: &mut ActorSwarmHandler,
     event: SwarmEvent<CustomBehaviourEvent>,
 ) {
     match event {
@@ -85,13 +84,13 @@ fn handle_event(
         }
         SwarmEvent::Behaviour(event) => match event {
             CustomBehaviourEvent::Kademlia(event) => {
-                actor_behaviour.handle_event(swarm, ActorSwarmEvent::Kademlia(event))
+                swarm_handler.handle_event(swarm, ActorSwarmEvent::Kademlia(event))
             }
             CustomBehaviourEvent::ActorRequestResponse(event) => {
-                actor_behaviour.handle_event(swarm, ActorSwarmEvent::RequestResponse(event))
+                swarm_handler.handle_event(swarm, ActorSwarmEvent::RequestResponse(event))
             }
             CustomBehaviourEvent::Mdns(event) => {
-                actor_behaviour.handle_event(swarm, ActorSwarmEvent::Mdns(event))
+                swarm_handler.handle_event(swarm, ActorSwarmEvent::Mdns(event))
             }
             CustomBehaviourEvent::CustomRequestResponse(request_response::Event::Message {
                 message,

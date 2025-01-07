@@ -3,9 +3,7 @@ use std::{future::IntoFuture, marker::PhantomData, time::Duration};
 use tokio::{sync::oneshot, time::timeout};
 
 #[cfg(feature = "remote")]
-use crate::remote::{
-    ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmRequest, SwarmResponse,
-};
+use crate::remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmResponse};
 
 use crate::{
     actor,

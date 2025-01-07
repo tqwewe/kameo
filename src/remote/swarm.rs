@@ -93,57 +93,83 @@ impl ActorSwarm {
     /// ## Returns
     /// A reference to the initialized `ActorSwarm` if successful, or an error if the bootstrap fails.
     pub fn bootstrap_with_identity(keypair: Keypair) -> Result<&'static Self, BootstrapError> {
-        if let Some(swarm) = ACTOR_SWARM.get() {
-            return Ok(swarm);
-        }
-
-        let mut swarm = SwarmBuilder::with_existing_identity(keypair)
-            .with_tokio()
-            .with_quic()
-            .with_behaviour(|key| {
-                let kademlia = kad::Behaviour::new(
-                    key.public().to_peer_id(),
-                    MemoryStore::new(key.public().to_peer_id()),
-                );
-                Ok(Behaviour {
-                    kademlia,
-                    mdns: mdns::tokio::Behaviour::new(
-                        mdns::Config::default(),
-                        key.public().to_peer_id(),
-                    )?,
-                    request_response: request_response::cbor::Behaviour::new(
-                        [(StreamProtocol::new("/kameo/1"), ProtocolSupport::Full)],
-                        request_response::Config::default(),
-                    ),
-                })
-            })
-            .map_err(|err| BootstrapError::BehaviourError(Box::new(err)))?
-            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-            .build();
-
-        Ok(ACTOR_SWARM.get_or_init(move || {
-            let local_peer_id = Intern::new(*swarm.local_peer_id());
-
-            let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
-            let swarm_tx = SwarmSender(cmd_tx);
-            tokio::spawn({
-                let swarm_tx = swarm_tx.clone();
-                async move {
-                    ActorSwarmBehaviour::new(swarm_tx, cmd_rx)
-                        .run(&mut swarm)
-                        .await
-                }
-            });
-
-            ActorSwarm {
-                swarm_tx,
-                local_peer_id,
-            }
-        }))
+        let behaviour = ActorBehaviour::new(&keypair)
+            .map_err(|err| BootstrapError::BehaviourError(Box::new(err)))?;
+        ActorSwarm::bootstrap_with_behaviour(keypair, behaviour)
     }
 
-    /// Bootstraps an empty kameo swarm for manually processing a libp2p swarm.
-    pub fn bootstrap_manual(local_peer_id: PeerId) -> Option<(&'static Self, ActorSwarmBehaviour)> {
+    /// Bootstraps the remote actor system with a behaviour struct.
+    ///
+    /// This method allows more fine grained control over the mdns, kademlia, and request response configs.
+    ///
+    /// ## Parameters
+    /// - `keypair`: The cryptographic keypair used to establish the identity of the node.
+    /// - `behaviour`: The behaviour instance.
+    ///
+    /// ## Returns
+    /// A reference to the initialized `ActorSwarm` if successful, or an error if the bootstrap fails.
+    pub fn bootstrap_with_behaviour(
+        keypair: Keypair,
+        behaviour: ActorBehaviour,
+    ) -> Result<&'static Self, BootstrapError> {
+        if let Some(swarm) = ACTOR_SWARM.get() {
+            return Err(BootstrapError::AlreadyBootstrapped(swarm, None));
+        }
+
+        ActorSwarm::bootstrap_with_swarm(
+            SwarmBuilder::with_existing_identity(keypair)
+                .with_tokio()
+                .with_quic()
+                .with_behaviour(|_| Ok(behaviour))
+                .map_err(|err| BootstrapError::BehaviourError(Box::new(err)))?
+                .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+                .build(),
+        )
+    }
+
+    /// Bootstraps the remote actor system with a libp2p swarm.
+    ///
+    /// This method allows more fine grained control over the swarm, including swarm behaviour configs.
+    ///
+    /// ## Parameters
+    /// - `swarm`: The libp2p swarm.
+    ///
+    /// ## Returns
+    /// A reference to the initialized `ActorSwarm` if successful, or an error if the bootstrap fails.
+    pub fn bootstrap_with_swarm(
+        mut swarm: Swarm<ActorBehaviour>,
+    ) -> Result<&'static Self, BootstrapError> {
+        let local_peer_id = Intern::new(swarm.local_peer_id().clone());
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let swarm_tx = SwarmSender(cmd_tx);
+
+        match ACTOR_SWARM.try_insert(ActorSwarm {
+            swarm_tx: swarm_tx.clone(),
+            local_peer_id,
+        }) {
+            Ok(actor_swarm) => {
+                tokio::spawn({
+                    async move {
+                        ActorSwarmHandler::new(swarm_tx, cmd_rx)
+                            .run(&mut swarm)
+                            .await
+                    }
+                });
+
+                Ok(actor_swarm)
+            }
+            Err((actor_swarm, _)) => Err(BootstrapError::AlreadyBootstrapped(
+                actor_swarm,
+                Some(swarm),
+            )),
+        }
+    }
+
+    /// Bootstraps a blank swarm for completely manual processing a libp2p swarm.
+    ///
+    /// This is for advanced cases and provides full control, returning an `ActorSwarmBehaviour` instance which
+    /// should be used to process the swarm manually.
+    pub fn bootstrap_manual(local_peer_id: PeerId) -> Option<(&'static Self, ActorSwarmHandler)> {
         let local_peer_id = Intern::new(local_peer_id);
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let swarm_tx = SwarmSender(cmd_tx);
@@ -153,7 +179,7 @@ impl ActorSwarm {
                 swarm_tx: swarm_tx.clone(),
                 local_peer_id,
             })
-            .map(|swarm| (swarm, ActorSwarmBehaviour::new(swarm_tx, cmd_rx)))
+            .map(|swarm| (swarm, ActorSwarmHandler::new(swarm_tx, cmd_rx)))
             .ok()
     }
 
@@ -364,7 +390,7 @@ impl ActorSwarm {
 
 /// A concrete implementation of the `SwarmBehaviour` trait.
 ///
-/// `ActorSwarmBehaviour` manages swarm-related operations, including handling
+/// `ActorSwarmHandler` manages swarm-related operations, including handling
 /// commands, tracking ongoing Kademlia queries, and managing outbound requests.
 /// It facilitates communication with peers, processes incoming and outgoing messages,
 /// and interacts with the Kademlia distributed hash table (DHT) for record management.
@@ -372,7 +398,7 @@ impl ActorSwarm {
 /// This struct serves as the backbone for swarm interactions, ensuring efficient
 /// and organized handling of network behavior within the swarm.
 #[derive(Debug)]
-pub struct ActorSwarmBehaviour {
+pub struct ActorSwarmHandler {
     cmd_tx: SwarmSender,
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
     get_queries:
@@ -381,9 +407,9 @@ pub struct ActorSwarmBehaviour {
     requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResponse>>,
 }
 
-impl ActorSwarmBehaviour {
+impl ActorSwarmHandler {
     fn new(tx: SwarmSender, rx: mpsc::UnboundedReceiver<SwarmCommand>) -> Self {
-        ActorSwarmBehaviour {
+        ActorSwarmHandler {
             cmd_tx: tx,
             cmd_rx: rx,
             get_queries: HashMap::new(),
@@ -392,19 +418,19 @@ impl ActorSwarmBehaviour {
         }
     }
 
-    async fn run(&mut self, swarm: &mut Swarm<Behaviour>) {
+    async fn run(&mut self, swarm: &mut Swarm<ActorBehaviour>) {
         loop {
             tokio::select! {
                 Some(cmd) = self.cmd_rx.recv() => self.handle_command(swarm, cmd),
                 Some(event) = swarm.next() => {
                     match event {
-                        SwarmEvent::Behaviour(BehaviourEvent::Kademlia(event)) => {
+                        SwarmEvent::Behaviour(ActorBehaviourEvent::Kademlia(event)) => {
                             self.handle_event(swarm, ActorSwarmEvent::Kademlia(event));
                         }
-                        SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(event)) => {
+                        SwarmEvent::Behaviour(ActorBehaviourEvent::RequestResponse(event)) => {
                             self.handle_event(swarm, ActorSwarmEvent::RequestResponse(event));
                         }
-                        SwarmEvent::Behaviour(BehaviourEvent::Mdns(event)) => {
+                        SwarmEvent::Behaviour(ActorBehaviourEvent::Mdns(event)) => {
                             self.handle_event(swarm, ActorSwarmEvent::Mdns(event));
                         }
                         _ => {},
@@ -1022,14 +1048,48 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error>;
 }
 
-#[derive(NetworkBehaviour)]
-struct Behaviour {
-    kademlia: kad::Behaviour<MemoryStore>,
-    request_response: request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>,
-    mdns: mdns::tokio::Behaviour,
+#[allow(missing_docs)]
+mod behaviour {
+    use super::*;
+
+    /// Network behaviour for the actor swarm.
+    ///
+    /// Uses kademlia for actor registration, request response for messaging, and mdns for discovery.
+    #[allow(missing_debug_implementations)]
+    #[derive(NetworkBehaviour)]
+    pub struct ActorBehaviour {
+        /// Kademlia network for actor registration.
+        pub kademlia: kad::Behaviour<MemoryStore>,
+        /// Request response for actor messaging.
+        pub request_response: request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>,
+        /// Mdns for discovery.
+        pub mdns: mdns::tokio::Behaviour,
+    }
 }
 
-impl SwarmBehaviour for Behaviour {
+pub use behaviour::*;
+
+impl ActorBehaviour {
+    /// Creates a new default actor behaviour with a keypair.
+    pub fn new(keypair: &Keypair) -> io::Result<Self> {
+        Ok(ActorBehaviour {
+            kademlia: kad::Behaviour::new(
+                keypair.public().to_peer_id(),
+                MemoryStore::new(keypair.public().to_peer_id()),
+            ),
+            mdns: mdns::tokio::Behaviour::new(
+                mdns::Config::default(),
+                keypair.public().to_peer_id(),
+            )?,
+            request_response: request_response::cbor::Behaviour::new(
+                [(StreamProtocol::new("/kameo/1"), ProtocolSupport::Full)],
+                request_response::Config::default(),
+            ),
+        })
+    }
+}
+
+impl SwarmBehaviour for ActorBehaviour {
     fn ask(
         &mut self,
         peer: &PeerId,
