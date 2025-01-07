@@ -99,7 +99,7 @@ impl<'a, A, M, Tm, Tr> AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox
 where
     A: Actor,
 {
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "tracing"))]
     fn warn_deadlock(&self, msg: &'static str) {
         use tracing::warn;
 
@@ -112,6 +112,8 @@ where
             _ => {}
         }
     }
+    #[cfg(not(all(debug_assertions, feature = "tracing")))]
+    fn warn_deadlock(&self, _msg: &'static str) {}
 }
 
 #[cfg(feature = "remote")]
@@ -258,7 +260,6 @@ macro_rules! impl_message_trait {
 
             #[inline]
             $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
-                #[cfg(debug_assertions)]
                 self.warn_deadlock("An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.");
 
                 let $req = self;

@@ -16,5 +16,6 @@ pub mod reply;
 pub mod request;
 
 pub use actor::{spawn, Actor};
+#[cfg(feature = "macros")]
 pub use kameo_macros::{messages, remote_message, Actor, RemoteActor, Reply};
 pub use reply::Reply;

@@ -21,6 +21,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
+#[cfg(feature = "tracing")]
 use tracing::trace;
 
 use crate::{
@@ -514,6 +515,7 @@ impl SwarmActor {
 
     fn handle_event(&mut self, event: SwarmEvent<BehaviourEvent>) {
         match event {
+            #[cfg(feature = "tracing")]
             SwarmEvent::NewListenAddr { address, .. } => {
                 trace!("listening on {address:?}");
             }
