@@ -162,7 +162,10 @@ If you find Kameo useful and would like to support its development, please consi
 
 ### Special Thanks to Our Sponsors
 
-A huge thank you to [**Caido Community**](https://github.com/caido-community) for supporting Kameo's development! 💖
+A huge thank you to [**Huly Labs**] and [**Caido Community**] for supporting Kameo's development! 💖
+
+[**Huly Labs**]: https://huly.io/
+[**Caido Community**]: https://github.com/caido-community
 
 ## License
 
