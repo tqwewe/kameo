@@ -519,7 +519,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
-        error::SendError,
+        error::{Infallible, SendError},
         mailbox::{
             bounded::{BoundedMailbox, BoundedMailboxReceiver},
             unbounded::UnboundedMailbox,
@@ -538,6 +538,7 @@ mod tests {
 
         impl Actor for MyActor {
             type Mailbox = BoundedMailbox<Self>;
+            type Error = Infallible;
         }
 
         struct Msg;
@@ -575,6 +576,7 @@ mod tests {
 
         impl Actor for MyActor {
             type Mailbox = UnboundedMailbox<Self>;
+            type Error = Infallible;
         }
 
         struct Msg;
@@ -609,6 +611,7 @@ mod tests {
 
         impl Actor for MyActor {
             type Mailbox = BoundedMailbox<Self>;
+            type Error = Infallible;
         }
 
         #[derive(Clone, Copy, PartialEq, Eq)]
@@ -663,6 +666,7 @@ mod tests {
 
         impl Actor for MyActor {
             type Mailbox = UnboundedMailbox<Self>;
+            type Error = Infallible;
         }
 
         #[derive(Clone, Copy, PartialEq, Eq)]
@@ -721,6 +725,7 @@ mod tests {
 
         impl Actor for MyActor {
             type Mailbox = BoundedMailbox<Self>;
+            type Error = Infallible;
 
             fn new_mailbox() -> (BoundedMailbox<Self>, BoundedMailboxReceiver<Self>) {
                 BoundedMailbox::new(1)
@@ -775,6 +780,7 @@ mod tests {
 
         impl Actor for MyActor {
             type Mailbox = BoundedMailbox<Self>;
+            type Error = Infallible;
 
             fn new_mailbox() -> (BoundedMailbox<Self>, BoundedMailboxReceiver<Self>) {
                 BoundedMailbox::new(1)

@@ -177,7 +177,7 @@ where
     /// use std::time::Duration;
     ///
     /// use kameo::actor::{Actor, ActorRef};
-    /// use kameo::error::BoxError;
+    /// use kameo::error::Infallible;
     /// use kameo::mailbox::unbounded::UnboundedMailbox;
     /// use tokio::time::sleep;
     ///
@@ -185,8 +185,9 @@ where
     ///
     /// impl Actor for MyActor {
     ///     type Mailbox = UnboundedMailbox<Self>;
+    ///     type Error = Infallible;
     ///
-    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Infallible> {
     ///         sleep(Duration::from_secs(2)).await; // Some io operation
     ///         Ok(())
     ///     }

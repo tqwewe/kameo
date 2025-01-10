@@ -3,7 +3,7 @@ use std::{future::pending, time};
 use futures::stream;
 use kameo::{
     actor::ActorRef,
-    error::BoxError,
+    error::Infallible,
     mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message, StreamMessage},
     Actor,
@@ -19,8 +19,9 @@ pub struct MyActor {
 
 impl Actor for MyActor {
     type Mailbox = UnboundedMailbox<Self>;
+    type Error = Infallible;
 
-    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         let stream = Box::pin(
             stream::repeat(1)
                 .take(5)
