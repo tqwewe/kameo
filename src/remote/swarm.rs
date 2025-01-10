@@ -139,7 +139,7 @@ impl ActorSwarm {
     pub fn bootstrap_with_swarm(
         mut swarm: Swarm<ActorSwarmBehaviour>,
     ) -> Result<&'static Self, BootstrapError> {
-        let local_peer_id = Intern::new(swarm.local_peer_id().clone());
+        let local_peer_id = Intern::new(*swarm.local_peer_id());
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let swarm_tx = SwarmSender(cmd_tx);
 
@@ -960,6 +960,7 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     /// Initiates a request to a specified peer with the given actor and message identifiers.
     ///
     /// This method sends a payload to a peer and optionally waits for a reply within specified timeouts.
+    #[allow(clippy::too_many_arguments)]
     fn ask(
         &mut self,
         peer: &PeerId,
@@ -975,6 +976,7 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     /// Sends a message to a specified peer without expecting a response.
     ///
     /// This method is used for fire-and-forget communication with a peer.
+    #[allow(clippy::too_many_arguments)]
     fn tell(
         &mut self,
         peer: &PeerId,
