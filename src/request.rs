@@ -138,6 +138,7 @@ pub trait TryBlockingMessageSend {
 /// Trait representing the ability to send a message with the reply being sent back to a channel.
 pub trait ForwardMessageSend<R: Reply, M> {
     /// Sends a message with the reply being sent back to a channel.
+    #[allow(clippy::type_complexity)]
     fn forward(
         self,
         tx: ReplySender<R::Value>,

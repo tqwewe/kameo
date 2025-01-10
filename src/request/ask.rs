@@ -95,7 +95,7 @@ where
     }
 }
 
-impl<'a, A, M, Tm, Tr> AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
+impl<A, M, Tm, Tr> AskRequest<LocalAskRequest<'_, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
 where
     A: Actor,
 {

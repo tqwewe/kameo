@@ -84,7 +84,7 @@ where
     }
 }
 
-impl<'a, A, M, T> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>
+impl<A, M, T> TellRequest<LocalTellRequest<'_, A, A::Mailbox>, A::Mailbox, M, T>
 where
     A: Actor,
 {

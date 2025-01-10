@@ -155,7 +155,6 @@ where
 ///
 /// The `ReplySender` provides a clear and straightforward interface for completing the message handling cycle,
 /// facilitating efficient and organized communication within the system.
-
 #[must_use = "the receiver expects a reply to be sent"]
 pub struct ReplySender<R: ?Sized> {
     tx: BoxReplySender,
