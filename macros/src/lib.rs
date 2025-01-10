@@ -89,7 +89,7 @@ pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///  - `bounded` (default capacity of 1000)
 ///  - `bounded(64)` (custom capacity of 64)
 ///  - `unbounded`
-
+///
 ///
 /// # Example
 ///

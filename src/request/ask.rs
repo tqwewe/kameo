@@ -95,7 +95,7 @@ where
     }
 }
 
-impl<'a, A, M, Tm, Tr> AskRequest<LocalAskRequest<'a, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
+impl<A, M, Tm, Tr> AskRequest<LocalAskRequest<'_, A, A::Mailbox>, A::Mailbox, M, Tm, Tr>
 where
     A: Actor,
 {
@@ -103,13 +103,10 @@ where
     fn warn_deadlock(&self, msg: &'static str) {
         use tracing::warn;
 
-        match &self.location.signal {
-            Signal::Message { actor_ref, .. } => {
-                if actor_ref.is_current() {
-                    warn!("At {}, {msg}", self.called_at);
-                }
+        if let Signal::Message { actor_ref, .. } = &self.location.signal {
+            if actor_ref.is_current() {
+                warn!("At {}, {msg}", self.called_at);
             }
-            _ => {}
         }
     }
     #[cfg(not(all(debug_assertions, feature = "tracing")))]
@@ -961,7 +958,7 @@ where
         peer_id: actor_id
             .peer_id_intern()
             .cloned()
-            .unwrap_or_else(|| ActorSwarm::get().unwrap().local_peer_id_intern().clone()),
+            .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id_intern()),
         req: SwarmReq::Ask {
             actor_id,
             actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
@@ -1032,24 +1029,22 @@ mod tests {
 
         let actor_ref = spawn(MyActor);
 
-        assert_eq!(actor_ref.ask(Msg).await?, true); // Should be a regular MessageSend request
-        assert_eq!(actor_ref.ask(Msg).send().await?, true);
-        assert_eq!(actor_ref.ask(Msg).try_send().await?, true);
-        assert_eq!(
+        assert!(actor_ref.ask(Msg).await?); // Should be a regular MessageSend request
+        assert!(actor_ref.ask(Msg).send().await?);
+        assert!(actor_ref.ask(Msg).try_send().await?);
+        assert!(
             tokio::task::spawn_blocking({
                 let actor_ref = actor_ref.clone();
                 move || actor_ref.ask(Msg).blocking_send()
             })
-            .await??,
-            true
+            .await??
         );
-        assert_eq!(
+        assert!(
             tokio::task::spawn_blocking({
                 let actor_ref = actor_ref.clone();
                 move || actor_ref.ask(Msg).try_blocking_send()
             })
-            .await??,
-            true
+            .await??
         );
 
         Ok(())
@@ -1079,24 +1074,22 @@ mod tests {
 
         let actor_ref = spawn(MyActor);
 
-        assert_eq!(actor_ref.ask(Msg).await?, true); // Should be a regular MessageSend request
-        assert_eq!(actor_ref.ask(Msg).send().await?, true);
-        assert_eq!(actor_ref.ask(Msg).try_send().await?, true);
-        assert_eq!(
+        assert!(actor_ref.ask(Msg).await?); // Should be a regular MessageSend request
+        assert!(actor_ref.ask(Msg).send().await?);
+        assert!(actor_ref.ask(Msg).try_send().await?);
+        assert!(
             tokio::task::spawn_blocking({
                 let actor_ref = actor_ref.clone();
                 move || actor_ref.ask(Msg).blocking_send()
             })
-            .await??,
-            true
+            .await??
         );
-        assert_eq!(
+        assert!(
             tokio::task::spawn_blocking({
                 let actor_ref = actor_ref.clone();
                 move || actor_ref.ask(Msg).try_blocking_send()
             })
-            .await??,
-            true
+            .await??
         );
 
         Ok(())

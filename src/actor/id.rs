@@ -40,7 +40,7 @@ impl ActorID {
         ActorID {
             sequence_id,
             #[cfg(feature = "remote")]
-            peer_id: ActorSwarm::get().map(|swarm| swarm.local_peer_id_intern().clone()),
+            peer_id: ActorSwarm::get().map(|swarm| *swarm.local_peer_id_intern()),
         }
     }
 

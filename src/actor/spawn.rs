@@ -273,6 +273,12 @@ impl<A: Actor> PreparedActor<A> {
     }
 }
 
+impl<A: Actor> Default for PreparedActor<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[inline]
 async fn run_actor_lifecycle<A, S>(
     mut actor: A,

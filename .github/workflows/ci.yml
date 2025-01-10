@@ -6,6 +6,7 @@ on:
 
 env: 
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
 
 jobs:
   build_and_test:
@@ -26,3 +27,4 @@ jobs:
       - run: cargo build --no-default-features --features remote --verbose
       - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --verbose
       - run: cargo test --features remote --verbose
+      - run: cargo clippy --features remote

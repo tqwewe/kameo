@@ -10,13 +10,13 @@
 //! It is implemented for a variety of common types, facilitating easy adoption and use.
 //! Special attention is given to the `Result` and [`DelegatedReply`] types:
 //! - Implementations for `Result` allow errors returned by actor handlers to be communicated back as
-//! [`SendError::HandlerError`], integrating closely with Rust’s error handling patterns.
+//!   [`SendError::HandlerError`], integrating closely with Rust’s error handling patterns.
 //! - The `DelegatedReply` type signifies that the actual reply will be managed by another part of the system,
-//! supporting asynchronous and decoupled communication workflows.
+//!   supporting asynchronous and decoupled communication workflows.
 //! - Importantly, when messages are sent asynchronously with [`tell`](crate::actor::ActorRef::tell) and an error is returned by the actor
-//! without a direct means for the caller to handle it (due to the absence of a reply expectation), the error is treated
-//! as a panic within the actor. This behavior will trigger the actor's [`on_panic`](crate::actor::Actor::on_panic) hook, which may result in the actor
-//! being restarted or stopped based on the [Actor](crate::Actor) implementation (which stops the actor by default).
+//!   without a direct means for the caller to handle it (due to the absence of a reply expectation), the error is treated
+//!   as a panic within the actor. This behavior will trigger the actor's [`on_panic`](crate::actor::Actor::on_panic) hook, which may result in the actor
+//!   being restarted or stopped based on the [Actor](crate::Actor) implementation (which stops the actor by default).
 //!
 //! The `Reply` trait, by encompassing a broad range of types and defining specific behaviors for error handling,
 //! ensures that actors can manage their communication responsibilities efficiently and effectively.
@@ -155,7 +155,6 @@ where
 ///
 /// The `ReplySender` provides a clear and straightforward interface for completing the message handling cycle,
 /// facilitating efficient and organized communication within the system.
-
 #[must_use = "the receiver expects a reply to be sent"]
 pub struct ReplySender<R: ?Sized> {
     tx: BoxReplySender,

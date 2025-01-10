@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 
 use crate::{
     error::{self, SendError},
-    mailbox::{Mailbox, SignalMailbox, WeakMailbox},
+    mailbox::{bounded::BoundedMailbox, Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
     reply::Reply,
     request::{
@@ -597,6 +597,7 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    #[allow(clippy::type_complexity)]
     pub fn attach_stream<M, S, T, F>(
         &self,
         mut stream: S,
@@ -659,6 +660,35 @@ where
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
         Box::new(self.mailbox.downgrade())
+    }
+}
+
+impl<A> ActorRef<A>
+where
+    A: Actor<Mailbox = BoundedMailbox<A>>,
+{
+    /// Returns the current capacity of the mailbox.
+    ///
+    /// The capacity goes down when sending a message to the actor.
+    /// The capacity goes up when messages are handled by the actor.
+    /// This is distinct from [`max_capacity`], which always returns mailbox capacity initially specified when spawning the actor.
+    ///
+    /// [`max_capacity`]: ActorRef::max_capacity
+    pub fn capacity(&self) -> usize {
+        self.mailbox.0.capacity()
+    }
+
+    /// Returns the maximum buffer capacity of the mailbox.
+    ///
+    /// The maximum capacity is the buffer capacity initially specified when spawning the actor.
+    /// This is distinct from [`capacity`], which returns the current available buffer capacity:
+    /// as messages are sent and received, the value returned by [`capacity`] will go up or down,
+    /// whereas the value returned by [`max_capacity`] will remain constant.
+    ///
+    /// [`capacity`]: ActorRef::capacity
+    /// [`max_capacity`]: ActorRef::max_capacity
+    pub fn max_capacity(&self) -> usize {
+        self.mailbox.0.max_capacity()
     }
 }
 
