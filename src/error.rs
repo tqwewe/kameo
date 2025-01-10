@@ -666,6 +666,7 @@ impl error::Error for ActorIDFromBytesError {}
 pub enum Infallible {}
 
 impl Clone for Infallible {
+    #[allow(clippy::non_canonical_clone_impl)]
     fn clone(&self) -> Infallible {
         match *self {}
     }
@@ -698,6 +699,7 @@ impl PartialEq for Infallible {
 impl Eq for Infallible {}
 
 impl PartialOrd for Infallible {
+    #[allow(clippy::non_canonical_partial_ord_impl)]
     fn partial_cmp(&self, _other: &Self) -> Option<cmp::Ordering> {
         match *self {}
     }

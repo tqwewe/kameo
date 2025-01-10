@@ -93,13 +93,10 @@ where
         use tracing::warn;
 
         if self.location.mailbox.capacity().is_some() {
-            match &self.location.signal {
-                Signal::Message { actor_ref, .. } => {
-                    if actor_ref.is_current() {
-                        warn!("At {}, {msg}", self.called_at);
-                    }
+            if let Signal::Message { actor_ref, .. } = &self.location.signal {
+                if actor_ref.is_current() {
+                    warn!("At {}, {msg}", self.called_at);
                 }
-                _ => {}
             }
         }
     }

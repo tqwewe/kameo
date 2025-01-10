@@ -36,7 +36,7 @@ impl<A: Actor> Mailbox<A> for UnboundedMailbox<A> {
 
     #[inline]
     async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
-        Ok(self.0.send(signal)?)
+        self.0.send(signal)
     }
 
     #[inline]
@@ -46,7 +46,7 @@ impl<A: Actor> Mailbox<A> for UnboundedMailbox<A> {
 
     #[inline]
     fn blocking_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
-        Ok(self.0.send(signal)?)
+        self.0.send(signal)
     }
 
     #[inline]

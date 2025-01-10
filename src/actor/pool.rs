@@ -40,11 +40,18 @@
 //! # });
 //! ```
 
-use std::{fmt, iter::repeat};
+use std::{
+    fmt,
+    iter::repeat,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
+};
 
 use futures::{
     future::{join_all, BoxFuture},
-    Future,
+    Future, FutureExt,
 };
 
 use crate::{
@@ -61,11 +68,6 @@ use crate::{
 
 use super::{ActorID, WeakActorRef};
 
-enum Factory<A: Actor> {
-    Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
-    Async(Box<dyn FnMut() -> BoxFuture<'static, ActorRef<A>> + Send + Sync + 'static>),
-}
-
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
 /// The `ActorPool` manages a set of worker actors and implements load balancing
@@ -77,9 +79,8 @@ enum Factory<A: Actor> {
 /// The pool can be used either as a standalone object or spawned as an actor. When spawned, tasks can be
 /// sent using the `WorkerMsg` and `BroadcastMsg` messages for individual or broadcast communication with workers.
 pub struct ActorPool<A: Actor> {
-    workers: Vec<ActorRef<A>>,
+    workers: Vec<(ActorRef<A>, Arc<AtomicUsize>)>,
     size: usize,
-    next_idx: usize,
     factory: Factory<A>,
 }
 
@@ -110,12 +111,13 @@ where
     {
         assert_ne!(size, 0);
 
-        let workers = (0..size).map(|_| factory()).collect();
+        let workers = (0..size)
+            .map(|_| (factory(), Arc::new(AtomicUsize::new(0))))
+            .collect();
 
         ActorPool {
             workers,
             size,
-            next_idx: 0,
             factory: Factory::Sync(Box::new(factory)),
         }
     }
@@ -131,12 +133,16 @@ where
     {
         assert_ne!(size, 0);
 
-        let workers = join_all((0..size).map(|_| factory())).await;
+        let workers = join_all((0..size).map(|_| {
+            FutureExt::map(factory(), |actor_ref| {
+                (actor_ref, Arc::new(AtomicUsize::new(0)))
+            })
+        }))
+        .await;
 
         ActorPool {
             workers,
             size,
-            next_idx: 0,
             factory: Factory::Async(Box::new(move || {
                 let mut factory = factory.clone();
                 Box::pin(async move { factory().await })
@@ -144,18 +150,13 @@ where
         }
     }
 
-    /// Gets the [ActorRef] for the next worker in the pool.
-    #[inline]
-    pub fn get_worker(&self) -> ActorRef<A> {
-        self.workers[self.next_idx].clone()
-    }
-
-    #[inline]
-    fn next_worker(&mut self) -> (usize, &ActorRef<A>) {
-        let idx = self.next_idx;
-        let worker = &self.workers[idx];
-        self.next_idx = (idx + 1) % self.workers.len();
-        (idx, worker)
+    /// Returns a worker with the least amount of load.
+    pub fn get_least_loaded_worker(&self) -> ActorRef<A> {
+        self.workers
+            .iter()
+            .min_by_key(|(_, load)| load.load(Ordering::Relaxed))
+            .map(|(worker, _)| worker.clone())
+            .expect("ActorPool should have at least one worker")
     }
 }
 
@@ -170,7 +171,7 @@ where
     }
 
     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
-        for worker in &self.workers {
+        for (worker, _) in &self.workers {
             worker.link(&actor_ref).await;
         }
 
@@ -190,16 +191,16 @@ where
             .workers
             .iter()
             .enumerate()
-            .find(|(_, worker)| worker.id() == id)
+            .find(|(_, (worker, _))| worker.id() == id)
         else {
             return Ok(None);
         };
 
         self.workers[i] = match &mut self.factory {
-            Factory::Sync(f) => f(),
-            Factory::Async(f) => f().await,
+            Factory::Sync(f) => (f(), Arc::new(AtomicUsize::new(0))),
+            Factory::Async(f) => (f().await, Arc::new(AtomicUsize::new(0))),
         };
-        self.workers[i].link(&actor_ref).await;
+        self.workers[i].0.link(&actor_ref).await;
 
         Ok(None)
     }
@@ -269,7 +270,7 @@ where
     ) -> Self::Reply {
         let (_, mut reply_sender) = ctx.reply_sender();
         for _ in 0..self.workers.len() {
-            let worker = self.next_worker().1.clone();
+            let worker = self.get_least_loaded_worker();
             match reply_sender {
                 Some(tx) => {
                     if let Err(err) = worker.ask(msg).forward(tx).await {
@@ -302,7 +303,7 @@ where
             }
         }
 
-        return WorkerReply::Err(SendError::ActorNotRunning(msg));
+        WorkerReply::Err(SendError::ActorNotRunning(msg))
     }
 }
 
@@ -331,7 +332,7 @@ where
                 .zip(
                     repeat(msg).take(self.workers.len()), // Avoids unnecessary clone of msg on last iteration
                 )
-                .map(|(worker, msg)| worker.tell(msg).send()),
+                .map(|((worker, _), msg)| worker.tell(msg).send()),
         )
         .await
     }
@@ -342,7 +343,11 @@ impl<A: Actor> fmt::Debug for ActorPool<A> {
         f.debug_struct("ActorPool")
             .field("workers", &self.workers)
             .field("size", &self.size)
-            .field("next_idx", &self.next_idx)
             .finish()
     }
+}
+
+enum Factory<A: Actor> {
+    Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
+    Async(Box<dyn FnMut() -> BoxFuture<'static, ActorRef<A>> + Send + Sync + 'static>),
 }

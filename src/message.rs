@@ -138,7 +138,7 @@ where
     ///
     /// It is important to ensure that [ReplySender::send] is called to complete the transaction and send the response
     /// back to the requester. Failure to do so could result in the requester waiting indefinitely for a response.
-    #[must_use]
+    #[must_use = "the reply must be sent to the ReplySender"]
     pub fn reply_sender(&mut self) -> (DelegatedReply<R::Value>, Option<ReplySender<R::Value>>) {
         (DelegatedReply::new(), self.reply.take())
     }

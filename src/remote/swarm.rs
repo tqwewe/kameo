@@ -124,7 +124,7 @@ impl ActorSwarm {
             .build();
 
         Ok(ACTOR_SWARM.get_or_init(move || {
-            let local_peer_id = Intern::new(swarm.local_peer_id().clone());
+            let local_peer_id = Intern::new(*swarm.local_peer_id());
 
             let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
             let swarm_tx = SwarmSender(cmd_tx);
@@ -590,7 +590,7 @@ impl SwarmActor {
                             immediate,
                         )
                         .await;
-                        let _ = tx.send(SwarmCommand::SendAskResponse { result, channel });
+                        tx.send(SwarmCommand::SendAskResponse { result, channel });
                     });
                 }
                 SwarmReq::Tell {
@@ -612,7 +612,7 @@ impl SwarmActor {
                             immediate,
                         )
                         .await;
-                        let _ = tx.send(SwarmCommand::SendTellResponse { result, channel });
+                        tx.send(SwarmCommand::SendTellResponse { result, channel });
                     });
                 }
             },
