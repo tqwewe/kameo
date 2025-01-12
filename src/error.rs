@@ -271,38 +271,41 @@ impl fmt::Display for BootstrapError {
 impl error::Error for BootstrapError {}
 
 /// An error that can occur when registering & looking up actors by name.
-#[cfg(feature = "remote")]
 #[derive(Clone, Debug)]
-pub enum RegistrationError {
+pub enum RegistryError {
     /// The actor swarm has not been bootstrapped.
+    #[cfg(feature = "remote")]
     SwarmNotBootstrapped,
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
     /// Quorum failed.
+    #[cfg(feature = "remote")]
     QuorumFailed {
         /// Required quorum.
         quorum: std::num::NonZero<usize>,
     },
     /// Timeout.
+    #[cfg(feature = "remote")]
     Timeout,
 }
 
-#[cfg(feature = "remote")]
-impl fmt::Display for RegistrationError {
+impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            RegistrationError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
-            RegistrationError::BadActorType => write!(f, "bad actor type"),
-            RegistrationError::QuorumFailed { quorum } => {
+            #[cfg(feature = "remote")]
+            RegistryError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
+            RegistryError::BadActorType => write!(f, "bad actor type"),
+            #[cfg(feature = "remote")]
+            RegistryError::QuorumFailed { quorum } => {
                 write!(f, "the quorum failed; needed {quorum} peers")
             }
-            RegistrationError::Timeout => write!(f, "the request timed out"),
+            #[cfg(feature = "remote")]
+            RegistryError::Timeout => write!(f, "the request timed out"),
         }
     }
 }
 
-#[cfg(feature = "remote")]
-impl error::Error for RegistrationError {}
+impl error::Error for RegistryError {}
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]
