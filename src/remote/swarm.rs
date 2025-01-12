@@ -24,7 +24,7 @@ use tokio_stream::StreamExt;
 
 use crate::{
     actor::{ActorID, ActorRef, RemoteActorRef},
-    error::{BootstrapError, RegistrationError, RemoteSendError},
+    error::{BootstrapError, RegistryError, RemoteSendError},
     remote, Actor,
 };
 
@@ -287,7 +287,7 @@ impl ActorSwarm {
     pub(crate) fn lookup_local<A: Actor + RemoteActor + 'static>(
         &self,
         name: String,
-    ) -> impl Future<Output = Result<Option<ActorRef<A>>, RegistrationError>> {
+    ) -> impl Future<Output = Result<Option<ActorRef<A>>, RegistryError>> {
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::LookupLocal {
@@ -304,7 +304,7 @@ impl ActorSwarm {
                 return Ok(None);
             };
             if A::REMOTE_ID != remote_id {
-                return Err(RegistrationError::BadActorType);
+                return Err(RegistryError::BadActorType);
             }
 
             let registry = REMOTE_REGISTRY.lock().await;
@@ -313,7 +313,7 @@ impl ActorSwarm {
             };
             let actor_ref = actor_ref_any
                 .downcast_ref::<ActorRef<A>>()
-                .ok_or(RegistrationError::BadActorType)?
+                .ok_or(RegistryError::BadActorType)?
                 .clone();
 
             Ok(Some(actor_ref))
@@ -324,7 +324,7 @@ impl ActorSwarm {
     pub(crate) fn lookup<A: Actor + RemoteActor>(
         &self,
         name: String,
-    ) -> impl Future<Output = Result<Option<RemoteActorRef<A>>, RegistrationError>> {
+    ) -> impl Future<Output = Result<Option<RemoteActorRef<A>>, RegistryError>> {
         let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Lookup {
             key: name.into_bytes().into(),
             reply,
@@ -339,16 +339,16 @@ impl ActorSwarm {
                         remote_id,
                     } = ActorRegistration::from_bytes(&record.value);
                     if A::REMOTE_ID != remote_id {
-                        return Err(RegistrationError::BadActorType);
+                        return Err(RegistryError::BadActorType);
                     }
 
                     Ok(Some(RemoteActorRef::new(actor_id, swarm_tx.clone())))
                 }
                 Err(kad::GetRecordError::NotFound { .. }) => Ok(None),
                 Err(kad::GetRecordError::QuorumFailed { quorum, .. }) => {
-                    Err(RegistrationError::QuorumFailed { quorum })
+                    Err(RegistryError::QuorumFailed { quorum })
                 }
-                Err(kad::GetRecordError::Timeout { .. }) => Err(RegistrationError::Timeout),
+                Err(kad::GetRecordError::Timeout { .. }) => Err(RegistryError::Timeout),
             }
         }
     }
@@ -358,11 +358,11 @@ impl ActorSwarm {
         &self,
         actor_ref: ActorRef<A>,
         name: String,
-    ) -> impl Future<Output = Result<(), RegistrationError>> {
-        let actor_registration = ActorRegistration {
-            actor_id: actor_ref.id().with_hydrate_peer_id(),
-            remote_id: Cow::Borrowed(A::REMOTE_ID),
-        };
+    ) -> impl Future<Output = Result<(), RegistryError>> {
+        let actor_registration = ActorRegistration::new(
+            actor_ref.id().with_hydrate_peer_id(),
+            Cow::Borrowed(A::REMOTE_ID),
+        );
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Register {
@@ -380,9 +380,9 @@ impl ActorSwarm {
                     Ok(())
                 }
                 Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
-                    Err(RegistrationError::QuorumFailed { quorum })
+                    Err(RegistryError::QuorumFailed { quorum })
                 }
-                Err(kad::PutRecordError::Timeout { .. }) => Err(RegistrationError::Timeout),
+                Err(kad::PutRecordError::Timeout { .. }) => Err(RegistryError::Timeout),
             }
         }
     }
@@ -855,6 +855,13 @@ pub struct ActorRegistration<'a> {
 }
 
 impl<'a> ActorRegistration<'a> {
+    fn new(actor_id: ActorID, remote_id: Cow<'a, str>) -> Self {
+        ActorRegistration {
+            actor_id,
+            remote_id,
+        }
+    }
+
     fn into_bytes(self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(1 + 8 + 42 + self.remote_id.len());
         let actor_id_bytes = self.actor_id.to_bytes();
@@ -869,17 +876,11 @@ impl<'a> ActorRegistration<'a> {
         let peer_id_bytes_len = u8::from_le_bytes(bytes[..1].try_into().unwrap()) as usize;
         let actor_id = ActorID::from_bytes(&bytes[1..1 + 8 + peer_id_bytes_len]).unwrap();
         let remote_id = std::str::from_utf8(&bytes[1 + 8 + peer_id_bytes_len..]).unwrap();
-        ActorRegistration {
-            actor_id,
-            remote_id: Cow::Borrowed(remote_id),
-        }
+        ActorRegistration::new(actor_id, Cow::Borrowed(remote_id))
     }
 
     fn into_owned(self) -> ActorRegistration<'static> {
-        ActorRegistration {
-            actor_id: self.actor_id,
-            remote_id: Cow::Owned(self.remote_id.into_owned()),
-        }
+        ActorRegistration::new(self.actor_id, Cow::Owned(self.remote_id.into_owned()))
     }
 }
 

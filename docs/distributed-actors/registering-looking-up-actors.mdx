@@ -84,7 +84,7 @@ A simple retry loop can help ensure that your node eventually finds the actor, e
 use std::time::Duration;
 use tokio::time::sleep;
 
-async fn retry_lookup() -> Result<Option<RemoteActorRef<MyActor>>, RegistrationError> {
+async fn retry_lookup() -> Result<Option<RemoteActorRef<MyActor>>, RegistryError> {
     for _ in 0..5 {
         if let Some(actor) = RemoteActorRef::<MyActor>::lookup("my_actor").await? {
             return Ok(Some(actor));

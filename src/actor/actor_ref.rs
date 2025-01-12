@@ -78,16 +78,31 @@ where
         !self.mailbox.is_closed()
     }
 
+    /// Registers the actor under a given name in the actor registry.
+    ///
+    /// This makes the actor discoverable by parts of the app by name.
+    #[cfg(not(feature = "remote"))]
+    pub fn register(
+        &self,
+        name: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), error::RegistryError> {
+        crate::registry::ACTOR_REGISTRY
+            .lock()
+            .unwrap()
+            .insert(name, self.clone());
+        Ok(())
+    }
+
     /// Registers the actor under a given name within the actor swarm.
     ///
     /// This makes the actor discoverable by other nodes in the distributed system.
     #[cfg(feature = "remote")]
-    pub async fn register(&self, name: &str) -> Result<(), error::RegistrationError>
+    pub async fn register(&self, name: &str) -> Result<(), error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
     {
         remote::ActorSwarm::get()
-            .ok_or(error::RegistrationError::SwarmNotBootstrapped)?
+            .ok_or(error::RegistryError::SwarmNotBootstrapped)?
             .register(self.clone(), name.to_string())
             .await
     }
@@ -95,13 +110,25 @@ where
     /// Looks up an actor registered locally by its name.
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
+    #[cfg(not(feature = "remote"))]
+    pub fn lookup<Q>(name: &Q) -> Result<Option<Self>, error::RegistryError>
+    where
+        Q: std::hash::Hash + Eq + ?Sized,
+        std::borrow::Cow<'static, str>: std::borrow::Borrow<Q>,
+    {
+        crate::registry::ACTOR_REGISTRY.lock().unwrap().get(name)
+    }
+
+    /// Looks up an actor registered locally by its name.
+    ///
+    /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
     #[cfg(feature = "remote")]
-    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistrationError>
+    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
     {
         remote::ActorSwarm::get()
-            .ok_or(error::RegistrationError::SwarmNotBootstrapped)?
+            .ok_or(error::RegistryError::SwarmNotBootstrapped)?
             .lookup_local(name.to_string())
             .await
     }
@@ -755,12 +782,12 @@ impl<A: Actor> RemoteActorRef<A> {
     /// Looks up an actor registered by name across the distributed network.
     ///
     /// Returns `Some` if the actor is found, or `None` if no actor with the given name is registered.
-    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistrationError>
+    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
     {
         remote::ActorSwarm::get()
-            .ok_or(error::RegistrationError::SwarmNotBootstrapped)?
+            .ok_or(error::RegistryError::SwarmNotBootstrapped)?
             .lookup(name.to_string())
             .await
     }
