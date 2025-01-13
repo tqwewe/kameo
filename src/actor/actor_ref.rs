@@ -366,16 +366,51 @@ where
     /// # });
     /// ```
     #[inline]
-    pub async fn link<B>(&self, sibbling_ref: &ActorRef<B>)
-    where
-        B: Actor,
-    {
+    pub async fn link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
         if self.id == sibbling_ref.id() {
             return;
         }
 
         let (mut this_links, mut sibbling_links) =
             tokio::join!(self.links.lock(), sibbling_ref.links.lock());
+        this_links.insert(sibbling_ref.id(), sibbling_ref.weak_signal_mailbox());
+        sibbling_links.insert(self.id, self.weak_signal_mailbox());
+    }
+
+    /// Blockingly links two actors as siblings, ensuring they notify each other if either one dies.
+    ///
+    /// This method is intended for use cases where you need to link actors in synchronous code.
+    /// For async contexts, [`link`] is preferred.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    ///
+    /// actor_ref.blocking_link(&sibbling_ref);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub fn blocking_link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id() {
+            return;
+        }
+
+        let mut this_links = self.links.blocking_lock();
+        let mut sibbling_links = sibbling_ref.links.blocking_lock();
         this_links.insert(sibbling_ref.id(), sibbling_ref.weak_signal_mailbox());
         sibbling_links.insert(self.id, self.weak_signal_mailbox());
     }
@@ -405,17 +440,59 @@ where
     /// # });
     /// ```
     #[inline]
-    pub async fn unlink<B>(&self, sibbling: &ActorRef<B>)
+    pub async fn unlink<B>(&self, sibbling_ref: &ActorRef<B>)
     where
         B: Actor,
     {
-        if self.id == sibbling.id() {
+        if self.id == sibbling_ref.id() {
             return;
         }
 
         let (mut this_links, mut sibbling_links) =
-            tokio::join!(self.links.lock(), sibbling.links.lock());
-        this_links.remove(&sibbling.id());
+            tokio::join!(self.links.lock(), sibbling_ref.links.lock());
+        this_links.remove(&sibbling_ref.id());
+        sibbling_links.remove(&self.id);
+    }
+
+    /// Blockingly unlinks two previously linked sibling actors.
+    ///
+    /// This method is intended for use cases where you need to link actors in synchronous code.
+    /// For async contexts, [`link`] is preferred.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    ///
+    /// actor_ref.blocking_link(&sibbling_ref);
+    /// actor_ref.blocking_unlink(&sibbling_ref);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[inline]
+    pub fn blocking_unlink<B>(&self, sibbling_ref: &ActorRef<B>)
+    where
+        B: Actor,
+    {
+        if self.id == sibbling_ref.id() {
+            return;
+        }
+
+        let mut this_links = self.links.blocking_lock();
+        let mut sibbling_links = sibbling_ref.links.blocking_lock();
+        this_links.remove(&sibbling_ref.id());
         sibbling_links.remove(&self.id);
     }
 
