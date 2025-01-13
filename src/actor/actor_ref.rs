@@ -403,6 +403,8 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    ///
+    /// [`link`]: ActorRef::link
     #[inline]
     pub fn blocking_link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
         if self.id == sibbling_ref.id() {
@@ -457,7 +459,8 @@ where
     /// Blockingly unlinks two previously linked sibling actors.
     ///
     /// This method is intended for use cases where you need to link actors in synchronous code.
-    /// For async contexts, [`link`] is preferred.
+    /// For async contexts, [`unlink`] is preferred.
+    ///
     ///
     /// # Example
     ///
@@ -481,6 +484,8 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
+    ///
+    /// [`unlink`]: ActorRef::unlink
     #[inline]
     pub fn blocking_unlink<B>(&self, sibbling_ref: &ActorRef<B>)
     where
