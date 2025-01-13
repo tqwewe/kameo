@@ -385,6 +385,8 @@ where
     /// # Example
     ///
     /// ```
+    /// # use std::thread;
+    /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
@@ -399,7 +401,9 @@ where
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
     ///
-    /// actor_ref.blocking_link(&sibbling_ref);
+    /// thread::spawn(move || {
+    ///     actor_ref.blocking_link(&sibbling_ref);
+    /// });
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
@@ -465,6 +469,8 @@ where
     /// # Example
     ///
     /// ```
+    /// # use std::thread;
+    /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
@@ -479,8 +485,10 @@ where
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
     ///
-    /// actor_ref.blocking_link(&sibbling_ref);
-    /// actor_ref.blocking_unlink(&sibbling_ref);
+    /// thread::spawn(move || {
+    ///     actor_ref.blocking_link(&sibbling_ref);
+    ///     actor_ref.blocking_unlink(&sibbling_ref);
+    /// });
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
