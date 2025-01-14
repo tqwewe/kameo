@@ -1,8 +1,8 @@
 use std::{convert, panic::AssertUnwindSafe, sync::Arc, thread};
 
 use futures::{
-    stream::{AbortHandle, AbortRegistration, Abortable},
-    FutureExt,
+    stream::{AbortHandle, AbortRegistration, Abortable, FuturesUnordered},
+    FutureExt, StreamExt,
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -15,10 +15,11 @@ use tracing::{error, trace};
 use crate::{
     actor::{
         kind::{ActorBehaviour, ActorState},
-        Actor, ActorRef, Links, CURRENT_ACTOR_ID,
+        Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError, SendError},
     mailbox::{Mailbox, MailboxReceiver, Signal},
+    remote::{ActorSwarm, REMOTE_REGISTRY},
 };
 
 use super::ActorID;
@@ -290,7 +291,7 @@ where
     A: Actor,
     S: ActorState<A>,
 {
-    let id = actor_ref.id();
+    let mut id = actor_ref.id();
     let name = A::name();
     #[cfg(feature = "tracing")]
     trace!(%id, %name, "actor started");
@@ -339,15 +340,55 @@ where
 
     let mut actor = state.shutdown().await;
 
+    let mut link_notificication_futures = FuturesUnordered::new();
+    id = id.with_hydrate_peer_id();
     {
         let mut links = links.lock().await;
-        for (_, actor_ref) in links.drain() {
-            let _ = actor_ref.signal_link_died(id, reason.clone()).await;
+        for (link_actor_id, link) in links.drain() {
+            match link {
+                Link::Local(mailbox) => {
+                    let reason = reason.clone();
+                    link_notificication_futures.push(
+                        async move {
+                            if let Err(err) = mailbox.signal_link_died(id, reason).await {
+                                error!("failed to notify actor a link died: {err}");
+                            }
+                        }
+                        .boxed(),
+                    );
+                }
+                Link::Remote(notified_actor_remote_id) => {
+                    if let Some(swarm) = ActorSwarm::get() {
+                        let reason = reason.clone();
+                        link_notificication_futures.push(
+                            async move {
+                                println!("notifying {} that {} died", link_actor_id, id);
+                                let res = swarm
+                                    .signal_link_died(
+                                        id,
+                                        link_actor_id,
+                                        notified_actor_remote_id,
+                                        reason,
+                                    )
+                                    .await;
+                                if let Err(err) = res {
+                                    error!("failed to notify actor a link died: {err}");
+                                }
+                            }
+                            .boxed(),
+                        );
+                    }
+                }
+            }
         }
     }
 
     let on_stop_res = actor.on_stop(actor_ref, reason.clone()).await;
     log_actor_stop_reason(id, name, &reason);
+
+    while let Some(()) = link_notificication_futures.next().await {}
+    REMOTE_REGISTRY.lock().await.remove(&id);
+
     on_stop_res.unwrap();
 
     (actor, reason)

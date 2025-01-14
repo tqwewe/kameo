@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -5,8 +6,8 @@ pub use linkme;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::actor::{ActorID, ActorRef};
-use crate::error::{RemoteSendError, SendError};
+use crate::actor::{ActorID, ActorRef, Link};
+use crate::error::{ActorStopReason, Infallible, RemoteSendError, SendError};
 use crate::message::Message;
 use crate::request::{
     AskRequest, LocalAskRequest, LocalTellRequest, MaybeRequestTimeout, MessageSend, TellRequest,
@@ -17,7 +18,16 @@ use crate::{Actor, Reply};
 use super::REMOTE_REGISTRY;
 
 #[linkme::distributed_slice]
+pub static REMOTE_ACTORS: [(&'static str, RemoteActorFns)];
+
+#[linkme::distributed_slice]
 pub static REMOTE_MESSAGES: [(RemoteMessageRegistrationID<'static>, RemoteMessageFns)];
+
+#[derive(Clone, Copy, Debug)]
+pub struct RemoteActorFns {
+    pub link: RemoteLinkFn,
+    pub signal_link_died: RemoteSignalLinkDiedFn,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct RemoteMessageFns {
@@ -48,6 +58,19 @@ pub type RemoteTellFn = fn(
 
 pub type RemoteTryTellFn =
     fn(actor_id: ActorID, msg: Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError<Vec<u8>>>>;
+
+pub type RemoteLinkFn = fn(
+    actor_id: ActorID,
+    sibbling_id: ActorID,
+    sibbling_remote_id: Cow<'static, str>,
+) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
+
+pub type RemoteSignalLinkDiedFn = fn(
+    dead_actor_id: ActorID,
+    notified_actor_id: ActorID,
+    stop_reason: ActorStopReason,
+)
+    -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub struct RemoteMessageRegistrationID<'a> {
@@ -227,4 +250,61 @@ where
             })
             .flatten()),
     }
+}
+
+pub async fn link<A>(
+    actor_id: ActorID,
+    sibbling_id: ActorID,
+    sibbling_remote_id: Cow<'static, str>,
+) -> Result<(), RemoteSendError<Infallible>>
+where
+    A: Actor,
+{
+    let actor_ref = {
+        let remote_actors = REMOTE_REGISTRY.lock().await;
+        remote_actors
+            .get(&actor_id)
+            .ok_or(RemoteSendError::ActorNotRunning)?
+            .downcast_ref::<ActorRef<A>>()
+            .ok_or(RemoteSendError::BadActorType)?
+            .clone()
+    };
+
+    println!("Handling link request {actor_id} <-> {sibbling_id}");
+
+    actor_ref
+        .links
+        .lock()
+        .await
+        .insert(sibbling_id, Link::Remote(sibbling_remote_id));
+
+    Ok(())
+}
+
+pub async fn signal_link_died<A>(
+    dead_actor_id: ActorID,
+    notified_actor_id: ActorID,
+    stop_reason: ActorStopReason,
+) -> Result<(), RemoteSendError<Infallible>>
+where
+    A: Actor,
+{
+    println!("Signalling to {notified_actor_id} that {dead_actor_id} died");
+
+    let actor_ref = {
+        let remote_actors = REMOTE_REGISTRY.lock().await;
+        remote_actors
+            .get(&notified_actor_id)
+            .ok_or(RemoteSendError::ActorNotRunning)?
+            .downcast_ref::<ActorRef<A>>()
+            .ok_or(RemoteSendError::BadActorType)?
+            .clone()
+    };
+
+    actor_ref
+        .weak_signal_mailbox()
+        .signal_link_died(dead_actor_id, stop_reason)
+        .await?;
+
+    Ok(())
 }

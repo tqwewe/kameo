@@ -4,7 +4,7 @@ use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 use futures::{ready, Future, FutureExt};
 use internment::Intern;
 use libp2p::{
-    core::transport::ListenerId,
+    core::{transport::ListenerId, ConnectedPoint},
     identity::Keypair,
     kad::{
         self,
@@ -14,7 +14,9 @@ use libp2p::{
     request_response::{
         self, OutboundFailure, OutboundRequestId, ProtocolSupport, ResponseChannel,
     },
-    swarm::{dial_opts::DialOpts, DialError, NetworkBehaviour, SwarmEvent},
+    swarm::{
+        dial_opts::DialOpts, ConnectionError, ConnectionId, DialError, NetworkBehaviour, SwarmEvent,
+    },
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, TransportError,
 };
 use once_cell::sync::OnceCell;
@@ -24,7 +26,7 @@ use tokio_stream::StreamExt;
 
 use crate::{
     actor::{ActorID, ActorRef, RemoteActorRef},
-    error::{BootstrapError, RegistryError, RemoteSendError},
+    error::{ActorStopReason, BootstrapError, Infallible, RegistryError, RemoteSendError},
     remote, Actor,
 };
 
@@ -386,6 +388,54 @@ impl ActorSwarm {
             }
         }
     }
+
+    pub(crate) fn link<A: Actor + RemoteActor, B: Actor + RemoteActor>(
+        &self,
+        actor_id: ActorID,
+        sibbling_id: ActorID,
+    ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
+        let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Link {
+            actor_id,
+            actor_remote_id: Cow::Borrowed(A::REMOTE_ID),
+            sibbling_id,
+            sibbling_remote_id: Cow::Borrowed(B::REMOTE_ID),
+            reply,
+        });
+
+        async move {
+            match reply_rx.await {
+                SwarmResponse::Link(result) => result,
+                SwarmResponse::OutboundFailure(err) => Err(err),
+                _ => panic!("got an unexpected swarm response"),
+            }
+        }
+    }
+
+    pub(crate) fn signal_link_died(
+        &self,
+        dead_actor_id: ActorID,
+        notified_actor_id: ActorID,
+        notified_actor_remote_id: Cow<'static, str>,
+        stop_reason: ActorStopReason,
+    ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
+        let reply_rx = self
+            .swarm_tx
+            .send_with_reply(|reply| SwarmCommand::SignalLinkDied {
+                dead_actor_id,
+                notified_actor_id,
+                notified_actor_remote_id,
+                stop_reason,
+                reply,
+            });
+
+        async move {
+            match reply_rx.await {
+                SwarmResponse::SignalLinkDied(result) => result,
+                SwarmResponse::OutboundFailure(err) => Err(err),
+                _ => panic!("got an unexpected swarm response"),
+            }
+        }
+    }
 }
 
 /// A concrete implementation of the `SwarmBehaviour` trait.
@@ -425,13 +475,13 @@ impl ActorSwarmHandler {
                 Some(event) = swarm.next() => {
                     match event {
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)) => {
-                            self.handle_event(swarm, ActorSwarmBehaviourEvent::Kademlia(event));
+                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)));
                         }
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(event)) => {
-                            self.handle_event(swarm, ActorSwarmBehaviourEvent::RequestResponse(event));
+                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(event)));
                         }
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(event)) => {
-                            self.handle_event(swarm, ActorSwarmBehaviourEvent::Mdns(event));
+                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(event)));
                         }
                         _ => {},
                     }
@@ -576,30 +626,97 @@ impl ActorSwarmHandler {
             SwarmCommand::SendTellResponse { result, channel } => {
                 let _ = swarm.behaviour_mut().send_tell_response(channel, result);
             }
+            SwarmCommand::Link {
+                actor_id,
+                actor_remote_id,
+                sibbling_id,
+                sibbling_remote_id,
+                reply,
+            } => {
+                if swarm.network_info().num_peers() == 0 {
+                    tokio::spawn(async move {
+                        let result = remote::link(
+                            sibbling_id,
+                            sibbling_remote_id,
+                            actor_id,
+                            actor_remote_id,
+                        )
+                        .await;
+                        let _ = reply.send(SwarmResponse::Link(result));
+                    });
+                } else {
+                    let req_id = swarm.behaviour_mut().link(
+                        sibbling_id,
+                        sibbling_remote_id,
+                        actor_id,
+                        actor_remote_id,
+                    );
+                    self.requests.insert(req_id, reply);
+                }
+            }
+            SwarmCommand::SendLinkResponse { result, channel } => {
+                let _ = swarm.behaviour_mut().send_link_response(channel, result);
+            }
+            SwarmCommand::SignalLinkDied {
+                dead_actor_id,
+                notified_actor_id,
+                notified_actor_remote_id,
+                stop_reason,
+                reply,
+            } => {
+                if swarm.network_info().num_peers() == 0 {
+                    tokio::spawn(async move {
+                        let result = remote::signal_link_died(
+                            dead_actor_id,
+                            notified_actor_id,
+                            notified_actor_remote_id,
+                            stop_reason,
+                        )
+                        .await;
+                        let _ = reply.send(SwarmResponse::SignalLinkDied(result));
+                    });
+                } else {
+                    let req_id = swarm.behaviour_mut().signal_link_died(
+                        dead_actor_id,
+                        notified_actor_id,
+                        notified_actor_remote_id,
+                        stop_reason,
+                    );
+                    self.requests.insert(req_id, reply);
+                }
+            }
+            SwarmCommand::SendSignalLinkDiedResponse { result, channel } => {
+                let _ = swarm
+                    .behaviour_mut()
+                    .send_signal_link_died_response(channel, result);
+            }
         }
     }
 
     /// Handles a swarm event.
     ///
-    /// Mdns, Kademlia, and RequestResponse events should be handled always.
+    /// ConnectionClosed, Mdns, Kademlia, and RequestResponse events should be handled always.
     pub fn handle_event<B: SwarmBehaviour>(
         &mut self,
         swarm: &mut Swarm<B>,
-        event: ActorSwarmBehaviourEvent,
+        event: ActorSwarmEvent,
     ) {
         match event {
-            ActorSwarmBehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
+            ActorSwarmEvent::ConnectionClosed { .. } => {
+                // TODO: Notify all actors which have links to this peer that the links have died
+            }
+            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(
+                mdns::Event::Discovered(list),
+            )) => {
                 for (peer_id, multiaddr) in list {
                     swarm
                         .behaviour_mut()
                         .kademlia_add_address(&peer_id, multiaddr);
                 }
             }
-            ActorSwarmBehaviourEvent::Kademlia(kad::Event::OutboundQueryProgressed {
-                id,
-                result,
-                ..
-            }) => match result {
+            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(
+                kad::Event::OutboundQueryProgressed { id, result, .. },
+            )) => match result {
                 kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(
                     record @ kad::PeerRecord {
                         record: kad::Record { .. },
@@ -628,15 +745,17 @@ impl ActorSwarmHandler {
                 }
                 _ => {}
             },
-            ActorSwarmBehaviourEvent::RequestResponse(request_response::Event::Message {
-                peer: _,
-                message:
-                    request_response::Message::Request {
-                        request_id: _,
-                        request,
-                        channel,
-                    },
-            }) => match request {
+            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
+                request_response::Event::Message {
+                    peer: _,
+                    message:
+                        request_response::Message::Request {
+                            request_id: _,
+                            request,
+                            channel,
+                        },
+                },
+            )) => match request {
                 SwarmRequest::Ask {
                     actor_id,
                     actor_remote_id,
@@ -683,31 +802,70 @@ impl ActorSwarmHandler {
                         tx.send(SwarmCommand::SendTellResponse { result, channel });
                     });
                 }
+                SwarmRequest::Link {
+                    actor_id,
+                    actor_remote_id,
+                    sibbling_id,
+                    sibbling_remote_id,
+                } => {
+                    println!("Received link request {} <-> {}", actor_id, sibbling_id);
+                    let tx = self.cmd_tx.clone();
+                    tokio::spawn(async move {
+                        let result = remote::link(
+                            actor_id,
+                            actor_remote_id,
+                            sibbling_id,
+                            sibbling_remote_id,
+                        )
+                        .await;
+                        tx.send(SwarmCommand::SendLinkResponse { result, channel });
+                    });
+                }
+                SwarmRequest::SignalLinkDied {
+                    dead_actor_id,
+                    notified_actor_id,
+                    notified_actor_remote_id,
+                    stop_reason,
+                } => {
+                    let tx = self.cmd_tx.clone();
+                    tokio::spawn(async move {
+                        let result = remote::signal_link_died(
+                            dead_actor_id,
+                            notified_actor_id,
+                            notified_actor_remote_id,
+                            stop_reason,
+                        )
+                        .await;
+                        tx.send(SwarmCommand::SendSignalLinkDiedResponse { result, channel });
+                    });
+                }
             },
-            ActorSwarmBehaviourEvent::RequestResponse(request_response::Event::Message {
-                peer: _,
-                message:
-                    request_response::Message::Response {
-                        request_id,
-                        response,
-                    },
-            }) => {
+            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
+                request_response::Event::Message {
+                    peer: _,
+                    message:
+                        request_response::Message::Response {
+                            request_id,
+                            response,
+                        },
+                },
+            )) => {
                 if let Some(tx) = self.requests.remove(&request_id) {
                     let _ = tx.send(response);
                 }
             }
-            ActorSwarmBehaviourEvent::RequestResponse(
+            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
                 request_response::Event::OutboundFailure {
                     request_id, error, ..
                 },
-            ) => {
+            )) => {
                 if let Some(tx) = self.requests.remove(&request_id) {
                     let err = match error {
                         OutboundFailure::DialFailure => RemoteSendError::DialFailure,
                         OutboundFailure::Timeout => RemoteSendError::NetworkTimeout,
                         OutboundFailure::ConnectionClosed => RemoteSendError::ConnectionClosed,
                         OutboundFailure::UnsupportedProtocols => {
-                            unreachable!("the protocol is hard coded")
+                            RemoteSendError::UnsupportedProtocols
                         }
                         OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
                     };
@@ -845,6 +1003,46 @@ pub enum SwarmCommand {
         /// Response channel.
         channel: ResponseChannel<SwarmResponse>,
     },
+    /// An actor link request.
+    Link {
+        /// Actor A ID.
+        actor_id: ActorID,
+        /// Actor A remote ID.
+        actor_remote_id: Cow<'static, str>,
+        /// Actor B ID.
+        sibbling_id: ActorID,
+        /// Actor B remote ID.
+        sibbling_remote_id: Cow<'static, str>,
+        /// Reply sender.
+        reply: oneshot::Sender<SwarmResponse>,
+    },
+    /// Sends a link response.
+    SendLinkResponse {
+        /// Link result.
+        result: Result<(), RemoteSendError<Infallible>>,
+        /// Response channel.
+        channel: ResponseChannel<SwarmResponse>,
+    },
+    /// Notifies a linked actor has died.
+    SignalLinkDied {
+        /// The actor which died.
+        dead_actor_id: ActorID,
+        /// The actor to notify.
+        notified_actor_id: ActorID,
+        /// Actor remote iD
+        notified_actor_remote_id: Cow<'static, str>,
+        /// The reason the actor died.
+        stop_reason: ActorStopReason,
+        /// Reply sender.
+        reply: oneshot::Sender<SwarmResponse>,
+    },
+    /// Sends a link died response.
+    SendSignalLinkDiedResponse {
+        /// Signal link died result.
+        result: Result<(), RemoteSendError<Infallible>>,
+        /// Response channel.
+        channel: ResponseChannel<SwarmResponse>,
+    },
 }
 
 /// An actor registration record.
@@ -893,47 +1091,52 @@ pub enum SwarmRequest {
     Ask {
         /// Identifier of the actor initiating the request.
         actor_id: ActorID,
-
         /// Remote identifier of the actor as a static string.
         actor_remote_id: Cow<'static, str>,
-
         /// Remote identifier of the message as a static string.
         message_remote_id: Cow<'static, str>,
-
         /// The payload data to be sent with the request.
         payload: Vec<u8>,
-
         /// Optional timeout duration for the mailbox to receive the request.
         mailbox_timeout: Option<Duration>,
-
         /// Optional timeout duration to wait for a reply to the request.
         reply_timeout: Option<Duration>,
-
         /// Indicates whether the request should be sent immediately.
         immediate: bool,
     },
-
     /// Represents a request to tell a peer some information without expecting a response.
     ///
     /// This variant includes information about the actor, the message, payload, and timeout settings.
     Tell {
         /// Identifier of the actor initiating the message.
         actor_id: ActorID,
-
         /// Remote identifier of the actor as a static string.
         actor_remote_id: Cow<'static, str>,
-
         /// Remote identifier of the message as a static string.
         message_remote_id: Cow<'static, str>,
-
         /// The payload data to be sent with the message.
         payload: Vec<u8>,
-
         /// Optional timeout duration for the mailbox to receive the message.
         mailbox_timeout: Option<Duration>,
-
         /// Indicates whether the message should be sent immediately.
         immediate: bool,
+    },
+    Link {
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+        sibbling_remote_id: Cow<'static, str>,
+    },
+    /// A signal notifying a linked actor has died.
+    SignalLinkDied {
+        /// The actor which died.
+        dead_actor_id: ActorID,
+        /// The actor to notify.
+        notified_actor_id: ActorID,
+        /// The actor to notify.
+        notified_actor_remote_id: Cow<'static, str>,
+        /// The reason the actor died.
+        stop_reason: ActorStopReason,
     },
 }
 
@@ -950,10 +1153,16 @@ pub enum SwarmResponse {
     /// Contains either a successful acknowledgment or an error indicating why the send failed.
     Tell(Result<(), RemoteSendError<Vec<u8>>>),
 
+    /// Represents the response to a link request.
+    Link(Result<(), RemoteSendError<Infallible>>),
+
+    /// Represents the response to a link died signal.
+    SignalLinkDied(Result<(), RemoteSendError<Infallible>>),
+
     /// Represents a failure that occurred while attempting to send an outbound request.
     ///
     /// Contains the error that caused the outbound request to fail.
-    OutboundFailure(RemoteSendError<()>),
+    OutboundFailure(RemoteSendError<Infallible>),
 }
 
 /// Defines the behavior of a swarm, extending the capabilities of `NetworkBehaviour`.
@@ -1005,6 +1214,42 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         &mut self,
         channel: ResponseChannel<SwarmResponse>,
         result: Result<(), RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResponse>;
+
+    /// Sends a link request.
+    fn link(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+        sibbling_remote_id: Cow<'static, str>,
+    ) -> OutboundRequestId;
+
+    /// Sends a response to a previously received `link` request.
+    ///
+    /// This method handles the result of processing a `link` request and sends back an acknowledgment.
+    fn send_link_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse>;
+
+    /// Sends a signal notifying that a linked actor has died.
+    fn signal_link_died(
+        &mut self,
+        dead_actor_id: ActorID,
+        notified_actor_id: ActorID,
+        notified_actor_remote_id: Cow<'static, str>,
+        stop_reason: ActorStopReason,
+    ) -> OutboundRequestId;
+
+    /// Sends a response to a previously received `signal_link_died` request.
+    ///
+    /// This method handles the result of processing a `signal_link_died` request and sends back an acknowledgment.
+    fn send_signal_link_died_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
     ) -> Result<(), SwarmResponse>;
 
     /// Adds a network address for a peer to the Kademlia routing table.
@@ -1062,6 +1307,23 @@ mod behaviour {
 }
 
 pub use behaviour::*;
+
+pub enum ActorSwarmEvent {
+    /// A connection with the given peer has been closed, possibly as a result of an error.
+    ConnectionClosed {
+        /// Identity of the peer that we have connected to.
+        peer_id: PeerId,
+        /// Identifier of the connection.
+        connection_id: ConnectionId,
+        /// Endpoint of the connection that has been closed.
+        endpoint: ConnectedPoint,
+        /// Number of other remaining connections to this same peer.
+        num_established: u32,
+        /// Reason for the disconnection, if it was not a successful active close.
+        cause: Option<ConnectionError>,
+    },
+    Behaviour(ActorSwarmBehaviourEvent),
+}
 
 impl ActorSwarmBehaviour {
     /// Creates a new default actor behaviour with a keypair.
@@ -1148,6 +1410,60 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
     ) -> Result<(), SwarmResponse> {
         self.request_response
             .send_response(channel, SwarmResponse::Tell(result))
+    }
+
+    fn link(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+        sibbling_remote_id: Cow<'static, str>,
+    ) -> OutboundRequestId {
+        self.request_response.send_request(
+            actor_id.peer_id_intern().unwrap().as_ref(),
+            SwarmRequest::Link {
+                actor_id,
+                actor_remote_id,
+                sibbling_id,
+                sibbling_remote_id,
+            },
+        )
+    }
+
+    fn send_link_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::Link(result))
+    }
+
+    fn signal_link_died(
+        &mut self,
+        dead_actor_id: ActorID,
+        notified_actor_id: ActorID,
+        notified_actor_remote_id: Cow<'static, str>,
+        stop_reason: ActorStopReason,
+    ) -> OutboundRequestId {
+        self.request_response.send_request(
+            notified_actor_id.peer_id_intern().unwrap().as_ref(),
+            SwarmRequest::SignalLinkDied {
+                dead_actor_id,
+                notified_actor_id,
+                notified_actor_remote_id,
+                stop_reason,
+            },
+        )
+    }
+
+    fn send_signal_link_died_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::SignalLinkDied(result))
     }
 
     fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate {

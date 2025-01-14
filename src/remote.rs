@@ -52,14 +52,19 @@ use std::{
     time::Duration,
 };
 
-use _internal::{RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_MESSAGES};
+use _internal::{
+    RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_ACTORS, REMOTE_MESSAGES,
+};
 pub use libp2p::swarm::dial_opts;
 pub use libp2p::PeerId;
 pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
-use crate::{actor::ActorID, error::RemoteSendError};
+use crate::{
+    actor::ActorID,
+    error::{ActorStopReason, Infallible, RemoteSendError},
+};
 
 #[doc(hidden)]
 pub mod _internal;
@@ -69,6 +74,16 @@ pub use swarm::*;
 
 pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, Box<dyn any::Any + Send + Sync>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteActorFns>> = Lazy::new(|| {
+    let mut existing_ids = HashSet::new();
+    for (id, _) in REMOTE_ACTORS {
+        if !existing_ids.insert(id) {
+            panic!("duplicate remote actor detected for actor '{id}'");
+        }
+    }
+    REMOTE_ACTORS.iter().copied().collect()
+});
 
 static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>> =
     Lazy::new(|| {
@@ -172,4 +187,32 @@ pub(crate) async fn tell(
     } else {
         (fns.tell)(actor_id, payload, mailbox_timeout).await
     }
+}
+
+pub(crate) async fn link(
+    actor_id: ActorID,
+    actor_remote_id: Cow<'static, str>,
+    sibbling_id: ActorID,
+    sibbling_remote_id: Cow<'static, str>,
+) -> Result<(), RemoteSendError<Infallible>> {
+    let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
+        return Err(RemoteSendError::UnknownActor { actor_remote_id });
+    };
+
+    (fns.link)(actor_id, sibbling_id, sibbling_remote_id).await
+}
+
+pub(crate) async fn signal_link_died(
+    dead_actor_id: ActorID,
+    notified_actor_id: ActorID,
+    notified_actor_remote_id: Cow<'static, str>,
+    stop_reason: ActorStopReason,
+) -> Result<(), RemoteSendError<Infallible>> {
+    let Some(fns) = REMOTE_ACTORS_MAP.get(&*notified_actor_remote_id) else {
+        return Err(RemoteSendError::UnknownActor {
+            actor_remote_id: notified_actor_remote_id,
+        });
+    };
+
+    (fns.signal_link_died)(dead_actor_id, notified_actor_id, stop_reason).await
 }
