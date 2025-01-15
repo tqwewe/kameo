@@ -66,7 +66,7 @@ use super::{ActorID, ActorRef};
 /// to manage it directly or interact with it via messages.
 #[allow(missing_debug_implementations)]
 pub struct PubSub<M> {
-    subscribers: HashMap<ActorID, Box<dyn MessageSubscriber<M> + Send + Sync>>,
+    subscribers: HashMap<ActorID, (Box<dyn MessageSubscriber<M> + Send + Sync>, fn(&M) -> bool)>,
 }
 
 impl<M> PubSub<M> {
@@ -104,10 +104,18 @@ impl<M> PubSub<M> {
     where
         M: Clone + Send + 'static,
     {
-        let results = join_all(self.subscribers.iter().map(|(id, subscriber)| {
-            let msg = msg.clone();
-            async move { (*id, subscriber.tell(msg).await) }
-        }))
+        let results = join_all(
+            self.subscribers
+                .iter()
+                .filter_map(|(id, (subscriber, filter))| {
+                    if filter(&msg) {
+                        let msg = msg.clone();
+                        Some(async move { (*id, subscriber.tell(msg).await) })
+                    } else {
+                        None
+                    }
+                }),
+        )
         .await;
         for (id, result) in results.into_iter() {
             match result {
@@ -160,7 +168,21 @@ impl<M> PubSub<M> {
         for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
             MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
-        self.subscribers.insert(actor_ref.id(), Box::new(actor_ref));
+        self.subscribers
+            .insert(actor_ref.id(), (Box::new(actor_ref), |_| true));
+    }
+
+    ///
+    #[inline]
+    pub fn subscribe_filter<A>(&mut self, actor_ref: ActorRef<A>, filter: fn(&M) -> bool)
+    where
+        A: Actor + Message<M>,
+        M: Send + 'static,
+        for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+            MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
+    {
+        self.subscribers
+            .insert(actor_ref.id(), (Box::new(actor_ref), filter));
     }
 }
 
@@ -218,6 +240,27 @@ where
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe(actor_ref)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SubscribeFilter<A: Actor, M: Send + 'static>(pub ActorRef<A>, pub fn(&M) -> bool);
+
+impl<A, M> Message<SubscribeFilter<A, M>> for PubSub<M>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
+        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
+{
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        SubscribeFilter(actor_ref, filter): SubscribeFilter<A, M>,
+        _ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.subscribe_filter(actor_ref, filter)
     }
 }
 
