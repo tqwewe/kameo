@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2025-01-16
+
+* @meowjesty made their first contribution in #92
+
+* @Kamil729 made their first contribution in #96
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add support for manual swarm operations (#111)
+- **BREAKING:** Add local actor registry for non-remote environments (#114)
+- **BREAKING:** Add support for remote actor links (#116)
+- Add warnings for potential deadlocks (#87)
+- Implement infallible reply for `std::path` types (#96)
+- Add `blocking_link` and `blocking_unlink` methods to `ActorRef` (#115)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Use `kameo::error::Infallible` in `Reply` derive macro instead of `()`
+- **BREAKING:** Modularize features and improve conditional compilation (#112)
+
+### <!-- 2 -->Removed
+
+- **BREAKING:** Remove actor state from `PreparedActor` (#99)
+- **BREAKING:** Remove deprecated `link_child`, `unlink_child`, `link_together`, and `unlink_together` methods [</>](https://github.com/tqwewe/kameo/commit/3d7d47ede3284279a8664420f920fe628cf6df09)
+- Remove mailbox capacity warning on unbounded mailbox tell requests [</>](https://github.com/tqwewe/kameo/commit/514bf192761777bbc0bc4bda2cf945b83f3ae7d6)
+- Remove itertools dependency and replace repeat_n with std::iter::repeat [</>](https://github.com/tqwewe/kameo/commit/da15009277c21e2d2cf05fb782366c9f1402ee69)
+
+### <!-- 3 -->Fixed
+
+- Fix clippy lints and add to CI
+
+### <!-- 4 -->Documentation
+
+- Add Caido Community sponsor to README.md [</>](https://github.com/tqwewe/kameo/commit/d19a4b1c2d55709ad263f2bf2b5e907227f9d7d3)
+- Remote stars badge from README.md [</>](https://github.com/tqwewe/kameo/commit/b2efa6a1e1deee667c1a3ac8f5b50ce8b3f1904b)
+- Add huly labs sponsor to README.md [</>](https://github.com/tqwewe/kameo/commit/7b2289f627b0ad447b0c1f6423d78be7b7676243)
+
+### <!-- 5 -->Misc
+
+- Fix release script with current release notes [</>](https://github.com/tqwewe/kameo/commit/1c766b4412fa6bb0f329b87d9036e4915e5e179b)
+- Add changelog links for new versions [</>](https://github.com/tqwewe/kameo/commit/fbc7826a38ea579aa2fae253bb86cfc8b28e0160)
+- Remove flake.nix and flake.lock [</>](https://github.com/tqwewe/kameo/commit/63495c726aaece39e37285ebafb8e5f865b22b30)
+
 ## [0.13.0] - 2024-11-15
 
 * @13r0ck made their first contribution in #79
