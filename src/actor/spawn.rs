@@ -380,6 +380,7 @@ where
                                     )
                                     .await;
                                 if let Err(err) = res {
+                                    #[cfg(feature = "tracing")]
                                     error!("failed to notify actor a link died: {err}");
                                 }
                             }
