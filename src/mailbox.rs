@@ -98,7 +98,7 @@ impl<A: Actor> Signal<A> {
 }
 
 #[doc(hidden)]
-pub trait SignalMailbox: DynClone + Send {
+pub trait SignalMailbox: DynClone + Send + Sync {
     fn signal_startup_finished(&self) -> Result<(), SendError>;
     fn signal_link_died(
         &self,

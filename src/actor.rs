@@ -192,6 +192,8 @@ pub trait Actor: Sized + Send + 'static {
                     id,
                     reason: Box::new(reason),
                 })),
+                #[cfg(feature = "remote")]
+                ActorStopReason::PeerDisconnected => Ok(Some(ActorStopReason::PeerDisconnected)),
             }
         }
     }

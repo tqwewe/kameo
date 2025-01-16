@@ -62,8 +62,9 @@ use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
-    actor::ActorID,
+    actor::{ActorID, Links},
     error::{ActorStopReason, Infallible, RemoteSendError},
+    mailbox::SignalMailbox,
 };
 
 #[doc(hidden)]
@@ -72,8 +73,14 @@ mod swarm;
 
 pub use swarm::*;
 
-pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, Box<dyn any::Any + Send + Sync>>>> =
+pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, RemoteRegistryActorRef>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
+
+pub(crate) struct RemoteRegistryActorRef {
+    pub(crate) actor_ref: Box<dyn any::Any + Send + Sync>,
+    pub(crate) signal_mailbox: Box<dyn SignalMailbox>,
+    pub(crate) links: Links,
+}
 
 static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteActorFns>> = Lazy::new(|| {
     let mut existing_ids = HashSet::new();

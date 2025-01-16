@@ -1,7 +1,7 @@
 use core::task;
 use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
-use futures::{ready, Future, FutureExt};
+use futures::{ready, stream::FuturesUnordered, Future, FutureExt};
 use internment::Intern;
 use libp2p::{
     core::{transport::ListenerId, ConnectedPoint},
@@ -30,7 +30,7 @@ use crate::{
     remote, Actor,
 };
 
-use super::{RemoteActor, REMOTE_REGISTRY};
+use super::{RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY};
 
 static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
 
@@ -314,6 +314,7 @@ impl ActorSwarm {
                 return Ok(None);
             };
             let actor_ref = actor_ref_any
+                .actor_ref
                 .downcast_ref::<ActorRef<A>>()
                 .ok_or(RegistryError::BadActorType)?
                 .clone();
@@ -375,10 +376,16 @@ impl ActorSwarm {
         async move {
             match reply_rx.await {
                 Ok(kad::PutRecordOk { .. }) => {
-                    REMOTE_REGISTRY
-                        .lock()
-                        .await
-                        .insert(actor_ref.id().with_hydrate_peer_id(), Box::new(actor_ref));
+                    let signal_mailbox = actor_ref.weak_signal_mailbox();
+                    let links = actor_ref.links.clone();
+                    REMOTE_REGISTRY.lock().await.insert(
+                        actor_ref.id().with_hydrate_peer_id(),
+                        RemoteRegistryActorRef {
+                            actor_ref: Box::new(actor_ref),
+                            signal_mailbox,
+                            links,
+                        },
+                    );
                     Ok(())
                 }
                 Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
@@ -474,6 +481,9 @@ impl ActorSwarmHandler {
                 Some(cmd) = self.cmd_rx.recv() => self.handle_command(swarm, cmd),
                 Some(event) = swarm.next() => {
                     match event {
+                        SwarmEvent::ConnectionClosed { peer_id, connection_id, endpoint, num_established, cause } => {
+                            self.handle_event(swarm, ActorSwarmEvent::ConnectionClosed { peer_id, connection_id, endpoint, num_established, cause });
+                        }
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)) => {
                             self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)));
                         }
@@ -702,8 +712,34 @@ impl ActorSwarmHandler {
         event: ActorSwarmEvent,
     ) {
         match event {
-            ActorSwarmEvent::ConnectionClosed { .. } => {
+            ActorSwarmEvent::ConnectionClosed { peer_id, .. } => {
                 // TODO: Notify all actors which have links to this peer that the links have died
+                tokio::spawn(async move {
+                    let mut futures = FuturesUnordered::new();
+                    for RemoteRegistryActorRef {
+                        signal_mailbox,
+                        links,
+                        ..
+                    } in REMOTE_REGISTRY.lock().await.values()
+                    {
+                        for linked_actor_id in (*links.lock().await).keys() {
+                            if linked_actor_id.peer_id() == Some(&peer_id) {
+                                let signal_mailbox = signal_mailbox.clone();
+                                let linked_actor_id = *linked_actor_id;
+                                futures.push(async move {
+                                    signal_mailbox
+                                        .signal_link_died(
+                                            linked_actor_id,
+                                            ActorStopReason::PeerDisconnected,
+                                        )
+                                        .await
+                                });
+                            }
+                        }
+                    }
+
+                    while (futures.next().await).is_some() {}
+                });
             }
             ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(
                 mdns::Event::Discovered(list),
@@ -808,7 +844,6 @@ impl ActorSwarmHandler {
                     sibbling_id,
                     sibbling_remote_id,
                 } => {
-                    println!("Received link request {} <-> {}", actor_id, sibbling_id);
                     let tx = self.cmd_tx.clone();
                     tokio::spawn(async move {
                         let result = remote::link(

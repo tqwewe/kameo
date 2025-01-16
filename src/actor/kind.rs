@@ -155,6 +155,8 @@ where
             ActorStopReason::LinkDied { id, reason } => {
                 Some(ActorStopReason::LinkDied { id, reason })
             }
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => Some(ActorStopReason::PeerDisconnected),
         }
     }
 

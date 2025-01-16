@@ -102,6 +102,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
             .downcast_ref::<ActorRef<A>>()
             .ok_or(RemoteSendError::BadActorType)?
             .clone()
@@ -152,6 +153,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
             .downcast_ref::<ActorRef<A>>()
             .ok_or(RemoteSendError::BadActorType)?
             .clone()
@@ -193,6 +195,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
             .downcast_ref::<ActorRef<A>>()
             .ok_or(RemoteSendError::BadActorType)?
             .clone()
@@ -229,6 +232,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
             .downcast_ref::<ActorRef<A>>()
             .ok_or(RemoteSendError::BadActorType)?
             .clone()
@@ -265,12 +269,11 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
             .downcast_ref::<ActorRef<A>>()
             .ok_or(RemoteSendError::BadActorType)?
             .clone()
     };
-
-    println!("Handling link request {actor_id} <-> {sibbling_id}");
 
     actor_ref
         .links
@@ -289,13 +292,12 @@ pub async fn signal_link_died<A>(
 where
     A: Actor,
 {
-    println!("Signalling to {notified_actor_id} that {dead_actor_id} died");
-
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
         remote_actors
             .get(&notified_actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
             .downcast_ref::<ActorRef<A>>()
             .ok_or(RemoteSendError::BadActorType)?
             .clone()

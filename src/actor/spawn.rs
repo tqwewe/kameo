@@ -362,7 +362,6 @@ where
                         let reason = reason.clone();
                         link_notificication_futures.push(
                             async move {
-                                println!("notifying {} that {} died", link_actor_id, id);
                                 let res = swarm
                                     .signal_link_died(
                                         id,
@@ -472,6 +471,10 @@ fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
         }
         reason @ ActorStopReason::Panicked(_) => {
             error!(%id, %name, %reason, "actor stopped")
+        }
+        #[cfg(feature = "remote")]
+        reason @ ActorStopReason::PeerDisconnected => {
+            trace!(%id, %name, %reason, "actor stopped");
         }
     }
 }

@@ -16,7 +16,7 @@ use crate::{
     error::{self, Infallible, RemoteSendError, SendError},
     mailbox::{bounded::BoundedMailbox, Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
-    remote::{ActorSwarm, RemoteActor, REMOTE_REGISTRY},
+    remote::{ActorSwarm, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY},
     reply::Reply,
     request::{
         self, AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, TellRequest,
@@ -392,10 +392,14 @@ where
             return Ok(());
         }
 
-        REMOTE_REGISTRY
-            .lock()
-            .await
-            .insert(self.id, Box::new(self.clone()));
+        REMOTE_REGISTRY.lock().await.insert(
+            self.id,
+            RemoteRegistryActorRef {
+                actor_ref: Box::new(self.clone()),
+                signal_mailbox: self.weak_signal_mailbox(),
+                links: self.links.clone(),
+            },
+        );
 
         self.links
             .lock()

@@ -538,6 +538,9 @@ pub enum ActorStopReason {
         /// Actor died reason.
         reason: Box<ActorStopReason>,
     },
+    /// The peer was disconnected.
+    #[cfg(feature = "remote")]
+    PeerDisconnected,
 }
 
 impl fmt::Debug for ActorStopReason {
@@ -551,6 +554,8 @@ impl fmt::Debug for ActorStopReason {
                 .field("id", id)
                 .field("reason", &reason)
                 .finish(),
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => write!(f, "PeerDisconnected"),
         }
     }
 }
@@ -564,6 +569,8 @@ impl fmt::Display for ActorStopReason {
             ActorStopReason::LinkDied { id, reason: _ } => {
                 write!(f, "link {id} died")
             }
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => write!(f, "peer disconnected"),
         }
     }
 }
