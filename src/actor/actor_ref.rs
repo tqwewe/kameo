@@ -381,12 +381,13 @@ where
         sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
     }
 
-    pub async fn link_remote<B: Actor + RemoteActor>(
+    pub async fn link_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
     ) -> Result<(), RemoteSendError<Infallible>>
     where
         A: RemoteActor,
+        B: Actor + RemoteActor,
     {
         if self.id == sibbling_ref.id {
             return Ok(());
@@ -486,10 +487,7 @@ where
     /// # });
     /// ```
     #[inline]
-    pub async fn unlink<B>(&self, sibbling_ref: &ActorRef<B>)
-    where
-        B: Actor,
-    {
+    pub async fn unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
         if self.id == sibbling_ref.id {
             return;
         }
@@ -500,12 +498,13 @@ where
         sibbling_links.remove(&self.id);
     }
 
-    pub async fn unlink_remote<B: Actor + RemoteActor>(
+    pub async fn unlink_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
     ) -> Result<(), RemoteSendError<Infallible>>
     where
         A: RemoteActor,
+        B: Actor + RemoteActor,
     {
         if self.id == sibbling_ref.id {
             return Ok(());
@@ -556,10 +555,7 @@ where
     ///
     /// [`unlink`]: ActorRef::unlink
     #[inline]
-    pub fn blocking_unlink<B>(&self, sibbling_ref: &ActorRef<B>)
-    where
-        B: Actor,
-    {
+    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
         if self.id == sibbling_ref.id {
             return;
         }
@@ -882,6 +878,54 @@ impl<A: Actor> RemoteActorRef<A> {
         )
     }
 
+    pub async fn link_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: RemoteActor,
+        B: Actor + RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        let fut_a = ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .link::<A, B>(self.id, sibbling_ref.id);
+        let fut_b = ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .link::<B, A>(sibbling_ref.id, self.id);
+
+        tokio::try_join!(fut_a, fut_b)?;
+
+        Ok(())
+    }
+
+    pub async fn unlink_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: RemoteActor,
+        B: Actor + RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        let fut_a = ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<B>(self.id, sibbling_ref.id);
+        let fut_b = ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<A>(sibbling_ref.id, self.id);
+
+        tokio::try_join!(fut_a, fut_b)?;
+
+        Ok(())
+    }
+
     pub(crate) fn send_to_swarm(&self, msg: remote::SwarmCommand) {
         self.swarm_tx.send(msg)
     }
@@ -919,7 +963,7 @@ pub struct WeakActorRef<A: Actor> {
     id: ActorID,
     mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
     abort_handle: AbortHandle,
-    links: Links,
+    pub(crate) links: Links,
     startup_notify: Arc<Semaphore>,
 }
 
