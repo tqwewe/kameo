@@ -114,9 +114,9 @@ static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, R
 /// ## Example with Derive
 ///
 /// ```
-/// use kameo::RemoteActor;
+/// use kameo::{Actor, RemoteActor};
 ///
-/// #[derive(RemoteActor)]
+/// #[derive(Actor, RemoteActor)]
 /// pub struct MyActor;
 /// ```
 ///

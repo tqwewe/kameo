@@ -757,7 +757,6 @@ impl ActorSwarmHandler {
     ) {
         match event {
             ActorSwarmEvent::ConnectionClosed { peer_id, .. } => {
-                // TODO: Notify all actors which have links to this peer that the links have died
                 tokio::spawn(async move {
                     let mut futures = FuturesUnordered::new();
                     for RemoteRegistryActorRef {
