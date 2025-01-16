@@ -418,6 +418,27 @@ impl ActorSwarm {
         }
     }
 
+    pub(crate) fn unlink<B: Actor + RemoteActor>(
+        &self,
+        actor_id: ActorID,
+        sibbling_id: ActorID,
+    ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
+        let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Unlink {
+            actor_id,
+            sibbling_id,
+            sibbling_remote_id: Cow::Borrowed(B::REMOTE_ID),
+            reply,
+        });
+
+        async move {
+            match reply_rx.await {
+                SwarmResponse::Unlink(result) => result,
+                SwarmResponse::OutboundFailure(err) => Err(err),
+                _ => panic!("got an unexpected swarm response"),
+            }
+        }
+    }
+
     pub(crate) fn signal_link_died(
         &self,
         dead_actor_id: ActorID,
@@ -667,6 +688,29 @@ impl ActorSwarmHandler {
             SwarmCommand::SendLinkResponse { result, channel } => {
                 let _ = swarm.behaviour_mut().send_link_response(channel, result);
             }
+            SwarmCommand::Unlink {
+                actor_id,
+                sibbling_id,
+                sibbling_remote_id,
+                reply,
+            } => {
+                if swarm.network_info().num_peers() == 0 {
+                    tokio::spawn(async move {
+                        let result =
+                            remote::unlink(sibbling_id, sibbling_remote_id, actor_id).await;
+                        let _ = reply.send(SwarmResponse::Unlink(result));
+                    });
+                } else {
+                    let req_id =
+                        swarm
+                            .behaviour_mut()
+                            .unlink(sibbling_id, sibbling_remote_id, actor_id);
+                    self.requests.insert(req_id, reply);
+                }
+            }
+            SwarmCommand::SendUnlinkResponse { result, channel } => {
+                let _ = swarm.behaviour_mut().send_unlink_response(channel, result);
+            }
             SwarmCommand::SignalLinkDied {
                 dead_actor_id,
                 notified_actor_id,
@@ -854,6 +898,17 @@ impl ActorSwarmHandler {
                         )
                         .await;
                         tx.send(SwarmCommand::SendLinkResponse { result, channel });
+                    });
+                }
+                SwarmRequest::Unlink {
+                    actor_id,
+                    actor_remote_id,
+                    sibbling_id,
+                } => {
+                    let tx = self.cmd_tx.clone();
+                    tokio::spawn(async move {
+                        let result = remote::unlink(actor_id, actor_remote_id, sibbling_id).await;
+                        tx.send(SwarmCommand::SendUnlinkResponse { result, channel });
                     });
                 }
                 SwarmRequest::SignalLinkDied {
@@ -1058,6 +1113,24 @@ pub enum SwarmCommand {
         /// Response channel.
         channel: ResponseChannel<SwarmResponse>,
     },
+    /// An actor unlink request.
+    Unlink {
+        /// Actor A ID.
+        actor_id: ActorID,
+        /// Actor B ID.
+        sibbling_id: ActorID,
+        /// Actor B remote ID.
+        sibbling_remote_id: Cow<'static, str>,
+        /// Reply sender.
+        reply: oneshot::Sender<SwarmResponse>,
+    },
+    /// Sends a link response.
+    SendUnlinkResponse {
+        /// Link result.
+        result: Result<(), RemoteSendError<Infallible>>,
+        /// Response channel.
+        channel: ResponseChannel<SwarmResponse>,
+    },
     /// Notifies a linked actor has died.
     SignalLinkDied {
         /// The actor which died.
@@ -1162,6 +1235,11 @@ pub enum SwarmRequest {
         sibbling_id: ActorID,
         sibbling_remote_id: Cow<'static, str>,
     },
+    Unlink {
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+    },
     /// A signal notifying a linked actor has died.
     SignalLinkDied {
         /// The actor which died.
@@ -1190,6 +1268,9 @@ pub enum SwarmResponse {
 
     /// Represents the response to a link request.
     Link(Result<(), RemoteSendError<Infallible>>),
+
+    /// Represents the response to a link request.
+    Unlink(Result<(), RemoteSendError<Infallible>>),
 
     /// Represents the response to a link died signal.
     SignalLinkDied(Result<(), RemoteSendError<Infallible>>),
@@ -1264,6 +1345,23 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     ///
     /// This method handles the result of processing a `link` request and sends back an acknowledgment.
     fn send_link_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse>;
+
+    /// Sends a unlink request.
+    fn unlink(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+    ) -> OutboundRequestId;
+
+    /// Sends a response to a previously received `unlink` request.
+    ///
+    /// This method handles the result of processing a `unlink` request and sends back an acknowledgment.
+    fn send_unlink_response(
         &mut self,
         channel: ResponseChannel<SwarmResponse>,
         result: Result<(), RemoteSendError<Infallible>>,
@@ -1455,7 +1553,7 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
         sibbling_remote_id: Cow<'static, str>,
     ) -> OutboundRequestId {
         self.request_response.send_request(
-            actor_id.peer_id_intern().unwrap().as_ref(),
+            actor_id.peer_id().unwrap(),
             SwarmRequest::Link {
                 actor_id,
                 actor_remote_id,
@@ -1474,6 +1572,31 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
             .send_response(channel, SwarmResponse::Link(result))
     }
 
+    fn unlink(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+    ) -> OutboundRequestId {
+        self.request_response.send_request(
+            actor_id.peer_id().unwrap(),
+            SwarmRequest::Unlink {
+                actor_id,
+                actor_remote_id,
+                sibbling_id,
+            },
+        )
+    }
+
+    fn send_unlink_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::Unlink(result))
+    }
+
     fn signal_link_died(
         &mut self,
         dead_actor_id: ActorID,
@@ -1482,7 +1605,7 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
         stop_reason: ActorStopReason,
     ) -> OutboundRequestId {
         self.request_response.send_request(
-            notified_actor_id.peer_id_intern().unwrap().as_ref(),
+            notified_actor_id.peer_id().unwrap(),
             SwarmRequest::SignalLinkDied {
                 dead_actor_id,
                 notified_actor_id,

@@ -500,6 +500,27 @@ where
         sibbling_links.remove(&self.id);
     }
 
+    pub async fn unlink_remote<B: Actor + RemoteActor>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        self.links.lock().await.remove(&sibbling_ref.id);
+        ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<B>(
+                self.id.with_hydrate_peer_id(),
+                sibbling_ref.id.with_hydrate_peer_id(),
+            )
+            .await
+    }
+
     /// Blockingly unlinks two previously linked sibling actors.
     ///
     /// This method is intended for use cases where you need to link actors in synchronous code.

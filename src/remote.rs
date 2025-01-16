@@ -209,6 +209,18 @@ pub(crate) async fn link(
     (fns.link)(actor_id, sibbling_id, sibbling_remote_id).await
 }
 
+pub(crate) async fn unlink(
+    actor_id: ActorID,
+    actor_remote_id: Cow<'static, str>,
+    sibbling_id: ActorID,
+) -> Result<(), RemoteSendError<Infallible>> {
+    let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
+        return Err(RemoteSendError::UnknownActor { actor_remote_id });
+    };
+
+    (fns.unlink)(actor_id, sibbling_id).await
+}
+
 pub(crate) async fn signal_link_died(
     dead_actor_id: ActorID,
     notified_actor_id: ActorID,

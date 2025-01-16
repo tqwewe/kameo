@@ -26,6 +26,7 @@ pub static REMOTE_MESSAGES: [(RemoteMessageRegistrationID<'static>, RemoteMessag
 #[derive(Clone, Copy, Debug)]
 pub struct RemoteActorFns {
     pub link: RemoteLinkFn,
+    pub unlink: RemoteUnlinkFn,
     pub signal_link_died: RemoteSignalLinkDiedFn,
 }
 
@@ -63,6 +64,11 @@ pub type RemoteLinkFn = fn(
     actor_id: ActorID,
     sibbling_id: ActorID,
     sibbling_remote_id: Cow<'static, str>,
+) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
+
+pub type RemoteUnlinkFn = fn(
+    actor_id: ActorID,
+    sibbling_id: ActorID,
 ) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
 
 pub type RemoteSignalLinkDiedFn = fn(
@@ -280,6 +286,29 @@ where
         .lock()
         .await
         .insert(sibbling_id, Link::Remote(sibbling_remote_id));
+
+    Ok(())
+}
+
+pub async fn unlink<A>(
+    actor_id: ActorID,
+    sibbling_id: ActorID,
+) -> Result<(), RemoteSendError<Infallible>>
+where
+    A: Actor,
+{
+    let actor_ref = {
+        let remote_actors = REMOTE_REGISTRY.lock().await;
+        remote_actors
+            .get(&actor_id)
+            .ok_or(RemoteSendError::ActorNotRunning)?
+            .actor_ref
+            .downcast_ref::<ActorRef<A>>()
+            .ok_or(RemoteSendError::BadActorType)?
+            .clone()
+    };
+
+    actor_ref.links.lock().await.remove(&sibbling_id);
 
     Ok(())
 }

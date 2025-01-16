@@ -58,6 +58,18 @@ impl ToTokens for DeriveRemoteActor {
                                     sibbling_remote_id,
                                 ))
                             }) as ::kameo::remote::_internal::RemoteLinkFn,
+                        unlink: (
+                            |
+                              actor_id: ::kameo::actor::ActorID,
+                              sibbling_id: ::kameo::actor::ActorID,
+                            | {
+                                ::std::boxed::Box::pin(::kameo::remote::_internal::unlink::<
+                                    #ident #ty_generics,
+                                >(
+                                    actor_id,
+                                    sibbling_id,
+                                ))
+                            }) as ::kameo::remote::_internal::RemoteUnlinkFn,
                         signal_link_died: (
                             |
                               dead_actor_id: ::kameo::actor::ActorID,
