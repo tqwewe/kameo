@@ -2,17 +2,23 @@ use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
     spanned::Spanned,
-    DeriveInput, Expr, ExprAssign, ExprLit, Ident, Lit, LitStr,
+    DeriveInput, Expr, ExprAssign, ExprLit, Generics, Ident, Lit, LitStr,
 };
 
 pub struct DeriveRemoteActor {
     attrs: DeriveRemoteActorAttrs,
+    generics: Generics,
     ident: Ident,
 }
 
 impl ToTokens for DeriveRemoteActor {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        let Self { attrs, ident } = self;
+        let Self {
+            attrs,
+            generics,
+            ident,
+        } = self;
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
         let id = match &attrs.id {
             Some(id) => quote! { #id },
@@ -23,9 +29,64 @@ impl ToTokens for DeriveRemoteActor {
 
         tokens.extend(quote! {
             #[automatically_derived]
-            impl ::kameo::remote::RemoteActor for #ident {
+            impl #impl_generics ::kameo::remote::RemoteActor for #ident #ty_generics #where_clause {
                 const REMOTE_ID: &'static str = #id;
             }
+
+            const _: () = {
+                #[::kameo::remote::_internal::linkme::distributed_slice(
+                    ::kameo::remote::_internal::REMOTE_ACTORS
+                )]
+                #[linkme(crate = ::kameo::remote::_internal::linkme)]
+                static REG: (
+                    &'static str,
+                    ::kameo::remote::_internal::RemoteActorFns,
+                ) = (
+                    <#ident #ty_generics as ::kameo::remote::RemoteActor>::REMOTE_ID,
+                    ::kameo::remote::_internal::RemoteActorFns {
+                        link: (
+                            |
+                              actor_id: ::kameo::actor::ActorID,
+                              sibbling_id: ::kameo::actor::ActorID,
+                              sibbling_remote_id: ::std::borrow::Cow<'static, str>,
+                            | {
+                                ::std::boxed::Box::pin(::kameo::remote::_internal::link::<
+                                    #ident #ty_generics,
+                                >(
+                                    actor_id,
+                                    sibbling_id,
+                                    sibbling_remote_id,
+                                ))
+                            }) as ::kameo::remote::_internal::RemoteLinkFn,
+                        unlink: (
+                            |
+                              actor_id: ::kameo::actor::ActorID,
+                              sibbling_id: ::kameo::actor::ActorID,
+                            | {
+                                ::std::boxed::Box::pin(::kameo::remote::_internal::unlink::<
+                                    #ident #ty_generics,
+                                >(
+                                    actor_id,
+                                    sibbling_id,
+                                ))
+                            }) as ::kameo::remote::_internal::RemoteUnlinkFn,
+                        signal_link_died: (
+                            |
+                              dead_actor_id: ::kameo::actor::ActorID,
+                              notified_actor_id: ::kameo::actor::ActorID,
+                              stop_reason: kameo::error::ActorStopReason,
+                            | {
+                                ::std::boxed::Box::pin(::kameo::remote::_internal::signal_link_died::<
+                                    #ident #ty_generics,
+                                >(
+                                    dead_actor_id,
+                                    notified_actor_id,
+                                    stop_reason,
+                                ))
+                            }) as ::kameo::remote::_internal::RemoteSignalLinkDiedFn,
+                    },
+                );
+            };
         });
     }
 }
@@ -49,6 +110,7 @@ impl Parse for DeriveRemoteActor {
 
         Ok(DeriveRemoteActor {
             attrs: attrs.unwrap_or_default(),
+            generics: input.generics,
             ident,
         })
     }

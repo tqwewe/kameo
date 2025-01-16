@@ -8,9 +8,12 @@ use tokio::{
 };
 
 #[cfg(feature = "remote")]
-use crate::remote;
-#[cfg(feature = "remote")]
 use std::marker::PhantomData;
+
+#[cfg(feature = "remote")]
+use crate::error::{Infallible, RemoteSendError};
+#[cfg(feature = "remote")]
+use crate::remote;
 
 use crate::{
     error::{self, SendError},
@@ -168,7 +171,7 @@ where
     pub fn is_current(&self) -> bool {
         CURRENT_ACTOR_ID
             .try_with(Clone::clone)
-            .map(|current_actor_id| current_actor_id == self.id())
+            .map(|current_actor_id| current_actor_id == self.id)
             .unwrap_or(false)
     }
 
@@ -350,13 +353,6 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
@@ -367,14 +363,17 @@ where
     /// ```
     #[inline]
     pub async fn link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id() {
+        if self.id == sibbling_ref.id {
             return;
         }
 
         let (mut this_links, mut sibbling_links) =
             tokio::join!(self.links.lock(), sibbling_ref.links.lock());
-        this_links.insert(sibbling_ref.id(), sibbling_ref.weak_signal_mailbox());
-        sibbling_links.insert(self.id, self.weak_signal_mailbox());
+        this_links.insert(
+            sibbling_ref.id,
+            Link::Local(sibbling_ref.weak_signal_mailbox()),
+        );
+        sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
     }
 
     /// Blockingly links two actors as siblings, ensuring they notify each other if either one dies.
@@ -390,13 +389,6 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
@@ -404,21 +396,79 @@ where
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
     /// });
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     ///
     /// [`link`]: ActorRef::link
     #[inline]
     pub fn blocking_link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id() {
+        if self.id == sibbling_ref.id {
             return;
         }
 
         let mut this_links = self.links.blocking_lock();
         let mut sibbling_links = sibbling_ref.links.blocking_lock();
-        this_links.insert(sibbling_ref.id(), sibbling_ref.weak_signal_mailbox());
-        sibbling_links.insert(self.id, self.weak_signal_mailbox());
+        this_links.insert(
+            sibbling_ref.id,
+            Link::Local(sibbling_ref.weak_signal_mailbox()),
+        );
+        sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+    }
+
+    /// Links the local actor with a remote actor, ensuring they notify each other if either one dies.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct MyActor;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct OtherActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
+    ///
+    /// actor_ref.link_remote(&sibbling_ref).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[cfg(feature = "remote")]
+    pub async fn link_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        remote::REMOTE_REGISTRY.lock().await.insert(
+            self.id,
+            remote::RemoteRegistryActorRef {
+                actor_ref: Box::new(self.clone()),
+                signal_mailbox: self.weak_signal_mailbox(),
+                links: self.links.clone(),
+            },
+        );
+
+        self.links.lock().await.insert(
+            sibbling_ref.id,
+            Link::Remote(std::borrow::Cow::Borrowed(B::REMOTE_ID)),
+        );
+        remote::ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .link::<A, B>(
+                self.id.with_hydrate_peer_id(),
+                sibbling_ref.id.with_hydrate_peer_id(),
+            )
+            .await
     }
 
     /// Unlinks two previously linked sibling actors.
@@ -429,34 +479,23 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// actor_ref.unlink(&sibbling_ref).await;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     #[inline]
-    pub async fn unlink<B>(&self, sibbling_ref: &ActorRef<B>)
-    where
-        B: Actor,
-    {
-        if self.id == sibbling_ref.id() {
+    pub async fn unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id {
             return;
         }
 
         let (mut this_links, mut sibbling_links) =
             tokio::join!(self.links.lock(), sibbling_ref.links.lock());
-        this_links.remove(&sibbling_ref.id());
+        this_links.remove(&sibbling_ref.id);
         sibbling_links.remove(&self.id);
     }
 
@@ -474,13 +513,6 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
@@ -489,24 +521,64 @@ where
     ///     actor_ref.blocking_link(&sibbling_ref);
     ///     actor_ref.blocking_unlink(&sibbling_ref);
     /// });
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     ///
     /// [`unlink`]: ActorRef::unlink
     #[inline]
-    pub fn blocking_unlink<B>(&self, sibbling_ref: &ActorRef<B>)
-    where
-        B: Actor,
-    {
-        if self.id == sibbling_ref.id() {
+    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id {
             return;
         }
 
         let mut this_links = self.links.blocking_lock();
         let mut sibbling_links = sibbling_ref.links.blocking_lock();
-        this_links.remove(&sibbling_ref.id());
+        this_links.remove(&sibbling_ref.id);
         sibbling_links.remove(&self.id);
+    }
+
+    /// Unlinks the local actor with a previously linked remote actor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct MyActor;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct OtherActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
+    ///
+    /// actor_ref.unlink_remote(&sibbling_ref).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[cfg(feature = "remote")]
+    pub async fn unlink_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        self.links.lock().await.remove(&sibbling_ref.id);
+        remote::ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<B>(
+                self.id.with_hydrate_peer_id(),
+                sibbling_ref.id.with_hydrate_peer_id(),
+            )
+            .await
     }
 
     /// Attaches a stream of messages to the actor, forwarding each item in the stream.
@@ -821,6 +893,96 @@ impl<A: Actor> RemoteActorRef<A> {
         )
     }
 
+    /// Links two remote actors, ensuring they notify each other if either one dies.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorA;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorB;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_a = RemoteActorRef::<ActorA>::lookup("actor_a").await?.unwrap();
+    /// let actor_b = RemoteActorRef::<ActorB>::lookup("actor_b").await?.unwrap();
+    ///
+    /// actor_a.unlink_remote(&actor_b).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn link_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        let fut_a = remote::ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .link::<A, B>(self.id, sibbling_ref.id);
+        let fut_b = remote::ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .link::<B, A>(sibbling_ref.id, self.id);
+
+        tokio::try_join!(fut_a, fut_b)?;
+
+        Ok(())
+    }
+
+    /// Unlinks two previously linked remote actors.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorA;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorB;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_a = RemoteActorRef::<ActorA>::lookup("actor_a").await?.unwrap();
+    /// let actor_b = RemoteActorRef::<ActorB>::lookup("actor_b").await?.unwrap();
+    ///
+    /// actor_a.unlink_remote(&actor_b).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn unlink_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), RemoteSendError<Infallible>>
+    where
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        let fut_a = remote::ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<B>(self.id, sibbling_ref.id);
+        let fut_b = remote::ActorSwarm::get()
+            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<A>(sibbling_ref.id, self.id);
+
+        tokio::try_join!(fut_a, fut_b)?;
+
+        Ok(())
+    }
+
     pub(crate) fn send_to_swarm(&self, msg: remote::SwarmCommand) {
         self.swarm_tx.send(msg)
     }
@@ -858,7 +1020,7 @@ pub struct WeakActorRef<A: Actor> {
     id: ActorID,
     mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
     abort_handle: AbortHandle,
-    links: Links,
+    pub(crate) links: Links,
     startup_notify: Arc<Semaphore>,
 }
 
@@ -924,12 +1086,19 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
 /// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
 #[derive(Clone, Default)]
 #[allow(missing_debug_implementations)]
-pub(crate) struct Links(Arc<Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>>);
+pub(crate) struct Links(Arc<Mutex<HashMap<ActorID, Link>>>);
 
 impl ops::Deref for Links {
-    type Target = Mutex<HashMap<ActorID, Box<dyn SignalMailbox>>>;
+    type Target = Mutex<HashMap<ActorID, Link>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
+}
+
+#[derive(Clone)]
+pub(crate) enum Link {
+    Local(Box<dyn SignalMailbox>),
+    #[cfg(feature = "remote")]
+    Remote(std::borrow::Cow<'static, str>),
 }

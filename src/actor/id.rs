@@ -91,8 +91,8 @@ impl ActorID {
     ///
     /// An `Option<PeerId>`. `None` indicates a local actor.
     #[cfg(feature = "remote")]
-    pub fn peer_id(&self) -> Option<libp2p::PeerId> {
-        self.peer_id.map(|peer_id| *peer_id)
+    pub fn peer_id(&self) -> Option<&libp2p::PeerId> {
+        self.peer_id.as_deref()
     }
 
     /// Serializes the `ActorID` into a byte vector.

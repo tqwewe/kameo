@@ -121,13 +121,15 @@ where
         id: ActorID,
         reason: ActorStopReason,
     ) -> Option<ActorStopReason> {
-        match AssertUnwindSafe(
-            self.state
-                .on_link_died(self.actor_ref.clone(), id, reason.clone()),
-        )
+        let res = AssertUnwindSafe(self.state.on_link_died(
+            self.actor_ref.clone(),
+            id,
+            reason.clone(),
+        ))
         .catch_unwind()
-        .await
-        {
+        .await;
+        self.actor_ref.links.lock().await.remove(&id);
+        match res {
             Ok(Ok(Some(reason))) => Some(reason),
             Ok(Ok(None)) => None,
             Ok(Err(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))),
@@ -155,6 +157,8 @@ where
             ActorStopReason::LinkDied { id, reason } => {
                 Some(ActorStopReason::LinkDied { id, reason })
             }
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => Some(ActorStopReason::PeerDisconnected),
         }
     }
 

@@ -153,10 +153,6 @@ impl Parse for RemoteMessage {
                 "expected angle bracket arguments",
             ));
         };
-        // let mut trait_path_segments_iter = trait_path.segments.into_iter();
-        // let trait_ident = trait_path_segments_iter.next().ok_or_else(|| {
-        //     syn::Error::new(trait_path_span, "expected trait");
-        // });
 
         Ok(RemoteMessage {
             item_impl,

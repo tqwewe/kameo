@@ -4,8 +4,8 @@ use kameo::{
     actor::ActorID,
     error::RemoteSendError,
     remote::{
-        ActorSwarm, ActorSwarmBehaviourEvent, ActorSwarmHandler, SwarmBehaviour, SwarmRequest,
-        SwarmResponse,
+        ActorSwarm, ActorSwarmBehaviourEvent, ActorSwarmEvent, ActorSwarmHandler, SwarmBehaviour,
+        SwarmRequest, SwarmResponse,
     },
 };
 use libp2p::{
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
     let (actor_swarm, mut swarm_handler) =
-        ActorSwarm::bootstrap_manual(swarm.local_peer_id().clone()).unwrap();
+        ActorSwarm::bootstrap_manual(*swarm.local_peer_id()).unwrap();
 
     actor_swarm.listen_on(format!("/ip4/0.0.0.0/udp/{port}/quic-v1").parse()?);
 
@@ -83,16 +83,37 @@ fn handle_event(
                 .custom_request_response
                 .send_request(&peer_id, CustomRequest::Greet { name });
         }
+        SwarmEvent::ConnectionClosed {
+            peer_id,
+            connection_id,
+            endpoint,
+            num_established,
+            cause,
+        } => {
+            swarm_handler.handle_event(
+                swarm,
+                ActorSwarmEvent::ConnectionClosed {
+                    peer_id,
+                    connection_id,
+                    endpoint,
+                    num_established,
+                    cause,
+                },
+            );
+        }
         SwarmEvent::Behaviour(event) => match event {
-            CustomBehaviourEvent::Kademlia(event) => {
-                swarm_handler.handle_event(swarm, ActorSwarmBehaviourEvent::Kademlia(event))
-            }
-            CustomBehaviourEvent::ActorRequestResponse(event) => {
-                swarm_handler.handle_event(swarm, ActorSwarmBehaviourEvent::RequestResponse(event))
-            }
-            CustomBehaviourEvent::Mdns(event) => {
-                swarm_handler.handle_event(swarm, ActorSwarmBehaviourEvent::Mdns(event))
-            }
+            CustomBehaviourEvent::Kademlia(event) => swarm_handler.handle_event(
+                swarm,
+                ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)),
+            ),
+            CustomBehaviourEvent::ActorRequestResponse(event) => swarm_handler.handle_event(
+                swarm,
+                ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(event)),
+            ),
+            CustomBehaviourEvent::Mdns(event) => swarm_handler.handle_event(
+                swarm,
+                ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(event)),
+            ),
             CustomBehaviourEvent::CustomRequestResponse(request_response::Event::Message {
                 message,
                 ..
@@ -192,6 +213,58 @@ impl SwarmBehaviour for CustomBehaviour {
         )
     }
 
+    fn link(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+        sibbling_remote_id: Cow<'static, str>,
+    ) -> OutboundRequestId {
+        self.actor_request_response.send_request(
+            actor_id.peer_id().unwrap(),
+            SwarmRequest::Link {
+                actor_id,
+                actor_remote_id,
+                sibbling_id,
+                sibbling_remote_id,
+            },
+        )
+    }
+
+    fn unlink(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+    ) -> OutboundRequestId {
+        self.actor_request_response.send_request(
+            actor_id.peer_id().unwrap(),
+            SwarmRequest::Unlink {
+                actor_id,
+                actor_remote_id,
+                sibbling_id,
+            },
+        )
+    }
+
+    fn signal_link_died(
+        &mut self,
+        dead_actor_id: ActorID,
+        notified_actor_id: ActorID,
+        notified_actor_remote_id: Cow<'static, str>,
+        stop_reason: kameo::error::ActorStopReason,
+    ) -> OutboundRequestId {
+        self.actor_request_response.send_request(
+            notified_actor_id.peer_id().unwrap(),
+            SwarmRequest::SignalLinkDied {
+                dead_actor_id,
+                notified_actor_id,
+                notified_actor_remote_id,
+                stop_reason,
+            },
+        )
+    }
+
     fn send_ask_response(
         &mut self,
         channel: ResponseChannel<kameo::remote::SwarmResponse>,
@@ -208,6 +281,33 @@ impl SwarmBehaviour for CustomBehaviour {
     ) -> Result<(), SwarmResponse> {
         self.actor_request_response
             .send_response(channel, SwarmResponse::Tell(result))
+    }
+
+    fn send_link_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<kameo::error::Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.actor_request_response
+            .send_response(channel, SwarmResponse::Link(result))
+    }
+
+    fn send_unlink_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<kameo::error::Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.actor_request_response
+            .send_response(channel, SwarmResponse::Unlink(result))
+    }
+
+    fn send_signal_link_died_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<kameo::error::Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.actor_request_response
+            .send_response(channel, SwarmResponse::SignalLinkDied(result))
     }
 
     fn kademlia_add_address(&mut self, peer: &PeerId, address: Multiaddr) -> kad::RoutingUpdate {

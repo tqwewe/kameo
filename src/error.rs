@@ -318,7 +318,7 @@ pub enum RemoteSendError<E> {
     /// The actor's remote ID was not found.
     UnknownActor {
         /// The remote ID of the actor.
-        actor_remote_id: String,
+        actor_remote_id: std::borrow::Cow<'static, str>,
     },
     /// The message remote ID was not found for the actor.
     UnknownMessage {
@@ -346,6 +346,8 @@ pub enum RemoteSendError<E> {
     /// Failed to deserialize the handler error.
     DeserializeHandlerError(String),
 
+    /// The actor swarm has not been bootstrapped.
+    SwarmNotBootstrapped,
     /// The request could not be sent because a dialing attempt failed.
     DialFailure,
     /// The request timed out before a response was received.
@@ -358,6 +360,8 @@ pub enum RemoteSendError<E> {
     /// It is not known whether the request may have been
     /// received (and processed) by the remote peer.
     ConnectionClosed,
+    /// The remote supports none of the requested protocols.
+    UnsupportedProtocols,
     /// An IO failure happened on an outbound stream.
     #[serde(skip)]
     Io(Option<std::io::Error>),
@@ -396,9 +400,11 @@ impl<E> RemoteSendError<E> {
             RemoteSendError::DeserializeHandlerError(err) => {
                 RemoteSendError::DeserializeHandlerError(err)
             }
+            RemoteSendError::SwarmNotBootstrapped => RemoteSendError::SwarmNotBootstrapped,
             RemoteSendError::DialFailure => RemoteSendError::DialFailure,
             RemoteSendError::NetworkTimeout => RemoteSendError::NetworkTimeout,
             RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
+            RemoteSendError::UnsupportedProtocols => RemoteSendError::UnsupportedProtocols,
             RemoteSendError::Io(err) => RemoteSendError::Io(err),
         }
     }
@@ -441,9 +447,11 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
             DeserializeHandlerError(err) | HandlerError(DeserializeHandlerError(err)) => {
                 RemoteSendError::DeserializeHandlerError(err)
             }
+            SwarmNotBootstrapped | HandlerError(SwarmNotBootstrapped) => SwarmNotBootstrapped,
             DialFailure | HandlerError(DialFailure) => DialFailure,
             NetworkTimeout | HandlerError(NetworkTimeout) => NetworkTimeout,
             ConnectionClosed | HandlerError(ConnectionClosed) => ConnectionClosed,
+            UnsupportedProtocols | HandlerError(UnsupportedProtocols) => UnsupportedProtocols,
             Io(err) | HandlerError(Io(err)) => Io(err),
         }
     }
@@ -500,9 +508,11 @@ where
             RemoteSendError::DeserializeHandlerError(err) => {
                 write!(f, "failed to deserialize handler error: {err}")
             }
+            RemoteSendError::SwarmNotBootstrapped => write!(f, "swarm not bootstrapped"),
             RemoteSendError::DialFailure => write!(f, "dial failure"),
             RemoteSendError::NetworkTimeout => write!(f, "network timeout"),
             RemoteSendError::ConnectionClosed => write!(f, "connection closed"),
+            RemoteSendError::UnsupportedProtocols => write!(f, "unsupported protocols"),
             RemoteSendError::Io(Some(err)) => err.fmt(f),
             RemoteSendError::Io(None) => write!(f, "io error"),
         }
@@ -513,7 +523,7 @@ where
 impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum ActorStopReason {
     /// Actor stopped normally.
     Normal,
@@ -528,6 +538,9 @@ pub enum ActorStopReason {
         /// Actor died reason.
         reason: Box<ActorStopReason>,
     },
+    /// The peer was disconnected.
+    #[cfg(feature = "remote")]
+    PeerDisconnected,
 }
 
 impl fmt::Debug for ActorStopReason {
@@ -541,6 +554,8 @@ impl fmt::Debug for ActorStopReason {
                 .field("id", id)
                 .field("reason", &reason)
                 .finish(),
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => write!(f, "PeerDisconnected"),
         }
     }
 }
@@ -554,6 +569,8 @@ impl fmt::Display for ActorStopReason {
             ActorStopReason::LinkDied { id, reason: _ } => {
                 write!(f, "link {id} died")
             }
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => write!(f, "peer disconnected"),
         }
     }
 }
@@ -645,6 +662,25 @@ impl fmt::Display for PanicError {
         })
         .ok()
         .unwrap_or_else(|| write!(f, "panicked"))
+    }
+}
+
+impl Serialize for PanicError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for PanicError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(PanicError::new(s))
     }
 }
 
