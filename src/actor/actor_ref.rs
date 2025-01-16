@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::Cell, collections::HashMap, fmt, ops, sync::Arc};
+use std::{cell::Cell, collections::HashMap, fmt, ops, sync::Arc};
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
 use tokio::{
@@ -8,15 +8,17 @@ use tokio::{
 };
 
 #[cfg(feature = "remote")]
-use crate::remote;
-#[cfg(feature = "remote")]
 use std::marker::PhantomData;
 
+#[cfg(feature = "remote")]
+use crate::error::{Infallible, RemoteSendError};
+#[cfg(feature = "remote")]
+use crate::remote;
+
 use crate::{
-    error::{self, Infallible, RemoteSendError, SendError},
+    error::{self, SendError},
     mailbox::{bounded::BoundedMailbox, Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
-    remote::{ActorSwarm, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY},
     reply::Reply,
     request::{
         self, AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, TellRequest,
@@ -440,27 +442,27 @@ where
         sibbling_ref: &RemoteActorRef<B>,
     ) -> Result<(), RemoteSendError<Infallible>>
     where
-        A: RemoteActor,
-        B: Actor + RemoteActor,
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
     {
         if self.id == sibbling_ref.id {
             return Ok(());
         }
 
-        REMOTE_REGISTRY.lock().await.insert(
+        remote::REMOTE_REGISTRY.lock().await.insert(
             self.id,
-            RemoteRegistryActorRef {
+            remote::RemoteRegistryActorRef {
                 actor_ref: Box::new(self.clone()),
                 signal_mailbox: self.weak_signal_mailbox(),
                 links: self.links.clone(),
             },
         );
 
-        self.links
-            .lock()
-            .await
-            .insert(sibbling_ref.id, Link::Remote(Cow::Borrowed(B::REMOTE_ID)));
-        ActorSwarm::get()
+        self.links.lock().await.insert(
+            sibbling_ref.id,
+            Link::Remote(std::borrow::Cow::Borrowed(B::REMOTE_ID)),
+        );
+        remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
             .link::<A, B>(
                 self.id.with_hydrate_peer_id(),
@@ -562,15 +564,15 @@ where
         sibbling_ref: &RemoteActorRef<B>,
     ) -> Result<(), RemoteSendError<Infallible>>
     where
-        A: RemoteActor,
-        B: Actor + RemoteActor,
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
     {
         if self.id == sibbling_ref.id {
             return Ok(());
         }
 
         self.links.lock().await.remove(&sibbling_ref.id);
-        ActorSwarm::get()
+        remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<B>(
                 self.id.with_hydrate_peer_id(),
@@ -917,17 +919,17 @@ impl<A: Actor> RemoteActorRef<A> {
         sibbling_ref: &RemoteActorRef<B>,
     ) -> Result<(), RemoteSendError<Infallible>>
     where
-        A: RemoteActor,
-        B: Actor + RemoteActor,
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
     {
         if self.id == sibbling_ref.id {
             return Ok(());
         }
 
-        let fut_a = ActorSwarm::get()
+        let fut_a = remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
             .link::<A, B>(self.id, sibbling_ref.id);
-        let fut_b = ActorSwarm::get()
+        let fut_b = remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
             .link::<B, A>(sibbling_ref.id, self.id);
 
@@ -962,17 +964,17 @@ impl<A: Actor> RemoteActorRef<A> {
         sibbling_ref: &RemoteActorRef<B>,
     ) -> Result<(), RemoteSendError<Infallible>>
     where
-        A: RemoteActor,
-        B: Actor + RemoteActor,
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
     {
         if self.id == sibbling_ref.id {
             return Ok(());
         }
 
-        let fut_a = ActorSwarm::get()
+        let fut_a = remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<B>(self.id, sibbling_ref.id);
-        let fut_b = ActorSwarm::get()
+        let fut_b = remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<A>(sibbling_ref.id, self.id);
 
@@ -1097,5 +1099,6 @@ impl ops::Deref for Links {
 #[derive(Clone)]
 pub(crate) enum Link {
     Local(Box<dyn SignalMailbox>),
-    Remote(Cow<'static, str>),
+    #[cfg(feature = "remote")]
+    Remote(std::borrow::Cow<'static, str>),
 }

@@ -12,6 +12,9 @@ use tokio::{
 #[cfg(feature = "tracing")]
 use tracing::{error, trace};
 
+#[cfg(feature = "remote")]
+use crate::remote;
+
 use crate::{
     actor::{
         kind::{ActorBehaviour, ActorState},
@@ -19,7 +22,6 @@ use crate::{
     },
     error::{ActorStopReason, PanicError, SendError},
     mailbox::{Mailbox, MailboxReceiver, Signal},
-    remote::{ActorSwarm, REMOTE_REGISTRY},
 };
 
 use super::ActorID;
@@ -291,6 +293,7 @@ where
     A: Actor,
     S: ActorState<A>,
 {
+    #[allow(unused_mut)]
     let mut id = actor_ref.id();
     let name = A::name();
     #[cfg(feature = "tracing")]
@@ -341,9 +344,13 @@ where
     let mut actor = state.shutdown().await;
 
     let mut link_notificication_futures = FuturesUnordered::new();
-    id = id.with_hydrate_peer_id();
+    #[cfg(feature = "remote")]
+    {
+        id = id.with_hydrate_peer_id();
+    }
     {
         let mut links = links.lock().await;
+        #[allow(unused_variables)]
         for (link_actor_id, link) in links.drain() {
             match link {
                 Link::Local(mailbox) => {
@@ -351,14 +358,16 @@ where
                     link_notificication_futures.push(
                         async move {
                             if let Err(err) = mailbox.signal_link_died(id, reason).await {
+                                #[cfg(feature = "tracing")]
                                 error!("failed to notify actor a link died: {err}");
                             }
                         }
                         .boxed(),
                     );
                 }
+                #[cfg(feature = "remote")]
                 Link::Remote(notified_actor_remote_id) => {
-                    if let Some(swarm) = ActorSwarm::get() {
+                    if let Some(swarm) = remote::ActorSwarm::get() {
                         let reason = reason.clone();
                         link_notificication_futures.push(
                             async move {
@@ -386,7 +395,8 @@ where
     log_actor_stop_reason(id, name, &reason);
 
     while let Some(()) = link_notificication_futures.next().await {}
-    REMOTE_REGISTRY.lock().await.remove(&id);
+    #[cfg(feature = "remote")]
+    remote::REMOTE_REGISTRY.lock().await.remove(&id);
 
     on_stop_res.unwrap();
 
