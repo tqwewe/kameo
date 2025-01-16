@@ -1229,15 +1229,24 @@ pub enum SwarmRequest {
         /// Indicates whether the message should be sent immediately.
         immediate: bool,
     },
+    /// A request to link two actors together.
     Link {
+        /// Actor ID.
         actor_id: ActorID,
+        /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
+        /// Sibbling ID.
         sibbling_id: ActorID,
+        /// Sibbling remote ID.
         sibbling_remote_id: Cow<'static, str>,
     },
+    /// A request to unlink two actors.
     Unlink {
+        /// Actor ID.
         actor_id: ActorID,
+        /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
+        /// Sibbling ID.
         sibbling_id: ActorID,
     },
     /// A signal notifying a linked actor has died.
@@ -1314,6 +1323,32 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         immediate: bool,
     ) -> OutboundRequestId;
 
+    /// Sends a link request.
+    fn link(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+        sibbling_remote_id: Cow<'static, str>,
+    ) -> OutboundRequestId;
+
+    /// Sends a unlink request.
+    fn unlink(
+        &mut self,
+        actor_id: ActorID,
+        actor_remote_id: Cow<'static, str>,
+        sibbling_id: ActorID,
+    ) -> OutboundRequestId;
+
+    /// Sends a signal notifying that a linked actor has died.
+    fn signal_link_died(
+        &mut self,
+        dead_actor_id: ActorID,
+        notified_actor_id: ActorID,
+        notified_actor_remote_id: Cow<'static, str>,
+        stop_reason: ActorStopReason,
+    ) -> OutboundRequestId;
+
     /// Sends a response to a previously received `ask` request.
     ///
     /// This method handles the result of processing an `ask` request and sends back the appropriate response.
@@ -1332,15 +1367,6 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         result: Result<(), RemoteSendError<Vec<u8>>>,
     ) -> Result<(), SwarmResponse>;
 
-    /// Sends a link request.
-    fn link(
-        &mut self,
-        actor_id: ActorID,
-        actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
-        sibbling_remote_id: Cow<'static, str>,
-    ) -> OutboundRequestId;
-
     /// Sends a response to a previously received `link` request.
     ///
     /// This method handles the result of processing a `link` request and sends back an acknowledgment.
@@ -1350,14 +1376,6 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         result: Result<(), RemoteSendError<Infallible>>,
     ) -> Result<(), SwarmResponse>;
 
-    /// Sends a unlink request.
-    fn unlink(
-        &mut self,
-        actor_id: ActorID,
-        actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
-    ) -> OutboundRequestId;
-
     /// Sends a response to a previously received `unlink` request.
     ///
     /// This method handles the result of processing a `unlink` request and sends back an acknowledgment.
@@ -1366,15 +1384,6 @@ pub trait SwarmBehaviour: NetworkBehaviour {
         channel: ResponseChannel<SwarmResponse>,
         result: Result<(), RemoteSendError<Infallible>>,
     ) -> Result<(), SwarmResponse>;
-
-    /// Sends a signal notifying that a linked actor has died.
-    fn signal_link_died(
-        &mut self,
-        dead_actor_id: ActorID,
-        notified_actor_id: ActorID,
-        notified_actor_remote_id: Cow<'static, str>,
-        stop_reason: ActorStopReason,
-    ) -> OutboundRequestId;
 
     /// Sends a response to a previously received `signal_link_died` request.
     ///
@@ -1441,6 +1450,8 @@ mod behaviour {
 
 pub use behaviour::*;
 
+/// An actor swarm event.
+#[derive(Debug)]
 pub enum ActorSwarmEvent {
     /// A connection with the given peer has been closed, possibly as a result of an error.
     ConnectionClosed {
@@ -1455,6 +1466,7 @@ pub enum ActorSwarmEvent {
         /// Reason for the disconnection, if it was not a successful active close.
         cause: Option<ConnectionError>,
     },
+    /// Network behaviour event.
     Behaviour(ActorSwarmBehaviourEvent),
 }
 
@@ -1527,24 +1539,6 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
         )
     }
 
-    fn send_ask_response(
-        &mut self,
-        channel: ResponseChannel<SwarmResponse>,
-        result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResponse> {
-        self.request_response
-            .send_response(channel, SwarmResponse::Ask(result))
-    }
-
-    fn send_tell_response(
-        &mut self,
-        channel: ResponseChannel<SwarmResponse>,
-        result: Result<(), RemoteSendError<Vec<u8>>>,
-    ) -> Result<(), SwarmResponse> {
-        self.request_response
-            .send_response(channel, SwarmResponse::Tell(result))
-    }
-
     fn link(
         &mut self,
         actor_id: ActorID,
@@ -1563,15 +1557,6 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
         )
     }
 
-    fn send_link_response(
-        &mut self,
-        channel: ResponseChannel<SwarmResponse>,
-        result: Result<(), RemoteSendError<Infallible>>,
-    ) -> Result<(), SwarmResponse> {
-        self.request_response
-            .send_response(channel, SwarmResponse::Link(result))
-    }
-
     fn unlink(
         &mut self,
         actor_id: ActorID,
@@ -1586,15 +1571,6 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
                 sibbling_id,
             },
         )
-    }
-
-    fn send_unlink_response(
-        &mut self,
-        channel: ResponseChannel<SwarmResponse>,
-        result: Result<(), RemoteSendError<Infallible>>,
-    ) -> Result<(), SwarmResponse> {
-        self.request_response
-            .send_response(channel, SwarmResponse::Unlink(result))
     }
 
     fn signal_link_died(
@@ -1613,6 +1589,42 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
                 stop_reason,
             },
         )
+    }
+
+    fn send_ask_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<Vec<u8>, RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::Ask(result))
+    }
+
+    fn send_tell_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Vec<u8>>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::Tell(result))
+    }
+
+    fn send_link_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::Link(result))
+    }
+
+    fn send_unlink_response(
+        &mut self,
+        channel: ResponseChannel<SwarmResponse>,
+        result: Result<(), RemoteSendError<Infallible>>,
+    ) -> Result<(), SwarmResponse> {
+        self.request_response
+            .send_response(channel, SwarmResponse::Unlink(result))
     }
 
     fn send_signal_link_died_response(

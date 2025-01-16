@@ -351,13 +351,6 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
@@ -381,6 +374,67 @@ where
         sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
     }
 
+    /// Blockingly links two actors as siblings, ensuring they notify each other if either one dies.
+    ///
+    /// This method is intended for use cases where you need to link actors in synchronous code.
+    /// For async contexts, [`link`] is preferred.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::thread;
+    /// #
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    ///
+    /// thread::spawn(move || {
+    ///     actor_ref.blocking_link(&sibbling_ref);
+    /// });
+    /// # });
+    /// ```
+    ///
+    /// [`link`]: ActorRef::link
+    #[inline]
+    pub fn blocking_link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id {
+            return;
+        }
+
+        let mut this_links = self.links.blocking_lock();
+        let mut sibbling_links = sibbling_ref.links.blocking_lock();
+        this_links.insert(
+            sibbling_ref.id,
+            Link::Local(sibbling_ref.weak_signal_mailbox()),
+        );
+        sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+    }
+
+    /// Links the local actor with a remote actor, ensuring they notify each other if either one dies.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct MyActor;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct OtherActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
+    ///
+    /// actor_ref.link_remote(&sibbling_ref).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[cfg(feature = "remote")]
     pub async fn link_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
@@ -415,53 +469,6 @@ where
             .await
     }
 
-    /// Blockingly links two actors as siblings, ensuring they notify each other if either one dies.
-    ///
-    /// This method is intended for use cases where you need to link actors in synchronous code.
-    /// For async contexts, [`link`] is preferred.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::thread;
-    /// #
-    /// # #[derive(kameo::Actor)]
-    /// # struct MyActor;
-    /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
-    /// let sibbling_ref = kameo::spawn(MyActor);
-    ///
-    /// thread::spawn(move || {
-    ///     actor_ref.blocking_link(&sibbling_ref);
-    /// });
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    ///
-    /// [`link`]: ActorRef::link
-    #[inline]
-    pub fn blocking_link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
-            return;
-        }
-
-        let mut this_links = self.links.blocking_lock();
-        let mut sibbling_links = sibbling_ref.links.blocking_lock();
-        this_links.insert(
-            sibbling_ref.id,
-            Link::Local(sibbling_ref.weak_signal_mailbox()),
-        );
-        sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
-    }
-
     /// Unlinks two previously linked sibling actors.
     ///
     /// # Example
@@ -470,20 +477,12 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = kameo::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// actor_ref.unlink(&sibbling_ref).await;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     #[inline]
@@ -498,6 +497,66 @@ where
         sibbling_links.remove(&self.id);
     }
 
+    /// Blockingly unlinks two previously linked sibling actors.
+    ///
+    /// This method is intended for use cases where you need to link actors in synchronous code.
+    /// For async contexts, [`unlink`] is preferred.
+    ///
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::thread;
+    /// #
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
+    ///
+    /// thread::spawn(move || {
+    ///     actor_ref.blocking_link(&sibbling_ref);
+    ///     actor_ref.blocking_unlink(&sibbling_ref);
+    /// });
+    /// # });
+    /// ```
+    ///
+    /// [`unlink`]: ActorRef::unlink
+    #[inline]
+    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id {
+            return;
+        }
+
+        let mut this_links = self.links.blocking_lock();
+        let mut sibbling_links = sibbling_ref.links.blocking_lock();
+        this_links.remove(&sibbling_ref.id);
+        sibbling_links.remove(&self.id);
+    }
+
+    /// Unlinks the local actor with a previously linked remote actor.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct MyActor;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct OtherActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
+    ///
+    /// actor_ref.unlink_remote(&sibbling_ref).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    #[cfg(feature = "remote")]
     pub async fn unlink_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
@@ -518,52 +577,6 @@ where
                 sibbling_ref.id.with_hydrate_peer_id(),
             )
             .await
-    }
-
-    /// Blockingly unlinks two previously linked sibling actors.
-    ///
-    /// This method is intended for use cases where you need to link actors in synchronous code.
-    /// For async contexts, [`unlink`] is preferred.
-    ///
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use std::thread;
-    /// #
-    /// # #[derive(kameo::Actor)]
-    /// # struct MyActor;
-    /// #
-    /// # struct Msg;
-    /// #
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
-    /// let sibbling_ref = kameo::spawn(MyActor);
-    ///
-    /// thread::spawn(move || {
-    ///     actor_ref.blocking_link(&sibbling_ref);
-    ///     actor_ref.blocking_unlink(&sibbling_ref);
-    /// });
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    ///
-    /// [`unlink`]: ActorRef::unlink
-    #[inline]
-    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
-            return;
-        }
-
-        let mut this_links = self.links.blocking_lock();
-        let mut sibbling_links = sibbling_ref.links.blocking_lock();
-        this_links.remove(&sibbling_ref.id);
-        sibbling_links.remove(&self.id);
     }
 
     /// Attaches a stream of messages to the actor, forwarding each item in the stream.
@@ -878,6 +891,27 @@ impl<A: Actor> RemoteActorRef<A> {
         )
     }
 
+    /// Links two remote actors, ensuring they notify each other if either one dies.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorA;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorB;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_a = RemoteActorRef::<ActorA>::lookup("actor_a").await?.unwrap();
+    /// let actor_b = RemoteActorRef::<ActorB>::lookup("actor_b").await?.unwrap();
+    ///
+    /// actor_a.unlink_remote(&actor_b).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
     pub async fn link_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
@@ -902,6 +936,27 @@ impl<A: Actor> RemoteActorRef<A> {
         Ok(())
     }
 
+    /// Unlinks two previously linked remote actors.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use kameo::actor::RemoteActorRef;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorA;
+    /// #
+    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # struct ActorB;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// let actor_a = RemoteActorRef::<ActorA>::lookup("actor_a").await?.unwrap();
+    /// let actor_b = RemoteActorRef::<ActorB>::lookup("actor_b").await?.unwrap();
+    ///
+    /// actor_a.unlink_remote(&actor_b).await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
     pub async fn unlink_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
