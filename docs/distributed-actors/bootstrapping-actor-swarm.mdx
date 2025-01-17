@@ -25,6 +25,16 @@ let actor_swarm = ActorSwarm::bootstrap_with_identity(keypair)?;
 
 The `Keypair` generates a cryptographic identity for the node. This is useful for secure, verifiable communication between peers. The node will now be identified by its `PeerId`, derived from the keypair.
 
+## Bootstrapping with Custom Behaviour
+
+For more advanced use cases such as custom swarm configurations, or entirely custom behaviour, the actor swarm can be bootstrapped with the more flexible methods:
+
+- `ActorSwarm::bootstrap_with_behaviour` for providing a custom behaviour.
+- `ActorSwarm::bootstrap_with_swarm` for providing a custom swarm.
+- `ActorSwarm::bootstrap_manual` for extremely manual processing of the actor swarm. (see [`examples/manual_swarm.rs`])
+
+[`examples/manual_swarm.rs`]: https://github.com/tqwewe/kameo/blob/main/examples/manual_swarm.rs
+
 ## Listening on a Multiaddress
 
 After bootstrapping the swarm, you need to instruct the node to listen on a specific network address. Kameo uses libp2p’s **multiaddress** format, which allows nodes to specify how they can be reached over the network. Multiaddresses define the protocol (e.g., TCP or QUIC) and the IP address/port combination.
