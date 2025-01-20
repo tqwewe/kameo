@@ -2,7 +2,6 @@ use core::task;
 use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
 use futures::{ready, stream::FuturesUnordered, Future, FutureExt};
-use internment::Intern;
 use libp2p::{
     core::{transport::ListenerId, ConnectedPoint},
     identity::Keypair,
@@ -67,7 +66,7 @@ static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
 #[derive(Clone, Debug)]
 pub struct ActorSwarm {
     swarm_tx: SwarmSender,
-    local_peer_id: Intern<PeerId>,
+    local_peer_id: PeerId,
 }
 
 impl ActorSwarm {
@@ -141,7 +140,7 @@ impl ActorSwarm {
     pub fn bootstrap_with_swarm(
         mut swarm: Swarm<ActorSwarmBehaviour>,
     ) -> Result<&'static Self, BootstrapError> {
-        let local_peer_id = Intern::new(*swarm.local_peer_id());
+        let local_peer_id = *swarm.local_peer_id();
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let swarm_tx = SwarmSender(cmd_tx);
 
@@ -172,7 +171,6 @@ impl ActorSwarm {
     /// This is for advanced cases and provides full control, returning an `ActorSwarmBehaviour` instance which
     /// should be used to process the swarm manually.
     pub fn bootstrap_manual(local_peer_id: PeerId) -> Option<(&'static Self, ActorSwarmHandler)> {
-        let local_peer_id = Intern::new(local_peer_id);
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let swarm_tx = SwarmSender(cmd_tx);
 
@@ -236,10 +234,6 @@ impl ActorSwarm {
     /// ## Returns
     /// A reference to the local `PeerId`.
     pub fn local_peer_id(&self) -> &PeerId {
-        &self.local_peer_id
-    }
-
-    pub(crate) fn local_peer_id_intern(&self) -> &Intern<PeerId> {
         &self.local_peer_id
     }
 
@@ -362,10 +356,8 @@ impl ActorSwarm {
         actor_ref: ActorRef<A>,
         name: String,
     ) -> impl Future<Output = Result<(), RegistryError>> {
-        let actor_registration = ActorRegistration::new(
-            actor_ref.id().with_hydrate_peer_id(),
-            Cow::Borrowed(A::REMOTE_ID),
-        );
+        let actor_registration =
+            ActorRegistration::new(actor_ref.id(), Cow::Borrowed(A::REMOTE_ID));
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Register {
@@ -379,7 +371,7 @@ impl ActorSwarm {
                     let signal_mailbox = actor_ref.weak_signal_mailbox();
                     let links = actor_ref.links.clone();
                     REMOTE_REGISTRY.lock().await.insert(
-                        actor_ref.id().with_hydrate_peer_id(),
+                        actor_ref.id(),
                         RemoteRegistryActorRef {
                             actor_ref: Box::new(actor_ref),
                             signal_mailbox,
@@ -1039,7 +1031,7 @@ pub enum SwarmCommand {
     /// An actor ask request.
     Ask {
         /// Peer ID.
-        peer_id: Intern<PeerId>,
+        peer_id: PeerId,
         /// Actor ID.
         actor_id: ActorID,
         /// Actor remote ID.
@@ -1060,7 +1052,7 @@ pub enum SwarmCommand {
     /// An actor tell request.
     Tell {
         /// Peer ID.
-        peer_id: Intern<PeerId>,
+        peer_id: PeerId,
         /// Actor ID.
         actor_id: ActorID,
         /// Actor remote ID.
@@ -1544,7 +1536,7 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
         sibbling_remote_id: Cow<'static, str>,
     ) -> OutboundRequestId {
         self.request_response.send_request(
-            actor_id.peer_id().unwrap(),
+            actor_id.peer_id().expect("swarm should be bootstrapped"),
             SwarmRequest::Link {
                 actor_id,
                 actor_remote_id,

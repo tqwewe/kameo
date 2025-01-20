@@ -3,7 +3,7 @@ use std::{future::IntoFuture, marker::PhantomData, time::Duration};
 use tokio::{sync::oneshot, time::timeout};
 
 #[cfg(feature = "remote")]
-use crate::remote::{ActorSwarm, RemoteActor, RemoteMessage, SwarmCommand, SwarmResponse};
+use crate::remote::{RemoteActor, RemoteMessage, SwarmCommand, SwarmResponse};
 
 use crate::{
     actor,
@@ -955,10 +955,9 @@ where
     let actor_id = actor_ref.id();
     let (reply_tx, reply_rx) = oneshot::channel();
     actor_ref.send_to_swarm(SwarmCommand::Ask {
-        peer_id: actor_id
-            .peer_id_intern()
-            .cloned()
-            .unwrap_or_else(|| *ActorSwarm::get().unwrap().local_peer_id_intern()),
+        peer_id: *actor_id
+            .peer_id()
+            .expect("actor swarm should be bootstrapped"),
         actor_id,
         actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
         message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
