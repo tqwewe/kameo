@@ -344,10 +344,6 @@ where
     let mut actor = state.shutdown().await;
 
     let mut link_notificication_futures = FuturesUnordered::new();
-    #[cfg(feature = "remote")]
-    {
-        id = id.with_hydrate_peer_id();
-    }
     {
         let mut links = links.lock().await;
         #[allow(unused_variables)]

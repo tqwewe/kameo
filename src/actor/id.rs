@@ -1,8 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicU64};
 
-#[cfg(feature = "remote")]
-use internment::Intern;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ActorIDFromBytesError;
@@ -18,9 +16,8 @@ static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ActorID {
     sequence_id: u64,
-    /// None indicates a local actor; the local peer ID should be used in this case.
     #[cfg(feature = "remote")]
-    peer_id: Option<Intern<libp2p::PeerId>>,
+    peer_id: PeerIdKind,
 }
 
 impl ActorID {
@@ -40,7 +37,7 @@ impl ActorID {
         ActorID {
             sequence_id,
             #[cfg(feature = "remote")]
-            peer_id: ActorSwarm::get().map(|swarm| *swarm.local_peer_id_intern()),
+            peer_id: PeerIdKind::Local,
         }
     }
 
@@ -58,7 +55,7 @@ impl ActorID {
     pub fn new_with_peer_id(sequence_id: u64, peer_id: libp2p::PeerId) -> Self {
         ActorID {
             sequence_id,
-            peer_id: Some(Intern::new(peer_id)),
+            peer_id: PeerIdKind::PeerId(peer_id),
         }
     }
 
@@ -89,10 +86,10 @@ impl ActorID {
     ///
     /// # Returns
     ///
-    /// An `Option<PeerId>`. `None` indicates a local actor.
+    /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no [`ActorSwarm`] has been bootstrapped.
     #[cfg(feature = "remote")]
     pub fn peer_id(&self) -> Option<&libp2p::PeerId> {
-        self.peer_id.as_deref()
+        self.peer_id.peer_id()
     }
 
     /// Serializes the `ActorID` into a byte vector.
@@ -109,6 +106,7 @@ impl ActorID {
         #[cfg(feature = "remote")]
         let peer_id_bytes = self
             .peer_id
+            .peer_id()
             .map(|peer_id| peer_id.to_bytes())
             .or_else(|| ActorSwarm::get().map(|swarm| swarm.local_peer_id().to_bytes()));
         #[cfg(feature = "remote")]
@@ -139,9 +137,9 @@ impl ActorID {
         // Extract the peer id
         #[cfg(feature = "remote")]
         let peer_id = if bytes.len() > 8 {
-            Some(Intern::new(libp2p::PeerId::from_bytes(&bytes[8..])?))
+            PeerIdKind::PeerId(libp2p::PeerId::from_bytes(&bytes[8..])?)
         } else {
-            None
+            PeerIdKind::Local
         };
 
         Ok(ActorID {
@@ -149,34 +147,6 @@ impl ActorID {
             #[cfg(feature = "remote")]
             peer_id,
         })
-    }
-
-    /// Returns the interned `PeerId` associated with this `ActorID`, if any.
-    ///
-    /// This method is primarily for internal use.
-    ///
-    /// # Returns
-    ///
-    /// An `Option<&Intern<PeerId>>`. `None` indicates a local actor.
-    #[cfg(feature = "remote")]
-    pub(crate) fn peer_id_intern(&self) -> Option<&Intern<libp2p::PeerId>> {
-        self.peer_id.as_ref()
-    }
-
-    /// Ensures the `ActorID` has an associated `peer_id`.
-    ///
-    /// If the `ActorID` doesn't have a `peer_id`, this method associates it with the local `PeerId`.
-    /// This method is primarily for internal use.
-    ///
-    /// # Returns
-    ///
-    /// An `ActorID` with a guaranteed `peer_id`.
-    #[cfg(feature = "remote")]
-    pub(crate) fn with_hydrate_peer_id(mut self) -> ActorID {
-        if self.peer_id.is_none() {
-            self.peer_id = Some(*ActorSwarm::get().unwrap().local_peer_id_intern());
-        }
-        self
     }
 }
 
@@ -186,7 +156,7 @@ impl fmt::Display for ActorID {
         return write!(f, "ActorID({})", self.sequence_id);
 
         #[cfg(feature = "remote")]
-        match self.peer_id {
+        match self.peer_id.peer_id() {
             Some(peer_id) => write!(f, "ActorID({}, {peer_id})", self.sequence_id),
             None => write!(f, "ActorID({}, local)", self.sequence_id),
         }
@@ -196,7 +166,12 @@ impl fmt::Display for ActorID {
 impl fmt::Debug for ActorID {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[cfg(feature = "remote")]
-        return write!(f, "ActorID({:?}, {:?})", self.sequence_id, self.peer_id);
+        return write!(
+            f,
+            "ActorID({:?}, {:?})",
+            self.sequence_id,
+            self.peer_id.peer_id()
+        );
 
         #[cfg(not(feature = "remote"))]
         return write!(f, "ActorID({:?})", self.sequence_id);
@@ -226,5 +201,22 @@ impl<'de> Deserialize<'de> for ActorID {
             #[cfg(feature = "remote")]
             err @ ActorIDFromBytesError::ParsePeerID(_) => serde::de::Error::custom(err),
         })
+    }
+}
+
+#[cfg(feature = "remote")]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum PeerIdKind {
+    Local,
+    PeerId(libp2p::PeerId),
+}
+
+#[cfg(feature = "remote")]
+impl PeerIdKind {
+    fn peer_id(&self) -> Option<&libp2p::PeerId> {
+        match self {
+            PeerIdKind::Local => ActorSwarm::get().map(ActorSwarm::local_peer_id),
+            PeerIdKind::PeerId(peer_id) => Some(peer_id),
+        }
     }
 }

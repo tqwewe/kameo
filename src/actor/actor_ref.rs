@@ -464,10 +464,7 @@ where
         );
         remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(
-                self.id.with_hydrate_peer_id(),
-                sibbling_ref.id.with_hydrate_peer_id(),
-            )
+            .link::<A, B>(self.id, sibbling_ref.id)
             .await
     }
 
@@ -574,10 +571,7 @@ where
         self.links.lock().await.remove(&sibbling_ref.id);
         remote::ActorSwarm::get()
             .ok_or(RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(
-                self.id.with_hydrate_peer_id(),
-                sibbling_ref.id.with_hydrate_peer_id(),
-            )
+            .unlink::<B>(self.id, sibbling_ref.id)
             .await
     }
 
