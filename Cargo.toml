@@ -56,6 +56,14 @@ tokio-stream = { version = "0.1.15", features = ["time"] }
 tokio-test = "0.4.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
+[[example]]
+name = "remote"
+required-features = ["remote"]
+
+[[example]]
+name = "manual_swarm"
+required-features = ["remote"]
+
 [[bench]]
 name = "fibonacci"
 harness = false
