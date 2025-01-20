@@ -59,6 +59,9 @@ use crate::{
 
 use super::{ActorID, ActorRef};
 
+type SubscriberMap<M> =
+    HashMap<ActorID, (Box<dyn MessageSubscriber<M> + Send + Sync>, fn(&M) -> bool)>;
+
 /// A publish-subscribe (pubsub) actor that allows message broadcasting to multiple subscribers.
 ///
 /// `PubSub` can be used as a standalone object or spawned as an actor. When spawned, messages can
@@ -67,7 +70,7 @@ use super::{ActorID, ActorRef};
 /// to manage it directly or interact with it via messages.
 #[allow(missing_debug_implementations)]
 pub struct PubSub<M> {
-    subscribers: HashMap<ActorID, (Box<dyn MessageSubscriber<M> + Send + Sync>, fn(&M) -> bool)>,
+    subscribers: SubscriberMap<M>,
 }
 
 impl<M> PubSub<M> {
@@ -109,12 +112,10 @@ impl<M> PubSub<M> {
             self.subscribers
                 .iter()
                 .filter_map(|(id, (subscriber, filter))| {
-                    if filter(&msg) {
+                    filter(&msg).then_some({
                         let msg = msg.clone();
-                        Some(async move { (*id, subscriber.tell(msg).await) })
-                    } else {
-                        None
-                    }
+                        async move { (*id, subscriber.tell(msg).await) }
+                    })
                 }),
         )
         .await;
