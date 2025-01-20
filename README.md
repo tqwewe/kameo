@@ -164,6 +164,10 @@ If you find Kameo useful and would like to support its development, please consi
 
 A huge thank you to [**Huly Labs**] and [**Caido Community**] for supporting Kameo's development! 💖
 
+[![Huly Labs](https://avatars.githubusercontent.com/u/87086734?s=100&v=4)](https://huly.io/)
+&nbsp;&nbsp;&nbsp;
+[![Caido Community](https://avatars.githubusercontent.com/u/168573261?s=100&v=4)](https://github.com/caido-community)
+
 [**Huly Labs**]: https://huly.io/
 [**Caido Community**]: https://github.com/caido-community
 
