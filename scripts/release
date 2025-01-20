@@ -24,7 +24,7 @@ echo "Updating Cargo.toml package version to $NEW_VERSION"
 sed -i '' '/^\[package\]/,/^\[/{s/^version = ".*"$/version = "'"$NEW_VERSION"'"/;}' ./Cargo.toml
 
 echo "Updating Cargo.toml kameo_macros dependency version to $NEW_VERSION"
-sed -i '' 's/\(kameo_macros = { version = "\)[^"]*\(", path = ".\/macros" }\)/\1'"$NEW_VERSION"'\2/' ./Cargo.toml
+sed -E -i '' 's/(kameo_macros = { version = ")[^"]*(")/\1'$NEW_VERSION'\2/' ./Cargo.toml
 
 echo "Updating kameo macros Cargo.toml package version to $NEW_VERSION"
 sed -i '' '/^\[package\]/,/^\[/{s/^version = ".*"$/version = "'"$NEW_VERSION"'"/;}' ./macros/Cargo.toml
@@ -32,11 +32,18 @@ sed -i '' '/^\[package\]/,/^\[/{s/^version = ".*"$/version = "'"$NEW_VERSION"'"/
 echo "Updating README.md version to $MAJOR_MINOR_VERSION"
 sed -i '' 's/\(kameo *= *"\)[^"]*\(".*\)/\1'"$MAJOR_MINOR_VERSION"'\2/' README.md
 
+echo "Updating getting-started.mdx version to $MAJOR_MINOR_VERSION"
+sed -i '' 's/\(kameo *= *"\)[^"]*\(".*\)/\1'"$MAJOR_MINOR_VERSION"'\2/' ./docs/getting-started.mdx
+
+read -p "Updated changelog and versions, press any key to publish"
+
 echo "Publishing kameo_macros version $NEW_VERSION"
 cargo publish -p kameo_macros --allow-dirty
 
 echo "Publishing kameo version $NEW_VERSION"
 cargo publish -p kameo --allow-dirty
+
+read -p "Published to crates io, press any key to commit bump"
 
 echo "Creating bump git commit"
 git add Cargo.toml macros/Cargo.toml CHANGELOG.md README.md
@@ -61,6 +68,8 @@ sed -i '' '/^\[.*\]:.*$/,$d' CHANGELOG-Release.md
 
 # Append the footer with the extracted release date
 echo '---\n\nSee the full [CHANGELOG.md](https://github.com/tqwewe/kameo/blob/main/CHANGELOG.md#'"$VERSION_LINK"'---'"$RELEASE_DATE"')' >> CHANGELOG-Release.md
+
+read -p "Created release notes file, press any key to publish GH release"
 
 echo "Creating GitHub release with changelog"
 gh release create "v$NEW_VERSION" -F CHANGELOG-Release.md
