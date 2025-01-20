@@ -826,13 +826,11 @@ impl ActorSwarmHandler {
             },
             ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
                 request_response::Event::Message {
-                    peer: _,
                     message:
                         request_response::Message::Request {
-                            request_id: _,
-                            request,
-                            channel,
+                            request, channel, ..
                         },
+                    ..
                 },
             )) => match request {
                 SwarmRequest::Ask {
@@ -931,12 +929,12 @@ impl ActorSwarmHandler {
             },
             ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
                 request_response::Event::Message {
-                    peer: _,
                     message:
                         request_response::Message::Response {
                             request_id,
                             response,
                         },
+                    ..
                 },
             )) => {
                 if let Some(tx) = self.requests.remove(&request_id) {
