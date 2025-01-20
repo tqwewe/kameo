@@ -12,6 +12,7 @@
 //! - **Publish-Subscribe Pattern**: Actors can subscribe to the `PubSub` actor to receive broadcast messages.
 //! - **Message Broadcasting**: Messages published to the `PubSub` actor are sent to all subscribed actors.
 //! - **Subscriber Management**: Actors can subscribe and unsubscribe dynamically, allowing flexible message routing.
+//! - **Message Filtering**: Messages can be filtered out with a filter-function to allow topic subscription or conditional sending.
 //!
 //! # Example
 //!
@@ -172,7 +173,38 @@ impl<M> PubSub<M> {
             .insert(actor_ref.id(), (Box::new(actor_ref), |_| true));
     }
 
+    /// Subscribes an actor to receive only messages published by the pubsub actor that pass the given
+    /// filter function.
     ///
+    /// Once subscribed, the actor will receive only the messages sent to the pubsub actor via the `publish` method where
+    /// the given filter function returns `true`.
+    /// The actor reference is stored in the list of subscribers, and messages are sent to the actor asynchronously.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use kameo::Actor;
+    /// use kameo::actor::pubsub::PubSub;
+    /// # use kameo::message::{Context, Message};
+    ///
+    /// # #[derive(Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # impl Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// #[derive(Clone)]
+    /// struct Msg(String);
+    ///
+    /// # tokio_test::block_on(async {
+    /// let mut pubsub = PubSub::new();
+    ///
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// pubsub.subscribe_filter(actor_ref, |m| m.0.starts_with("my-topic:"));
+    /// # })
+    /// ```
     #[inline]
     pub fn subscribe_filter<A>(&mut self, actor_ref: ActorRef<A>, filter: fn(&M) -> bool)
     where
@@ -243,6 +275,12 @@ where
     }
 }
 
+/// A message used to subscribe an actor and filter a bessage before sending to a `PubSub` actor.
+///
+/// This struct wraps an `ActorRef` and is used to subscribe an actor to a pubsub actor. Before sending
+/// the message is passed to the given function and only sent if this function returns `true`.
+///
+/// Once subscribed, the actor will receive all published and unfiltered messages from the pubsub actor.
 #[derive(Clone, Debug)]
 pub struct SubscribeFilter<A: Actor, M: Send + 'static>(pub ActorRef<A>, pub fn(&M) -> bool);
 
