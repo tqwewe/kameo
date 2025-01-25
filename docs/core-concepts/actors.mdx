@@ -9,7 +9,7 @@ The core of Kameo is its actors. Actors are objects that encapsulate state and b
 The `Actor` trait defines the essential functionality and lifecycle hooks for an actor in Kameo. Implementing this trait allows you to create custom actors tailored to your application's requirements. Here are the key components of the `Actor` trait:
 
 - **Lifecycle Hooks**: Kameo provides several hooks (`on_start`, `on_stop`, `on_panic`, `on_link_died`) that are called at different points in an actor's lifecycle. These hooks offer points of intervention where custom behavior can be implemented, such as initialization, cleanup, and error handling.
-- **Mailbox**: Each actor has a mailbox (`type Mailbox`), which can be bounded or unbounded. The mailbox is where incoming messages are queued before being processed by the actor. Bounded mailboxes help in applying backpressure, preventing the system from being overwhelmed by too many message
+- **Mailbox**: Each actor has a mailbox (`type Mailbox`), which can be bounded or unbounded. The mailbox is where incoming messages are queued before being processed by the actor. Bounded mailboxes help in applying backpressure, preventing the system from being overwhelmed by too many messages.
 - **Messaging**: Actors communicate by sending messages to each other. When an actor is spawned, it returns an `ActorRef`, a reference to the actor that can be used to send messages to it. Messages are sent asynchronously and are processed sequentially by the receiving actor.
 - **Supervision**: Actors can supervise other actors, allowing for hierarchical error handling and recovery strategies. The `on_panic` and `on_link_died` hooks are integral to this, enabling actors to respond to failures in their child actors, as well as themselves.
 
