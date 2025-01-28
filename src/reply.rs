@@ -23,7 +23,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
     fmt,
     marker::PhantomData,
     num::{
@@ -312,10 +312,15 @@ impl_infallible_reply!([
     {const N: usize, T: 'static + Send} [T; N],
     {T: 'static + Send + Sync} &'static [T],
     {T: 'static + Send} &'static mut T,
-    {T: 'static + Send} Vec<T>,
     {T: 'static + Send} Box<T>,
+    {T: 'static + Send} Vec<T>,
+    {T: 'static + Send} VecDeque<T>,
+    {T: 'static + Send} LinkedList<T>,
     {K: 'static + Send, V: 'static + Send} HashMap<K, V>,
+    {K: 'static + Send, V: 'static + Send} BTreeMap<K, V>,
     {T: 'static + Send} HashSet<T>,
+    {T: 'static + Send} BTreeSet<T>,
+    {T: 'static + Send} BinaryHeap<T>,
     NonZeroI8,
     NonZeroI16,
     NonZeroI32,
