@@ -104,7 +104,7 @@ pub trait TryMessageSendSync {
     /// Error value.
     type Error;
 
-    /// Attemps to send a message synchronously without waiting for mailbox capacity.
+    /// Attempts to send a message synchronously without waiting for mailbox capacity.
     fn try_send_sync(self) -> Result<Self::Ok, Self::Error>;
 }
 
