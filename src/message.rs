@@ -1,6 +1,6 @@
-//! Messaging infrastructure for actor communication in kameo.
+//! Messaging infrastructure for actor communication in Kameo.
 //!
-//! This module provides the constructs necessary for handling messages within kameo,
+//! This module provides the constructs necessary for handling messages within Kameo,
 //! defining how actors communicate and interact. It equips actors with the ability to receive and respond
 //! to both commands that might change their internal state and requests for information which do not alter their state.
 //!
@@ -101,7 +101,7 @@ where
     /// is a marker type indicating that the message handler will delegate the task of replying to another part of the
     /// system. It should be returned by the message handler to signify this intention. The `ReplySender`, if present,
     /// should be used to actually send the response back to the caller. The `ReplySender` will not be present if the
-    /// message was sent as a "tell" request (no repsonse is needed by the caller).
+    /// message was sent as a "tell" request (no response is needed by the caller).
     ///
     /// # Usage
     ///

@@ -13,7 +13,7 @@ use crate::{
 
 use super::{Mailbox, MailboxReceiver, Signal, SignalMailbox, WeakMailbox};
 
-/// An unbounded mailbox, where the sending messages to a full mailbox causes backpressure.
+/// A bounded mailbox, where sending messages to a full mailbox causes backpressure.
 pub struct BoundedMailbox<A: Actor>(pub(crate) mpsc::Sender<Signal<A>>);
 
 impl<A: Actor> BoundedMailbox<A> {

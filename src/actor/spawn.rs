@@ -343,7 +343,7 @@ where
 
     let mut actor = state.shutdown().await;
 
-    let mut link_notificication_futures = FuturesUnordered::new();
+    let mut link_notification_futures = FuturesUnordered::new();
     {
         let mut links = links.lock().await;
         #[allow(unused_variables)]
@@ -351,7 +351,7 @@ where
             match link {
                 Link::Local(mailbox) => {
                     let reason = reason.clone();
-                    link_notificication_futures.push(
+                    link_notification_futures.push(
                         async move {
                             if let Err(err) = mailbox.signal_link_died(id, reason).await {
                                 #[cfg(feature = "tracing")]
@@ -365,7 +365,7 @@ where
                 Link::Remote(notified_actor_remote_id) => {
                     if let Some(swarm) = remote::ActorSwarm::get() {
                         let reason = reason.clone();
-                        link_notificication_futures.push(
+                        link_notification_futures.push(
                             async move {
                                 let res = swarm
                                     .signal_link_died(
@@ -391,7 +391,7 @@ where
     let on_stop_res = actor.on_stop(actor_ref, reason.clone()).await;
     log_actor_stop_reason(id, name, &reason);
 
-    while let Some(()) = link_notificication_futures.next().await {}
+    while let Some(()) = link_notification_futures.next().await {}
     #[cfg(feature = "remote")]
     remote::REMOTE_REGISTRY.lock().await.remove(&id);
 

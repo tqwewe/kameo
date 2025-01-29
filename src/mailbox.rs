@@ -55,7 +55,7 @@ pub trait MailboxReceiver<A: Actor>: Send + 'static {
     fn recv(&mut self) -> impl Future<Output = Option<Signal<A>>> + Send + '_;
 }
 
-/// A weak mailbox which can be upraded.
+/// A weak mailbox which can be upgraded.
 pub trait WeakMailbox: SignalMailbox + Clone + Send + Sync {
     /// Strong mailbox type.
     type StrongMailbox;

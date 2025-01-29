@@ -50,7 +50,7 @@ Kameo is not just for distributed applications; it's equally powerful for local 
 
 ### Installation
 
-Add kameo as a dependency in your `Cargo.toml` file:
+Add Kameo as a dependency in your `Cargo.toml` file:
 
 ```toml
 [dependencies]

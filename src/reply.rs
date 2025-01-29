@@ -1,4 +1,4 @@
-//! Constructs for handling replies and errors in kameo's actor communication.
+//! Constructs for handling replies and errors in Kameo's actor communication.
 //!
 //! This module provides the [`Reply`] trait and associated structures for managing message replies within the actor
 //! system. It enables actors to communicate effectively, handling both successful outcomes and errors through a
@@ -6,7 +6,7 @@
 //!
 //! **Reply Trait Overview**
 //!
-//! The `Reply` trait plays a crucial role in kameo by defining how actors respond to messages.
+//! The `Reply` trait plays a crucial role in Kameo by defining how actors respond to messages.
 //! It is implemented for a variety of common types, facilitating easy adoption and use.
 //! Special attention is given to the `Result` and [`DelegatedReply`] types:
 //! - Implementations for `Result` allow errors returned by actor handlers to be communicated back as
@@ -49,20 +49,20 @@ use crate::{
     message::{BoxDebug, BoxReply},
 };
 
-/// A boxed reply sender which will be downcasted to the correct type when receiving a reply.
+/// A boxed reply sender which will be downcast to the correct type when receiving a reply.
 ///
 /// This is reserved for advanced use cases, and misuse of this can result in panics.
 pub type BoxReplySender = oneshot::Sender<Result<BoxReply, BoxSendError>>;
 
-/// A deligated reply that has been forwarded to another actor.
+/// A delegated reply that has been forwarded to another actor.
 pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>>>;
 
 /// A reply value.
 ///
-/// If an Err is returned by a handler, and is unhandled by the caller (ie, the message was sent asyncronously with `tell`),
+/// If an Err is returned by a handler, and is unhandled by the caller (ie, the message was sent asynchronously with `tell`),
 /// then the error is treated as a panic in the actor.
 ///
-/// This is implemented for all many std lib types, and can be implemented on custom types manually or with the derive
+/// This is implemented for all std lib types, and can be implemented on custom types manually or with the derive
 /// macro.
 ///
 /// # Example
@@ -138,7 +138,7 @@ where
 
 /// A mechanism for sending replies back to the original requester in a message exchange.
 ///
-/// `ReplySender` encapsulates the functionality to send a response back to whereever
+/// `ReplySender` encapsulates the functionality to send a response back to wherever
 /// a request was initiated. It is typically used in scenarios where the
 /// processing of a request is delegated to another actor within the system.
 /// Upon completion of the request handling, `ReplySender` is used to send the result back,

@@ -594,7 +594,7 @@ impl PanicError {
         PanicError(Arc::new(Mutex::new(err)))
     }
 
-    /// Calls the passed closure `f` with an option containing the boxed any type downcasted into a `Cow<'static, str>`,
+    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a `Cow<'static, str>`,
     /// or `None` if it's not a string type.
     pub fn with_str<F, R>(
         &self,
@@ -611,7 +611,7 @@ impl PanicError {
         })
     }
 
-    /// Calls the passed closure `f` with the inner type downcasted into `T`, otherwise returns `None`.
+    /// Calls the passed closure `f` with the inner type downcast into `T`, otherwise returns `None`.
     pub fn with_downcast_ref<T, F, R>(
         &self,
         f: F,
@@ -646,13 +646,13 @@ impl fmt::Display for PanicError {
                 return write!(f, "panicked: {s}");
             }
 
-            // Types are `BoxError` if the panic occured because of an actor hook returning an error
+            // Types are `BoxError` if the panic occurred because of an actor hook returning an error
             let box_err = any.downcast_ref::<BoxError>();
             if let Some(err) = box_err {
                 return write!(f, "panicked: {err}");
             }
 
-            // Types are `BoxDebug` if the panic occured as a result of a `tell` message returning an error
+            // Types are `BoxDebug` if the panic occurred as a result of a `tell` message returning an error
             let box_err = any.downcast_ref::<BoxDebug>();
             if let Some(err) = box_err {
                 return write!(f, "panicked: {:?}", Err::<(), _>(err));
