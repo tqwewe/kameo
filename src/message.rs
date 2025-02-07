@@ -115,7 +115,6 @@ where
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
-    ///
     /// struct Msg;
     ///
     /// impl Message<Msg> for MyActor {
