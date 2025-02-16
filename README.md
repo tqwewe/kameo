@@ -134,6 +134,7 @@ Kameo uses [libp2p](https://libp2p.io) for peer-to-peer networking, enabling act
 - **[The Kameo Book](https://docs.page/tqwewe/kameo)**: Comprehensive guide with tutorials and advanced topics.
 - **[Crate on Crates.io](https://crates.io/crates/kameo)**: Latest releases and version information.
 - **[Community Discord](https://discord.gg/GMX4DV9fbk)**: Join the discussion, ask questions, and share your experiences.
+- **[Comparing Rust Actor Libraries](https://theari.dev/blog/comparing-rust-actor-libraries/)**: Read a blog post comparing Actix, Coerce, Kameo, Ractor, and Xtra.
 
 ## Examples
 
