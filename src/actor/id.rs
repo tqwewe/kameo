@@ -1,4 +1,6 @@
-use std::hash::{Hash, Hasher};
+use std::hash::Hash;
+#[cfg(feature = "remote")]
+use std::hash::Hasher;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicU64};
 
@@ -14,7 +16,7 @@ static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 ///
 /// `ActorID` combines a locally sequential `sequence_id` with an optional `peer_id`
 /// to uniquely identify actors across a distributed network.#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ActorID {
     sequence_id: u64,
     #[cfg(feature = "remote")]
@@ -179,29 +181,6 @@ impl fmt::Debug for ActorID {
     }
 }
 
-impl PartialEq for ActorID {
-    fn eq(&self, other: &Self) -> bool {
-        #[cfg(feature = "remote")]
-        return self.sequence_id == other.sequence_id && self.peer_id() == other.peer_id();
-
-        #[cfg(not(feature = "remote"))]
-        return self.sequence_id == other.sequence_id;
-    }
-}
-
-impl Eq for ActorID {}
-
-impl Hash for ActorID {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_u64(self.sequence_id);
-
-        #[cfg(feature = "remote")]
-        if let Some(peer_id) = self.peer_id() {
-            state.write(&peer_id.to_bytes());
-        }
-    }
-}
-
 impl Serialize for ActorID {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -229,7 +208,7 @@ impl<'de> Deserialize<'de> for ActorID {
 }
 
 #[cfg(feature = "remote")]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy)]
 enum PeerIdKind {
     Local,
     PeerId(libp2p::PeerId),
@@ -242,5 +221,237 @@ impl PeerIdKind {
             PeerIdKind::Local => ActorSwarm::get().map(ActorSwarm::local_peer_id),
             PeerIdKind::PeerId(peer_id) => Some(peer_id),
         }
+    }
+}
+
+#[cfg(feature = "remote")]
+impl PartialEq for PeerIdKind {
+    fn eq(&self, other: &Self) -> bool {
+        self.peer_id() == other.peer_id()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl Eq for PeerIdKind {}
+
+#[cfg(feature = "remote")]
+impl Hash for PeerIdKind {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        if let Some(peer_id) = self.peer_id() {
+            state.write(&peer_id.to_bytes());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::hash::DefaultHasher;
+
+    #[cfg(feature = "remote")]
+    use libp2p::PeerId;
+
+    use super::*;
+
+    #[cfg(feature = "remote")]
+    static BARRIER: std::sync::Barrier = std::sync::Barrier::new(2);
+
+    #[cfg(feature = "remote")]
+    fn local_peer_id() -> PeerId {
+        PeerId::from_bytes(&[
+            0, 32, 77, 249, 14, 119, 133, 11, 205, 96, 61, 232, 63, 206, 126, 234, 204, 60, 241,
+            93, 2, 68, 130, 67, 3, 193, 242, 23, 80, 189, 82, 144, 152, 206,
+        ])
+        .unwrap()
+    }
+
+    #[test]
+    fn test_actor_id_partial_eq_local() {
+        let id1 = ActorID {
+            sequence_id: 0,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+        assert_eq!(id1, id2);
+
+        let id1 = ActorID {
+            sequence_id: 0,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 1,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    #[cfg(feature = "remote")]
+    fn test_actor_id_partial_eq_remote() {
+        // Unbootstrapped
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::Local,
+        };
+        assert_eq!(id1, id2);
+
+        BARRIER.wait();
+
+        // Bootstrapped
+        let local_peer_id = local_peer_id();
+        dbg!(local_peer_id.to_bytes());
+        ActorSwarm::bootstrap_manual(local_peer_id);
+        assert_eq!(id1.peer_id(), Some(&local_peer_id));
+        assert_eq!(id2.peer_id(), Some(&local_peer_id));
+
+        // Bootstrapped local ids should equal
+        assert_eq!(id1, id2);
+
+        // Bootstrapped local and remote id pointing to local peer id should equal
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+        assert_eq!(id1, id2);
+
+        // Peer IDs should equal
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+        assert_eq!(id1, id2);
+
+        // Different peer IDs should not equal
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(PeerId::random()),
+        };
+        assert_ne!(id1, id2);
+    }
+
+    fn hashes_eq(id1: &ActorID, id2: &ActorID) -> bool {
+        let mut hasher = DefaultHasher::new();
+        id1.hash(&mut hasher);
+        let id1_hash = hasher.finish();
+
+        let mut hasher = DefaultHasher::new();
+        id2.hash(&mut hasher);
+        let id2_hash = hasher.finish();
+
+        id1_hash == id2_hash
+    }
+
+    #[test]
+    fn test_actor_id_hash_local() {
+        let id1 = ActorID {
+            sequence_id: 0,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+
+        assert!(hashes_eq(&id1, &id2));
+
+        let id1 = ActorID {
+            sequence_id: 0,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 1,
+            #[cfg(feature = "remote")]
+            peer_id: PeerIdKind::Local,
+        };
+
+        assert!(!hashes_eq(&id1, &id2));
+    }
+
+    #[test]
+    #[cfg(feature = "remote")]
+    fn test_actor_id_hash_remote() {
+        // Unbootstrapped
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::Local,
+        };
+
+        assert!(hashes_eq(&id1, &id2));
+
+        BARRIER.wait();
+
+        // Bootstrapped
+        let local_peer_id = local_peer_id();
+        ActorSwarm::bootstrap_manual(local_peer_id);
+        assert_eq!(id1.peer_id(), Some(&local_peer_id));
+        assert_eq!(id2.peer_id(), Some(&local_peer_id));
+
+        // Bootstrapped local ids should equal
+        assert_eq!(id1, id2);
+
+        // Bootstrapped local and remote id pointing to local peer id should equal
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::Local,
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+
+        assert!(hashes_eq(&id1, &id2));
+
+        // Peer IDs should equal
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+
+        assert!(hashes_eq(&id1, &id2));
+
+        // Different peer IDs should not equal
+        let id1 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(local_peer_id),
+        };
+        let id2 = ActorID {
+            sequence_id: 0,
+            peer_id: PeerIdKind::PeerId(PeerId::random()),
+        };
+
+        assert!(!hashes_eq(&id1, &id2));
     }
 }
