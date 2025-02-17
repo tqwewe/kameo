@@ -93,7 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match remote_actor_ref {
                 Some(remote_actor_ref) => {
                     let count = remote_actor_ref.ask(&Inc { amount: 10 }).await?;
-                    remote_actor_ref.tell(&Inc { amount: 10 }).await?;
                     println!("Incremented! Count is {count}");
                 }
                 None => {
