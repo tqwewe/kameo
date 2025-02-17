@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicU64};
 
@@ -13,7 +14,7 @@ static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
 ///
 /// `ActorID` combines a locally sequential `sequence_id` with an optional `peer_id`
 /// to uniquely identify actors across a distributed network.#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy)]
 pub struct ActorID {
     sequence_id: u64,
     #[cfg(feature = "remote")]
@@ -175,6 +176,29 @@ impl fmt::Debug for ActorID {
 
         #[cfg(not(feature = "remote"))]
         return write!(f, "ActorID({:?})", self.sequence_id);
+    }
+}
+
+impl PartialEq for ActorID {
+    fn eq(&self, other: &Self) -> bool {
+        #[cfg(feature = "remote")]
+        return self.sequence_id == other.sequence_id && self.peer_id() == other.peer_id();
+
+        #[cfg(not(feature = "remote"))]
+        return self.sequence_id == other.sequence_id;
+    }
+}
+
+impl Eq for ActorID {}
+
+impl Hash for ActorID {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.sequence_id);
+
+        #[cfg(feature = "remote")]
+        if let Some(peer_id) = self.peer_id() {
+            state.write(&peer_id.to_bytes());
+        }
     }
 }
 
