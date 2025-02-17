@@ -337,4 +337,12 @@ impl SwarmBehaviour for CustomBehaviour {
     fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error> {
         self.kademlia.store_mut().put(record)
     }
+
+    fn kademlia_remove_record(&mut self, key: &kad::RecordKey) {
+        self.kademlia.remove_record(key);
+    }
+
+    fn kademlia_remove_record_local(&mut self, key: &kad::RecordKey) {
+        self.kademlia.store_mut().remove(key);
+    }
 }

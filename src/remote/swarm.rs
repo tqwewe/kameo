@@ -331,6 +331,10 @@ impl ActorSwarm {
         async move {
             match reply_rx.await {
                 Ok(kad::PeerRecord { record, .. }) => {
+                    if record.value.is_empty() {
+                        return Ok(None);
+                    }
+
                     let ActorRegistration {
                         actor_id,
                         remote_id,
@@ -380,6 +384,29 @@ impl ActorSwarm {
                     );
                     Ok(())
                 }
+                Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
+                    Err(RegistryError::QuorumFailed { quorum })
+                }
+                Err(kad::PutRecordError::Timeout { .. }) => Err(RegistryError::Timeout),
+            }
+        }
+    }
+
+    /// Unregisters an actor within the swarm.
+    ///
+    /// The future returned by unregister does not have to be awaited.
+    /// Awaiting it is only necessary to handle the result.
+    pub fn unregister(&self, name: String) -> impl Future<Output = Result<(), RegistryError>> {
+        let reply_rx = self
+            .swarm_tx
+            .send_with_reply(|reply| SwarmCommand::Unregister {
+                key: name.into_bytes().into(),
+                reply,
+            });
+
+        async move {
+            match reply_rx.await {
+                Ok(kad::PutRecordOk { .. }) => Ok(()),
                 Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
                     Err(RegistryError::QuorumFailed { quorum })
                 }
@@ -565,6 +592,20 @@ impl ActorSwarmHandler {
                         .behaviour_mut()
                         .kademlia_put_record(record, kad::Quorum::One)
                         .unwrap();
+                    self.put_queries.insert(query_id, reply);
+                }
+            }
+            SwarmCommand::Unregister { key, reply } => {
+                if swarm.network_info().num_peers() == 0 {
+                    swarm.behaviour_mut().kademlia_remove_record(&key);
+                    let _ = reply.send(Ok(kad::PutRecordOk { key }));
+                } else {
+                    let record = kad::Record::new(key.clone(), vec![]);
+                    let query_id = swarm
+                        .behaviour_mut()
+                        .kademlia_put_record(record, kad::Quorum::One)
+                        .unwrap();
+                    swarm.behaviour_mut().kademlia_remove_record(&key);
                     self.put_queries.insert(query_id, reply);
                 }
             }
@@ -1028,6 +1069,13 @@ pub enum SwarmCommand {
         /// Reply sender.
         reply: oneshot::Sender<kad::PutRecordResult>,
     },
+    /// Unregisters an actor from the kademlia network.
+    Unregister {
+        /// Kademlia record.
+        key: kad::RecordKey,
+        /// Reply sender.
+        reply: oneshot::Sender<kad::PutRecordResult>,
+    },
     /// An actor ask request.
     Ask {
         /// Peer ID.
@@ -1416,6 +1464,12 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     ///
     /// This method adds a new record to the local storage, bypassing network-wide replication.
     fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error>;
+
+    /// Removes a record locally, which will eventually be removed from other peers after some time.
+    fn kademlia_remove_record(&mut self, key: &kad::RecordKey);
+
+    /// Removes a record locally.
+    fn kademlia_remove_record_local(&mut self, key: &kad::RecordKey);
 }
 
 #[allow(missing_docs)]
@@ -1651,6 +1705,14 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
 
     fn kademlia_put_record_local(&mut self, record: kad::Record) -> Result<(), kad::store::Error> {
         self.kademlia.store_mut().put(record)
+    }
+
+    fn kademlia_remove_record(&mut self, key: &kad::RecordKey) {
+        self.kademlia.remove_record(key);
+    }
+
+    fn kademlia_remove_record_local(&mut self, key: &kad::RecordKey) {
+        self.kademlia.store_mut().remove(key);
     }
 }
 
