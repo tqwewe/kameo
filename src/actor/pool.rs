@@ -41,7 +41,7 @@
 //! ```
 
 use std::{
-    fmt,
+    error, fmt,
     iter::repeat,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -56,9 +56,9 @@ use futures::{
 
 use crate::{
     actor::{Actor, ActorRef},
-    error::{ActorStopReason, BoxError, SendError},
+    error::{ActorStopReason, Infallible, SendError},
     mailbox::bounded::BoundedMailbox,
-    message::{BoxDebug, Context, Message},
+    message::{Context, Message},
     reply::Reply,
     request::{
         AskRequest, ForwardMessageSend, LocalAskRequest, LocalTellRequest, MessageSend,
@@ -165,12 +165,13 @@ where
     A: Actor,
 {
     type Mailbox = BoundedMailbox<Self>;
+    type Error = Infallible;
 
     fn name() -> &'static str {
         "ActorPool"
     }
 
-    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         for (worker, _) in &self.workers {
             worker.link(&actor_ref).await;
         }
@@ -183,7 +184,7 @@ where
         actor_ref: WeakActorRef<Self>,
         id: ActorID,
         _reason: ActorStopReason,
-    ) -> Result<Option<ActorStopReason>, BoxError> {
+    ) -> Result<Option<ActorStopReason>, Self::Error> {
         let Some(actor_ref) = actor_ref.upgrade() else {
             return Ok(None);
         };
@@ -222,8 +223,8 @@ where
 impl<A, M> Reply for WorkerReply<A, M>
 where
     A: Actor + Message<M>,
-    M: Send + 'static,
-    <A::Reply as Reply>::Error: fmt::Debug,
+    M: Send + Sync + 'static,
+    <A::Reply as Reply>::Error: error::Error + Send + Sync + 'static,
 {
     type Ok = <A::Reply as Reply>::Ok;
     type Error = <A::Reply as Reply>::Error;
@@ -233,10 +234,10 @@ where
         unimplemented!("a WorkerReply cannot be converted to a result and is only a marker type")
     }
 
-    fn into_boxed_err(self) -> Option<BoxDebug> {
+    fn into_anyhow_err(self) -> Option<anyhow::Error> {
         match self {
             WorkerReply::Forwarded => None,
-            WorkerReply::Err(err) => Some(Box::new(err)),
+            WorkerReply::Err(err) => Some(anyhow::Error::new(err)),
         }
     }
 
@@ -252,10 +253,10 @@ pub struct WorkerMsg<M>(pub M);
 impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A>
 where
     A: Actor<Mailbox = Mb> + Message<M, Reply = R>,
-    M: Send + 'static,
+    M: Send + Sync + 'static,
     Mb: Send + 'static,
     R: Reply,
-    <A::Reply as Reply>::Error: fmt::Debug,
+    <A::Reply as Reply>::Error: error::Error + Send + Sync + 'static,
     for<'a> AskRequest<LocalAskRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
         ForwardMessageSend<A::Reply, M>,
     for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:

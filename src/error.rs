@@ -5,22 +5,23 @@
 //! a consistent set of errors that can occur in the operation of actors and their communications.
 
 use std::{
-    any::{self, Any},
-    cmp, error, fmt,
+    any, cmp, error, fmt,
     hash::{Hash, Hasher},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use tokio::{
     sync::{mpsc, oneshot},
     time::error::Elapsed,
 };
 
-use crate::{actor::ActorID, mailbox::Signal, message::BoxDebug, Actor};
+use crate::{actor::ActorID, mailbox::Signal, Actor};
 
-/// A dyn boxed error.
-pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
+#[doc(hidden)]
+pub use anyhow::Error as AnyhowError;
+
 /// A dyn boxed send error.
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
 
@@ -578,46 +579,37 @@ impl fmt::Display for ActorStopReason {
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
 #[allow(missing_debug_implementations)]
-pub struct PanicError(Arc<Mutex<Box<dyn Any + Send>>>);
+pub struct PanicError(Arc<Mutex<anyhow::Error>>);
 
 impl PanicError {
-    /// Creates a new PanicError from a generic error.
-    pub fn new<E>(err: E) -> Self
-    where
-        E: Send + 'static,
-    {
-        PanicError(Arc::new(Mutex::new(Box::new(err))))
-    }
-
-    /// Creates a new PanicError from a generic boxed error.
-    pub fn new_boxed(err: Box<dyn Any + Send>) -> Self {
+    /// Creates a new PanicError from a generic anyhow error.
+    pub fn new(err: anyhow::Error) -> Self {
         PanicError(Arc::new(Mutex::new(err)))
     }
 
-    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a `Cow<'static, str>`,
-    /// or `None` if it's not a string type.
-    pub fn with_str<F, R>(
-        &self,
-        f: F,
-    ) -> Result<Option<R>, PoisonError<MutexGuard<'_, Box<dyn Any + Send>>>>
+    pub(crate) fn new_from_panic_any<M>(err: Box<dyn any::Any + Send>, fallback: M) -> Self
     where
-        F: FnOnce(&str) -> R,
+        M: fmt::Display + fmt::Debug + Send + Sync + 'static,
     {
-        self.with(|any| {
-            any.downcast_ref::<&'static str>()
-                .copied()
-                .or_else(|| any.downcast_ref::<String>().map(String::as_str))
-                .map(f)
-        })
+        PanicError::new(
+            err.downcast::<&'static str>()
+                .map(anyhow::Error::msg)
+                .or_else(|err| err.downcast::<String>().map(anyhow::Error::msg))
+                .or_else(|err| {
+                    err.downcast::<Box<dyn error::Error + Send + Sync + 'static>>()
+                        .map(anyhow::Error::msg)
+                })
+                .unwrap_or_else(|_| anyhow::Error::msg(fallback)),
+        )
     }
 
     /// Calls the passed closure `f` with the inner type downcast into `T`, otherwise returns `None`.
     pub fn with_downcast_ref<T, F, R>(
         &self,
         f: F,
-    ) -> Result<Option<R>, PoisonError<MutexGuard<'_, Box<dyn Any + Send>>>>
+    ) -> Result<Option<R>, PoisonError<MutexGuard<'_, anyhow::Error>>>
     where
-        T: 'static,
+        T: fmt::Display + fmt::Debug + Send + Sync + 'static,
         F: FnOnce(&T) -> R,
     {
         let lock = self.0.lock()?;
@@ -625,9 +617,9 @@ impl PanicError {
     }
 
     /// Returns a reference to the error as a `Box<dyn Any + Send>`.
-    pub fn with<F, R>(&self, f: F) -> Result<R, PoisonError<MutexGuard<'_, Box<dyn Any + Send>>>>
+    pub fn with<F, R>(&self, f: F) -> Result<R, PoisonError<MutexGuard<'_, anyhow::Error>>>
     where
-        F: FnOnce(&Box<dyn Any + Send>) -> R,
+        F: FnOnce(&anyhow::Error) -> R,
     {
         let lock = self.0.lock()?;
         Ok(f(&lock))
@@ -636,32 +628,9 @@ impl PanicError {
 
 impl fmt::Display for PanicError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.with(|any| {
-            // Types are strings if panicked with the `std::panic!` macro
-            let s = any
-                .downcast_ref::<&'static str>()
-                .copied()
-                .or_else(|| any.downcast_ref::<String>().map(String::as_str));
-            if let Some(s) = s {
-                return write!(f, "panicked: {s}");
-            }
-
-            // Types are `BoxError` if the panic occurred because of an actor hook returning an error
-            let box_err = any.downcast_ref::<BoxError>();
-            if let Some(err) = box_err {
-                return write!(f, "panicked: {err}");
-            }
-
-            // Types are `BoxDebug` if the panic occurred as a result of a `tell` message returning an error
-            let box_err = any.downcast_ref::<BoxDebug>();
-            if let Some(err) = box_err {
-                return write!(f, "panicked: {:?}", Err::<(), _>(err));
-            }
-
-            write!(f, "panicked")
-        })
-        .ok()
-        .unwrap_or_else(|| write!(f, "panicked"))
+        self.with(|err| write!(f, "panicked: {err}"))
+            .ok()
+            .unwrap_or_else(|| write!(f, "panicked"))
     }
 }
 
@@ -680,7 +649,7 @@ impl<'de> Deserialize<'de> for PanicError {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Ok(PanicError::new(s))
+        Ok(PanicError::new(anyhow!("{s}")))
     }
 }
 

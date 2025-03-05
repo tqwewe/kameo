@@ -14,7 +14,7 @@
 //! (Command Query Responsibility Segregation) principle and enhancing the clarity and maintainability of actor
 //! interactions. It also provides some performance benefits in that sequential queries can be processed concurrently.
 
-use std::{any, fmt};
+use std::{any, error};
 
 use futures::{future::BoxFuture, Future, FutureExt};
 
@@ -26,7 +26,6 @@ use crate::{
     Actor,
 };
 
-pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 
 /// A message that can modify an actors state.
@@ -165,7 +164,7 @@ where
         M: Unpin + Send + Sync + 'static,
         R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
         R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
-        E: fmt::Debug + Unpin + Send + Sync + 'static,
+        E: error::Error + Send + Sync + 'static,
         R::Ok: Unpin,
         for<'a> AskRequest<
             LocalAskRequest<'a, B, B::Mailbox>,
@@ -202,7 +201,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Option<BoxDebug>>;
+    ) -> BoxFuture<'_, Option<anyhow::Error>>;
 
     /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -218,7 +217,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Option<BoxDebug>> {
+    ) -> BoxFuture<'_, Option<anyhow::Error>> {
         async move {
             let mut reply_sender = tx.map(ReplySender::new);
             let ctx: Context<'_, A, <A as Message<T>>::Reply> =
@@ -228,7 +227,7 @@ where
                 tx.send(reply.into_value());
                 None
             } else {
-                reply.into_boxed_err()
+                reply.into_anyhow_err()
             }
         }
         .boxed()

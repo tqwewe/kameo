@@ -1,4 +1,7 @@
+use std::num::ParseIntError;
+
 use kameo::{
+    error::Infallible,
     mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message},
     request::MessageSendSync,
@@ -14,6 +17,7 @@ pub struct MyActor {
 
 impl Actor for MyActor {
     type Mailbox = UnboundedMailbox<Self>;
+    type Error = Infallible;
 
     fn name() -> &'static str {
         "MyActor"
@@ -38,14 +42,14 @@ impl Message<Inc> for MyActor {
 pub struct ForceErr;
 
 impl Message<ForceErr> for MyActor {
-    type Reply = Result<(), i32>;
+    type Reply = Result<i32, ParseIntError>;
 
     async fn handle(
         &mut self,
         _msg: ForceErr,
         _ctx: Context<'_, Self, Self::Reply>,
     ) -> Self::Reply {
-        Err(3)
+        "invalid int".parse()
     }
 }
 

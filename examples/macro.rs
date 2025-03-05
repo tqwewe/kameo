@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, num::ParseIntError};
 
 use kameo::{messages, request::MessageSendSync, Actor};
 use tracing::info;
@@ -22,8 +22,8 @@ impl MyActor {
     }
 
     #[message]
-    fn force_err(&self) -> Result<(), i32> {
-        Err(3)
+    fn force_err(&self) -> Result<i32, ParseIntError> {
+        "invalid int".parse()
     }
 
     /// Prints a message

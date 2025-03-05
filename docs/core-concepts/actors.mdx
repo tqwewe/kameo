@@ -52,8 +52,9 @@ struct MyActor;
 
 impl Actor for MyActor {
     type Mailbox = BoundedMailbox<Self>;
+    type Error = Infallible;
 
-    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         println!("Actor started");
         Ok(())
     }

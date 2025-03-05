@@ -302,8 +302,8 @@ where
     let start_res = AssertUnwindSafe(actor.on_start(actor_ref.clone()))
         .catch_unwind()
         .await
-        .map(|res| res.map_err(PanicError::new))
-        .map_err(PanicError::new_boxed)
+        .map(|res| res.map_err(|err| PanicError::new(anyhow::Error::new(err))))
+        .map_err(|err| PanicError::new_from_panic_any(err, "panicked while starting"))
         .and_then(convert::identity);
 
     let mut startup_finished = false;
