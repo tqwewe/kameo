@@ -634,6 +634,16 @@ impl fmt::Display for PanicError {
     }
 }
 
+impl fmt::Debug for PanicError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.with(|err| write!(f, "panicked: {err:?}"))
+            .ok()
+            .unwrap_or_else(|| write!(f, "panicked"))
+    }
+}
+
+impl error::Error for PanicError {}
+
 impl Serialize for PanicError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
