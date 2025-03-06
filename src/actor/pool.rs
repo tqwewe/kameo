@@ -43,6 +43,7 @@
 use std::{
     any, fmt,
     iter::repeat,
+    ops::ControlFlow,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -184,9 +185,9 @@ where
         actor_ref: WeakActorRef<Self>,
         id: ActorID,
         _reason: ActorStopReason,
-    ) -> Result<Option<ActorStopReason>, Self::Error> {
+    ) -> Result<ControlFlow<ActorStopReason>, Self::Error> {
         let Some(actor_ref) = actor_ref.upgrade() else {
-            return Ok(None);
+            return Ok(ControlFlow::Continue(()));
         };
         let Some((i, _)) = self
             .workers
@@ -194,7 +195,7 @@ where
             .enumerate()
             .find(|(_, (worker, _))| worker.id() == id)
         else {
-            return Ok(None);
+            return Ok(ControlFlow::Continue(()));
         };
 
         self.workers[i] = match &mut self.factory {
@@ -203,7 +204,7 @@ where
         };
         self.workers[i].0.link(&actor_ref).await;
 
-        Ok(None)
+        Ok(ControlFlow::Continue(()))
     }
 }
 

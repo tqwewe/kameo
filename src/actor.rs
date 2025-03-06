@@ -28,7 +28,7 @@ pub mod pool;
 pub mod pubsub;
 mod spawn;
 
-use std::{any, fmt};
+use std::{any, fmt, ops::ControlFlow};
 
 use futures::Future;
 
@@ -177,15 +177,14 @@ pub trait Actor: Sized + Send + 'static {
     /// - Any other panic types. Typically uncommon, though possible with [`std::panic::panic_any`].
     ///
     /// # Returns
-    /// - `Some(ActorStopReason)`: Stops the actor.
-    /// - `None`: Allows the actor to continue processing messages.
+    /// Whether the actor should stop or continue processing messages.
     #[allow(unused_variables)]
     fn on_panic(
         &mut self,
         actor_ref: WeakActorRef<Self>,
         err: PanicError,
-    ) -> impl Future<Output = Result<Option<ActorStopReason>, Self::Error>> + Send {
-        async move { Ok(Some(ActorStopReason::Panicked(err))) }
+    ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
+        async move { Ok(ControlFlow::Break(ActorStopReason::Panicked(err))) }
     }
 
     /// Called when a linked actor dies.
@@ -201,18 +200,22 @@ pub trait Actor: Sized + Send + 'static {
         actor_ref: WeakActorRef<Self>,
         id: ActorID,
         reason: ActorStopReason,
-    ) -> impl Future<Output = Result<Option<ActorStopReason>, Self::Error>> + Send {
+    ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
         async move {
             match &reason {
-                ActorStopReason::Normal => Ok(None),
+                ActorStopReason::Normal => Ok(ControlFlow::Continue(())),
                 ActorStopReason::Killed
                 | ActorStopReason::Panicked(_)
-                | ActorStopReason::LinkDied { .. } => Ok(Some(ActorStopReason::LinkDied {
-                    id,
-                    reason: Box::new(reason),
-                })),
+                | ActorStopReason::LinkDied { .. } => {
+                    Ok(ControlFlow::Break(ActorStopReason::LinkDied {
+                        id,
+                        reason: Box::new(reason),
+                    }))
+                }
                 #[cfg(feature = "remote")]
-                ActorStopReason::PeerDisconnected => Ok(Some(ActorStopReason::PeerDisconnected)),
+                ActorStopReason::PeerDisconnected => {
+                    Ok(ControlFlow::Break(ActorStopReason::PeerDisconnected))
+                }
             }
         }
     }
@@ -221,8 +224,8 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// This allows the actor to perform any necessary cleanup or release resources before being fully stopped.
     ///
-    /// # Parameters
-    /// - `reason`: The reason why the actor is being stopped.
+    /// The error returned by this method will be unwraped by kameo, causing a panic in the tokio task or
+    /// thread running the actor.
     #[allow(unused_variables)]
     fn on_stop(
         &mut self,

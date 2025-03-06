@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, mem, panic::AssertUnwindSafe};
+use std::{collections::VecDeque, mem, ops::ControlFlow, panic::AssertUnwindSafe};
 
 use futures::{Future, FutureExt};
 
@@ -15,7 +15,9 @@ use super::ActorID;
 pub(crate) trait ActorState<A: Actor>: Sized {
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
 
-    fn handle_startup_finished(&mut self) -> impl Future<Output = Option<ActorStopReason>> + Send;
+    fn handle_startup_finished(
+        &mut self,
+    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
 
     fn handle_message(
         &mut self,
@@ -23,20 +25,20 @@ pub(crate) trait ActorState<A: Actor>: Sized {
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
-    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
+    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
 
     fn handle_link_died(
         &mut self,
         id: ActorID,
         reason: ActorStopReason,
-    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
+    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
 
-    fn handle_stop(&mut self) -> impl Future<Output = Option<ActorStopReason>> + Send;
+    fn handle_stop(&mut self) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
 
     fn on_shutdown(
         &mut self,
         reason: ActorStopReason,
-    ) -> impl Future<Output = Option<ActorStopReason>> + Send;
+    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
 
     fn shutdown(self) -> impl Future<Output = A> + Send;
 }
@@ -62,7 +64,7 @@ where
         }
     }
 
-    async fn handle_startup_finished(&mut self) -> Option<ActorStopReason> {
+    async fn handle_startup_finished(&mut self) -> ControlFlow<ActorStopReason> {
         self.finished_startup = true;
         for signal in mem::take(&mut self.startup_buffer).drain(..) {
             match signal {
@@ -72,18 +74,14 @@ where
                     reply,
                     sent_within_actor,
                 } => {
-                    if let Some(reason) = self
-                        .handle_message(message, actor_ref, reply, sent_within_actor)
-                        .await
-                    {
-                        return Some(reason);
-                    }
+                    self.handle_message(message, actor_ref, reply, sent_within_actor)
+                        .await?;
                 }
                 _ => unreachable!(),
             }
         }
 
-        None
+        ControlFlow::Continue(())
     }
 
     #[inline]
@@ -93,7 +91,7 @@ where
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
-    ) -> Option<ActorStopReason> {
+    ) -> ControlFlow<ActorStopReason> {
         if !sent_within_actor && !self.finished_startup {
             // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
             self.startup_buffer.push_back(Signal::Message {
@@ -102,18 +100,18 @@ where
                 reply,
                 sent_within_actor,
             });
-            return None;
+            return ControlFlow::Continue(());
         }
 
         let res = AssertUnwindSafe(message.handle_dyn(&mut self.state, actor_ref, reply))
             .catch_unwind()
             .await;
         match res {
-            Ok(None) => None,
-            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
-            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_from_panic_any(
-                err,
-            ))), // The handler panicked
+            Ok(None) => ControlFlow::Continue(()),
+            Ok(Some(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
+                PanicError::new_from_panic_any(err),
+            )), // The handler panicked
         }
     }
 
@@ -122,7 +120,7 @@ where
         &mut self,
         id: ActorID,
         reason: ActorStopReason,
-    ) -> Option<ActorStopReason> {
+    ) -> ControlFlow<ActorStopReason> {
         let res = AssertUnwindSafe(self.state.on_link_died(
             self.actor_ref.clone(),
             id,
@@ -132,37 +130,42 @@ where
         .await;
         self.actor_ref.links.lock().await.remove(&id);
         match res {
-            Ok(Ok(Some(reason))) => Some(reason),
-            Ok(Ok(None)) => None,
-            Ok(Err(err)) => Some(ActorStopReason::Panicked(PanicError::new(Box::new(err)))),
-            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_from_panic_any(
-                err,
-            ))),
+            Ok(Ok(flow)) => flow,
+            Ok(Err(err)) => {
+                ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(Box::new(err))))
+            }
+            Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
+                PanicError::new_from_panic_any(err),
+            )),
         }
     }
 
     #[inline]
-    async fn handle_stop(&mut self) -> Option<ActorStopReason> {
-        Some(ActorStopReason::Normal)
+    async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
+        ControlFlow::Break(ActorStopReason::Normal)
     }
 
     #[inline]
-    async fn on_shutdown(&mut self, reason: ActorStopReason) -> Option<ActorStopReason> {
+    async fn on_shutdown(&mut self, reason: ActorStopReason) -> ControlFlow<ActorStopReason> {
         match reason {
-            ActorStopReason::Normal => Some(ActorStopReason::Normal),
-            ActorStopReason::Killed => Some(ActorStopReason::Killed),
+            ActorStopReason::Normal => ControlFlow::Break(ActorStopReason::Normal),
+            ActorStopReason::Killed => ControlFlow::Break(ActorStopReason::Killed),
             ActorStopReason::Panicked(err) => {
                 match self.state.on_panic(self.actor_ref.clone(), err).await {
-                    Ok(Some(reason)) => Some(reason),
-                    Ok(None) => None,
-                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new(Box::new(err)))),
+                    Ok(ControlFlow::Continue(())) => ControlFlow::Continue(()),
+                    Ok(ControlFlow::Break(reason)) => ControlFlow::Break(reason),
+                    Err(err) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
+                        Box::new(err),
+                    ))),
                 }
             }
             ActorStopReason::LinkDied { id, reason } => {
-                Some(ActorStopReason::LinkDied { id, reason })
+                ControlFlow::Break(ActorStopReason::LinkDied { id, reason })
             }
             #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => Some(ActorStopReason::PeerDisconnected),
+            ActorStopReason::PeerDisconnected => {
+                ControlFlow::Break(ActorStopReason::PeerDisconnected)
+            }
         }
     }
 

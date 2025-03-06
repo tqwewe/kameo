@@ -1,5 +1,6 @@
 use std::{
     convert,
+    ops::ControlFlow,
     panic::AssertUnwindSafe,
     sync::{Arc, OnceLock},
     thread,
@@ -340,7 +341,11 @@ where
         startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
         let reason = ActorStopReason::Panicked(err);
         let mut state = S::new_from_actor(actor, actor_ref.clone());
-        let reason = state.on_shutdown(reason.clone()).await.unwrap_or(reason);
+        let reason = state
+            .on_shutdown(reason.clone())
+            .await
+            .break_value()
+            .unwrap_or(reason);
         let mut actor = state.shutdown().await;
         actor
             .on_stop(actor_ref.clone(), reason.clone())
@@ -429,13 +434,13 @@ where
     S: ActorState<A>,
 {
     if startup_finished {
-        if let Some(reason) = state.handle_startup_finished().await {
+        if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
             return reason;
         }
     }
     loop {
         let reason = recv_mailbox_loop(state, &mut mailbox_rx, &startup_semaphore).await;
-        if let Some(reason) = state.on_shutdown(reason).await {
+        if let ControlFlow::Break(reason) = state.on_shutdown(reason).await {
             return reason;
         }
     }
@@ -454,7 +459,7 @@ where
         match mailbox_rx.recv().await {
             Some(Signal::StartupFinished) => {
                 startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
-                if let Some(reason) = state.handle_startup_finished().await {
+                if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
                     return reason;
                 }
             }
@@ -464,7 +469,7 @@ where
                 reply,
                 sent_within_actor,
             }) => {
-                if let Some(reason) = state
+                if let ControlFlow::Break(reason) = state
                     .handle_message(message, actor_ref, reply, sent_within_actor)
                     .await
                 {
@@ -472,12 +477,12 @@ where
                 }
             }
             Some(Signal::LinkDied { id, reason }) => {
-                if let Some(reason) = state.handle_link_died(id, reason).await {
+                if let ControlFlow::Break(reason) = state.handle_link_died(id, reason).await {
                     return reason;
                 }
             }
             Some(Signal::Stop) | None => {
-                if let Some(reason) = state.handle_stop().await {
+                if let ControlFlow::Break(reason) = state.handle_stop().await {
                     return reason;
                 }
             }
