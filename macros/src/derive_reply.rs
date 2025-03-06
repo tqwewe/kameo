@@ -27,7 +27,7 @@ impl ToTokens for DeriveReply {
                 }
 
                 #[inline]
-                fn into_any_err(self) -> ::std::option::Option<::std::boxed::Box<dyn ::std::any::Any + ::std::marker::Send>> {
+                fn into_any_err(self) -> ::std::option::Option<::std::boxed::Box<dyn ::kameo::reply::ReplyError>> {
                     ::std::option::Option::None
                 }
 

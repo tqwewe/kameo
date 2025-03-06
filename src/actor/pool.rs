@@ -59,7 +59,7 @@ use crate::{
     error::{ActorStopReason, BoxError, SendError},
     mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
-    reply::Reply,
+    reply::{Reply, ReplyError},
     request::{
         AskRequest, ForwardMessageSend, LocalAskRequest, LocalTellRequest, MessageSend,
         TellRequest, WithoutRequestTimeout,
@@ -223,6 +223,7 @@ impl<A, M> Reply for WorkerReply<A, M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
+    <A::Reply as Reply>::Error: any::Any + fmt::Debug,
 {
     type Ok = <A::Reply as Reply>::Ok;
     type Error = <A::Reply as Reply>::Error;
@@ -232,7 +233,7 @@ where
         unimplemented!("a WorkerReply cannot be converted to a result and is only a marker type")
     }
 
-    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
+    fn into_any_err(self) -> Option<Box<dyn ReplyError>> {
         match self {
             WorkerReply::Forwarded => None,
             WorkerReply::Err(err) => Some(Box::new(err)),
@@ -254,6 +255,7 @@ where
     M: Send + 'static,
     Mb: Send + 'static,
     R: Reply,
+    <A::Reply as Reply>::Error: any::Any + fmt::Debug,
     for<'a> AskRequest<LocalAskRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
         ForwardMessageSend<A::Reply, M>,
     for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:

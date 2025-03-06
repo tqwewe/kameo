@@ -110,8 +110,10 @@ where
             .await;
         match res {
             Ok(None) => None,
-            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The reply was an error
-            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_from_panic_any(
+                err,
+            ))), // The handler panicked
         }
     }
 
@@ -132,8 +134,10 @@ where
         match res {
             Ok(Ok(Some(reason))) => Some(reason),
             Ok(Ok(None)) => None,
-            Ok(Err(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))),
-            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))),
+            Ok(Err(err)) => Some(ActorStopReason::Panicked(PanicError::new(Box::new(err)))),
+            Err(err) => Some(ActorStopReason::Panicked(PanicError::new_from_panic_any(
+                err,
+            ))),
         }
     }
 
@@ -151,7 +155,7 @@ where
                 match self.state.on_panic(self.actor_ref.clone(), err).await {
                     Ok(Some(reason)) => Some(reason),
                     Ok(None) => None,
-                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new(err))),
+                    Err(err) => Some(ActorStopReason::Panicked(PanicError::new(Box::new(err)))),
                 }
             }
             ActorStopReason::LinkDied { id, reason } => {

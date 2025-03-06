@@ -43,6 +43,7 @@ use std::{
 };
 
 use futures::Future;
+use mopa::mopafy;
 use tokio::sync::oneshot;
 
 use crate::{
@@ -88,7 +89,7 @@ pub trait Reply: Send + 'static {
     fn to_result(self) -> Result<Self::Ok, Self::Error>;
 
     /// Converts the reply into a `Box<any::Any + Send>` if it's an Err, otherwise `None`.
-    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>>;
+    fn into_any_err(self) -> Option<Box<dyn ReplyError>>;
 
     /// Converts the type to Self::Reply.
     ///
@@ -128,7 +129,7 @@ where
         unimplemented!("a DeligatedReply cannot be converted to a result and is only a marker type")
     }
 
-    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
+    fn into_any_err(self) -> Option<Box<dyn ReplyError>> {
         None
     }
 
@@ -214,10 +215,17 @@ impl<R: ?Sized> fmt::Debug for ReplySender<R> {
     }
 }
 
+/// An error type which can be used in replies.
+///
+/// This is implemented for all types which are `Any + Debug + Send`, which essentially covers all 'static `Debug` types.
+pub trait ReplyError: mopa::Any + fmt::Debug + Send {}
+impl<T> ReplyError for T where T: any::Any + fmt::Debug + Send {}
+mopafy!(ReplyError);
+
 impl<T, E> Reply for Result<T, E>
 where
     T: Send + 'static,
-    E: Send + 'static,
+    E: any::Any + fmt::Debug + Send + 'static,
 {
     type Ok = T;
     type Error = E;
@@ -227,8 +235,8 @@ where
         self
     }
 
-    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
-        self.map_err(|err| Box::new(err) as Box<dyn any::Any + Send>)
+    fn into_any_err(self) -> Option<Box<dyn ReplyError>> {
+        self.map_err(|err| Box::new(err) as Box<dyn ReplyError>)
             .err()
     }
 
@@ -271,7 +279,7 @@ macro_rules! impl_infallible_reply {
                 Ok(self)
             }
 
-            fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
+            fn into_any_err(self) -> Option<Box<dyn ReplyError>> {
                 None
             }
 
