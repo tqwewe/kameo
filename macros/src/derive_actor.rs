@@ -50,6 +50,7 @@ impl ToTokens for DeriveActor {
             #[automatically_derived]
             impl #impl_generics ::kameo::actor::Actor for #ident #ty_generics #where_clause {
                 type Mailbox = #mailbox_expanded;
+                type Error = ::kameo::error::Infallible;
 
                 fn name() -> &'static str {
                     #name

@@ -1,5 +1,6 @@
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
+use kameo::error::Infallible;
 use kameo::mailbox::unbounded::UnboundedMailbox;
 use kameo::request::MessageSend;
 use kameo::{
@@ -20,6 +21,7 @@ fn actor(c: &mut Criterion) {
 
     impl Actor for BenchActor {
         type Mailbox = UnboundedMailbox<Self>;
+        type Error = Infallible;
     }
 
     impl Message<u32> for BenchActor {

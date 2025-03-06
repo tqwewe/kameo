@@ -19,8 +19,6 @@ use tokio::{
 
 use crate::{actor::ActorID, mailbox::Signal, reply::ReplyError, Actor};
 
-/// A dyn boxed error.
-pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
 /// A dyn boxed send error.
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
 
@@ -637,10 +635,7 @@ impl PanicError {
 impl fmt::Display for PanicError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.with_str(|s| write!(f, "panicked: {s}"))
-            .unwrap_or_else(|| {
-                self.with_downcast_ref(|err: &BoxError| write!(f, "panicked: {err}"))
-                    .unwrap_or_else(|| write!(f, "panicked"))
-            })
+            .unwrap_or_else(|| write!(f, "panicked"))
     }
 }
 
@@ -656,13 +651,6 @@ impl fmt::Debug for PanicError {
                 .or_else(|| any.downcast_ref::<String>().map(String::as_str));
             if let Some(s) = s {
                 dbg_struct.field("err", &s);
-                return;
-            }
-
-            // Types are `BoxError` if the panic occurred because of an actor hook returning an error
-            let box_err = any.downcast_ref::<BoxError>();
-            if let Some(err) = box_err {
-                dbg_struct.field("err", &err);
                 return;
             }
 

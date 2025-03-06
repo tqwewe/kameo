@@ -56,7 +56,7 @@ use futures::{
 
 use crate::{
     actor::{Actor, ActorRef},
-    error::{ActorStopReason, BoxError, SendError},
+    error::{ActorStopReason, Infallible, SendError},
     mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
     reply::{Reply, ReplyError},
@@ -165,12 +165,13 @@ where
     A: Actor,
 {
     type Mailbox = BoundedMailbox<Self>;
+    type Error = Infallible;
 
     fn name() -> &'static str {
         "ActorPool"
     }
 
-    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         for (worker, _) in &self.workers {
             worker.link(&actor_ref).await;
         }
@@ -183,7 +184,7 @@ where
         actor_ref: WeakActorRef<Self>,
         id: ActorID,
         _reason: ActorStopReason,
-    ) -> Result<Option<ActorStopReason>, BoxError> {
+    ) -> Result<Option<ActorStopReason>, Self::Error> {
         let Some(actor_ref) = actor_ref.upgrade() else {
             return Ok(None);
         };

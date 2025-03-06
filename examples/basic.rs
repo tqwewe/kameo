@@ -1,4 +1,5 @@
 use kameo::{
+    error::Infallible,
     mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message},
     request::MessageSendSync,
@@ -14,6 +15,7 @@ pub struct MyActor {
 
 impl Actor for MyActor {
     type Mailbox = UnboundedMailbox<Self>;
+    type Error = Infallible;
 
     fn name() -> &'static str {
         "MyActor"
