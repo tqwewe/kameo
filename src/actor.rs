@@ -92,33 +92,43 @@ pub use spawn::*;
 /// ```
 ///
 /// # Lifecycle Hooks
-/// - `on_start`: Called when the actor starts. This is where initialization happens.
-/// - `on_panic`: Called when the actor encounters a panic or an error while processing a "tell" message.
-/// - `on_stop`: Called before the actor is stopped. This allows for cleanup tasks.
-/// - `on_link_died`: Hook that is invoked when a linked actor dies.
+/// - [`on_start`]: Called when the actor starts. This is where initialization happens.
+/// - [`on_panic`]: Called when the actor encounters a panic or an error while processing a "tell" message.
+/// - [`on_stop`]: Called before the actor is stopped. This allows for cleanup tasks.
+/// - [`on_link_died`]: Hook that is invoked when a linked actor dies.
 ///
 /// # Mailboxes
 /// Actors use a mailbox to queue incoming messages. You can choose between:
-/// - **Bounded Mailbox**: Limits the number of messages that can be queued, providing backpressure.
-/// - **Unbounded Mailbox**: Allows an infinite number of messages, but can lead to high memory usage.
+/// - [**Bounded Mailbox**]: Limits the number of messages that can be queued, providing backpressure.
+/// - [**Unbounded Mailbox**]: Allows an infinite number of messages, but can lead to high memory usage.
 ///
 /// Mailboxes enable efficient asynchronous message passing with support for both backpressure and
 /// unbounded queueing depending on system requirements.
 ///
 /// [`on_start`]: Actor::on_start
-/// [`on_stop`]: Actor::on_stop
 /// [`on_panic`]: Actor::on_panic
+/// [`on_stop`]: Actor::on_stop
+/// [`on_link_died`]: Actor::on_link_died
+/// [**Bounded Mailbox**]: crate::mailbox::bounded::BoundedMailbox
+/// [**Unbounded Mailbox**]: crate::mailbox::unbounded::UnboundedMailbox
 pub trait Actor: Sized + Send + 'static {
     /// The mailbox type used for the actor.
     ///
-    /// This can either be a `BoundedMailbox<Self>` or an `UnboundedMailbox<Self>`, depending on
+    /// This can either be a [`BoundedMailbox<Self>`] or an [`UnboundedMailbox<Self>`], depending on
     /// whether you want to enforce backpressure or allow infinite message queueing.
     ///
     /// - **Bounded Mailbox**: Prevents unlimited message growth, enforcing backpressure.
     /// - **Unbounded Mailbox**: Allows an infinite number of messages, but can consume large amounts of memory.
+    ///
+    /// The default mailbox is considered unbounded.
+    ///
+    /// [`BoundedMailbox<Self>`]: crate::mailbox::bounded::BoundedMailbox
+    /// [`UnboundedMailbox<Self>`]: crate::mailbox::unbounded::UnboundedMailbox
     type Mailbox: Mailbox<Self>;
 
     /// Actor error type.
+    ///
+    /// This error is used as the error returned by lifecycle hooks in this actor.
     type Error: fmt::Debug + Send + 'static;
 
     /// The name of the actor, which can be useful for logging or debugging.
@@ -158,8 +168,13 @@ pub trait Actor: Sized + Send + 'static {
     /// This method gives the actor an opportunity to clean up or reset its state and determine
     /// whether it should be stopped or continue processing messages.
     ///
-    /// # Parameters
-    /// - `err`: The panic or error that occurred.
+    /// The `PanicError` parameter holds the error that occurred during.
+    /// This error can typically be downcasted into one of a few types:
+    /// - [`Self::Error`] type, which is the error type when one of the actor's lifecycle functions returns an error.
+    /// - An error type returned when handling a message.
+    /// - A string type, which can be accessed with `PanicError::with_str`.
+    ///   String types are the result of regular panics, typically raised using the [`std::panic!`] macro.
+    /// - Any other panic types. Typically uncommon, though possible with [`std::panic::panic_any`].
     ///
     /// # Returns
     /// - `Some(ActorStopReason)`: Stops the actor.
