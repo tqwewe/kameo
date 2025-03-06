@@ -661,6 +661,8 @@ impl fmt::Debug for PanicError {
     }
 }
 
+impl error::Error for PanicError {}
+
 impl Serialize for PanicError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
