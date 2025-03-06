@@ -50,7 +50,7 @@ use std::collections::HashMap;
 use futures::future::{join_all, BoxFuture};
 
 use crate::{
-    error::SendError,
+    error::{Infallible, SendError},
     mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
     request::{LocalTellRequest, MessageSend, TellRequest, WithoutRequestTimeout},
@@ -222,6 +222,7 @@ impl<M> PubSub<M> {
 
 impl<M: 'static> Actor for PubSub<M> {
     type Mailbox = BoundedMailbox<Self>;
+    type Error = Infallible;
 }
 
 impl<M> Default for PubSub<M> {

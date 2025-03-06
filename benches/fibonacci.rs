@@ -1,6 +1,7 @@
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
+use kameo::error::Infallible;
 use kameo::mailbox::bounded::BoundedMailbox;
 use kameo::request::MessageSend;
 use kameo::{
@@ -12,6 +13,7 @@ struct FibActor {}
 
 impl Actor for FibActor {
     type Mailbox = BoundedMailbox<Self>;
+    type Error = Infallible;
 }
 
 struct Fib(u64);
