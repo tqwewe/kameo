@@ -21,12 +21,11 @@ use futures::{future::BoxFuture, Future, FutureExt};
 use crate::{
     actor::ActorRef,
     error::SendError,
-    reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplySender},
+    reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
     request::{AskRequest, LocalAskRequest, MessageSend, WithoutRequestTimeout},
     Actor,
 };
 
-pub(crate) type BoxDebug = Box<dyn fmt::Debug + Send + 'static>;
 pub(crate) type BoxReply = Box<dyn any::Any + Send>;
 
 /// A message that can modify an actors state.
@@ -162,11 +161,10 @@ where
     ) -> ForwardedReply<R::Ok, M, E>
     where
         B: Message<M, Reply = R2>,
-        M: Unpin + Send + Sync + 'static,
+        M: Send + 'static,
         R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
         R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
-        E: fmt::Debug + Unpin + Send + Sync + 'static,
-        R::Ok: Unpin,
+        E: any::Any + fmt::Debug + Send + 'static,
         for<'a> AskRequest<
             LocalAskRequest<'a, B, B::Mailbox>,
             B::Mailbox,
@@ -202,7 +200,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Option<BoxDebug>>;
+    ) -> BoxFuture<'_, Option<Box<dyn ReplyError>>>;
 
     /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -218,7 +216,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Option<BoxDebug>> {
+    ) -> BoxFuture<'_, Option<Box<dyn ReplyError>>> {
         async move {
             let mut reply_sender = tx.map(ReplySender::new);
             let ctx: Context<'_, A, <A as Message<T>>::Reply> =
@@ -228,7 +226,7 @@ where
                 tx.send(reply.into_value());
                 None
             } else {
-                reply.into_boxed_err()
+                reply.into_any_err()
             }
         }
         .boxed()
