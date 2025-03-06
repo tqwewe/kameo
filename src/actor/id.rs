@@ -245,7 +245,7 @@ impl Hash for PeerIdKind {
 
 #[cfg(test)]
 mod tests {
-    use std::hash::DefaultHasher;
+    use std::hash::{DefaultHasher, Hasher};
 
     #[cfg(feature = "remote")]
     use libp2p::PeerId;
