@@ -65,10 +65,6 @@ name = "manual_swarm"
 required-features = ["remote"]
 
 [[bench]]
-name = "fibonacci"
-harness = false
-
-[[bench]]
 name = "overhead"
 harness = false
 
