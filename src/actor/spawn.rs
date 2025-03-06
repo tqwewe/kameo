@@ -1,4 +1,9 @@
-use std::{convert, panic::AssertUnwindSafe, sync::Arc, thread};
+use std::{
+    convert,
+    panic::AssertUnwindSafe,
+    sync::{Arc, OnceLock},
+    thread,
+};
 
 use futures::{
     stream::{AbortHandle, AbortRegistration, Abortable, FuturesUnordered},
@@ -176,11 +181,13 @@ impl<A: Actor> PreparedActor<A> {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
         let startup_semaphore = Arc::new(Semaphore::new(0));
+        let startup_error = Arc::new(OnceLock::new());
         let actor_ref = ActorRef::new(
             mailbox,
             abort_handle,
-            links.clone(),
-            startup_semaphore.clone(),
+            links,
+            startup_semaphore,
+            startup_error,
         );
 
         PreparedActor {
@@ -305,6 +312,16 @@ where
         .map(|res| res.map_err(|err| PanicError::new(Box::new(err))))
         .map_err(PanicError::new_from_panic_any)
         .and_then(convert::identity);
+    match &start_res {
+        Ok(_) => actor_ref
+            .startup_error
+            .set(None)
+            .expect("nothing else should set the startup error"),
+        Err(err) => actor_ref
+            .startup_error
+            .set(Some(err.clone()))
+            .expect("nothing else should set the startup error"),
+    }
 
     let mut startup_finished = false;
     if let Err(SendError::MailboxFull(())) =

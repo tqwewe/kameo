@@ -1,4 +1,9 @@
-use std::{cell::Cell, collections::HashMap, fmt, ops, sync::Arc};
+use std::{
+    cell::Cell,
+    collections::HashMap,
+    fmt, ops,
+    sync::{Arc, OnceLock},
+};
 
 use futures::{stream::AbortHandle, Stream, StreamExt};
 use tokio::{
@@ -16,7 +21,7 @@ use crate::error::{Infallible, RemoteSendError};
 use crate::remote;
 
 use crate::{
-    error::{self, SendError},
+    error::{self, PanicError, SendError},
     mailbox::{bounded::BoundedMailbox, Mailbox, SignalMailbox, WeakMailbox},
     message::{Message, StreamMessage},
     reply::Reply,
@@ -47,6 +52,7 @@ pub struct ActorRef<A: Actor> {
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_semaphore: Arc<Semaphore>,
+    pub(crate) startup_error: Arc<OnceLock<Option<PanicError>>>,
 }
 
 impl<A> ActorRef<A>
@@ -59,6 +65,7 @@ where
         abort_handle: AbortHandle,
         links: Links,
         startup_semaphore: Arc<Semaphore>,
+        startup_error: Arc<OnceLock<Option<PanicError>>>,
     ) -> Self {
         ActorRef {
             id: ActorID::generate(),
@@ -66,6 +73,7 @@ where
             abort_handle,
             links,
             startup_semaphore,
+            startup_error,
         }
     }
 
@@ -149,6 +157,7 @@ where
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_notify: self.startup_semaphore.clone(),
+            startup_error: self.startup_error.clone(),
         }
     }
 
@@ -233,6 +242,56 @@ where
     #[inline]
     pub async fn wait_startup(&self) {
         let _ = self.startup_semaphore.acquire().await;
+    }
+
+    /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
+    ///
+    /// This method ensures the actors on_start lifecycle hook has been fully processed.
+    /// If `wait_startup_result` is called after the actor has already started up, this will return immediately.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::num::ParseIntError;
+    /// use std::time::Duration;
+    ///
+    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::mailbox::unbounded::UnboundedMailbox;
+    /// use tokio::time::sleep;
+    ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Mailbox = UnboundedMailbox<Self>;
+    ///     type Error = ParseIntError;
+    ///
+    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+    ///         "invalid int".parse().map(|_: i32| ()) // Will always error
+    ///     }
+    /// }
+    ///
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let startup_result = actor_ref.wait_startup_result().await;
+    /// assert!(startup_result.is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn wait_startup_result(&self) -> Result<(), A::Error>
+    where
+        A::Error: Clone,
+    {
+        let _ = self.startup_semaphore.acquire().await;
+        match self
+            .startup_error
+            .get()
+            .expect("startup error should be set")
+        {
+            Some(err) => Err(err
+                .with_downcast_ref(|err: &A::Error| err.clone())
+                .expect("panic error type should be the Actor's error type")),
+            None => Ok(()),
+        }
     }
 
     /// Waits for the actor to finish processing and stop.
@@ -720,6 +779,7 @@ impl<A: Actor> Clone for ActorRef<A> {
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_semaphore: self.startup_semaphore.clone(),
+            startup_error: self.startup_error.clone(),
         }
     }
 }
@@ -1017,6 +1077,7 @@ pub struct WeakActorRef<A: Actor> {
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     startup_notify: Arc<Semaphore>,
+    startup_error: Arc<OnceLock<Option<PanicError>>>,
 }
 
 impl<A: Actor> WeakActorRef<A> {
@@ -1034,6 +1095,7 @@ impl<A: Actor> WeakActorRef<A> {
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_semaphore: self.startup_notify.clone(),
+            startup_error: self.startup_error.clone(),
         })
     }
 
@@ -1056,6 +1118,7 @@ impl<A: Actor> Clone for WeakActorRef<A> {
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_notify: self.startup_notify.clone(),
+            startup_error: self.startup_error.clone(),
         }
     }
 }
