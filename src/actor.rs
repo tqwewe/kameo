@@ -161,9 +161,11 @@ pub trait Actor: Sized + Send + 'static {
 
     /// Called when the actor receives a message to be processed.
     ///
-    /// By default, this method handles the incoming message immediately using the actor's standard message handling logic.
+    /// By default, this method handles the incoming message immediately using the
+    /// actor's standard message handling logic.
     ///
-    /// Advanced use cases can override this method to customize how messages are processed, such as buffering messages for later processing or implementing custom scheduling.
+    /// Advanced use cases can override this method to customize how messages are processed,
+    /// such as buffering messages for later processing or implementing custom scheduling.
     ///
     /// # Parameters
     /// - `msg`: The incoming message, wrapped in a `BoxMessage<Self>`.
@@ -171,16 +173,20 @@ pub trait Actor: Sized + Send + 'static {
     /// - `tx`: An optional reply sender, used when the message expects a response.
     ///
     /// # Returns
-    /// A future that resolves to `Result<(), BoxDebug>`. An `Ok(())` indicates successful processing, while an `Err` indicates an error occurred during message handling.
+    /// A future that resolves to `Result<(), BoxDebug>`. An `Ok(())` indicates successful processing,
+    /// while an `Err` indicates an error occurred during message handling.
     ///
     /// # Default Implementation
-    /// The default implementation handles the message immediately by calling `msg.handle_dyn(self, actor_ref, tx).await`.
+    /// The default implementation handles the message immediately by calling
+    /// `msg.handle_dyn(self, actor_ref, tx).await`.
     ///
     /// # Notes
     /// - Overriding this method allows you to intercept and manipulate messages before they are processed.
     /// - Be cautious when buffering messages, as unbounded buffering can lead to increased memory usage.
-    /// - Custom implementations should ensure that messages are eventually handled or appropriately discarded to prevent message loss.
-    /// - The `tx` (reply sender) is tied to the specific `BoxMessage` it corresponds to, and passing an incorrect or mismatched `tx` can lead to a panic.
+    /// - Custom implementations should ensure that messages are eventually handled or appropriately discarded to
+    ///   prevent message loss.
+    /// - The `tx` (reply sender) is tied to the specific `BoxMessage` it corresponds to,
+    ///   and passing an incorrect or mismatched `tx` can lead to a panic.
     #[inline]
     fn on_message(
         &mut self,
