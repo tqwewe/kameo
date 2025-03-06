@@ -320,6 +320,7 @@ where
     };
 
     if let Err(err) = start_res {
+        startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
         let reason = ActorStopReason::Panicked(err);
         let mut state = S::new_from_actor(actor, actor_ref.clone());
         let reason = state.on_shutdown(reason.clone()).await.unwrap_or(reason);
