@@ -41,7 +41,7 @@
 //! ```
 
 use std::{
-    any, fmt,
+    fmt,
     iter::repeat,
     ops::ControlFlow,
     sync::{
@@ -225,7 +225,6 @@ impl<A, M> Reply for WorkerReply<A, M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    <A::Reply as Reply>::Error: any::Any + fmt::Debug,
 {
     type Ok = <A::Reply as Reply>::Ok;
     type Error = <A::Reply as Reply>::Error;
@@ -257,7 +256,6 @@ where
     M: Send + 'static,
     Mb: Send + 'static,
     R: Reply,
-    <A::Reply as Reply>::Error: any::Any + fmt::Debug,
     for<'a> AskRequest<LocalAskRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
         ForwardMessageSend<A::Reply, M>,
     for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:

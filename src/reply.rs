@@ -22,7 +22,6 @@
 //! ensures that actors can manage their communication responsibilities efficiently and effectively.
 
 use std::{
-    any,
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
     fmt,
@@ -79,7 +78,7 @@ pub trait Reply: Send + 'static {
     /// The success type in the reply.
     type Ok: Send + 'static;
     /// The error type in the reply.
-    type Error: Send + 'static;
+    type Error: ReplyError;
     /// The type sent back to the receiver.
     ///
     /// In almost all cases this will be `Self`. The only exception is the `DelegatedReply` type.
@@ -218,14 +217,14 @@ impl<R: ?Sized> fmt::Debug for ReplySender<R> {
 /// An error type which can be used in replies.
 ///
 /// This is implemented for all types which are `Debug + Send + 'static`.
-pub trait ReplyError: DowncastSend + fmt::Debug {}
+pub trait ReplyError: DowncastSend + fmt::Debug + 'static {}
 impl<T> ReplyError for T where T: fmt::Debug + Send + 'static {}
 impl_downcast!(ReplyError);
 
 impl<T, E> Reply for Result<T, E>
 where
     T: Send + 'static,
-    E: any::Any + fmt::Debug + Send + 'static,
+    E: ReplyError,
 {
     type Ok = T;
     type Error = E;

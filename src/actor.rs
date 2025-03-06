@@ -28,13 +28,14 @@ pub mod pool;
 pub mod pubsub;
 mod spawn;
 
-use std::{any, fmt, ops::ControlFlow};
+use std::{any, ops::ControlFlow};
 
 use futures::Future;
 
 use crate::{
     error::{ActorStopReason, PanicError},
     mailbox::Mailbox,
+    reply::ReplyError,
 };
 
 pub use actor_ref::*;
@@ -129,7 +130,7 @@ pub trait Actor: Sized + Send + 'static {
     /// Actor error type.
     ///
     /// This error is used as the error returned by lifecycle hooks in this actor.
-    type Error: fmt::Debug + Send + 'static;
+    type Error: ReplyError;
 
     /// The name of the actor, which can be useful for logging or debugging.
     ///

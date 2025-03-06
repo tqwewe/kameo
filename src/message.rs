@@ -14,7 +14,7 @@
 //! (Command Query Responsibility Segregation) principle and enhancing the clarity and maintainability of actor
 //! interactions. It also provides some performance benefits in that sequential queries can be processed concurrently.
 
-use std::{any, fmt};
+use std::any;
 
 use futures::{future::BoxFuture, Future, FutureExt};
 
@@ -164,7 +164,7 @@ where
         M: Send + 'static,
         R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
         R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
-        E: any::Any + fmt::Debug + Send + 'static,
+        E: ReplyError,
         for<'a> AskRequest<
             LocalAskRequest<'a, B, B::Mailbox>,
             B::Mailbox,

@@ -611,7 +611,7 @@ impl PanicError {
     /// Calls the passed closure `f` with the inner type downcast into `T`, otherwise returns `None`.
     pub fn with_downcast_ref<T, F, R>(&self, f: F) -> Option<R>
     where
-        T: fmt::Debug + Send + 'static,
+        T: ReplyError,
         F: FnOnce(&T) -> R,
     {
         match self.0.lock() {
