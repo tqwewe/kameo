@@ -42,8 +42,8 @@ use std::{
     thread::Thread,
 };
 
+use downcast_rs::{impl_downcast, DowncastSend};
 use futures::Future;
-use mopa::mopafy;
 use tokio::sync::oneshot;
 
 use crate::{
@@ -217,10 +217,10 @@ impl<R: ?Sized> fmt::Debug for ReplySender<R> {
 
 /// An error type which can be used in replies.
 ///
-/// This is implemented for all types which are `Any + Debug + Send`, which essentially covers all 'static `Debug` types.
-pub trait ReplyError: mopa::Any + fmt::Debug + Send {}
-impl<T> ReplyError for T where T: any::Any + fmt::Debug + Send {}
-mopafy!(ReplyError);
+/// This is implemented for all types which are `Debug + Send + 'static`.
+pub trait ReplyError: DowncastSend + fmt::Debug {}
+impl<T> ReplyError for T where T: fmt::Debug + Send + 'static {}
+impl_downcast!(ReplyError);
 
 impl<T, E> Reply for Result<T, E>
 where
