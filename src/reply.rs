@@ -22,6 +22,7 @@
 //! ensures that actors can manage their communication responsibilities efficiently and effectively.
 
 use std::{
+    any,
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
     fmt,
@@ -46,7 +47,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     error::{BoxSendError, SendError},
-    message::{BoxDebug, BoxReply},
+    message::BoxReply,
 };
 
 /// A boxed reply sender which will be downcast to the correct type when receiving a reply.
@@ -86,8 +87,8 @@ pub trait Reply: Send + 'static {
     /// Converts a reply to a `Result`.
     fn to_result(self) -> Result<Self::Ok, Self::Error>;
 
-    /// Converts the reply into a `Box<fmt::Debug + Send + Sync + 'static>` if it's an Err, otherwise `None`.
-    fn into_boxed_err(self) -> Option<BoxDebug>;
+    /// Converts the reply into a `Box<any::Any + Send>` if it's an Err, otherwise `None`.
+    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>>;
 
     /// Converts the type to Self::Reply.
     ///
@@ -127,7 +128,7 @@ where
         unimplemented!("a DeligatedReply cannot be converted to a result and is only a marker type")
     }
 
-    fn into_boxed_err(self) -> Option<BoxDebug> {
+    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
         None
     }
 
@@ -216,7 +217,7 @@ impl<R: ?Sized> fmt::Debug for ReplySender<R> {
 impl<T, E> Reply for Result<T, E>
 where
     T: Send + 'static,
-    E: fmt::Debug + Send + Sync + 'static,
+    E: Send + 'static,
 {
     type Ok = T;
     type Error = E;
@@ -226,8 +227,9 @@ where
         self
     }
 
-    fn into_boxed_err(self) -> Option<BoxDebug> {
-        self.map_err(|err| Box::new(err) as BoxDebug).err()
+    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
+        self.map_err(|err| Box::new(err) as Box<dyn any::Any + Send>)
+            .err()
     }
 
     #[inline]
@@ -269,7 +271,7 @@ macro_rules! impl_infallible_reply {
                 Ok(self)
             }
 
-            fn into_boxed_err(self) -> Option<BoxDebug> {
+            fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
                 None
             }
 

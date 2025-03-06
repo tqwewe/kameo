@@ -41,7 +41,7 @@
 //! ```
 
 use std::{
-    fmt,
+    any, fmt,
     iter::repeat,
     sync::{
         atomic::{AtomicUsize, Ordering},
@@ -58,7 +58,7 @@ use crate::{
     actor::{Actor, ActorRef},
     error::{ActorStopReason, BoxError, SendError},
     mailbox::bounded::BoundedMailbox,
-    message::{BoxDebug, Context, Message},
+    message::{Context, Message},
     reply::Reply,
     request::{
         AskRequest, ForwardMessageSend, LocalAskRequest, LocalTellRequest, MessageSend,
@@ -223,7 +223,6 @@ impl<A, M> Reply for WorkerReply<A, M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    <A::Reply as Reply>::Error: fmt::Debug,
 {
     type Ok = <A::Reply as Reply>::Ok;
     type Error = <A::Reply as Reply>::Error;
@@ -233,7 +232,7 @@ where
         unimplemented!("a WorkerReply cannot be converted to a result and is only a marker type")
     }
 
-    fn into_boxed_err(self) -> Option<BoxDebug> {
+    fn into_any_err(self) -> Option<Box<dyn any::Any + Send>> {
         match self {
             WorkerReply::Forwarded => None,
             WorkerReply::Err(err) => Some(Box::new(err)),
@@ -255,7 +254,6 @@ where
     M: Send + 'static,
     Mb: Send + 'static,
     R: Reply,
-    <A::Reply as Reply>::Error: fmt::Debug,
     for<'a> AskRequest<LocalAskRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
         ForwardMessageSend<A::Reply, M>,
     for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:
@@ -315,7 +313,6 @@ impl<A, M> Message<BroadcastMsg<M>> for ActorPool<A>
 where
     A: Actor + Message<M>,
     M: Clone + Send + 'static,
-    <A::Reply as Reply>::Error: fmt::Debug,
     for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
         MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {

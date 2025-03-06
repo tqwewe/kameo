@@ -17,7 +17,7 @@ use tokio::{
     time::error::Elapsed,
 };
 
-use crate::{actor::ActorID, mailbox::Signal, message::BoxDebug, Actor};
+use crate::{actor::ActorID, mailbox::Signal, Actor};
 
 /// A dyn boxed error.
 pub type BoxError = Box<dyn error::Error + Send + Sync + 'static>;
@@ -594,7 +594,7 @@ impl PanicError {
         PanicError(Arc::new(Mutex::new(err)))
     }
 
-    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a `Cow<'static, str>`,
+    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a string,
     /// or `None` if it's not a string type.
     pub fn with_str<F, R>(
         &self,
@@ -650,12 +650,6 @@ impl fmt::Display for PanicError {
             let box_err = any.downcast_ref::<BoxError>();
             if let Some(err) = box_err {
                 return write!(f, "panicked: {err}");
-            }
-
-            // Types are `BoxDebug` if the panic occurred as a result of a `tell` message returning an error
-            let box_err = any.downcast_ref::<BoxDebug>();
-            if let Some(err) = box_err {
-                return write!(f, "panicked: {:?}", Err::<(), _>(err));
             }
 
             write!(f, "panicked")

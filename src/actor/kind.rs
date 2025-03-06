@@ -110,7 +110,7 @@ where
             .await;
         match res {
             Ok(None) => None,
-            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Ok(Some(err)) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The reply was an error
             Err(err) => Some(ActorStopReason::Panicked(PanicError::new_boxed(err))), // The handler panicked
         }
     }
