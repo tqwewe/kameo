@@ -608,6 +608,14 @@ impl PanicError {
         })
     }
 
+    /// Downcasts and clones the inner error, returning `Some` if the panic error matches the type `T`.
+    pub fn downcast<T>(&self) -> Option<T>
+    where
+        T: ReplyError + Clone,
+    {
+        self.with_downcast_ref(|err: &T| err.clone())
+    }
+
     /// Calls the passed closure `f` with the inner type downcast into `T`, otherwise returns `None`.
     pub fn with_downcast_ref<T, F, R>(&self, f: F) -> Option<R>
     where
