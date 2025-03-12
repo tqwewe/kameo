@@ -152,11 +152,10 @@ where
     }
 
     /// Returns a worker with the least amount of load.
-    pub fn get_least_loaded_worker(&self) -> ActorRef<A> {
+    pub fn get_least_loaded_worker(&self) -> &(ActorRef<A>, Arc<AtomicUsize>) {
         self.workers
             .iter()
             .min_by_key(|(_, load)| load.load(Ordering::Relaxed))
-            .map(|(worker, _)| worker.clone())
             .expect("ActorPool should have at least one worker")
     }
 }
@@ -270,7 +269,8 @@ where
     ) -> Self::Reply {
         let (_, mut reply_sender) = ctx.reply_sender();
         for _ in 0..self.workers.len() {
-            let worker = self.get_least_loaded_worker();
+            let (worker, load) = self.get_least_loaded_worker();
+            load.fetch_add(1, Ordering::Relaxed);
             match reply_sender {
                 Some(tx) => {
                     if let Err(err) = worker.ask(msg).forward(tx).await {
