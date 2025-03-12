@@ -2,14 +2,14 @@
 //!
 //! The `pool` module offers the ability to manage a group of actors that work together to process tasks.
 //! It enables the creation of an `ActorPool`, which distributes incoming messages to a fixed set of worker actors
-//! in a round-robin fashion. This ensures that tasks are evenly distributed across workers, improving
-//! resource utilization and overall performance.
+//! in a least-connections fashion. This ensures that messages are always sent to the worker with the least amount of
+//! work queued.
 //!
 //! `ActorPool` must be spawned as an actor, and tasks can be sent to it using the `WorkerMsg` message
 //! for individual workers or the `BroadcastMsg` to send a message to all workers in the pool.
 //!
 //! # Features
-//! - **Load Balancing**: Messages are distributed among a fixed set of actors in a round-robin manner.
+//! - **Load Balancing**: Messages are distributed among a fixed set of actors in a least-connections manner.
 //! - **Resilience**: Workers that stop or fail are automatically replaced to ensure continued operation.
 //! - **Flexible Actor Management**: The pool can manage any type of actor that implements the [Actor] trait,
 //!   allowing it to be used for various tasks.
@@ -74,7 +74,7 @@ enum Factory<A: Actor> {
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
 /// The `ActorPool` manages a set of worker actors and implements load balancing
-/// by distributing incoming messages to these workers in a round-robin fashion. It ensures
+/// by distributing incoming messages to these workers in a least-connections fashion. It ensures
 /// that workloads are evenly spread across the available workers to maintain optimal performance
 /// and resource utilization. Additionally, it handles the dynamic replacement of workers
 /// that stop due to errors or other reasons, maintaining the pool's resilience and reliability.
