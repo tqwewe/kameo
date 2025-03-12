@@ -44,10 +44,7 @@ use std::{
     fmt,
     iter::repeat,
     ops::ControlFlow,
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc,
-    },
+    sync::{Arc, Weak},
 };
 
 use futures::{
@@ -69,6 +66,11 @@ use crate::{
 
 use super::{ActorID, WeakActorRef};
 
+enum Factory<A: Actor> {
+    Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
+    Async(Box<dyn FnMut() -> BoxFuture<'static, ActorRef<A>> + Send + Sync + 'static>),
+}
+
 /// A pool of actor workers designed to distribute tasks among a fixed set of actors.
 ///
 /// The `ActorPool` manages a set of worker actors and implements load balancing
@@ -80,7 +82,7 @@ use super::{ActorID, WeakActorRef};
 /// The pool can be used either as a standalone object or spawned as an actor. When spawned, tasks can be
 /// sent using the `WorkerMsg` and `BroadcastMsg` messages for individual or broadcast communication with workers.
 pub struct ActorPool<A: Actor> {
-    workers: Vec<(ActorRef<A>, Arc<AtomicUsize>)>,
+    workers: Vec<(ActorRef<A>, Arc<()>)>,
     size: usize,
     factory: Factory<A>,
 }
@@ -112,9 +114,7 @@ where
     {
         assert_ne!(size, 0);
 
-        let workers = (0..size)
-            .map(|_| (factory(), Arc::new(AtomicUsize::new(0))))
-            .collect();
+        let workers = (0..size).map(|_| (factory(), Arc::new(()))).collect();
 
         ActorPool {
             workers,
@@ -134,11 +134,9 @@ where
     {
         assert_ne!(size, 0);
 
-        let workers = join_all((0..size).map(|_| {
-            FutureExt::map(factory(), |actor_ref| {
-                (actor_ref, Arc::new(AtomicUsize::new(0)))
-            })
-        }))
+        let workers = join_all(
+            (0..size).map(|_| FutureExt::map(factory(), |actor_ref| (actor_ref, Arc::new(())))),
+        )
         .await;
 
         ActorPool {
@@ -151,11 +149,11 @@ where
         }
     }
 
-    /// Returns a worker with the least amount of load.
-    pub fn get_least_loaded_worker(&self) -> &(ActorRef<A>, Arc<AtomicUsize>) {
+    fn next_worker(&self) -> (&ActorRef<A>, Weak<()>) {
         self.workers
             .iter()
-            .min_by_key(|(_, load)| load.load(Ordering::Relaxed))
+            .min_by_key(|(_, load)| Arc::weak_count(load))
+            .map(|(actor_ref, counter)| (actor_ref, Arc::downgrade(counter)))
             .expect("ActorPool should have at least one worker")
     }
 }
@@ -198,8 +196,8 @@ where
         };
 
         self.workers[i] = match &mut self.factory {
-            Factory::Sync(f) => (f(), Arc::new(AtomicUsize::new(0))),
-            Factory::Async(f) => (f().await, Arc::new(AtomicUsize::new(0))),
+            Factory::Sync(f) => (f(), Arc::new(())),
+            Factory::Async(f) => (f().await, Arc::new(())),
         };
         self.workers[i].0.link(&actor_ref).await;
 
@@ -211,7 +209,7 @@ where
 #[allow(missing_debug_implementations)]
 pub enum WorkerReply<A, M>
 where
-    A: Actor + Message<M>,
+    A: Actor + Message<WorkerMsgWrapper<M>>,
     M: Send + 'static,
 {
     /// The message was forwarded to a worker.
@@ -222,7 +220,7 @@ where
 
 impl<A, M> Reply for WorkerReply<A, M>
 where
-    A: Actor + Message<M>,
+    A: Actor + Message<WorkerMsgWrapper<M>>,
     M: Send + 'static,
 {
     type Ok = <A::Reply as Reply>::Ok;
@@ -251,14 +249,19 @@ pub struct WorkerMsg<M>(pub M);
 
 impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A>
 where
-    A: Actor<Mailbox = Mb> + Message<M, Reply = R>,
+    A: Actor<Mailbox = Mb> + Message<WorkerMsgWrapper<M>, Reply = R>,
     M: Send + 'static,
     Mb: Send + 'static,
     R: Reply,
-    for<'a> AskRequest<LocalAskRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout, WithoutRequestTimeout>:
-        ForwardMessageSend<A::Reply, M>,
-    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
+    for<'a> AskRequest<
+        LocalAskRequest<'a, A, Mb>,
+        Mb,
+        WorkerMsgWrapper<M>,
+        WithoutRequestTimeout,
+        WithoutRequestTimeout,
+    >: ForwardMessageSend<A::Reply, WorkerMsgWrapper<M>>,
+    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, WorkerMsgWrapper<M>, WithoutRequestTimeout>:
+        MessageSend<Ok = (), Error = SendError<WorkerMsgWrapper<M>, <A::Reply as Reply>::Error>>,
 {
     type Reply = WorkerReply<A, M>;
 
@@ -269,14 +272,17 @@ where
     ) -> Self::Reply {
         let (_, mut reply_sender) = ctx.reply_sender();
         for _ in 0..self.workers.len() {
-            let (worker, load) = self.get_least_loaded_worker();
-            load.fetch_add(1, Ordering::Relaxed);
+            let (worker, counter) = self.next_worker();
             match reply_sender {
                 Some(tx) => {
-                    if let Err(err) = worker.ask(msg).forward(tx).await {
+                    if let Err(err) = worker
+                        .ask(WorkerMsgWrapper { msg, counter })
+                        .forward(tx)
+                        .await
+                    {
                         match err {
                             SendError::ActorNotRunning((m, tx)) => {
-                                msg = m;
+                                msg = m.msg;
                                 reply_sender = Some(tx);
                             },
                             _ => unreachable!("message was forwarded, so the only error should be if the actor is not running")
@@ -287,10 +293,10 @@ where
                     return WorkerReply::Forwarded;
                 }
                 None => {
-                    if let Err(err) = worker.tell(msg).send().await {
+                    if let Err(err) = worker.tell(WorkerMsgWrapper { msg, counter }).send().await {
                         match err {
                             SendError::ActorNotRunning(m) => {
-                                msg = m;
+                                msg = m.msg;
                                 reply_sender = None;
                             },
                             _ => unreachable!("message was sent with `tell`, so the only error should be if the actor is not running")
@@ -346,7 +352,29 @@ impl<A: Actor> fmt::Debug for ActorPool<A> {
     }
 }
 
-enum Factory<A: Actor> {
-    Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
-    Async(Box<dyn FnMut() -> BoxFuture<'static, ActorRef<A>> + Send + Sync + 'static>),
+/// A wrapper type which helps keep track of the load for each worker.
+#[doc(hidden)]
+#[allow(missing_debug_implementations)]
+pub struct WorkerMsgWrapper<M> {
+    msg: M,
+    counter: Weak<()>,
+}
+
+impl<A, M> Message<WorkerMsgWrapper<M>> for A
+where
+    A: Message<M>,
+    M: Send + 'static,
+{
+    type Reply = A::Reply;
+
+    async fn handle(
+        &mut self,
+        WorkerMsgWrapper {
+            msg,
+            counter: _counter,
+        }: WorkerMsgWrapper<M>,
+        ctx: Context<'_, Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.handle(msg, ctx).await
+    }
 }

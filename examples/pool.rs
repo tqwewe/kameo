@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print IDs from 0..=4
     for _ in 0..5 {
-        pool.ask(WorkerMsg(PrintActorID)).await?;
+        pool.tell(WorkerMsg(PrintActorID)).await?;
     }
 
     // Force all workers to stop, causing them to be restarted
@@ -59,8 +59,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // New IDs from 6..=10 will be printed
     for _ in 0..5 {
-        pool.ask(WorkerMsg(PrintActorID)).await?;
+        pool.tell(WorkerMsg(PrintActorID)).await?;
     }
+
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     Ok(())
 }
