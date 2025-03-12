@@ -154,7 +154,7 @@ impl<M> PubSub<M> {
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub = PubSub::new();
+    /// let mut pubsub: PubSub<Msg> = PubSub::new();
     ///
     /// let actor_ref = kameo::spawn(MyActor);
     /// pubsub.subscribe(actor_ref);
@@ -201,7 +201,7 @@ impl<M> PubSub<M> {
     /// let mut pubsub = PubSub::new();
     ///
     /// let actor_ref = kameo::spawn(MyActor);
-    /// pubsub.subscribe_filter(actor_ref, |m| m.0.starts_with("my-topic:"));
+    /// pubsub.subscribe_filter(actor_ref, |Msg(msg)| msg.starts_with("my-topic:"));
     /// # })
     /// ```
     #[inline]
