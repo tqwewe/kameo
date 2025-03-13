@@ -2,7 +2,7 @@ use std::hash::Hash;
 #[cfg(feature = "remote")]
 use std::hash::Hasher;
 use std::sync::atomic::Ordering;
-use std::{fmt, sync::atomic::AtomicU64};
+use std::{fmt, sync::atomic::AtomicUsize};
 
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,7 @@ use crate::error::ActorIDFromBytesError;
 #[cfg(feature = "remote")]
 use crate::remote::ActorSwarm;
 
-static ACTOR_COUNTER: AtomicU64 = AtomicU64::new(0);
+static ACTOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// A globally unique identifier for an actor within a distributed system.
 ///
@@ -70,7 +70,7 @@ impl ActorID {
     ///
     /// A new `ActorID` instance with the next available `sequence_id`.
     pub fn generate() -> Self {
-        ActorID::new(ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed))
+        ActorID::new(ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed).try_into().unwrap())
     }
 
     /// Returns the sequential identifier of the actor.

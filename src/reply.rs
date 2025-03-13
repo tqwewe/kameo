@@ -33,13 +33,23 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         atomic::{
-            AtomicBool, AtomicI16, AtomicI32, AtomicI64, AtomicI8, AtomicIsize, AtomicPtr,
-            AtomicU16, AtomicU32, AtomicU64, AtomicU8, AtomicUsize,
+            AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize,
         },
         Arc, Mutex, Once, RwLock,
     },
     thread::Thread,
 };
+
+#[cfg(target_has_atomic = "8")]
+use std::sync::atomic::{ AtomicI8, AtomicU8 };
+#[cfg(target_has_atomic = "16")]
+use std::sync::atomic::{ AtomicI16, AtomicU16 };
+#[cfg(target_has_atomic = "32")]
+use std::sync::atomic::{ AtomicI32, AtomicU32 };
+#[cfg(target_has_atomic = "64")]
+use std::sync::atomic::{ AtomicI64, AtomicU64 };
+#[cfg(target_has_atomic = "128")]
+use std::sync::atomic::{ AtomicI128, AtomicU128 };
 
 use downcast_rs::{impl_downcast, DowncastSend};
 use futures::Future;
@@ -343,16 +353,8 @@ impl_infallible_reply!([
     NonZeroU128,
     NonZeroUsize,
     AtomicBool,
-    AtomicI8,
-    AtomicI16,
-    AtomicI32,
-    AtomicI64,
     AtomicIsize,
     {T: 'static + Send} AtomicPtr<T>,
-    AtomicU8,
-    AtomicU16,
-    AtomicU32,
-    AtomicU64,
     AtomicUsize,
     Once,
     Thread,
@@ -403,4 +405,30 @@ impl_infallible_reply!([
     {A: 'static + Send, B: 'static + Send, C: 'static + Send, D: 'static + Send, E: 'static + Send, F: 'static + Send, G: 'static + Send, H: 'static + Send, I: 'static + Send, J: 'static + Send, K: 'static + Send, L: 'static + Send, M: 'static + Send, N: 'static + Send, O: 'static + Send, P: 'static + Send, Q: 'static + Send, R: 'static + Send, S: 'static + Send, T: 'static + Send, U: 'static + Send, V: 'static + Send, W: 'static + Send, X: 'static + Send} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X),
     {A: 'static + Send, B: 'static + Send, C: 'static + Send, D: 'static + Send, E: 'static + Send, F: 'static + Send, G: 'static + Send, H: 'static + Send, I: 'static + Send, J: 'static + Send, K: 'static + Send, L: 'static + Send, M: 'static + Send, N: 'static + Send, O: 'static + Send, P: 'static + Send, Q: 'static + Send, R: 'static + Send, S: 'static + Send, T: 'static + Send, U: 'static + Send, V: 'static + Send, W: 'static + Send, X: 'static + Send, Y: 'static + Send} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y),
     {A: 'static + Send, B: 'static + Send, C: 'static + Send, D: 'static + Send, E: 'static + Send, F: 'static + Send, G: 'static + Send, H: 'static + Send, I: 'static + Send, J: 'static + Send, K: 'static + Send, L: 'static + Send, M: 'static + Send, N: 'static + Send, O: 'static + Send, P: 'static + Send, Q: 'static + Send, R: 'static + Send, S: 'static + Send, T: 'static + Send, U: 'static + Send, V: 'static + Send, W: 'static + Send, X: 'static + Send, Y: 'static + Send, Z: 'static + Send} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z),
+]);
+
+#[cfg(target_has_atomic = "8")]
+impl_infallible_reply!([
+    AtomicI8,
+    AtomicU8,
+]);
+#[cfg(target_has_atomic = "16")]
+impl_infallible_reply!([
+    AtomicI16,
+    AtomicU16,
+]);
+#[cfg(target_has_atomic = "32")]
+impl_infallible_reply!([
+    AtomicI32,
+    AtomicU32,
+]);
+#[cfg(target_has_atomic = "64")]
+impl_infallible_reply!([
+    AtomicI64,
+    AtomicU64,
+]);
+#[cfg(target_has_atomic = "128")]
+impl_infallible_reply!([
+    AtomicI128,
+    AtomicU128,
 ]);
