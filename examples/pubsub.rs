@@ -1,7 +1,6 @@
 use kameo::{
     actor::pubsub::{PubSub, Publish, Subscribe},
-    message::{Context, Message},
-    Actor,
+    prelude::*,
 };
 use tracing_subscriber::EnvFilter;
 

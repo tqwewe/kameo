@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use kameo::{
     actor::pool::{ActorPool, BroadcastMsg, WorkerMsg},
-    message::{Context, Message},
-    Actor,
+    prelude::*,
 };
 use tracing_subscriber::EnvFilter;
 

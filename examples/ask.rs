@@ -1,12 +1,6 @@
 use std::time::Duration;
 
-use kameo::{
-    error::Infallible,
-    mailbox::unbounded::UnboundedMailbox,
-    message::{Context, Message},
-    request::MessageSendSync,
-    Actor,
-};
+use kameo::{error::Infallible, prelude::*};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -48,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let my_actor_ref = kameo::spawn(MyActor::default());
 
-    my_actor_ref.tell(Inc { amount: 3 }).send_sync()?;
+    my_actor_ref.tell(Inc { amount: 3 }).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Increment the count by 3

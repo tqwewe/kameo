@@ -1,4 +1,4 @@
-use kameo::{actor::ActorRef, Actor};
+use kameo::prelude::*;
 
 #[derive(Actor)]
 #[cfg_attr(feature = "remote", derive(kameo::RemoteActor))]
