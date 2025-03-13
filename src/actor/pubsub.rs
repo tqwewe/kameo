@@ -26,7 +26,7 @@
 //! #
 //! # impl Message<&'static str> for MyActor {
 //! #     type Reply = ();
-//! #     async fn handle(&mut self, msg: &'static str, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+//! #     async fn handle(&mut self, msg: &'static str, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply { }
 //! # }
 //!
 //! # tokio_test::block_on(async {
@@ -147,7 +147,7 @@ impl<M> PubSub<M> {
     /// #
     /// # impl Message<Msg> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// #[derive(Clone)]
@@ -191,7 +191,7 @@ impl<M> PubSub<M> {
     /// #
     /// # impl Message<Msg> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// #[derive(Clone)]
@@ -247,7 +247,7 @@ where
     async fn handle(
         &mut self,
         Publish(msg): Publish<M>,
-        _ctx: Context<'_, Self, Self::Reply>,
+        _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.publish(msg).await
     }
@@ -272,7 +272,7 @@ where
     async fn handle(
         &mut self,
         Subscribe(actor_ref): Subscribe<A>,
-        _ctx: Context<'_, Self, Self::Reply>,
+        _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe(actor_ref)
     }
@@ -299,7 +299,7 @@ where
     async fn handle(
         &mut self,
         SubscribeFilter(actor_ref, filter): SubscribeFilter<A, M>,
-        _ctx: Context<'_, Self, Self::Reply>,
+        _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.subscribe_filter(actor_ref, filter)
     }

@@ -122,7 +122,7 @@ where
 /// impl Message<Flush> for MyActor {
 ///     type Reply = io::Result<()>;
 ///
-///     async fn handle(&mut self, _: Flush, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+///     async fn handle(&mut self, _: Flush, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
 ///         self.file.flush() // This blocking operation is handled in its own thread
 ///     }
 /// }
@@ -226,7 +226,7 @@ impl<A: Actor> PreparedActor<A> {
     /// #
     /// # impl Message<&'static str> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: &'static str, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: &'static str, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// # tokio_test::block_on(async {

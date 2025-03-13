@@ -326,7 +326,7 @@ where
     /// #
     /// # impl kameo::message::Message<Msg> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
@@ -377,7 +377,7 @@ where
     /// #
     /// # impl kameo::message::Message<Msg> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
@@ -653,7 +653,7 @@ where
     /// impl Message<StreamMessage<u32, (), ()>> for MyActor {
     ///     type Reply = ();
     ///
-    ///     async fn handle(&mut self, msg: StreamMessage<u32, (), ()>, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///     async fn handle(&mut self, msg: StreamMessage<u32, (), ()>, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
     ///         match msg {
     ///             StreamMessage::Next(num) => {
     ///                 println!("Received item: {num}");
@@ -865,7 +865,7 @@ impl<A: Actor> RemoteActorRef<A> {
     /// # #[kameo::remote_message("id")]
     /// # impl kameo::message::Message<Msg> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
@@ -920,7 +920,7 @@ impl<A: Actor> RemoteActorRef<A> {
     /// # #[kameo::remote_message("id")]
     /// # impl kameo::message::Message<Msg> for MyActor {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply { }
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
     /// # }
     /// #
     /// # tokio_test::block_on(async {

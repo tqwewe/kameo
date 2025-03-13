@@ -26,7 +26,7 @@ impl Actor for BoundedActor {
 impl Message<u32> for BoundedActor {
     type Reply = u32;
 
-    async fn handle(&mut self, msg: u32, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: u32, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         msg
     }
 }
@@ -42,7 +42,7 @@ impl Actor for UnboundedActor {
 impl Message<u32> for UnboundedActor {
     type Reply = u32;
 
-    async fn handle(&mut self, msg: u32, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: u32, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         msg
     }
 }

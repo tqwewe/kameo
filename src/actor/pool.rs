@@ -26,7 +26,7 @@
 //! #
 //! # impl Message<&'static str> for MyWorker {
 //! #     type Reply = ();
-//! #     async fn handle(&mut self, msg: &'static str, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply { }
+//! #     async fn handle(&mut self, msg: &'static str, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply { }
 //! # }
 //!
 //! # tokio_test::block_on(async {
@@ -268,7 +268,7 @@ where
     async fn handle(
         &mut self,
         WorkerMsg(mut msg): WorkerMsg<M>,
-        mut ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let (_, mut reply_sender) = ctx.reply_sender();
         for _ in 0..self.workers.len() {
@@ -329,7 +329,7 @@ where
     async fn handle(
         &mut self,
         BroadcastMsg(msg): BroadcastMsg<M>,
-        _ctx: Context<'_, Self, Self::Reply>,
+        _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         join_all(
             self.workers
@@ -373,7 +373,7 @@ where
             msg,
             counter: _counter,
         }: WorkerMsgWrapper<M>,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.handle(msg, ctx).await
     }

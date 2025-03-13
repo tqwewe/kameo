@@ -543,7 +543,7 @@ mod tests {
             async fn handle(
                 &mut self,
                 _msg: Msg,
-                _ctx: Context<'_, Self, Self::Reply>,
+                _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
             }
         }
@@ -581,7 +581,7 @@ mod tests {
             async fn handle(
                 &mut self,
                 _msg: Msg,
-                _ctx: Context<'_, Self, Self::Reply>,
+                _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
             }
         }
@@ -617,7 +617,7 @@ mod tests {
             async fn handle(
                 &mut self,
                 _msg: Msg,
-                _ctx: Context<'_, Self, Self::Reply>,
+                _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
             }
         }
@@ -672,7 +672,7 @@ mod tests {
             async fn handle(
                 &mut self,
                 _msg: Msg,
-                _ctx: Context<'_, Self, Self::Reply>,
+                _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
             }
         }
@@ -735,7 +735,7 @@ mod tests {
             async fn handle(
                 &mut self,
                 _msg: Msg,
-                _ctx: Context<'_, Self, Self::Reply>,
+                _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
                 tokio::time::sleep(Duration::from_secs(10)).await;
             }
@@ -790,7 +790,7 @@ mod tests {
             async fn handle(
                 &mut self,
                 Sleep(duration): Sleep,
-                _ctx: Context<'_, Self, Self::Reply>,
+                _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
                 tokio::time::sleep(duration).await;
             }

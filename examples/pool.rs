@@ -18,7 +18,7 @@ impl Message<PrintActorID> for MyActor {
     async fn handle(
         &mut self,
         _: PrintActorID,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         println!("{}", ctx.actor_ref().id());
     }
@@ -30,7 +30,7 @@ struct ForceStop;
 impl Message<ForceStop> for MyActor {
     type Reply = ();
 
-    async fn handle(&mut self, _: ForceStop, ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, _: ForceStop, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         ctx.actor_ref().kill();
         ctx.actor_ref().wait_for_stop().await;
     }
