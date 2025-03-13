@@ -257,7 +257,6 @@ where
     ///
     /// use kameo::actor::{Actor, ActorRef};
     /// use kameo::mailbox::unbounded::UnboundedMailbox;
-    /// use tokio::time::sleep;
     ///
     /// struct MyActor;
     ///
