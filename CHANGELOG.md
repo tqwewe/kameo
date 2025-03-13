@@ -5,6 +5,71 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2025-03-13
+
+* @Tristaan made their first contribution in #142
+
+* @Plebshot made their first contribution in #128
+
+* @agoldhammer made their first contribution in #126
+
+* @hirschenberger made their first contribution in #121
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add `unregister` method to `ActorSwarm` (#133)
+- **BREAKING:** Add `ReplyError` trait for better `PanicError` downcasting (#137)
+- **BREAKING:** Add `Error` type to `Actor` trait (#138)
+- Add `PubSub` `SubscribeFilter` functionality (#120)
+- Implement infallible replies for missing `std::collections` types (#127)
+- Move `PartialEq` and `Hash` manual implementations from `PeerId` to `PeerIdKind` [</>](https://github.com/tqwewe/kameo/commit/8cced06332a45c90bdeb5a31f8ade750501cff2d)
+- Impl `Error` for `PanicError` [</>](https://github.com/tqwewe/kameo/commit/65d9c1506df0b64fdc6e3b04bf39529afa1b7b12)
+- Add `ActorRef::wait_startup_result` method (#139)
+- Add `PanicError::downcast` method [</>](https://github.com/tqwewe/kameo/commit/2b054874f58018946644a879417e1dcbfae5de70)
+- Implement least loaded scheduling for actor pool [</>](https://github.com/tqwewe/kameo/commit/7e9f285f274e3beb6ee939dbcc72e494c2e195e2)
+- Use `target_has_atomic` cfg to detect Atomic type support for 32-bit embedded systems, wasm, etc (#142)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Use `ControlFlow` enum instead of `Option` for `Actor` methods (#140)
+- Use `Box<dyn FnMut>` for `PubSub` filter functions to allow dynamic filtering behavior (#124)
+- Update overhead benchmark and delete fibonacci benchmark [</>](https://github.com/tqwewe/kameo/commit/13d0f77b21be1c7bbdb1a99061901f6a62bd51a9)
+- Use `downcast-rs` instead of `mopa` for `ReplyError` trait [</>](https://github.com/tqwewe/kameo/commit/3058911015a81baee81bf71273ca02d99ab3bcbb)
+- Use `ReplyError` to simplify trait bounds [</>](https://github.com/tqwewe/kameo/commit/7452a2b6801f75eaf57799551b94bd9277478642)
+
+### <!-- 2 -->Removed
+
+- **BREAKING:** Remove internment dependency and simplify peer ID handling (#123)
+- **BREAKING:** Remove lifetime from `Context` and borrow mutably instead (#144)
+- Remove reply implementations for unstable integer atomics [</>](https://github.com/tqwewe/kameo/commit/f87031bcd4bfba57fda798424c4d27d7d3b91e00)
+
+### <!-- 3 -->Fixed
+
+- **BREAKING:** Actor pool worker scheduling [</>](https://github.com/tqwewe/kameo/commit/cdab8a24353c6411ef7ecf995aac513db07b72cb)
+- `ActorID` `PartialEq` and `Hash` implementations [</>](https://github.com/tqwewe/kameo/commit/baca344703720c0cd97f24282c552982f32c2b9b)
+- Missing `Hasher` import in id tests [</>](https://github.com/tqwewe/kameo/commit/78580923ee1f0fc3ad584109a793d3e037290e38)
+- `wait_startup` deadlock on actor start error [</>](https://github.com/tqwewe/kameo/commit/445fff27aa910a537f3ae60dc4dfc0e395988863)
+- Pubsub tests [</>](https://github.com/tqwewe/kameo/commit/120a0c8f22ad91da60d076a2ba612254ef46a00f)
+
+### <!-- 4 -->Documentation
+
+- Bump kameo version in getting started page [</>](https://github.com/tqwewe/kameo/commit/b5dd0232a88c104ed8522e720df40b77ac5baddf)
+- Document remote links [</>](https://github.com/tqwewe/kameo/commit/7b9fc4d83005e55fc545214dcc690882fadf32a9)
+- Add bootstrapping with custom behaviour docs [</>](https://github.com/tqwewe/kameo/commit/febad080c5d048320a36f675c94b402dd18f792b)
+- Add sponsor logos to README.md [</>](https://github.com/tqwewe/kameo/commit/292316d99645d25c9af1e7015147c3133b2d692d)
+- Fix typos (#128)
+- Remove blank line in `reply_sender` code docs [</>](https://github.com/tqwewe/kameo/commit/e9b66a88961a240e3c4b3c547d60a83449d93e4c)
+- Fix sponsor badge link in README.md [</>](https://github.com/tqwewe/kameo/commit/0561640a0fc88935c2ae368419aa35266c5d71f9)
+- Add comparing rust actor libraries blog post to resources in README.md [</>](https://github.com/tqwewe/kameo/commit/ef40c722e39f6d0404ebdff78654eecb6722bd66)
+- Improve actor code docs [</>](https://github.com/tqwewe/kameo/commit/b9f8985f8b61d41dbad07e65194b372f5747ebc8)
+- Replace round-robin with least-connections ActorPool scheduling [</>](https://github.com/tqwewe/kameo/commit/b49a36ef5455a8aaae2582a47126b3cb6207dda6)
+
+### <!-- 5 -->Misc
+
+- Add `remote` as required feature for examples (#121)
+- Improve release script [</>](https://github.com/tqwewe/kameo/commit/bbc50d5dc8f549e5fc58068e6bc67d2c267866e9)
+- Update libp2p dependency from version 0.54.1 to 0.55.0 (#122)
+
 ## [0.14.0] - 2025-01-16
 
 * @meowjesty made their first contribution in #92
@@ -453,6 +518,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.15.0]: https://github.com/tqwewe/kameo/compare/v0.13.0..v0.15.0
+[0.14.0]: https://github.com/tqwewe/kameo/compare/v0.13.0..v0.14.0
 [0.13.0]: https://github.com/tqwewe/kameo/compare/v0.12.2..v0.13.0
 [0.12.2]: https://github.com/tqwewe/kameo/compare/v0.12.1..v0.12.2
 [0.12.1]: https://github.com/tqwewe/kameo/compare/v0.12.0..v0.12.1
