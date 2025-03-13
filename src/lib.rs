@@ -31,6 +31,9 @@ pub use reply::Reply;
 /// This module includes the most essential actor components, messaging types,
 /// and traits needed for typical actor system usage.
 pub mod prelude {
+    #[cfg(feature = "macros")]
+    pub use kameo_macros::{messages, remote_message, Actor, RemoteActor, Reply};
+
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;
     pub use crate::actor::{
