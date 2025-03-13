@@ -32,24 +32,20 @@ use std::{
     },
     path::{Path, PathBuf},
     sync::{
-        atomic::{
-            AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize,
-        },
+        atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize},
         Arc, Mutex, Once, RwLock,
     },
     thread::Thread,
 };
 
-#[cfg(target_has_atomic = "8")]
-use std::sync::atomic::{ AtomicI8, AtomicU8 };
 #[cfg(target_has_atomic = "16")]
-use std::sync::atomic::{ AtomicI16, AtomicU16 };
+use std::sync::atomic::{AtomicI16, AtomicU16};
 #[cfg(target_has_atomic = "32")]
-use std::sync::atomic::{ AtomicI32, AtomicU32 };
+use std::sync::atomic::{AtomicI32, AtomicU32};
 #[cfg(target_has_atomic = "64")]
-use std::sync::atomic::{ AtomicI64, AtomicU64 };
-#[cfg(target_has_atomic = "128")]
-use std::sync::atomic::{ AtomicI128, AtomicU128 };
+use std::sync::atomic::{AtomicI64, AtomicU64};
+#[cfg(target_has_atomic = "8")]
+use std::sync::atomic::{AtomicI8, AtomicU8};
 
 use downcast_rs::{impl_downcast, DowncastSend};
 use futures::Future;
@@ -408,27 +404,10 @@ impl_infallible_reply!([
 ]);
 
 #[cfg(target_has_atomic = "8")]
-impl_infallible_reply!([
-    AtomicI8,
-    AtomicU8,
-]);
+impl_infallible_reply!([AtomicI8, AtomicU8]);
 #[cfg(target_has_atomic = "16")]
-impl_infallible_reply!([
-    AtomicI16,
-    AtomicU16,
-]);
+impl_infallible_reply!([AtomicI16, AtomicU16]);
 #[cfg(target_has_atomic = "32")]
-impl_infallible_reply!([
-    AtomicI32,
-    AtomicU32,
-]);
+impl_infallible_reply!([AtomicI32, AtomicU32]);
 #[cfg(target_has_atomic = "64")]
-impl_infallible_reply!([
-    AtomicI64,
-    AtomicU64,
-]);
-#[cfg(target_has_atomic = "128")]
-impl_infallible_reply!([
-    AtomicI128,
-    AtomicU128,
-]);
+impl_infallible_reply!([AtomicI64, AtomicU64]);
