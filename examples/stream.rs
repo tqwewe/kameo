@@ -1,13 +1,7 @@
 use std::{future::pending, time};
 
 use futures::stream;
-use kameo::{
-    actor::ActorRef,
-    error::Infallible,
-    mailbox::unbounded::UnboundedMailbox,
-    message::{Context, Message, StreamMessage},
-    Actor,
-};
+use kameo::{error::Infallible, message::StreamMessage, prelude::*};
 use tokio_stream::StreamExt;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
