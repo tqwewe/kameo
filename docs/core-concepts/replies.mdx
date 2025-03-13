@@ -34,7 +34,7 @@ impl Message<MyRequest> for MyActor {
     async fn handle(
         &mut self,
         msg: MyRequest,
-        _: Context<'_, Self, Self::Reply>,
+        _: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         // Logic to process the message and generate a reply
         MyReply {

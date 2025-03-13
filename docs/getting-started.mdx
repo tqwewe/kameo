@@ -43,7 +43,7 @@ impl Message<Greet> for HelloWorldActor {
     async fn handle(
         &mut self,
         Greet(greeting): Greet, // Destructure the Greet message to get the greeting string
-        _: Context<'_, Self, Self::Reply>, // The message handling context
+        _: &mut Context<Self, Self::Reply>, // The message handling context
     ) -> Self::Reply {
         println!("{greeting}"); // Print the greeting to the console
     }

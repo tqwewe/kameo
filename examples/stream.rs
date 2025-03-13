@@ -42,7 +42,7 @@ impl Message<StreamMessage<i64, &'static str, &'static str>> for MyActor {
     async fn handle(
         &mut self,
         msg: StreamMessage<i64, &'static str, &'static str>,
-        _ctx: Context<'_, Self, Self::Reply>,
+        _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match msg {
             StreamMessage::Next(amount) => {

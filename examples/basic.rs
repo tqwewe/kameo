@@ -30,7 +30,7 @@ pub struct Inc {
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: Inc, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         self.count += msg.amount as i64;
         self.count
     }
@@ -45,7 +45,7 @@ impl Message<ForceErr> for MyActor {
     async fn handle(
         &mut self,
         _msg: ForceErr,
-        _ctx: Context<'_, Self, Self::Reply>,
+        _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         Err(3)
     }

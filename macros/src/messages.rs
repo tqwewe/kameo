@@ -357,7 +357,7 @@ impl Messages {
                     impl #impl_generics ::kameo::message::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
                         type Reply = #reply;
 
-                        async fn handle(#self_ref, #[allow(unused_variables)] #msg, _ctx: ::kameo::message::Context<'_, Self, Self::Reply>) -> Self::Reply {
+                        async fn handle(#self_ref, #[allow(unused_variables)] #msg, _ctx: &mut ::kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
                             self.#fn_ident(#( #params ),*) #await_tokens
                         }
                     }

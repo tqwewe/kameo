@@ -19,7 +19,7 @@ pub trait Message<T>: Actor {
     async fn handle(
         &mut self,
         msg: T,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply;
 }
 ```

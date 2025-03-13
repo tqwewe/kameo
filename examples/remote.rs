@@ -25,7 +25,7 @@ pub struct Inc {
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: Inc, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         println!("incrementing");
         self.count += msg.amount as i64;
         self.count
@@ -41,7 +41,7 @@ pub struct Dec {
 impl Message<Dec> for MyActor {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Dec, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: Dec, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         println!("decrementing");
         self.count -= msg.amount as i64;
         self.count

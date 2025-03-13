@@ -84,7 +84,7 @@ struct Inc { amount: i64 }
 impl Message<Inc> for Counter {
     type Reply = i64;
 
-    async fn handle(&mut self, msg: Inc, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    async fn handle(&mut self, msg: Inc, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         self.count += msg.amount;
         self.count
     }

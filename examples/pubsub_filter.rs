@@ -17,7 +17,7 @@ impl Message<PrintActorID> for ActorA {
     async fn handle(
         &mut self,
         m: PrintActorID,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         println!("ActorA: {} - {:?}", ctx.actor_ref().id(), m);
     }
@@ -32,7 +32,7 @@ impl Message<PrintActorID> for ActorB {
     async fn handle(
         &mut self,
         m: PrintActorID,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         println!("ActorB: {} - {:?}", ctx.actor_ref().id(), m);
     }
@@ -47,7 +47,7 @@ impl Message<PrintActorID> for ActorC {
     async fn handle(
         &mut self,
         m: PrintActorID,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         println!("ActorC: {} - {:?}", ctx.actor_ref().id(), m);
     }

@@ -41,7 +41,7 @@ pub trait Message<T: Send + 'static>: Actor {
     fn handle(
         &mut self,
         msg: T,
-        ctx: Context<'_, Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> impl Future<Output = Self::Reply> + Send;
 }
 
@@ -65,23 +65,21 @@ pub enum StreamMessage<T, S, F> {
 /// A context provided to message handlers providing access
 /// to the current actor ref, and reply channel.
 #[derive(Debug)]
-pub struct Context<'r, A: Actor, R: ?Sized>
-where
-    R: Reply,
-{
-    actor_ref: ActorRef<A>,
-    reply: &'r mut Option<ReplySender<R::Value>>,
-}
-
-impl<'r, A, R> Context<'r, A, R>
+pub struct Context<A, R>
 where
     A: Actor,
-    R: Reply,
+    R: Reply + ?Sized,
 {
-    pub(crate) fn new(
-        actor_ref: ActorRef<A>,
-        reply: &'r mut Option<ReplySender<R::Value>>,
-    ) -> Self {
+    actor_ref: ActorRef<A>,
+    reply: Option<ReplySender<R::Value>>,
+}
+
+impl<A, R> Context<A, R>
+where
+    A: Actor,
+    R: Reply + ?Sized,
+{
+    pub(crate) fn new(actor_ref: ActorRef<A>, reply: Option<ReplySender<R::Value>>) -> Self {
         Context { actor_ref, reply }
     }
 
@@ -119,7 +117,7 @@ where
     /// impl Message<Msg> for MyActor {
     ///     type Reply = DelegatedReply<String>;
     ///
-    ///     async fn handle(&mut self, msg: Msg, mut ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    ///     async fn handle(&mut self, msg: Msg, mut ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
     ///         let (delegated_reply, reply_sender) = ctx.reply_sender();
     ///
     ///         if let Some(tx) = reply_sender {
@@ -218,11 +216,11 @@ where
         tx: Option<BoxReplySender>,
     ) -> BoxFuture<'_, Option<Box<dyn ReplyError>>> {
         async move {
-            let mut reply_sender = tx.map(ReplySender::new);
-            let ctx: Context<'_, A, <A as Message<T>>::Reply> =
-                Context::new(actor_ref, &mut reply_sender);
-            let reply = Message::handle(state, *self, ctx).await;
-            if let Some(tx) = reply_sender.take() {
+            let reply_sender = tx.map(ReplySender::new);
+            let mut ctx: Context<A, <A as Message<T>>::Reply> =
+                Context::new(actor_ref, reply_sender);
+            let reply = Message::handle(state, *self, &mut ctx).await;
+            if let Some(tx) = ctx.reply.take() {
                 tx.send(reply.into_value());
                 None
             } else {
