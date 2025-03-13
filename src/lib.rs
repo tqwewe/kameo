@@ -42,6 +42,6 @@ pub mod prelude {
     pub use crate::mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Mailbox};
     pub use crate::message::{Context, Message};
     #[cfg(feature = "remote")]
-    pub use crate::remote::{ActorSwarm, PeerId, RemoteActor, RemoteMessage};
+    pub use crate::remote::{ActorSwarm, RemoteActor, RemoteMessage};
     pub use crate::reply::{DelegatedReply, Reply, ReplyError, ReplySender};
 }
