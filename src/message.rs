@@ -161,7 +161,7 @@ where
         B: Message<M, Reply = R2>,
         M: Send + 'static,
         R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
-        R2: Reply<Ok = R::Ok, Error = E, Value = Result<R::Ok, E>>,
+        R2: Reply<Ok = R::Ok, Error = E>,
         E: ReplyError,
         for<'a> AskRequest<
             LocalAskRequest<'a, B, B::Mailbox>,
