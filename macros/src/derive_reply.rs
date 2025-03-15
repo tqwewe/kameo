@@ -1,7 +1,7 @@
 use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
-    DeriveInput, Generics, Ident,
+    parse_quote, DeriveInput, Generics, Ident,
 };
 
 pub struct DeriveReply {
@@ -12,11 +12,15 @@ pub struct DeriveReply {
 impl ToTokens for DeriveReply {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let Self { ident, generics } = self;
+        let mut cloned_generics = generics.clone();
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+        cloned_generics.params.push_value(parse_quote!(__M));
+        let (impl_generics, _, _) = cloned_generics.split_for_impl();
 
         tokens.extend(quote! {
             #[automatically_derived]
-            impl #impl_generics ::kameo::Reply for #ident #ty_generics #where_clause {
+            impl #impl_generics ::kameo::Reply<__M> for #ident #ty_generics #where_clause {
                 type Ok = Self;
                 type Error = ::kameo::error::Infallible;
                 type Value = Self;

@@ -3,10 +3,15 @@ use kameo::{
     mailbox::unbounded::UnboundedMailbox,
     message::{Context, Message},
     request::MessageSendSync,
-    Actor,
+    Actor, Reply,
 };
 use tracing::info;
 use tracing_subscriber::EnvFilter;
+
+#[derive(Reply)]
+struct MyReply<T> {
+    _phantom: PhantomData<T>
+}
 
 #[derive(Default)]
 pub struct MyActor {
