@@ -22,7 +22,10 @@ use crate::{
     actor::ActorRef,
     error::SendError,
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
-    request::{AskRequest, LocalAskRequest, MessageSend, WithoutRequestTimeout},
+    request::{
+        AskRequest, ForwardMessageSend, ForwardMessageSendSync, LocalAskRequest, LocalTellRequest,
+        MessageSend, MessageSendSync, TellRequest, WithoutRequestTimeout,
+    },
     Actor,
 };
 
@@ -150,36 +153,79 @@ where
     }
 
     /// Forwards the message to another actor, returning a [ForwardedReply].
-    ///
-    /// The message will be sent handled by another actor without blocking the current actor.
-    pub fn forward<B, M, R2, E>(
+    pub async fn forward<B, M>(
         &mut self,
-        actor_ref: ActorRef<B>,
+        actor_ref: &ActorRef<B>,
         message: M,
-    ) -> ForwardedReply<R::Ok, M, E>
+    ) -> ForwardedReply<M, <B as Message<M>>::Reply>
     where
-        B: Message<M, Reply = R2>,
+        B: Message<M>,
         M: Send + 'static,
-        R: Reply<Error = SendError<M, E>, Value = Result<<R as Reply>::Ok, SendError<M, E>>>,
-        R2: Reply<Ok = R::Ok, Error = E>,
-        E: ReplyError,
         for<'a> AskRequest<
             LocalAskRequest<'a, B, B::Mailbox>,
             B::Mailbox,
             M,
             WithoutRequestTimeout,
             WithoutRequestTimeout,
-        >: MessageSend<Ok = R::Ok, Error = SendError<M, E>>,
+        >: ForwardMessageSend<<B as Message<M>>::Reply, M>,
     {
-        let (delegated_reply, reply_sender) = self.reply_sender();
-        tokio::spawn(async move {
-            let reply = MessageSend::send(actor_ref.ask(message)).await;
-            if let Some(reply_sender) = reply_sender {
-                reply_sender.send(reply);
+        match self.reply.take() {
+            Some(tx) => {
+                let res = ForwardMessageSend::forward(actor_ref.ask(message), tx.cast())
+                    .await
+                    .map_err(|err| {
+                        err.map_msg(|(msg, tx)| {
+                            self.reply = Some(tx.cast());
+                            msg
+                        })
+                    });
+                ForwardedReply::new(res)
             }
-        });
+            None => {
+                let res = MessageSend::send(actor_ref.tell(message)).await;
+                ForwardedReply::new(res)
+            }
+        }
+    }
 
-        delegated_reply
+    /// Forwards the message to another actor synchronously, returning a [ForwardedReply].
+    pub fn forward_sync<B, M>(
+        &mut self,
+        actor_ref: &ActorRef<B>,
+        message: M,
+    ) -> ForwardedReply<M, <B as Message<M>>::Reply>
+    where
+        B: Message<M>,
+        M: Send + 'static,
+        for<'a> AskRequest<
+            LocalAskRequest<'a, B, B::Mailbox>,
+            B::Mailbox,
+            M,
+            WithoutRequestTimeout,
+            WithoutRequestTimeout,
+        >: ForwardMessageSendSync<<B as Message<M>>::Reply, M>,
+        for<'a> TellRequest<LocalTellRequest<'a, B, B::Mailbox>, B::Mailbox, M, WithoutRequestTimeout>:
+            MessageSendSync<
+                Ok = (),
+                Error = SendError<M, <<B as Message<M>>::Reply as Reply>::Error>,
+            >,
+    {
+        match self.reply.take() {
+            Some(tx) => {
+                let res = ForwardMessageSendSync::forward_sync(actor_ref.ask(message), tx.cast())
+                    .map_err(|err| {
+                        err.map_msg(|(msg, tx)| {
+                            self.reply = Some(tx.cast());
+                            msg
+                        })
+                    });
+                ForwardedReply::new(res)
+            }
+            None => {
+                let res = MessageSendSync::send_sync(actor_ref.tell(message));
+                ForwardedReply::new(res)
+            }
+        }
     }
 }
 

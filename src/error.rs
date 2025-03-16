@@ -124,12 +124,34 @@ impl BoxSendError {
         M: 'static,
         E: 'static,
     {
+        self.try_downcast().unwrap()
+    }
+
+    /// Downcasts the inner error types to a concrete type, returning an error if its the wrong type.
+    pub fn try_downcast<M, E>(self) -> Result<SendError<M, E>, Self>
+    where
+        M: 'static,
+        E: 'static,
+    {
         match self {
-            SendError::ActorNotRunning(err) => SendError::ActorNotRunning(*err.downcast().unwrap()),
-            SendError::ActorStopped => SendError::ActorStopped,
-            SendError::MailboxFull(err) => SendError::MailboxFull(*err.downcast().unwrap()),
-            SendError::HandlerError(err) => SendError::HandlerError(*err.downcast().unwrap()),
-            SendError::Timeout(err) => SendError::Timeout(err.map(|err| *err.downcast().unwrap())),
+            SendError::ActorNotRunning(err) => Ok(SendError::ActorNotRunning(
+                *err.downcast::<M>().map_err(SendError::ActorNotRunning)?,
+            )),
+            SendError::ActorStopped => Ok(SendError::ActorStopped),
+            SendError::MailboxFull(err) => Ok(SendError::MailboxFull(
+                *err.downcast().map_err(SendError::MailboxFull)?,
+            )),
+            SendError::HandlerError(err) => Ok(SendError::HandlerError(
+                *err.downcast().map_err(SendError::HandlerError)?,
+            )),
+            SendError::Timeout(err) => Ok(SendError::Timeout(
+                err.map(|err| {
+                    err.downcast()
+                        .map(|v| *v)
+                        .map_err(|err| SendError::Timeout(Some(err)))
+                })
+                .transpose()?,
+            )),
         }
     }
 }
