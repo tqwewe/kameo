@@ -1,0 +1,78 @@
+use std::collections::HashMap;
+
+use kameo::{prelude::*, reply::ForwardedReply};
+use tracing_subscriber::EnvFilter;
+
+#[derive(Actor)]
+struct PlayersActor {
+    player_map: HashMap<u64, ActorRef<Player>>,
+}
+
+struct ForwardToPlayer<M> {
+    player_id: u64,
+    message: M,
+}
+
+impl<M> Message<ForwardToPlayer<M>> for PlayersActor
+where
+    Player: Message<M>,
+    M: Send + 'static,
+{
+    type Reply = ForwardedReply<M, <Player as Message<M>>::Reply>;
+
+    async fn handle(
+        &mut self,
+        msg: ForwardToPlayer<M>,
+        ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let player_ref = self.player_map.get(&msg.player_id).unwrap();
+        ctx.forward_sync(player_ref, msg.message).await
+    }
+}
+
+#[derive(Actor, Default)]
+struct Player {
+    health: f32,
+}
+
+struct Damage {
+    amount: f32,
+}
+
+impl Message<Damage> for Player {
+    type Reply = f32;
+
+    async fn handle(
+        &mut self,
+        Damage { amount }: Damage,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.health -= amount;
+        self.health
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    tracing_subscriber::fmt()
+        .with_env_filter("trace".parse::<EnvFilter>().unwrap())
+        .without_time()
+        .with_target(false)
+        .init();
+
+    let player_ref = kameo::spawn(Player { health: 100.0 });
+
+    let mut player_map = HashMap::new();
+    player_map.insert(0, player_ref.clone());
+
+    let players_ref = kameo::spawn(PlayersActor { player_map });
+
+    players_ref
+        .ask(ForwardToPlayer {
+            player_id: 0,
+            message: Damage { amount: 38.2 },
+        })
+        .await?;
+
+    Ok(())
+}
