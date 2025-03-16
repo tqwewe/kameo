@@ -22,6 +22,7 @@
 //! ensures that actors can manage their communication responsibilities efficiently and effectively.
 
 use std::{
+    any,
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque},
     fmt,
@@ -62,7 +63,69 @@ use crate::{
 pub type BoxReplySender = oneshot::Sender<Result<BoxReply, BoxSendError>>;
 
 /// A delegated reply that has been forwarded to another actor.
-pub type ForwardedReply<T, M, E = ()> = DelegatedReply<Result<T, SendError<M, E>>>;
+#[derive(Debug)]
+pub struct ForwardedReply<M, R>
+where
+    R: Reply,
+{
+    res: Result<(), SendError<M, R::Error>>,
+}
+
+impl<M, R> ForwardedReply<M, R>
+where
+    R: Reply,
+{
+    pub(crate) fn new(res: Result<(), SendError<M, R::Error>>) -> Self {
+        ForwardedReply { res }
+    }
+}
+
+impl<M, R> Reply for ForwardedReply<M, R>
+where
+    R: Reply,
+    M: Send + 'static,
+{
+    type Ok = R::Ok;
+    type Error = SendError<M, R::Error>;
+    type Value = Result<Self::Ok, Self::Error>;
+
+    fn to_result(self) -> Result<Self::Ok, Self::Error> {
+        self.res
+            .map(|_| unreachable!("forwarded reply is only converted to a result if its an error"))
+    }
+
+    fn into_any_err(self) -> Option<Box<dyn ReplyError>> {
+        self.res
+            .err()
+            .map(|err| Box::new(err) as Box<dyn ReplyError>)
+    }
+
+    fn into_value(self) -> Self::Value {
+        self.res.map(|_| {
+            unreachable!("forwarded reply is only an error if it failed to forward the message")
+        })
+    }
+
+    /// If the forwarded reply succeeded, the we can safely assume
+    /// the `Box<dyn Any>` we have here is the ok value of the inner `R`.
+    fn downcast_ok(ok: Box<dyn any::Any>) -> Self::Ok {
+        *ok.downcast().unwrap()
+    }
+
+    /// The error is either from the inner `R`, or our outer `SendError`.
+    /// We'll try both.
+    fn downcast_err<N: 'static>(err: BoxSendError) -> SendError<N, Self::Error> {
+        err.try_downcast::<N, R::Error>()
+            .map(|err| err.map_err(SendError::HandlerError))
+            .unwrap_or_else(|err| {
+                err.downcast::<M, SendError<M, R::Error>>().map_msg(|_| {
+                    unreachable!(
+                        "forwarded reply is only an error if it failed to forward the message"
+                    )
+                })
+            })
+    }
+}
 
 /// A reply value.
 ///
@@ -100,6 +163,16 @@ pub trait Reply: Send + 'static {
     ///
     /// In almost all cases, this will simply return itself.
     fn into_value(self) -> Self::Value;
+
+    /// Downcasts a `Box<dyn Any>` into the `Self::Ok` type.
+    fn downcast_ok(ok: Box<dyn any::Any>) -> Self::Ok {
+        *ok.downcast().unwrap()
+    }
+
+    /// Downcasts a `Box<dyn Any>` into a `Self::Error` type.
+    fn downcast_err<M: 'static>(err: BoxSendError) -> SendError<M, Self::Error> {
+        err.downcast()
+    }
 }
 
 /// A marker type indicating that the reply to a message will be handled elsewhere.
@@ -208,6 +281,13 @@ impl<R> ReplySender<R> {
                 .map(|value| Box::new(value) as BoxReply)
                 .map_err(|err| BoxSendError::HandlerError(Box::new(err))),
         );
+    }
+
+    pub(crate) fn cast<R2>(self) -> ReplySender<R2> {
+        ReplySender {
+            tx: self.tx,
+            phantom: PhantomData,
+        }
     }
 }
 

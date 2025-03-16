@@ -364,8 +364,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.send(req.location.signal).await?;
         match req.location.rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -378,8 +378,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.0.send(req.location.signal).await?;
         match timeout(req.reply_timeout.0, req.location.rx).await?? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -396,8 +396,8 @@ impl_message_trait!(
             .send_timeout(req.location.signal, req.mailbox_timeout.0)
             .await?;
         match req.location.rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -414,8 +414,8 @@ impl_message_trait!(
             .send_timeout(req.location.signal, req.mailbox_timeout.0)
             .await?;
         match timeout(req.reply_timeout.0, req.location.rx).await?? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -429,8 +429,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.0.send(req.location.signal)?;
         match timeout(req.reply_timeout.0, req.location.rx).await?? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -597,8 +597,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.try_send(req.location.signal)?;
         match req.location.rx.await? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -611,8 +611,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.0.try_send(req.location.signal)?;
         match timeout(req.reply_timeout.0, req.location.rx).await?? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -626,8 +626,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.0.send(req.location.signal)?;
         match timeout(req.reply_timeout.0, req.location.rx).await?? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -755,8 +755,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.blocking_send(req.location.signal)?;
         match req.location.rx.blocking_recv()? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
@@ -772,8 +772,8 @@ impl_message_trait!(
     |req| {
         req.location.mailbox.try_send(req.location.signal)?;
         match req.location.rx.blocking_recv()? {
-            Ok(val) => Ok(*val.downcast().unwrap()),
-            Err(err) => Err(err.downcast()),
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 );
