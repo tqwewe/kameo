@@ -1,12 +1,7 @@
 use std::time::Duration;
 
-use kameo::{
-    actor::RemoteActorRef,
-    message::{Context, Message},
-    remote::{dial_opts::DialOpts, ActorSwarm},
-    Actor,
-};
-use kameo_macros::{remote_message, RemoteActor};
+use kameo::prelude::*;
+use libp2p::swarm::dial_opts::DialOpts;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
