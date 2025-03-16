@@ -8,7 +8,6 @@ use std::{
     any::{self},
     cmp, error, fmt,
     hash::{Hash, Hasher},
-    ops::Deref,
     sync::{Arc, Mutex},
 };
 
