@@ -5,7 +5,7 @@ use futures::{Future, FutureExt};
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, PanicError},
-    mailbox::Signal,
+    mailbox::{Mailbox, Signal},
     message::DynMessage,
     reply::BoxReplySender,
 };
@@ -14,6 +14,11 @@ use super::ActorID;
 
 pub(crate) trait ActorState<A: Actor>: Sized {
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
+
+    fn next(
+        &mut self,
+        mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
+    ) -> impl Future<Output = Option<Signal<A>>> + Send;
 
     fn handle_startup_finished(
         &mut self,
@@ -62,6 +67,13 @@ where
             finished_startup: false,
             startup_buffer: VecDeque::new(),
         }
+    }
+
+    async fn next(
+        &mut self,
+        mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
+    ) -> Option<Signal<A>> {
+        self.state.next(self.actor_ref.clone(), mailbox_rx).await
     }
 
     async fn handle_startup_finished(&mut self) -> ControlFlow<ActorStopReason> {

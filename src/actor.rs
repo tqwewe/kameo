@@ -34,7 +34,7 @@ use futures::Future;
 
 use crate::{
     error::{ActorStopReason, PanicError},
-    mailbox::Mailbox,
+    mailbox::{Mailbox, MailboxReceiver, Signal},
     reply::ReplyError,
 };
 
@@ -234,5 +234,18 @@ pub trait Actor: Sized + Send + 'static {
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
+    }
+
+    /// Awaits the next signal typically from the mailbox.
+    ///
+    /// This can be overwritten for more advanced actor behaviour, such as awaiting multiple channels, etc.
+    /// The return value is a signal which will be handled by the actor.
+    #[allow(unused_variables)]
+    fn next(
+        &mut self,
+        actor_ref: WeakActorRef<Self>,
+        mailbox_rx: &mut <Self::Mailbox as Mailbox<Self>>::Receiver,
+    ) -> impl Future<Output = Option<Signal<Self>>> + Send {
+        async move { mailbox_rx.recv().await }
     }
 }

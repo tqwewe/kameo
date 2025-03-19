@@ -93,6 +93,32 @@ impl<M, E> SendError<M, E> {
             }
         }
     }
+
+    /// Unwraps the inner message, consuming the `self` value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the error does not contain the inner message.
+    pub fn unwrap_msg(self) -> M {
+        match self {
+            SendError::ActorNotRunning(msg) => msg,
+            SendError::MailboxFull(msg) => msg,
+            SendError::Timeout(msg) => msg.unwrap(),
+            _ => panic!("called `SendError::unwrap_msg()` on a non message error"),
+        }
+    }
+
+    /// Unwraps the inner handler error, consuming the `self` value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the error does not contain a handler error.
+    pub fn unwrap_err(self) -> E {
+        match self {
+            SendError::HandlerError(err) => err,
+            _ => panic!("called `SendError::unwrap_err()` on a non error"),
+        }
+    }
 }
 
 impl<M, E> SendError<M, SendError<M, E>> {
