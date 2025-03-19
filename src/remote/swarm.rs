@@ -483,6 +483,10 @@ impl ActorSwarm {
             }
         }
     }
+
+    pub(crate) fn sender(&self) -> SwarmSender {
+        self.swarm_tx.clone()
+    }
 }
 
 /// A concrete implementation of the `SwarmBehaviour` trait.
