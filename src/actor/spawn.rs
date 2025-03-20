@@ -27,7 +27,7 @@ use crate::{
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError, SendError},
-    mailbox::{Mailbox, MailboxReceiver, Signal},
+    mailbox::{Mailbox, Signal},
 };
 
 use super::ActorID;
@@ -456,7 +456,7 @@ where
     S: ActorState<A>,
 {
     loop {
-        match mailbox_rx.recv().await {
+        match state.next(mailbox_rx).await {
             Some(Signal::StartupFinished) => {
                 startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
                 if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
