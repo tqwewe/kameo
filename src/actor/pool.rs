@@ -42,7 +42,6 @@
 
 use std::{
     fmt,
-    iter::repeat,
     ops::ControlFlow,
     sync::{Arc, Weak},
 };
@@ -335,7 +334,7 @@ where
             self.workers
                 .iter()
                 .zip(
-                    repeat(msg).take(self.workers.len()), // Avoids unnecessary clone of msg on last iteration
+                    std::iter::repeat_n(msg, self.workers.len()), // Avoids unnecessary clone of msg on last iteration
                 )
                 .map(|((worker, _), msg)| worker.tell(msg).send()),
         )
