@@ -70,7 +70,12 @@ impl ActorID {
     ///
     /// A new `ActorID` instance with the next available `sequence_id`.
     pub fn generate() -> Self {
-        ActorID::new(ACTOR_COUNTER.fetch_add(1, Ordering::Relaxed).try_into().unwrap())
+        ActorID::new(
+            ACTOR_COUNTER
+                .fetch_add(1, Ordering::Relaxed)
+                .try_into()
+                .unwrap(),
+        )
     }
 
     /// Returns the sequential identifier of the actor.
