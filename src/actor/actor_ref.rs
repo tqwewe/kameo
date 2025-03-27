@@ -813,7 +813,6 @@ where
     /// use kameo::actor::RemoteActorRef;
     ///
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # #[actor(mailbox = bounded)]
     /// # struct MyActor;
     /// #
     /// # #[derive(serde::Serialize, serde::Deserialize)]
@@ -861,7 +860,6 @@ where
     /// use kameo::actor::RemoteActorRef;
     ///
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # #[actor(mailbox = bounded)]
     /// # struct MyActor;
     /// #
     /// # #[derive(serde::Serialize, serde::Deserialize)]

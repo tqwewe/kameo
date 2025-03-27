@@ -236,7 +236,6 @@ impl<A: Actor> PreparedActor<A> {
     /// # use kameo::actor::PreparedActor;
     /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
-    /// # use kameo::request::MessageSend;
     ///
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -249,7 +248,7 @@ impl<A: Actor> PreparedActor<A> {
     /// # tokio_test::block_on(async {
     /// let prepared_actor = PreparedActor::new(mailbox::unbounded());
     /// // Send it a message before it runs
-    /// prepared_actor.actor_ref().tell("hello!").send().await?;
+    /// prepared_actor.actor_ref().tell("hello!").await?;
     /// prepared_actor.run(MyActor).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
