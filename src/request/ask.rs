@@ -282,6 +282,41 @@ where
     }
 }
 
+impl<A, M> AskRequest<'_, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+{
+    /// Tries to send a message without waiting for mailbox capacity,
+    /// with the reply being sent back to a channel.
+    #[allow(clippy::type_complexity)]
+    pub fn try_forward(
+        self,
+        sender: ReplySender<<A::Reply as Reply>::Value>,
+    ) -> Result<
+        (),
+        SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
+    > {
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: Some(sender.boxed()),
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                tx.try_send(signal)?;
+                Ok(())
+            }
+            MailboxSender::Unbounded(tx) => {
+                tx.send(signal)?;
+                Ok(())
+            }
+        }
+    }
+}
+
 impl<'a, A, M, Tr> AskRequest<'a, A, M, WithoutRequestTimeout, Tr>
 where
     A: Actor + Message<M>,
@@ -441,6 +476,34 @@ where
                     Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
                     Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
                 }
+            }
+        }
+    }
+
+    /// Sends a message in a blocking context with the reply being sent back to a channel.
+    #[allow(clippy::type_complexity)]
+    pub fn blocking_forward(
+        self,
+        sender: ReplySender<<A::Reply as Reply>::Value>,
+    ) -> Result<
+        (),
+        SendError<(M, ReplySender<<A::Reply as Reply>::Value>), <A::Reply as Reply>::Error>,
+    > {
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: Some(sender.boxed()),
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                tx.blocking_send(signal)?;
+                Ok(())
+            }
+            MailboxSender::Unbounded(tx) => {
+                tx.send(signal)?;
+                Ok(())
             }
         }
     }

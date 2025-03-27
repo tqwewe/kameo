@@ -177,6 +177,69 @@ where
             }
         }
     }
+
+    /// Tries to forward the message to another actor, returning a [ForwardedReply],
+    /// or an error if the mailbox is full.
+    pub fn try_forward<B, M>(
+        &mut self,
+        actor_ref: &ActorRef<B>,
+        message: M,
+    ) -> ForwardedReply<M, <B as Message<M>>::Reply>
+    where
+        B: Message<M>,
+        M: Send + 'static,
+    {
+        match self.reply.take() {
+            Some(tx) => {
+                let res = actor_ref
+                    .ask(message)
+                    .try_forward(tx.cast())
+                    .map_err(|err| {
+                        err.map_msg(|(msg, tx)| {
+                            self.reply = Some(tx.cast());
+                            msg
+                        })
+                    });
+                ForwardedReply::new(res)
+            }
+            None => {
+                let res = actor_ref.tell(message).try_send();
+                ForwardedReply::new(res)
+            }
+        }
+    }
+
+    /// Forwards the message to another actor, returning a [ForwardedReply].
+    ///
+    /// This method blocks the current thread while waiting for mailbox capacity.
+    pub fn blocking_forward<B, M>(
+        &mut self,
+        actor_ref: &ActorRef<B>,
+        message: M,
+    ) -> ForwardedReply<M, <B as Message<M>>::Reply>
+    where
+        B: Message<M>,
+        M: Send + 'static,
+    {
+        match self.reply.take() {
+            Some(tx) => {
+                let res = actor_ref
+                    .ask(message)
+                    .blocking_forward(tx.cast())
+                    .map_err(|err| {
+                        err.map_msg(|(msg, tx)| {
+                            self.reply = Some(tx.cast());
+                            msg
+                        })
+                    });
+                ForwardedReply::new(res)
+            }
+            None => {
+                let res = actor_ref.tell(message).blocking_send();
+                ForwardedReply::new(res)
+            }
+        }
+    }
 }
 
 /// An object safe message which can be handled by an actor `A`.
