@@ -1,5 +1,9 @@
 use futures::{future::BoxFuture, FutureExt};
-use std::{future::IntoFuture, time::Duration};
+use std::{
+    future::{Future, IntoFuture},
+    pin, task,
+    time::Duration,
+};
 use tokio::sync::oneshot;
 
 #[cfg(feature = "remote")]
@@ -150,6 +154,89 @@ where
             }
         }
     }
+
+    /// Enqueues the message into the actors mailbox, returning a pending reply which needs to be awaited.
+    ///
+    /// The actor will not progress until the pending reply has been awaited or dropped.
+    /// This may lead to deadlocks if used incorrectly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// # let actor_ref = kameo::spawn(MyActor, kameo::mailbox::unbounded());
+    /// # let msg = Msg;
+    /// let pending = actor_ref.ask(Msg).enqueue().await?;
+    /// // Do some other tasks
+    /// let reply = pending.await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn enqueue(self) -> Result<PendingReply<'a, M, A::Reply>, SendError>
+    where
+        Tm: Into<Option<Duration>> + Send + 'a,
+        Tr: Into<Option<Duration>> + Send + 'a,
+    {
+        let (reply, rx) = oneshot::channel();
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: Some(reply),
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        let fut = match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                match self.mailbox_timeout.into() {
+                    Some(timeout) => {
+                        tx.send_timeout(signal, timeout).await?;
+                    }
+                    None => {
+                        tx.send(signal).await?;
+                    }
+                }
+
+                async move {
+                    let reply = match self.reply_timeout.into() {
+                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+                        None => rx.await?,
+                    };
+                    match reply {
+                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+                    }
+                }
+                .boxed()
+            }
+            MailboxSender::Unbounded(tx) => {
+                tx.send(signal)?;
+
+                async move {
+                    let reply = match self.reply_timeout.into() {
+                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+                        None => rx.await?,
+                    };
+                    match reply {
+                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+                    }
+                }
+                .boxed()
+            }
+        };
+
+        Ok(PendingReply { fut })
+    }
 }
 
 impl<A, M, Tm> AskRequest<'_, A, M, Tm, WithoutRequestTimeout>
@@ -195,7 +282,7 @@ where
     }
 }
 
-impl<A, M, Tr> AskRequest<'_, A, M, WithoutRequestTimeout, Tr>
+impl<'a, A, M, Tr> AskRequest<'a, A, M, WithoutRequestTimeout, Tr>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
@@ -242,9 +329,85 @@ where
             }
         }
     }
+
+    /// Tries to enqueue the message into the actors mailbox without waiting for mailbox capacity,
+    /// returning a pending reply which needs to be awaited.
+    ///
+    /// The actor will not progress until the pending reply has been awaited or dropped.
+    /// This may lead to deadlocks if used incorrectly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// # let actor_ref = kameo::spawn(MyActor, kameo::mailbox::unbounded());
+    /// # let msg = Msg;
+    /// let pending = actor_ref.ask(Msg).try_enqueue()?;
+    /// // Do some other tasks
+    /// let reply = pending.await?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub fn try_enqueue(self) -> Result<PendingReply<'a, M, A::Reply>, SendError>
+    where
+        Tr: Into<Option<Duration>> + Send + 'a,
+    {
+        let (reply, rx) = oneshot::channel();
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: Some(reply),
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        let fut = match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                tx.try_send(signal)?;
+
+                async move {
+                    let reply = match self.reply_timeout.into() {
+                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+                        None => rx.await?,
+                    };
+                    match reply {
+                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+                    }
+                }
+                .boxed()
+            }
+            MailboxSender::Unbounded(tx) => {
+                tx.send(signal)?;
+
+                async move {
+                    let reply = match self.reply_timeout.into() {
+                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+                        None => rx.await?,
+                    };
+                    match reply {
+                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+                    }
+                }
+                .boxed()
+            }
+        };
+
+        Ok(PendingReply { fut })
+    }
 }
 
-impl<A, M> AskRequest<'_, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
+impl<'a, A, M> AskRequest<'a, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
@@ -281,6 +444,70 @@ where
             }
         }
     }
+
+    /// Enqueues the message into the actors mailbox in a blocking context,
+    /// returning a pending reply which needs to be awaited.
+    ///
+    /// The actor will not progress until the pending reply has been received or dropped.
+    /// This may lead to deadlocks if used incorrectly.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # #[derive(kameo::Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # struct Msg;
+    /// #
+    /// # impl kameo::message::Message<Msg> for MyActor {
+    /// #     type Reply = ();
+    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
+    /// # }
+    /// #
+    /// # tokio_test::block_on(async {
+    /// # let actor_ref = kameo::spawn(MyActor, kameo::mailbox::unbounded());
+    /// # let msg = Msg;
+    /// # std::thread::spawn(move || {
+    /// # let f = move || {
+    /// let pending = actor_ref.ask(Msg).blocking_enqueue()?;
+    /// // Do some other tasks
+    /// let reply = pending.recv()?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # };
+    /// # f().unwrap();
+    /// # });
+    /// # });
+    /// ```
+    pub fn blocking_enqueue(self) -> Result<BlockingPendingReply<'a, M, A::Reply>, SendError> {
+        let (reply, rx) = oneshot::channel();
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: Some(reply),
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                tx.blocking_send(signal)?;
+
+                let f = Box::new(move || match rx.blocking_recv()? {
+                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+                });
+                Ok(BlockingPendingReply { f })
+            }
+            MailboxSender::Unbounded(tx) => {
+                tx.send(signal)?;
+
+                let f = Box::new(move || match rx.blocking_recv()? {
+                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+                });
+                Ok(BlockingPendingReply { f })
+            }
+        }
+    }
 }
 
 impl<'a, A, M, Tm, Tr> IntoFuture for AskRequest<'a, A, M, Tm, Tr>
@@ -295,6 +522,55 @@ where
 
     fn into_future(self) -> Self::IntoFuture {
         self.send().boxed()
+    }
+}
+
+/// A pending reply from a previously enqueued ask request.
+///
+/// The actor will not progress until this has been awaited or dropped.
+///
+/// This is returned by [`AskRequest::enqueue`] and [`AskRequest::try_enqueue`].
+#[allow(missing_debug_implementations)]
+pub struct PendingReply<'a, M, R>
+where
+    R: Reply,
+{
+    #[allow(clippy::type_complexity)]
+    fut: BoxFuture<'a, Result<R::Ok, SendError<M, R::Error>>>,
+}
+
+impl<M, R> Future for PendingReply<'_, M, R>
+where
+    R: Reply,
+{
+    type Output = Result<R::Ok, SendError<M, R::Error>>;
+
+    fn poll(mut self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+        self.fut.poll_unpin(cx)
+    }
+}
+
+/// A pending reply from a previously enqueued ask request.
+///
+/// The actor will not progress until this has been awaited or dropped.
+///
+/// This is returned by [`AskRequest::blocking_enqueue`].
+#[allow(missing_debug_implementations)]
+pub struct BlockingPendingReply<'a, M, R>
+where
+    R: Reply,
+{
+    #[allow(clippy::type_complexity)]
+    f: Box<dyn FnOnce() -> Result<R::Ok, SendError<M, R::Error>> + 'a>,
+}
+
+impl<M, R> BlockingPendingReply<'_, M, R>
+where
+    R: Reply,
+{
+    /// Receives the reply in a blocking context.
+    pub fn recv(self) -> Result<R::Ok, SendError<M, R::Error>> {
+        (self.f)()
     }
 }
 
