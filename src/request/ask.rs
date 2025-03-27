@@ -14,7 +14,7 @@ use crate::{
     Actor, Reply,
 };
 
-use super::{warn_deadlock, WithRequestTimeout, WithoutRequestTimeout};
+use super::{WithRequestTimeout, WithoutRequestTimeout};
 
 /// A request to send a message to an actor, waiting for a reply.
 #[allow(missing_debug_implementations)]
@@ -477,6 +477,27 @@ where
         }
         _ => panic!("unexpected response"),
     }
+}
+
+#[cfg(all(debug_assertions, feature = "tracing"))]
+fn warn_deadlock<A: Actor>(
+    actor_ref: &ActorRef<A>,
+    msg: &'static str,
+    called_at: &'static std::panic::Location<'static>,
+) {
+    use tracing::warn;
+
+    if actor_ref.is_current() {
+        warn!("At {called_at}, {msg}");
+    }
+}
+
+#[cfg(not(all(debug_assertions, feature = "tracing")))]
+fn warn_deadlock<A: Actor>(
+    _actor_ref: &ActorRef<A>,
+    _msg: &'static str,
+    _called_at: &'static std::panic::Location<'static>,
+) {
 }
 
 #[cfg(test)]

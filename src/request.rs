@@ -180,31 +180,3 @@ impl From<MaybeRequestTimeout> for Option<Duration> {
         }
     }
 }
-
-#[cfg(all(debug_assertions, feature = "tracing"))]
-fn warn_deadlock<A: Actor>(
-    actor_ref: &ActorRef<A>,
-    msg: &'static str,
-    called_at: &'static std::panic::Location<'static>,
-) {
-    use tracing::warn;
-
-    use crate::mailbox::MailboxSender;
-
-    match actor_ref.mailbox_sender() {
-        MailboxSender::Bounded(_) => {
-            if actor_ref.is_current() {
-                warn!("At {called_at}, {msg}");
-            }
-        }
-        MailboxSender::Unbounded(_) => {}
-    }
-}
-
-#[cfg(not(all(debug_assertions, feature = "tracing")))]
-fn warn_deadlock<A: Actor>(
-    _actor_ref: &ActorRef<A>,
-    _msg: &'static str,
-    _called_at: &'static std::panic::Location<'static>,
-) {
-}
