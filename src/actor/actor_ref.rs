@@ -344,7 +344,7 @@ where
         AskRequest::new(
             self,
             msg,
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             std::panic::Location::caller(),
         )
     }
@@ -387,7 +387,7 @@ where
         TellRequest::new(
             self,
             msg,
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             std::panic::Location::caller(),
         )
     }
@@ -845,7 +845,7 @@ where
         request::RemoteAskRequest::new(
             self,
             msg,
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             std::panic::Location::caller(),
         )
     }
@@ -893,7 +893,7 @@ where
         request::RemoteTellRequest::new(
             self,
             msg,
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             std::panic::Location::caller(),
         )
     }
