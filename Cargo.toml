@@ -32,6 +32,7 @@ kameo_macros = { version = "0.15.0", path = "./macros", optional = true }
 
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
+flume = { version = "0.11.1", features = ["async"] }
 futures = "0.3"
 libp2p = { version = "0.55.0", features = ["cbor", "dns", "kad", "mdns", "macros", "quic", "request-response", "rsa", "serde", "tokio"], optional = true }
 libp2p-identity = { version = "0.2.9", features = ["rand", "rsa"], optional = true }

@@ -20,12 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 
 use crate::{
     actor::ActorRef,
-    error::SendError,
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
-    request::{
-        AskRequest, ForwardMessageSend, ForwardMessageSendSync, LocalAskRequest, LocalTellRequest,
-        MessageSend, MessageSendSync, TellRequest, WithoutRequestTimeout,
-    },
     Actor,
 };
 
@@ -161,17 +156,12 @@ where
     where
         B: Message<M>,
         M: Send + 'static,
-        for<'a> AskRequest<
-            LocalAskRequest<'a, B, B::Mailbox>,
-            B::Mailbox,
-            M,
-            WithoutRequestTimeout,
-            WithoutRequestTimeout,
-        >: ForwardMessageSend<<B as Message<M>>::Reply, M>,
     {
         match self.reply.take() {
             Some(tx) => {
-                let res = ForwardMessageSend::forward(actor_ref.ask(message), tx.cast())
+                let res = actor_ref
+                    .ask(message)
+                    .forward(tx.cast())
                     .await
                     .map_err(|err| {
                         err.map_msg(|(msg, tx)| {
@@ -182,47 +172,7 @@ where
                 ForwardedReply::new(res)
             }
             None => {
-                let res = MessageSend::send(actor_ref.tell(message)).await;
-                ForwardedReply::new(res)
-            }
-        }
-    }
-
-    /// Forwards the message to another actor synchronously, returning a [ForwardedReply].
-    pub fn forward_sync<B, M>(
-        &mut self,
-        actor_ref: &ActorRef<B>,
-        message: M,
-    ) -> ForwardedReply<M, <B as Message<M>>::Reply>
-    where
-        B: Message<M>,
-        M: Send + 'static,
-        for<'a> AskRequest<
-            LocalAskRequest<'a, B, B::Mailbox>,
-            B::Mailbox,
-            M,
-            WithoutRequestTimeout,
-            WithoutRequestTimeout,
-        >: ForwardMessageSendSync<<B as Message<M>>::Reply, M>,
-        for<'a> TellRequest<LocalTellRequest<'a, B, B::Mailbox>, B::Mailbox, M, WithoutRequestTimeout>:
-            MessageSendSync<
-                Ok = (),
-                Error = SendError<M, <<B as Message<M>>::Reply as Reply>::Error>,
-            >,
-    {
-        match self.reply.take() {
-            Some(tx) => {
-                let res = ForwardMessageSendSync::forward_sync(actor_ref.ask(message), tx.cast())
-                    .map_err(|err| {
-                        err.map_msg(|(msg, tx)| {
-                            self.reply = Some(tx.cast());
-                            msg
-                        })
-                    });
-                ForwardedReply::new(res)
-            }
-            None => {
-                let res = MessageSendSync::send_sync(actor_ref.tell(message));
+                let res = actor_ref.tell(message).send().await;
                 ForwardedReply::new(res)
             }
         }

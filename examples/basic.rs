@@ -8,7 +8,6 @@ pub struct MyActor {
 }
 
 impl Actor for MyActor {
-    type Mailbox = UnboundedMailbox<Self>;
     type Error = Infallible;
 
     fn name() -> &'static str {
@@ -53,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let my_actor_ref = kameo::spawn(MyActor::default());
+    let my_actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
 
     // Increment the count by 3
     let count = my_actor_ref.ask(Inc { amount: 3 }).await?;

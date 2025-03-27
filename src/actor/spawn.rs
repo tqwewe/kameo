@@ -27,7 +27,7 @@ use crate::{
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError, SendError},
-    mailbox::{Mailbox, Signal},
+    mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
 use super::ActorID;
@@ -52,11 +52,14 @@ use super::ActorID;
 /// ```
 ///
 /// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
-pub fn spawn<A>(actor: A) -> ActorRef<A>
+pub fn spawn<A>(
+    actor: A,
+    (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
+) -> ActorRef<A>
 where
     A: Actor,
 {
-    let prepared_actor = PreparedActor::new();
+    let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
     let actor_ref = prepared_actor.actor_ref().clone();
     prepared_actor.spawn(actor);
     actor_ref
@@ -85,12 +88,16 @@ where
 /// ```
 ///
 /// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
-pub async fn spawn_link<A, L>(link_ref: &ActorRef<L>, actor: A) -> ActorRef<A>
+pub async fn spawn_link<A, L>(
+    link_ref: &ActorRef<L>,
+    actor: A,
+    (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
+) -> ActorRef<A>
 where
     A: Actor,
     L: Actor,
 {
-    let prepared_actor = PreparedActor::new();
+    let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
     let actor_ref = prepared_actor.actor_ref().clone();
     actor_ref.link(link_ref).await;
     prepared_actor.spawn(actor);
@@ -134,11 +141,14 @@ where
 ///
 /// This function is useful for actors that require or benefit from running blocking operations while still
 /// enabling asynchronous functionality.
-pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
+pub fn spawn_in_thread<A>(
+    actor: A,
+    (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
+) -> ActorRef<A>
 where
     A: Actor,
 {
-    let prepared_actor = PreparedActor::new();
+    let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
     let actor_ref = prepared_actor.actor_ref().clone();
     prepared_actor.spawn_in_thread(actor);
     actor_ref
@@ -153,7 +163,7 @@ where
 #[allow(missing_debug_implementations)]
 pub struct PreparedActor<A: Actor> {
     actor_ref: ActorRef<A>,
-    mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
+    mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
 }
 
@@ -177,14 +187,13 @@ impl<A: Actor> PreparedActor<A> {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub fn new() -> Self {
-        let (mailbox, mailbox_rx) = A::new_mailbox();
+    pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
         let startup_semaphore = Arc::new(Semaphore::new(0));
         let startup_error = Arc::new(OnceLock::new());
         let actor_ref = ActorRef::new(
-            mailbox,
+            mailbox_tx,
             abort_handle,
             links,
             startup_semaphore,
@@ -284,17 +293,11 @@ impl<A: Actor> PreparedActor<A> {
     }
 }
 
-impl<A: Actor> Default for PreparedActor<A> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[inline]
 async fn run_actor_lifecycle<A, S>(
     mut actor: A,
     actor_ref: ActorRef<A>,
-    mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
+    mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
 ) -> (A, ActorStopReason)
 where
@@ -425,7 +428,7 @@ where
 
 async fn abortable_actor_loop<A, S>(
     state: &mut S,
-    mut mailbox_rx: <A::Mailbox as Mailbox<A>>::Receiver,
+    mut mailbox_rx: MailboxReceiver<A>,
     startup_semaphore: Arc<Semaphore>,
     startup_finished: bool,
 ) -> ActorStopReason
@@ -448,7 +451,7 @@ where
 
 async fn recv_mailbox_loop<A, S>(
     state: &mut S,
-    mailbox_rx: &mut <A::Mailbox as Mailbox<A>>::Receiver,
+    mailbox_rx: &mut MailboxReceiver<A>,
     startup_semaphore: &Semaphore,
 ) -> ActorStopReason
 where

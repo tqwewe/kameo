@@ -24,8 +24,8 @@
 mod actor_ref;
 mod id;
 mod kind;
-pub mod pool;
-pub mod pubsub;
+// pub mod pool;
+// pub mod pubsub;
 mod spawn;
 
 use std::{any, ops::ControlFlow};
@@ -34,7 +34,7 @@ use futures::Future;
 
 use crate::{
     error::{ActorStopReason, PanicError},
-    mailbox::{Mailbox, MailboxReceiver, Signal},
+    mailbox::{MailboxReceiver, Signal},
     reply::ReplyError,
 };
 
@@ -113,20 +113,6 @@ pub use spawn::*;
 /// [**Bounded Mailbox**]: crate::mailbox::bounded::BoundedMailbox
 /// [**Unbounded Mailbox**]: crate::mailbox::unbounded::UnboundedMailbox
 pub trait Actor: Sized + Send + 'static {
-    /// The mailbox type used for the actor.
-    ///
-    /// This can either be a [`BoundedMailbox<Self>`] or an [`UnboundedMailbox<Self>`], depending on
-    /// whether you want to enforce backpressure or allow infinite message queueing.
-    ///
-    /// - **Bounded Mailbox**: Prevents unlimited message growth, enforcing backpressure.
-    /// - **Unbounded Mailbox**: Allows an infinite number of messages, but can consume large amounts of memory.
-    ///
-    /// The default mailbox is considered unbounded.
-    ///
-    /// [`BoundedMailbox<Self>`]: crate::mailbox::bounded::BoundedMailbox
-    /// [`UnboundedMailbox<Self>`]: crate::mailbox::unbounded::UnboundedMailbox
-    type Mailbox: Mailbox<Self>;
-
     /// Actor error type.
     ///
     /// This error is used as the error returned by lifecycle hooks in this actor.
@@ -138,16 +124,6 @@ pub trait Actor: Sized + Send + 'static {
     /// By default, this returns the type name of the actor.
     fn name() -> &'static str {
         any::type_name::<Self>()
-    }
-
-    /// Creates a new mailbox for the actor. This sets up the message queue and receiver for the actor.
-    ///
-    /// # Returns
-    /// A tuple containing:
-    /// - The created mailbox for sending messages.
-    /// - The receiver for processing messages.
-    fn new_mailbox() -> (Self::Mailbox, <Self::Mailbox as Mailbox<Self>>::Receiver) {
-        Self::Mailbox::default_mailbox()
     }
 
     /// Called when the actor starts, before it processes any messages.
@@ -244,7 +220,7 @@ pub trait Actor: Sized + Send + 'static {
     fn next(
         &mut self,
         actor_ref: WeakActorRef<Self>,
-        mailbox_rx: &mut <Self::Mailbox as Mailbox<Self>>::Receiver,
+        mailbox_rx: &mut MailboxReceiver<Self>,
     ) -> impl Future<Output = Option<Signal<Self>>> + Send {
         async move { mailbox_rx.recv().await }
     }

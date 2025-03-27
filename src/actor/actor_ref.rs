@@ -16,19 +16,16 @@ use tokio::{
 use std::marker::PhantomData;
 
 #[cfg(feature = "remote")]
-use crate::error::{Infallible, RemoteSendError};
-#[cfg(feature = "remote")]
 use crate::remote;
+#[cfg(feature = "remote")]
+use crate::request;
 
 use crate::{
     error::{self, PanicError, SendError},
-    mailbox::{bounded::BoundedMailbox, Mailbox, SignalMailbox, WeakMailbox},
+    mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
     reply::Reply,
-    request::{
-        self, AskRequest, LocalAskRequest, LocalTellRequest, MessageSend, TellRequest,
-        WithoutRequestTimeout,
-    },
+    request::{AskRequest, TellRequest, WithoutRequestTimeout},
     Actor,
 };
 
@@ -48,7 +45,7 @@ thread_local! {
 /// such as checking if the actor is alive, registering the actor under a name, and stopping the actor gracefully.
 pub struct ActorRef<A: Actor> {
     id: ActorID,
-    mailbox: A::Mailbox,
+    mailbox_sender: MailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_semaphore: Arc<Semaphore>,
@@ -61,7 +58,7 @@ where
 {
     #[inline]
     pub(crate) fn new(
-        mailbox: A::Mailbox,
+        mailbox: MailboxSender<A>,
         abort_handle: AbortHandle,
         links: Links,
         startup_semaphore: Arc<Semaphore>,
@@ -69,7 +66,7 @@ where
     ) -> Self {
         ActorRef {
             id: ActorID::generate(),
-            mailbox,
+            mailbox_sender: mailbox,
             abort_handle,
             links,
             startup_semaphore,
@@ -86,7 +83,7 @@ where
     /// Returns whether the actor is currently alive.
     #[inline]
     pub fn is_alive(&self) -> bool {
-        !self.mailbox.is_closed()
+        !self.mailbox_sender.is_closed()
     }
 
     /// Registers the actor under a given name in the actor registry.
@@ -153,7 +150,7 @@ where
     pub fn downgrade(&self) -> WeakActorRef<A> {
         WeakActorRef {
             id: self.id,
-            mailbox: self.mailbox.downgrade(),
+            mailbox: self.mailbox_sender.downgrade(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_notify: self.startup_semaphore.clone(),
@@ -164,13 +161,13 @@ where
     /// Returns the number of [`ActorRef`] handles.
     #[inline]
     pub fn strong_count(&self) -> usize {
-        self.mailbox.strong_count()
+        self.mailbox_sender.strong_count()
     }
 
     /// Returns the number of [`WeakActorRef`] handles.
     #[inline]
     pub fn weak_count(&self) -> usize {
-        self.mailbox.weak_count()
+        self.mailbox_sender.weak_count()
     }
 
     /// Returns `true` if the current task is the actor itself.
@@ -189,8 +186,8 @@ where
     /// This method ensures that the actor finishes processing any messages that were already in the queue
     /// before it shuts down. Any new messages sent after the stop signal will be ignored.
     #[inline]
-    pub async fn stop_gracefully(&self) -> Result<(), error::SendError> {
-        self.mailbox.signal_stop().await
+    pub async fn stop_gracefully(&self) -> Result<(), SendError> {
+        Ok(self.mailbox_sender.send(Signal::Stop).await?)
     }
 
     /// Kills the actor immediately.
@@ -305,7 +302,7 @@ where
     /// before calling this method.
     #[inline]
     pub async fn wait_for_stop(&self) {
-        self.mailbox.closed().await
+        self.mailbox_sender.closed().await
     }
 
     /// Sends a message to the actor and waits for a reply.
@@ -340,13 +337,7 @@ where
     pub fn ask<M>(
         &self,
         msg: M,
-    ) -> AskRequest<
-        LocalAskRequest<'_, A, A::Mailbox>,
-        A::Mailbox,
-        M,
-        WithoutRequestTimeout,
-        WithoutRequestTimeout,
-    >
+    ) -> AskRequest<'_, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -388,10 +379,7 @@ where
     /// ```
     #[inline]
     #[track_caller]
-    pub fn tell<M>(
-        &self,
-        msg: M,
-    ) -> TellRequest<LocalTellRequest<'_, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
+    pub fn tell<M>(&self, msg: M) -> TellRequest<'_, A, M, WithoutRequestTimeout>
     where
         A: Message<M>,
         M: Send + 'static,
@@ -499,7 +487,7 @@ where
     pub async fn link_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), RemoteSendError<Infallible>>
+    ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
@@ -522,7 +510,7 @@ where
             Link::Remote(std::borrow::Cow::Borrowed(B::REMOTE_ID)),
         );
         remote::ActorSwarm::get()
-            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .link::<A, B>(self.id, sibbling_ref.id)
             .await
     }
@@ -618,7 +606,7 @@ where
     pub async fn unlink_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), RemoteSendError<Infallible>>
+    ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
@@ -629,7 +617,7 @@ where
 
         self.links.lock().await.remove(&sibbling_ref.id);
         remote::ActorSwarm::get()
-            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<B>(self.id, sibbling_ref.id)
             .await
     }
@@ -688,15 +676,6 @@ where
         M: Send + 'static,
         T: Send + 'static,
         F: Send + 'static,
-        for<'a> TellRequest<
-            LocalTellRequest<'a, A, A::Mailbox>,
-            A::Mailbox,
-            StreamMessage<M, T, F>,
-            WithoutRequestTimeout,
-        >: request::MessageSend<
-            Ok = (),
-            Error = SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>,
-        >,
     {
         let actor_ref = self.clone();
         tokio::spawn(async move {
@@ -730,43 +709,14 @@ where
         })
     }
 
-    #[inline]
-    pub(crate) fn mailbox(&self) -> &A::Mailbox {
-        &self.mailbox
+    /// Returns a reference to the mailbox sender.
+    pub fn mailbox_sender(&self) -> &MailboxSender<A> {
+        &self.mailbox_sender
     }
 
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
-        Box::new(self.mailbox.downgrade())
-    }
-}
-
-impl<A> ActorRef<A>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>>,
-{
-    /// Returns the current capacity of the mailbox.
-    ///
-    /// The capacity goes down when sending a message to the actor.
-    /// The capacity goes up when messages are handled by the actor.
-    /// This is distinct from [`max_capacity`], which always returns mailbox capacity initially specified when spawning the actor.
-    ///
-    /// [`max_capacity`]: ActorRef::max_capacity
-    pub fn capacity(&self) -> usize {
-        self.mailbox.0.capacity()
-    }
-
-    /// Returns the maximum buffer capacity of the mailbox.
-    ///
-    /// The maximum capacity is the buffer capacity initially specified when spawning the actor.
-    /// This is distinct from [`capacity`], which returns the current available buffer capacity:
-    /// as messages are sent and received, the value returned by [`capacity`] will go up or down,
-    /// whereas the value returned by [`max_capacity`] will remain constant.
-    ///
-    /// [`capacity`]: ActorRef::capacity
-    /// [`max_capacity`]: ActorRef::max_capacity
-    pub fn max_capacity(&self) -> usize {
-        self.mailbox.0.max_capacity()
+        Box::new(self.mailbox_sender.downgrade())
     }
 }
 
@@ -774,7 +724,7 @@ impl<A: Actor> Clone for ActorRef<A> {
     fn clone(&self) -> Self {
         ActorRef {
             id: self.id,
-            mailbox: self.mailbox.clone(),
+            mailbox_sender: self.mailbox_sender.clone(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_semaphore: self.startup_semaphore.clone(),
@@ -799,12 +749,6 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
     }
 }
 
-impl<A: Actor> AsRef<Links> for ActorRef<A> {
-    fn as_ref(&self) -> &Links {
-        &self.links
-    }
-}
-
 /// A reference to an actor running remotely.
 ///
 /// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
@@ -813,11 +757,14 @@ impl<A: Actor> AsRef<Links> for ActorRef<A> {
 pub struct RemoteActorRef<A: Actor> {
     id: ActorID,
     swarm_tx: remote::SwarmSender,
-    phantom: PhantomData<A::Mailbox>,
+    phantom: PhantomData<fn(&mut A)>,
 }
 
 #[cfg(feature = "remote")]
-impl<A: Actor> RemoteActorRef<A> {
+impl<A> RemoteActorRef<A>
+where
+    A: Actor + remote::RemoteActor,
+{
     pub(crate) fn new(id: ActorID, swarm_tx: remote::SwarmSender) -> Self {
         RemoteActorRef {
             id,
@@ -879,19 +826,12 @@ impl<A: Actor> RemoteActorRef<A> {
     pub fn ask<'a, M>(
         &'a self,
         msg: &'a M,
-    ) -> AskRequest<
-        request::RemoteAskRequest<'a, A, M>,
-        A::Mailbox,
-        M,
-        WithoutRequestTimeout,
-        WithoutRequestTimeout,
-    >
+    ) -> request::RemoteAskRequest<'a, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
     where
         A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
         M: serde::Serialize + Send + 'static,
-        <A::Reply as Reply>::Ok: for<'de> serde::Deserialize<'de>,
     {
-        AskRequest::new_remote(
+        request::RemoteAskRequest::new(
             self,
             msg,
             #[cfg(debug_assertions)]
@@ -934,12 +874,12 @@ impl<A: Actor> RemoteActorRef<A> {
     pub fn tell<'a, M>(
         &'a self,
         msg: &'a M,
-    ) -> TellRequest<request::RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
+    ) -> request::RemoteTellRequest<'a, A, M, WithoutRequestTimeout>
     where
-        A: Message<M>,
+        A: Message<M> + remote::RemoteMessage<M>,
         M: Send + 'static,
     {
-        TellRequest::new_remote(
+        request::RemoteTellRequest::new(
             self,
             msg,
             #[cfg(debug_assertions)]
@@ -971,7 +911,7 @@ impl<A: Actor> RemoteActorRef<A> {
     pub async fn link_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), RemoteSendError<Infallible>>
+    ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
@@ -981,10 +921,10 @@ impl<A: Actor> RemoteActorRef<A> {
         }
 
         let fut_a = remote::ActorSwarm::get()
-            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .link::<A, B>(self.id, sibbling_ref.id);
         let fut_b = remote::ActorSwarm::get()
-            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .link::<B, A>(sibbling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
@@ -1016,7 +956,7 @@ impl<A: Actor> RemoteActorRef<A> {
     pub async fn unlink_remote<B>(
         &self,
         sibbling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), RemoteSendError<Infallible>>
+    ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
@@ -1026,10 +966,10 @@ impl<A: Actor> RemoteActorRef<A> {
         }
 
         let fut_a = remote::ActorSwarm::get()
-            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<B>(self.id, sibbling_ref.id);
         let fut_b = remote::ActorSwarm::get()
-            .ok_or(RemoteSendError::SwarmNotBootstrapped)?
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<A>(sibbling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
@@ -1072,7 +1012,7 @@ impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
 pub struct WeakActorRef<A: Actor> {
     id: ActorID,
-    mailbox: <A::Mailbox as Mailbox<A>>::WeakMailbox,
+    mailbox: WeakMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     startup_notify: Arc<Semaphore>,
@@ -1090,7 +1030,7 @@ impl<A: Actor> WeakActorRef<A> {
     pub fn upgrade(&self) -> Option<ActorRef<A>> {
         self.mailbox.upgrade().map(|mailbox| ActorRef {
             id: self.id,
-            mailbox,
+            mailbox_sender: mailbox,
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_semaphore: self.startup_notify.clone(),

@@ -25,22 +25,16 @@
 //! | Method                | Ask (bounded) | Ask (unbounded) | Tell (bounded) | Tell (unbounded) |
 //! |-----------------------|---------------|-----------------|----------------|------------------|
 //! | [`send`]              |    ✅ 📬 ⏳ 🌐    |      ✅ ⏳ 🌐      |      ✅ 📬 🌐     |        ✅ 🌐       |
-//! | [`send_sync`]         |       ❌       |        ❌        |        ❌       |         ✅        |
 //! | [`try_send`]          |     ✅ ⏳ 🌐     |      ✅ ⏳ 🌐      |       ✅ 🌐      |        ✅ 🌐       |
-//! | [`try_send_sync`]     |       ❌       |        ❌        |        ✅       |         ✅        |
 //! | [`blocking_send`]     |       ✅       |        ✅        |        ✅       |         ✅        |
 //! | [`try_blocking_send`] |       ✅       |        ✅        |        ✅       |         ✅        |
 //! | [`forward`]           |      ✅ 📬      |        ✅        |        ❌       |         ❌        |
-//! | [`forward_sync`]      |       ❌       |        ✅        |        ❌       |         ❌        |
 //!
 //! [`send`]: method@MessageSend::send
-//! [`send_sync`]: method@MessageSendSync::send_sync
 //! [`try_send`]: method@TryMessageSend::try_send
-//! [`try_send_sync`]: method@TryMessageSendSync::try_send_sync
 //! [`blocking_send`]: method@BlockingMessageSend::blocking_send
 //! [`try_blocking_send`]: method@TryBlockingMessageSend::try_blocking_send
 //! [`forward`]: method@ForwardMessageSend::forward
-//! [`forward_sync`]: method@ForwardMessageSendSync::forward_sync
 
 use std::time::Duration;
 
@@ -55,10 +49,10 @@ pub use ask::RemoteAskRequest;
 #[cfg(feature = "remote")]
 pub use tell::RemoteTellRequest;
 
-pub use ask::{AskRequest, LocalAskRequest};
-pub use tell::{LocalTellRequest, TellRequest};
+pub use ask::AskRequest;
+pub use tell::TellRequest;
 
-use crate::{error::SendError, reply::ReplySender, Reply};
+use crate::{actor::ActorRef, error::SendError, reply::ReplySender, Actor, Reply};
 
 /// Trait representing the ability to send a message.
 pub trait MessageSend {
@@ -69,17 +63,6 @@ pub trait MessageSend {
 
     /// Sends a message.
     fn send(self) -> impl Future<Output = Result<Self::Ok, Self::Error>> + Send;
-}
-
-/// Trait representing the ability to send a message synchronously.
-pub trait MessageSendSync {
-    /// Success value.
-    type Ok;
-    /// Error value.
-    type Error;
-
-    /// Sends a message synchronously.
-    fn send_sync(self) -> Result<Self::Ok, Self::Error>;
 }
 
 /// Trait representing the ability to attempt to send a message without waiting for mailbox capacity.
@@ -95,17 +78,6 @@ pub trait TryMessageSend {
     ///
     /// [`SendError::MailboxFull`]: crate::error::SendError::MailboxFull
     fn try_send(self) -> impl Future<Output = Result<Self::Ok, Self::Error>> + Send;
-}
-
-/// Trait representing the ability to attempt to send a message without waiting for mailbox capacity synchronously.
-pub trait TryMessageSendSync {
-    /// Success value.
-    type Ok;
-    /// Error value.
-    type Error;
-
-    /// Attempts to send a message synchronously without waiting for mailbox capacity.
-    fn try_send_sync(self) -> Result<Self::Ok, Self::Error>;
 }
 
 /// Trait representing the ability to send a message in a blocking context, useful outside an async runtime.
@@ -145,23 +117,13 @@ pub trait ForwardMessageSend<R: Reply, M> {
     ) -> impl Future<Output = Result<(), SendError<(M, ReplySender<R::Value>), R::Error>>> + Send;
 }
 
-/// Trait representing the ability to send a message with the reply being sent back to a channel synchronously.
-pub trait ForwardMessageSendSync<R: Reply, M> {
-    /// Sends a message synchronously with the reply being sent back to a channel.
-    #[allow(clippy::type_complexity)]
-    fn forward_sync(
-        self,
-        tx: ReplySender<R::Value>,
-    ) -> Result<(), SendError<(M, ReplySender<R::Value>), R::Error>>;
-}
-
 /// A type for requests without any timeout set.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct WithoutRequestTimeout;
 
 /// A type for timeouts in actor requests.
-#[derive(Clone, Copy, Debug)]
-pub struct WithRequestTimeout(Duration);
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WithRequestTimeout(Option<Duration>);
 
 /// A type which might contain a request timeout.
 ///
@@ -191,6 +153,58 @@ impl From<WithoutRequestTimeout> for MaybeRequestTimeout {
 
 impl From<WithRequestTimeout> for MaybeRequestTimeout {
     fn from(WithRequestTimeout(timeout): WithRequestTimeout) -> Self {
-        MaybeRequestTimeout::Timeout(timeout)
+        match timeout {
+            Some(timeout) => MaybeRequestTimeout::Timeout(timeout),
+            None => MaybeRequestTimeout::NoTimeout,
+        }
     }
+}
+
+impl From<WithoutRequestTimeout> for Option<Duration> {
+    fn from(_: WithoutRequestTimeout) -> Self {
+        None
+    }
+}
+
+impl From<WithRequestTimeout> for Option<Duration> {
+    fn from(WithRequestTimeout(duration): WithRequestTimeout) -> Self {
+        duration
+    }
+}
+
+impl From<MaybeRequestTimeout> for Option<Duration> {
+    fn from(timeout: MaybeRequestTimeout) -> Self {
+        match timeout {
+            MaybeRequestTimeout::NoTimeout => None,
+            MaybeRequestTimeout::Timeout(duration) => Some(duration),
+        }
+    }
+}
+
+#[cfg(all(debug_assertions, feature = "tracing"))]
+fn warn_deadlock<A: Actor>(
+    actor_ref: &ActorRef<A>,
+    msg: &'static str,
+    called_at: &'static std::panic::Location<'static>,
+) {
+    use tracing::warn;
+
+    use crate::mailbox::MailboxSender;
+
+    match actor_ref.mailbox_sender() {
+        MailboxSender::Bounded(_) => {
+            if actor_ref.is_current() {
+                warn!("At {called_at}, {msg}");
+            }
+        }
+        MailboxSender::Unbounded(_) => {}
+    }
+}
+
+#[cfg(not(all(debug_assertions, feature = "tracing")))]
+fn warn_deadlock<A: Actor>(
+    _actor_ref: &ActorRef<A>,
+    _msg: &'static str,
+    _called_at: &'static std::panic::Location<'static>,
+) {
 }
