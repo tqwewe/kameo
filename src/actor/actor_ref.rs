@@ -330,6 +330,7 @@ where
     /// ```
     #[inline]
     #[track_caller]
+    #[doc(alias = "send")]
     pub fn ask<M>(
         &self,
         msg: M,
@@ -375,6 +376,7 @@ where
     /// ```
     #[inline]
     #[track_caller]
+    #[doc(alias = "send_async")]
     pub fn tell<M>(&self, msg: M) -> TellRequest<'_, A, M, WithoutRequestTimeout>
     where
         A: Message<M>,
@@ -818,6 +820,7 @@ where
     /// ```
     #[inline]
     #[track_caller]
+    #[doc(alias = "send")]
     pub fn ask<'a, M>(
         &'a self,
         msg: &'a M,
@@ -865,6 +868,7 @@ where
     /// ```
     #[inline]
     #[track_caller]
+    #[doc(alias = "send_async")]
     pub fn tell<'a, M>(
         &'a self,
         msg: &'a M,
