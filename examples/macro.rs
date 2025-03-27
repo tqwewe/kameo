@@ -1,8 +1,4 @@
-use std::fmt;
-
 use kameo::prelude::*;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Actor)]
 pub struct MyActor {
@@ -26,32 +22,22 @@ impl MyActor {
         Err(3)
     }
 
-    /// Prints a message
     #[message]
-    pub fn print<T>(
-        &self,
-        /// Message to print
-        msg: T,
-    ) where
-        T: fmt::Display + Send + 'static,
+    pub fn print<T>(&self, msg: T)
+    where
+        T: std::fmt::Display + Send + 'static,
     {
-        info!("{msg}");
+        println!("{msg}");
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("trace".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
-
     let my_actor_ref = kameo::spawn(MyActor::new());
 
     // Increment the count by 3
     let count = my_actor_ref.ask(Inc { amount: 3 }).await?;
-    info!("Count is {count}");
+    println!("Count is {count}");
 
     // Increment the count by 50 in the background
     my_actor_ref.tell(Inc { amount: 50 }).await?;

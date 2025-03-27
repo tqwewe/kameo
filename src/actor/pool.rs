@@ -48,19 +48,15 @@ use std::{
 
 use futures::{
     future::{join_all, BoxFuture},
-    Future, FutureExt,
+    Future, FutureExt, TryFutureExt,
 };
 
 use crate::{
-    actor::{Actor, ActorRef},
+    actor::{spawn_with_mailbox, Actor, ActorRef},
     error::{ActorStopReason, Infallible, SendError},
-    mailbox::bounded::BoundedMailbox,
+    mailbox::{self, MailboxSender},
     message::{Context, Message},
     reply::{Reply, ReplyError},
-    request::{
-        AskRequest, ForwardMessageSend, LocalAskRequest, LocalTellRequest, MessageSend,
-        TellRequest, WithoutRequestTimeout,
-    },
 };
 
 use super::{ActorID, WeakActorRef};
@@ -81,7 +77,7 @@ enum Factory<A: Actor> {
 /// The pool can be used either as a standalone object or spawned as an actor. When spawned, tasks can be
 /// sent using the `WorkerMsg` and `BroadcastMsg` messages for individual or broadcast communication with workers.
 pub struct ActorPool<A: Actor> {
-    workers: Vec<(ActorRef<A>, Arc<()>)>,
+    workers: Vec<(ActorRef<Worker<A>>, Arc<()>)>,
     size: usize,
     factory: Factory<A>,
 }
@@ -113,7 +109,18 @@ where
     {
         assert_ne!(size, 0);
 
-        let workers = (0..size).map(|_| (factory(), Arc::new(()))).collect();
+        let workers = (0..size)
+            .map(|_| {
+                let worker = Worker {
+                    actor_ref: factory(),
+                };
+                let mailbox = match worker.actor_ref.mailbox_sender() {
+                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
+                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                };
+                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+            })
+            .collect();
 
         ActorPool {
             workers,
@@ -133,9 +140,16 @@ where
     {
         assert_ne!(size, 0);
 
-        let workers = join_all(
-            (0..size).map(|_| FutureExt::map(factory(), |actor_ref| (actor_ref, Arc::new(())))),
-        )
+        let workers = join_all((0..size).map(|_| {
+            FutureExt::map(factory(), |actor_ref| {
+                let worker = Worker { actor_ref };
+                let mailbox = match worker.actor_ref.mailbox_sender() {
+                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
+                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                };
+                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+            })
+        }))
         .await;
 
         ActorPool {
@@ -148,7 +162,7 @@ where
         }
     }
 
-    fn next_worker(&self) -> (&ActorRef<A>, Weak<()>) {
+    fn next_worker(&self) -> (&ActorRef<Worker<A>>, Weak<()>) {
         self.workers
             .iter()
             .min_by_key(|(_, load)| Arc::weak_count(load))
@@ -161,7 +175,6 @@ impl<A> Actor for ActorPool<A>
 where
     A: Actor,
 {
-    type Mailbox = BoundedMailbox<Self>;
     type Error = Infallible;
 
     fn name() -> &'static str {
@@ -195,8 +208,24 @@ where
         };
 
         self.workers[i] = match &mut self.factory {
-            Factory::Sync(f) => (f(), Arc::new(())),
-            Factory::Async(f) => (f().await, Arc::new(())),
+            Factory::Sync(f) => {
+                let worker = Worker { actor_ref: f() };
+                let mailbox = match worker.actor_ref.mailbox_sender() {
+                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
+                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                };
+                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+            }
+            Factory::Async(f) => {
+                let worker = Worker {
+                    actor_ref: f().await,
+                };
+                let mailbox = match worker.actor_ref.mailbox_sender() {
+                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
+                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                };
+                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+            }
         };
         self.workers[i].0.link(&actor_ref).await;
 
@@ -204,11 +233,46 @@ where
     }
 }
 
+struct Worker<A: Actor> {
+    actor_ref: ActorRef<A>,
+}
+
+impl<A: Actor> Actor for Worker<A> {
+    type Error = Infallible;
+}
+
+/// A wrapper type which helps keep track of the load for each worker.
+#[doc(hidden)]
+#[allow(missing_debug_implementations)]
+struct WorkerMsgWrapper<M> {
+    msg: M,
+    counter: Weak<()>,
+}
+
+impl<A, M> Message<WorkerMsgWrapper<M>> for Worker<A>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+{
+    type Reply = Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>>;
+
+    async fn handle(
+        &mut self,
+        WorkerMsgWrapper {
+            msg,
+            counter: _counter,
+        }: WorkerMsgWrapper<M>,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        self.actor_ref.ask(msg).await
+    }
+}
+
 /// A reply from a worker message.
 #[allow(missing_debug_implementations)]
 pub enum WorkerReply<A, M>
 where
-    A: Actor + Message<WorkerMsgWrapper<M>>,
+    A: Actor + Message<M>,
     M: Send + 'static,
 {
     /// The message was forwarded to a worker.
@@ -219,14 +283,14 @@ where
 
 impl<A, M> Reply for WorkerReply<A, M>
 where
-    A: Actor + Message<WorkerMsgWrapper<M>>,
+    A: Actor + Message<M>,
     M: Send + 'static,
 {
     type Ok = <A::Reply as Reply>::Ok;
     type Error = <A::Reply as Reply>::Error;
-    type Value = <A::Reply as Reply>::Value;
+    type Value = Result<Self::Ok, SendError<M, Self::Error>>;
 
-    fn to_result(self) -> Result<Self::Ok, Self::Error> {
+    fn to_result(self) -> Result<<A::Reply as Reply>::Ok, <A::Reply as Reply>::Error> {
         unimplemented!("a WorkerReply cannot be converted to a result and is only a marker type")
     }
 
@@ -246,21 +310,11 @@ where
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WorkerMsg<M>(pub M);
 
-impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A>
+impl<A, M, R> Message<WorkerMsg<M>> for ActorPool<A>
 where
-    A: Actor<Mailbox = Mb> + Message<WorkerMsgWrapper<M>, Reply = R>,
+    A: Actor + Message<M, Reply = R>,
     M: Send + 'static,
-    Mb: Send + 'static,
     R: Reply,
-    for<'a> AskRequest<
-        LocalAskRequest<'a, A, Mb>,
-        Mb,
-        WorkerMsgWrapper<M>,
-        WithoutRequestTimeout,
-        WithoutRequestTimeout,
-    >: ForwardMessageSend<A::Reply, WorkerMsgWrapper<M>>,
-    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, WorkerMsgWrapper<M>, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<WorkerMsgWrapper<M>, <A::Reply as Reply>::Error>>,
 {
     type Reply = WorkerReply<A, M>;
 
@@ -320,8 +374,6 @@ impl<A, M> Message<BroadcastMsg<M>> for ActorPool<A>
 where
     A: Actor + Message<M>,
     M: Clone + Send + 'static,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = Vec<Result<(), SendError<M, <A::Reply as Reply>::Error>>>;
 
@@ -336,7 +388,15 @@ where
                 .zip(
                     std::iter::repeat_n(msg, self.workers.len()), // Avoids unnecessary clone of msg on last iteration
                 )
-                .map(|((worker, _), msg)| worker.tell(msg).send()),
+                .map(|((worker, counter), msg)| {
+                    worker
+                        .tell(WorkerMsgWrapper {
+                            msg,
+                            counter: Arc::downgrade(counter),
+                        })
+                        .send()
+                        .map_err(|err| err.map_msg(|msg| msg.msg).flatten())
+                }),
         )
         .await
     }
@@ -348,32 +408,5 @@ impl<A: Actor> fmt::Debug for ActorPool<A> {
             .field("workers", &self.workers)
             .field("size", &self.size)
             .finish()
-    }
-}
-
-/// A wrapper type which helps keep track of the load for each worker.
-#[doc(hidden)]
-#[allow(missing_debug_implementations)]
-pub struct WorkerMsgWrapper<M> {
-    msg: M,
-    counter: Weak<()>,
-}
-
-impl<A, M> Message<WorkerMsgWrapper<M>> for A
-where
-    A: Message<M>,
-    M: Send + 'static,
-{
-    type Reply = A::Reply;
-
-    async fn handle(
-        &mut self,
-        WorkerMsgWrapper {
-            msg,
-            counter: _counter,
-        }: WorkerMsgWrapper<M>,
-        ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.handle(msg, ctx).await
     }
 }

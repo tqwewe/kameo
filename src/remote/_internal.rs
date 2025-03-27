@@ -7,12 +7,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use crate::actor::{ActorID, ActorRef, Link};
-use crate::error::{ActorStopReason, Infallible, RemoteSendError, SendError};
+use crate::error::{ActorStopReason, Infallible, RemoteSendError};
 use crate::message::Message;
-use crate::request::{
-    AskRequest, LocalAskRequest, LocalTellRequest, MaybeRequestTimeout, MessageSend, TellRequest,
-    TryMessageSend,
-};
 use crate::{Actor, Reply};
 
 use super::REMOTE_REGISTRY;
@@ -95,13 +91,6 @@ where
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Ok: Serialize,
     <A::Reply as Reply>::Error: Serialize,
-    for<'a> AskRequest<
-        LocalAskRequest<'a, A, A::Mailbox>,
-        A::Mailbox,
-        M,
-        MaybeRequestTimeout,
-        MaybeRequestTimeout,
-    >: MessageSend<Ok = <A::Reply as Reply>::Ok, Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -118,7 +107,8 @@ where
 
     let res = actor_ref
         .ask(msg)
-        .into_maybe_timeouts(mailbox_timeout.into(), reply_timeout.into())
+        .mailbox_timeout_opt(mailbox_timeout)
+        .reply_timeout_opt(reply_timeout)
         .send()
         .await;
     match res {
@@ -143,16 +133,6 @@ where
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Ok: Serialize,
     <A::Reply as Reply>::Error: Serialize,
-    for<'a> AskRequest<
-        LocalAskRequest<'a, A, A::Mailbox>,
-        A::Mailbox,
-        M,
-        MaybeRequestTimeout,
-        MaybeRequestTimeout,
-    >: TryMessageSend<
-        Ok = <A::Reply as Reply>::Ok,
-        Error = SendError<M, <A::Reply as Reply>::Error>,
-    >,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -169,7 +149,7 @@ where
 
     let res = actor_ref
         .ask(msg)
-        .into_maybe_timeouts(None.into(), reply_timeout.into())
+        .reply_timeout_opt(reply_timeout)
         .try_send()
         .await;
     match res {
@@ -193,8 +173,6 @@ where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Error: Serialize,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, MaybeRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -211,7 +189,7 @@ where
 
     let res = actor_ref
         .tell(msg)
-        .into_maybe_timeouts(mailbox_timeout.into())
+        .mailbox_timeout_opt(mailbox_timeout)
         .send()
         .await;
     match res {
@@ -230,8 +208,6 @@ where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
     <A::Reply as Reply>::Error: Serialize,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, MaybeRequestTimeout>:
-        TryMessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -246,11 +222,7 @@ where
     let msg: M = rmp_serde::decode::from_slice(&msg)
         .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
 
-    let res = actor_ref
-        .tell(msg)
-        .into_maybe_timeouts(None.into())
-        .try_send()
-        .await;
+    let res = actor_ref.tell(msg).try_send();
     match res {
         Ok(()) => Ok(()),
         Err(err) => Err(RemoteSendError::from(err)

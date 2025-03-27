@@ -26,8 +26,7 @@ This example demonstrates a basic "Hello World" actor capable of handling a `Gre
 First, we define a `HelloWorldActor` and a `Greet` message. The actor will process messages of type `Greet`, which contain a string greeting.
 
 ```rust
-use kameo::Actor;
-use kameo::message::{Message, Context};
+use kameo::prelude::*;
 
 // Define the actor
 #[derive(Actor)]
@@ -55,11 +54,11 @@ impl Message<Greet> for HelloWorldActor {
 To interact with the `HelloWorldActor`, we spawn it and send a `Greet` message. This is done using the `spawn` function from Kameo and the `tell` method provided by the actor's reference, `actor_ref`.
 
 ```rust
-use kameo::spawn;
+use kameo::prelude::*;
 
 #[tokio::main] // Mark the entry point as an asynchronous main function
 async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result return type for error handling
-    // Spawn the HelloWorldActor
+    // Spawn the HelloWorldActor with an unbounded mailbox
     let actor_ref = spawn(HelloWorldActor);
 
     // Send a Greet message to the actor

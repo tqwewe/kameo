@@ -1,464 +1,270 @@
-use core::panic;
-use std::{future::IntoFuture, marker::PhantomData, time::Duration};
+use std::{future::IntoFuture, time::Duration};
 
 use futures::{future::BoxFuture, FutureExt};
 
 #[cfg(feature = "remote")]
-use crate::remote;
+use crate::{actor, remote};
 
 use crate::{
-    actor, error,
-    mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox, Mailbox, Signal},
+    actor::ActorRef,
+    error::{self, SendError},
+    mailbox::{MailboxSender, Signal},
     message::Message,
     Actor, Reply,
 };
 
-use super::{
-    BlockingMessageSend, MaybeRequestTimeout, MessageSend, MessageSendSync, TryBlockingMessageSend,
-    TryMessageSend, TryMessageSendSync, WithRequestTimeout, WithoutRequestTimeout,
-};
+use super::{WithRequestTimeout, WithoutRequestTimeout};
 
 /// A request to send a message to an actor without any reply.
 ///
 /// This can be thought of as "fire and forget".
 #[allow(missing_debug_implementations)]
-pub struct TellRequest<L, Mb, M, T> {
-    location: L,
-    timeout: T,
-    #[cfg(debug_assertions)]
-    called_at: &'static std::panic::Location<'static>,
-    phantom: PhantomData<(Mb, M)>,
-}
-
-/// A request to a local actor.
-#[allow(missing_debug_implementations)]
-pub struct LocalTellRequest<'a, A, Mb>
-where
-    A: Actor<Mailbox = Mb>,
-{
-    mailbox: &'a Mb,
-    signal: Signal<A>,
-}
-
-/// A request to a remote actor.
-#[allow(missing_debug_implementations)]
-#[cfg(feature = "remote")]
-pub struct RemoteTellRequest<'a, A, M>
-where
-    A: Actor,
-{
-    actor_ref: &'a actor::RemoteActorRef<A>,
-    msg: &'a M,
-}
-
-impl<'a, A, M>
-    TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>
-where
-    A: Actor,
-{
-    #[inline]
-    pub(crate) fn new(
-        actor_ref: &'a actor::ActorRef<A>,
-        msg: M,
-        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
-    ) -> Self
-    where
-        A: Message<M>,
-        M: Send + 'static,
-    {
-        TellRequest {
-            location: LocalTellRequest {
-                mailbox: actor_ref.mailbox(),
-                signal: Signal::Message {
-                    message: Box::new(msg),
-                    actor_ref: actor_ref.clone(),
-                    reply: None,
-                    sent_within_actor: actor_ref.is_current(),
-                },
-            },
-            timeout: WithoutRequestTimeout,
-            #[cfg(debug_assertions)]
-            called_at,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<A, M, T> TellRequest<LocalTellRequest<'_, A, A::Mailbox>, A::Mailbox, M, T>
-where
-    A: Actor,
-{
-    #[cfg(all(debug_assertions, feature = "tracing"))]
-    fn warn_deadlock(&self, msg: &'static str) {
-        use tracing::warn;
-
-        if self.location.mailbox.capacity().is_some() {
-            if let Signal::Message { actor_ref, .. } = &self.location.signal {
-                if actor_ref.is_current() {
-                    warn!("At {}, {msg}", self.called_at);
-                }
-            }
-        }
-    }
-
-    #[cfg(not(all(debug_assertions, feature = "tracing")))]
-    fn warn_deadlock(&self, _msg: &'static str) {}
-}
-
-#[cfg(feature = "remote")]
-impl<'a, A, M> TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, WithoutRequestTimeout>
-where
-    A: Actor,
-{
-    #[inline]
-    pub(crate) fn new_remote(
-        actor_ref: &'a actor::RemoteActorRef<A>,
-        msg: &'a M,
-        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
-    ) -> Self {
-        TellRequest {
-            location: RemoteTellRequest { actor_ref, msg },
-            timeout: WithoutRequestTimeout,
-            #[cfg(debug_assertions)]
-            called_at,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<L, A, M, T> TellRequest<L, BoundedMailbox<A>, M, T>
-where
-    A: Actor<Mailbox = BoundedMailbox<A>>,
-{
-    /// Sets the timeout for waiting for the actors mailbox to have capacity.
-    #[inline]
-    pub fn mailbox_timeout(
-        self,
-        duration: Duration,
-    ) -> TellRequest<L, BoundedMailbox<A>, M, WithRequestTimeout> {
-        TellRequest {
-            location: self.location,
-            timeout: WithRequestTimeout(duration),
-            #[cfg(debug_assertions)]
-            called_at: self.called_at,
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<L, Mb, M, T> TellRequest<L, Mb, M, T> {
-    #[inline]
-    pub(crate) fn into_maybe_timeouts(
-        self,
-        mailbox_timeout: MaybeRequestTimeout,
-    ) -> TellRequest<L, Mb, M, MaybeRequestTimeout> {
-        TellRequest {
-            location: self.location,
-            timeout: mailbox_timeout,
-            #[cfg(debug_assertions)]
-            called_at: self.called_at,
-            phantom: PhantomData,
-        }
-    }
-}
-
-impl<'a, A, M, T> IntoFuture for TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>
+pub struct TellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    T: 'static,
-    TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, T>:
-        MessageSend<Ok = (), Error = error::SendError<M, <A::Reply as Reply>::Error>>,
+{
+    actor_ref: &'a ActorRef<A>,
+    msg: M,
+    mailbox_timeout: Tm,
+    #[cfg(all(debug_assertions, feature = "tracing"))]
+    called_at: &'static std::panic::Location<'static>,
+}
+
+impl<'a, A, M, Tm> TellRequest<'a, A, M, Tm>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+{
+    pub(crate) fn new(
+        actor_ref: &'a ActorRef<A>,
+        msg: M,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
+    ) -> Self
+    where
+        Tm: Default,
+    {
+        TellRequest {
+            actor_ref,
+            msg,
+            mailbox_timeout: Tm::default(),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at,
+        }
+    }
+
+    /// Sets the timeout for waiting for the actors mailbox to have capacity.
+    pub fn mailbox_timeout(self, duration: Duration) -> TellRequest<'a, A, M, WithRequestTimeout> {
+        self.mailbox_timeout_opt(Some(duration))
+    }
+
+    pub(crate) fn mailbox_timeout_opt(
+        self,
+        duration: Option<Duration>,
+    ) -> TellRequest<'a, A, M, WithRequestTimeout> {
+        TellRequest {
+            actor_ref: self.actor_ref,
+            msg: self.msg,
+            mailbox_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at: self.called_at,
+        }
+    }
+
+    /// Sends the message.
+    pub async fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
+    where
+        Tm: Into<Option<Duration>>,
+    {
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: None,
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                #[cfg(all(debug_assertions, feature = "tracing"))]
+                warn_deadlock(self.actor_ref, "An actor is sending a `tell` request to itself using a bounded mailbox, which may lead to a deadlock. To avoid this, use `.try_send()`.", self.called_at);
+                match self.mailbox_timeout.into() {
+                    Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
+                    None => Ok(tx.send(signal).await?),
+                }
+            }
+            MailboxSender::Unbounded(tx) => Ok(tx.send(signal)?),
+        }
+    }
+}
+
+impl<A, M> TellRequest<'_, A, M, WithoutRequestTimeout>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+{
+    /// Tries to send the message without waiting for mailbox capacity.
+    pub fn try_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: None,
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => Ok(tx.try_send(signal)?),
+            MailboxSender::Unbounded(tx) => Ok(tx.send(signal)?),
+        }
+    }
+
+    /// Sends the message in a blocking context.
+    pub fn blocking_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: None,
+            sent_within_actor: self.actor_ref.is_current(),
+        };
+
+        match self.actor_ref.mailbox_sender() {
+            MailboxSender::Bounded(tx) => {
+                #[cfg(all(debug_assertions, feature = "tracing"))]
+                warn_deadlock(self.actor_ref, "An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.", self.called_at);
+                Ok(tx.blocking_send(signal)?)
+            }
+            MailboxSender::Unbounded(tx) => Ok(tx.send(signal)?),
+        }
+    }
+}
+
+impl<'a, A, M, Tm> IntoFuture for TellRequest<'a, A, M, Tm>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+    Tm: Into<Option<Duration>> + Send + 'static,
 {
     type Output = Result<(), error::SendError<M, <A::Reply as Reply>::Error>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        MessageSend::send(self).boxed()
+        self.send().boxed()
+    }
+}
+
+/// A request to send a message to a remote actor without any reply.
+///
+/// This can be thought of as "fire and forget".
+#[cfg(feature = "remote")]
+#[allow(missing_debug_implementations)]
+pub struct RemoteTellRequest<'a, A, M, Tm>
+where
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: Send + 'static,
+{
+    actor_ref: &'a actor::RemoteActorRef<A>,
+    msg: &'a M,
+    mailbox_timeout: Tm,
+    #[cfg(all(debug_assertions, feature = "tracing"))]
+    called_at: &'static std::panic::Location<'static>,
+}
+
+#[cfg(feature = "remote")]
+impl<'a, A, M, Tm> RemoteTellRequest<'a, A, M, Tm>
+where
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: Send + 'static,
+    Tm: Default,
+{
+    pub(crate) fn new(
+        actor_ref: &'a actor::RemoteActorRef<A>,
+        msg: &'a M,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
+    ) -> Self {
+        RemoteTellRequest {
+            actor_ref,
+            msg,
+            mailbox_timeout: Tm::default(),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at,
+        }
     }
 }
 
 #[cfg(feature = "remote")]
-impl<'a, A, M, T> IntoFuture for TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, T>
+impl<'a, A, M, Tm> RemoteTellRequest<'a, A, M, Tm>
 where
-    A: Actor + Message<M>,
-    M: Send + 'static,
-    T: 'static,
-    TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, T>:
-        MessageSend<Ok = (), Error = error::RemoteSendError<<A::Reply as Reply>::Error>>,
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: serde::Serialize + Send + 'static,
+    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+{
+    /// Sets the timeout for waiting for the actors mailbox to have capacity.
+    pub fn mailbox_timeout(
+        self,
+        duration: Duration,
+    ) -> RemoteTellRequest<'a, A, M, WithRequestTimeout> {
+        self.mailbox_timeout_opt(Some(duration))
+    }
+
+    pub(crate) fn mailbox_timeout_opt(
+        self,
+        duration: Option<Duration>,
+    ) -> RemoteTellRequest<'a, A, M, WithRequestTimeout> {
+        RemoteTellRequest {
+            actor_ref: self.actor_ref,
+            msg: self.msg,
+            mailbox_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at: self.called_at,
+        }
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<A, M, Tm> RemoteTellRequest<'_, A, M, Tm>
+where
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: serde::Serialize + Send + 'static,
+    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+    Tm: Into<Option<Duration>>,
+{
+    /// Sends the message.
+    pub async fn send(self) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>> {
+        remote_tell(self.actor_ref, self.msg, self.mailbox_timeout.into(), false).await
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<A, M> RemoteTellRequest<'_, A, M, WithoutRequestTimeout>
+where
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: serde::Serialize + Send + 'static,
+    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+{
+    /// Tries to send the message without waiting for mailbox capacity.
+    pub async fn try_send(self) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>> {
+        remote_tell(self.actor_ref, self.msg, self.mailbox_timeout.into(), true).await
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<'a, A, M, Tm> IntoFuture for RemoteTellRequest<'a, A, M, Tm>
+where
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: serde::Serialize + Send + Sync + 'static,
+    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+    Tm: Into<Option<Duration>> + Send + 'static,
 {
     type Output = Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        MessageSend::send(self).boxed()
+        self.send().boxed()
     }
 }
-
-macro_rules! impl_message_trait {
-    (local, $($async:ident)? => $trait:ident :: $method:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> $trait
-            for TellRequest<
-                LocalTellRequest<'a, A, A::Mailbox>,
-                A::Mailbox,
-                M,
-                $timeout,
-            >
-        where
-            A: Actor + Message<M>,
-            M: Send + 'static,
-        {
-            type Ok = ();
-            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
-
-            #[inline]
-            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                $($body)*
-            }
-        }
-    };
-    (local, $($async:ident)? => $trait:ident :: $method:ident, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> $trait
-            for TellRequest<
-                LocalTellRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
-                M,
-                $timeout,
-            >
-        where
-            A: Actor<Mailbox = $mailbox<A>> + Message<M>,
-            M: Send + 'static,
-        {
-            type Ok = ();
-            type Error = error::SendError<M, <A::Reply as Reply>::Error>;
-
-            #[inline]
-            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                $($body)*
-            }
-        }
-    };
-    (remote, $($async:ident)? => $trait:ident :: $method:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> $trait
-            for TellRequest<RemoteTellRequest<'a, A, M>, A::Mailbox, M, $timeout>
-        where
-            TellRequest<
-                LocalTellRequest<'a, A, A::Mailbox>,
-                A::Mailbox,
-                M,
-                $timeout,
-            >: $trait,
-            A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
-            M: serde::Serialize + Send + Sync + 'static,
-            <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
-        {
-            type Ok = ();
-            type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
-
-            #[inline]
-            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                remote_tell($req.location.actor_ref, &$req.location.msg, $($body)*, false).await
-            }
-        }
-    };
-    (remote, $($async:ident)? => $trait:ident :: $method:ident, $mailbox:ident, $timeout:ident, |$req:ident| $($body:tt)*) => {
-        impl<'a, A, M> $trait
-            for TellRequest<RemoteTellRequest<'a, A, M>, $mailbox<A>, M, $timeout>
-        where
-            TellRequest<
-                LocalTellRequest<'a, A, $mailbox<A>>,
-                $mailbox<A>,
-                M,
-                $timeout,
-            >: $trait,
-            A: Actor<Mailbox = $mailbox<A>> + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
-            M: serde::Serialize + Send + Sync + 'static,
-            <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
-        {
-            type Ok = ();
-            type Error = error::RemoteSendError<<A::Reply as Reply>::Error>;
-
-            #[inline]
-            $($async)? fn $method(self) -> Result<Self::Ok, Self::Error> {
-                let $req = self;
-                remote_tell($req.location.actor_ref, &$req.location.msg, $($body)*, false).await
-            }
-        }
-    };
-}
-
-/////////////////////////
-// === MessageSend === //
-/////////////////////////
-impl_message_trait!(local, async => MessageSend::send, WithoutRequestTimeout, |req| {
-    req.warn_deadlock("An actor is sending a `tell` request to itself using a bounded mailbox without a timeout, which may lead to a deadlock. To avoid this, use a timeout or switch to `.try_send()`.");
-
-    Ok(req.location
-        .mailbox
-        .send(req.location.signal)
-        .await?)
-});
-impl_message_trait!(
-    local,
-    async => MessageSend::send,
-    BoundedMailbox,
-    WithRequestTimeout,
-    |req| {
-        req.location
-            .mailbox
-            .0
-            .send_timeout(req.location.signal, req.timeout.0)
-            .await?;
-        Ok(())
-    }
-);
-#[cfg(feature = "remote")]
-impl_message_trait!(remote, async => MessageSend::send, WithoutRequestTimeout, |req| None);
-#[cfg(feature = "remote")]
-impl_message_trait!(
-    remote,
-    async => MessageSend::send,
-    BoundedMailbox,
-    WithRequestTimeout,
-    |req| Some(req.timeout.0)
-);
-
-impl_message_trait!(
-    local,
-    async => MessageSend::send,
-    BoundedMailbox,
-    MaybeRequestTimeout,
-    |req| {
-        match req.timeout {
-            MaybeRequestTimeout::NoTimeout => {
-                req.location.mailbox.0.send(req.location.signal).await?;
-            }
-            MaybeRequestTimeout::Timeout(timeout) => {
-                req.location
-                    .mailbox
-                    .0
-                    .send_timeout(req.location.signal, timeout)
-                    .await?;
-            }
-        }
-        Ok(())
-    }
-);
-
-impl_message_trait!(
-    local,
-    async => MessageSend::send,
-    UnboundedMailbox,
-    MaybeRequestTimeout,
-    |req| {
-        match req.timeout {
-            MaybeRequestTimeout::NoTimeout => {
-                TellRequest {
-                    location: req.location,
-                    timeout: WithoutRequestTimeout,
-                    #[cfg(debug_assertions)]
-                    called_at: req.called_at,
-                    phantom: PhantomData,
-                }
-                .send()
-                .await
-            }
-            MaybeRequestTimeout::Timeout(_) => {
-                panic!("mailbox timeout is not available with unbounded mailboxes")
-            }
-        }
-    }
-);
-
-/////////////////////////////
-// === MessageSendSync === //
-/////////////////////////////
-impl_message_trait!(
-    local,
-    => MessageSendSync::send_sync,
-    UnboundedMailbox,
-    WithoutRequestTimeout,
-    |req| {
-        req.location.mailbox.0.send(req.location.signal)?;
-        Ok(())
-    }
-);
-
-////////////////////////////
-// === TryMessageSend === //
-////////////////////////////
-impl_message_trait!(local, async => TryMessageSend::try_send, WithoutRequestTimeout, |req| {
-    Ok(req.location
-        .mailbox
-        .try_send(req.location.signal)?)
-});
-#[cfg(feature = "remote")]
-impl_message_trait!(remote, async => TryMessageSend::try_send, WithoutRequestTimeout, |req| None);
-
-impl_message_trait!(local, async => TryMessageSend::try_send, BoundedMailbox, MaybeRequestTimeout, |req| {
-    match req.timeout {
-        MaybeRequestTimeout::NoTimeout => {
-            TellRequest {
-                location: req.location,
-                timeout: WithoutRequestTimeout,
-                #[cfg(debug_assertions)]
-                called_at: req.called_at,
-                phantom: PhantomData,
-            }
-            .try_send()
-            .await
-        }
-        MaybeRequestTimeout::Timeout(_) => {
-            panic!("try_send is not available when a mailbox timeout is set")
-        }
-    }
-});
-
-impl_message_trait!(local, async => TryMessageSend::try_send, UnboundedMailbox, MaybeRequestTimeout, |req| {
-    match req.timeout {
-        MaybeRequestTimeout::NoTimeout => {
-            TellRequest {
-                location: req.location,
-                timeout: WithoutRequestTimeout,
-                #[cfg(debug_assertions)]
-                called_at: req.called_at,
-                phantom: PhantomData,
-            }
-            .try_send()
-            .await
-        }
-        MaybeRequestTimeout::Timeout(_) => {
-            panic!("try_send is not available when a mailbox timeout is set")
-        }
-    }
-});
-
-////////////////////////////////
-// === TryMessageSendSync === //
-////////////////////////////////
-impl_message_trait!(local, => TryMessageSendSync::try_send_sync, WithoutRequestTimeout, |req| {
-    Ok(req.location.mailbox.try_send(req.location.signal)?)
-});
-
-////////////////////////////////
-// === BlockingMessageSend === //
-////////////////////////////////
-impl_message_trait!(local, => BlockingMessageSend::blocking_send, WithoutRequestTimeout, |req| {
-    req.warn_deadlock("An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.");
-
-    Ok(req.location.mailbox.blocking_send(req.location.signal)?)
-});
-
-////////////////////////////////////
-// === TryBlockingMessageSend === //
-////////////////////////////////////
-impl_message_trait!(local, => TryBlockingMessageSend::try_blocking_send, WithoutRequestTimeout, |req| {
-    Ok(req.location.mailbox.try_send(req.location.signal)?)
-});
 
 #[cfg(feature = "remote")]
 async fn remote_tell<A, M>(
@@ -470,7 +276,7 @@ async fn remote_tell<A, M>(
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: for<'de> serde::Deserialize<'de>,
+    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     use remote::*;
     use std::borrow::Cow;
@@ -508,22 +314,36 @@ where
     }
 }
 
+#[cfg(all(debug_assertions, feature = "tracing"))]
+fn warn_deadlock<A: Actor>(
+    actor_ref: &ActorRef<A>,
+    msg: &'static str,
+    called_at: &'static std::panic::Location<'static>,
+) {
+    use tracing::warn;
+
+    use crate::mailbox::MailboxSender;
+
+    match actor_ref.mailbox_sender() {
+        MailboxSender::Bounded(_) => {
+            if actor_ref.is_current() {
+                warn!("At {called_at}, {msg}");
+            }
+        }
+        MailboxSender::Unbounded(_) => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
     use crate::{
+        actor::spawn_with_mailbox,
         error::{Infallible, SendError},
-        mailbox::{
-            bounded::{BoundedMailbox, BoundedMailboxReceiver},
-            unbounded::UnboundedMailbox,
-        },
+        mailbox,
         message::{Context, Message},
-        request::{
-            BlockingMessageSend, MessageSend, MessageSendSync, TryBlockingMessageSend,
-            TryMessageSend, TryMessageSendSync,
-        },
-        spawn, Actor,
+        Actor,
     };
 
     #[tokio::test]
@@ -531,7 +351,6 @@ mod tests {
         struct MyActor;
 
         impl Actor for MyActor {
-            type Mailbox = BoundedMailbox<Self>;
             type Error = Infallible;
         }
 
@@ -548,18 +367,16 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor);
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
 
         actor_ref.tell(Msg).await?; // Should be a regular MessageSend request
         actor_ref.tell(Msg).send().await?;
-        actor_ref.tell(Msg).try_send().await?;
-        actor_ref.tell(Msg).try_send_sync()?;
+        actor_ref.tell(Msg).try_send()?;
         tokio::task::spawn_blocking({
             let actor_ref = actor_ref.clone();
             move || actor_ref.tell(Msg).blocking_send()
         })
         .await??;
-        actor_ref.tell(Msg).try_blocking_send()?;
 
         Ok(())
     }
@@ -569,7 +386,6 @@ mod tests {
         struct MyActor;
 
         impl Actor for MyActor {
-            type Mailbox = UnboundedMailbox<Self>;
             type Error = Infallible;
         }
 
@@ -586,15 +402,12 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor);
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
 
         actor_ref.tell(Msg).await?; // Should be a regular MessageSend request
         actor_ref.tell(Msg).send().await?;
-        actor_ref.tell(Msg).send_sync()?;
-        actor_ref.tell(Msg).try_send().await?;
-        actor_ref.tell(Msg).try_send_sync()?;
+        actor_ref.tell(Msg).try_send()?;
         actor_ref.tell(Msg).blocking_send()?;
-        actor_ref.tell(Msg).try_blocking_send()?;
 
         Ok(())
     }
@@ -604,7 +417,6 @@ mod tests {
         struct MyActor;
 
         impl Actor for MyActor {
-            type Mailbox = BoundedMailbox<Self>;
             type Error = Infallible;
         }
 
@@ -622,7 +434,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor);
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
         actor_ref.stop_gracefully().await?;
         actor_ref.wait_for_stop().await;
 
@@ -631,11 +443,7 @@ mod tests {
             Err(SendError::ActorNotRunning(Msg))
         );
         assert_eq!(
-            actor_ref.tell(Msg).try_send().await,
-            Err(SendError::ActorNotRunning(Msg))
-        );
-        assert_eq!(
-            actor_ref.tell(Msg).try_send_sync(),
+            actor_ref.tell(Msg).try_send(),
             Err(SendError::ActorNotRunning(Msg))
         );
         assert_eq!(
@@ -644,10 +452,6 @@ mod tests {
                 move || actor_ref.tell(Msg).blocking_send()
             })
             .await?,
-            Err(SendError::ActorNotRunning(Msg))
-        );
-        assert_eq!(
-            actor_ref.tell(Msg).try_blocking_send(),
             Err(SendError::ActorNotRunning(Msg))
         );
 
@@ -659,7 +463,6 @@ mod tests {
         struct MyActor;
 
         impl Actor for MyActor {
-            type Mailbox = UnboundedMailbox<Self>;
             type Error = Infallible;
         }
 
@@ -677,7 +480,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor);
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
         actor_ref.stop_gracefully().await?;
         actor_ref.wait_for_stop().await;
 
@@ -686,15 +489,7 @@ mod tests {
             Err(SendError::ActorNotRunning(Msg))
         );
         assert_eq!(
-            actor_ref.tell(Msg).send_sync(),
-            Err(SendError::ActorNotRunning(Msg))
-        );
-        assert_eq!(
-            actor_ref.tell(Msg).try_send().await,
-            Err(SendError::ActorNotRunning(Msg))
-        );
-        assert_eq!(
-            actor_ref.tell(Msg).try_send_sync(),
+            actor_ref.tell(Msg).try_send(),
             Err(SendError::ActorNotRunning(Msg))
         );
         assert_eq!(
@@ -703,10 +498,6 @@ mod tests {
                 move || actor_ref.tell(Msg).blocking_send()
             })
             .await?,
-            Err(SendError::ActorNotRunning(Msg))
-        );
-        assert_eq!(
-            actor_ref.tell(Msg).try_blocking_send(),
             Err(SendError::ActorNotRunning(Msg))
         );
 
@@ -718,12 +509,7 @@ mod tests {
         struct MyActor;
 
         impl Actor for MyActor {
-            type Mailbox = BoundedMailbox<Self>;
             type Error = Infallible;
-
-            fn new_mailbox() -> (BoundedMailbox<Self>, BoundedMailboxReceiver<Self>) {
-                BoundedMailbox::new(1)
-            }
         }
 
         #[derive(Clone, Copy, PartialEq, Eq)]
@@ -741,26 +527,10 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor);
-        assert_eq!(actor_ref.tell(Msg).try_send().await, Ok(()));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(1));
+        assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
         assert_eq!(
-            actor_ref.tell(Msg).try_send().await,
-            Err(SendError::MailboxFull(Msg))
-        );
-        actor_ref.kill();
-
-        let actor_ref = spawn(MyActor);
-        assert_eq!(actor_ref.tell(Msg).try_send_sync(), Ok(()));
-        assert_eq!(
-            actor_ref.tell(Msg).try_send_sync(),
-            Err(SendError::MailboxFull(Msg))
-        );
-        actor_ref.kill();
-
-        let actor_ref = spawn(MyActor);
-        assert_eq!(actor_ref.tell(Msg).try_blocking_send(), Ok(()));
-        assert_eq!(
-            actor_ref.tell(Msg).try_blocking_send(),
+            actor_ref.tell(Msg).try_send(),
             Err(SendError::MailboxFull(Msg))
         );
         actor_ref.kill();
@@ -773,12 +543,7 @@ mod tests {
         struct MyActor;
 
         impl Actor for MyActor {
-            type Mailbox = BoundedMailbox<Self>;
             type Error = Infallible;
-
-            fn new_mailbox() -> (BoundedMailbox<Self>, BoundedMailboxReceiver<Self>) {
-                BoundedMailbox::new(1)
-            }
         }
 
         #[derive(Clone, Copy, PartialEq, Eq)]
@@ -796,7 +561,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor);
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(1));
         // Mailbox empty, will succeed
         assert_eq!(
             actor_ref

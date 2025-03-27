@@ -20,12 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 
 use crate::{
     actor::ActorRef,
-    error::SendError,
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
-    request::{
-        AskRequest, ForwardMessageSend, ForwardMessageSendSync, LocalAskRequest, LocalTellRequest,
-        MessageSend, MessageSendSync, TellRequest, WithoutRequestTimeout,
-    },
     Actor,
 };
 
@@ -161,17 +156,12 @@ where
     where
         B: Message<M>,
         M: Send + 'static,
-        for<'a> AskRequest<
-            LocalAskRequest<'a, B, B::Mailbox>,
-            B::Mailbox,
-            M,
-            WithoutRequestTimeout,
-            WithoutRequestTimeout,
-        >: ForwardMessageSend<<B as Message<M>>::Reply, M>,
     {
         match self.reply.take() {
             Some(tx) => {
-                let res = ForwardMessageSend::forward(actor_ref.ask(message), tx.cast())
+                let res = actor_ref
+                    .ask(message)
+                    .forward(tx.cast())
                     .await
                     .map_err(|err| {
                         err.map_msg(|(msg, tx)| {
@@ -182,14 +172,15 @@ where
                 ForwardedReply::new(res)
             }
             None => {
-                let res = MessageSend::send(actor_ref.tell(message)).await;
+                let res = actor_ref.tell(message).send().await;
                 ForwardedReply::new(res)
             }
         }
     }
 
-    /// Forwards the message to another actor synchronously, returning a [ForwardedReply].
-    pub fn forward_sync<B, M>(
+    /// Tries to forward the message to another actor, returning a [ForwardedReply],
+    /// or an error if the mailbox is full.
+    pub fn try_forward<B, M>(
         &mut self,
         actor_ref: &ActorRef<B>,
         message: M,
@@ -197,22 +188,12 @@ where
     where
         B: Message<M>,
         M: Send + 'static,
-        for<'a> AskRequest<
-            LocalAskRequest<'a, B, B::Mailbox>,
-            B::Mailbox,
-            M,
-            WithoutRequestTimeout,
-            WithoutRequestTimeout,
-        >: ForwardMessageSendSync<<B as Message<M>>::Reply, M>,
-        for<'a> TellRequest<LocalTellRequest<'a, B, B::Mailbox>, B::Mailbox, M, WithoutRequestTimeout>:
-            MessageSendSync<
-                Ok = (),
-                Error = SendError<M, <<B as Message<M>>::Reply as Reply>::Error>,
-            >,
     {
         match self.reply.take() {
             Some(tx) => {
-                let res = ForwardMessageSendSync::forward_sync(actor_ref.ask(message), tx.cast())
+                let res = actor_ref
+                    .ask(message)
+                    .try_forward(tx.cast())
                     .map_err(|err| {
                         err.map_msg(|(msg, tx)| {
                             self.reply = Some(tx.cast());
@@ -222,7 +203,39 @@ where
                 ForwardedReply::new(res)
             }
             None => {
-                let res = MessageSendSync::send_sync(actor_ref.tell(message));
+                let res = actor_ref.tell(message).try_send();
+                ForwardedReply::new(res)
+            }
+        }
+    }
+
+    /// Forwards the message to another actor, returning a [ForwardedReply].
+    ///
+    /// This method blocks the current thread while waiting for mailbox capacity.
+    pub fn blocking_forward<B, M>(
+        &mut self,
+        actor_ref: &ActorRef<B>,
+        message: M,
+    ) -> ForwardedReply<M, <B as Message<M>>::Reply>
+    where
+        B: Message<M>,
+        M: Send + 'static,
+    {
+        match self.reply.take() {
+            Some(tx) => {
+                let res = actor_ref
+                    .ask(message)
+                    .blocking_forward(tx.cast())
+                    .map_err(|err| {
+                        err.map_msg(|(msg, tx)| {
+                            self.reply = Some(tx.cast());
+                            msg
+                        })
+                    });
+                ForwardedReply::new(res)
+            }
+            None => {
+                let res = actor_ref.tell(message).blocking_send();
                 ForwardedReply::new(res)
             }
         }

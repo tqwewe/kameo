@@ -1,45 +1,13 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use kameo::error::Infallible;
-use kameo::mailbox::bounded::BoundedMailboxReceiver;
-use kameo::mailbox::{bounded::BoundedMailbox, unbounded::UnboundedMailbox};
-use kameo::request::MessageSend;
-use kameo::{
-    message::{Context, Message},
-    Actor,
-};
+use kameo::prelude::*;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-// Define a bounded actor
-struct BoundedActor;
+#[derive(Actor)]
+struct MyActor;
 
-impl Actor for BoundedActor {
-    type Mailbox = BoundedMailbox<Self>;
-    type Error = Infallible;
-
-    fn new_mailbox() -> (Self::Mailbox, BoundedMailboxReceiver<Self>) {
-        BoundedMailbox::new(10)
-    }
-}
-
-impl Message<u32> for BoundedActor {
-    type Reply = u32;
-
-    async fn handle(&mut self, msg: u32, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-        msg
-    }
-}
-
-// Define an unbounded actor
-struct UnboundedActor;
-
-impl Actor for UnboundedActor {
-    type Mailbox = UnboundedMailbox<Self>;
-    type Error = Infallible;
-}
-
-impl Message<u32> for UnboundedActor {
+impl Message<u32> for MyActor {
     type Reply = u32;
 
     async fn handle(&mut self, msg: u32, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
@@ -55,7 +23,7 @@ fn actor_benchmarks(c: &mut Criterion) {
         let rt = Builder::new_current_thread().build().unwrap();
         let _guard = rt.enter();
         let actor_ref = rt.block_on(async {
-            let actor_ref = kameo::actor::spawn(BoundedActor);
+            let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::bounded(10));
             actor_ref.ask(0).send().await.unwrap(); // Ask an initial message to make sure the actor is ready
             actor_ref
         });
@@ -69,7 +37,7 @@ fn actor_benchmarks(c: &mut Criterion) {
         let rt = Builder::new_current_thread().build().unwrap();
         let _guard = rt.enter();
         let actor_ref = rt.block_on(async {
-            let actor_ref = kameo::actor::spawn(UnboundedActor);
+            let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::unbounded());
             actor_ref.ask(0).send().await.unwrap(); // Ask an initial message to make sure the actor is ready
             actor_ref
         });

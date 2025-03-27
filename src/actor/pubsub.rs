@@ -51,10 +51,8 @@ use futures::future::{join_all, BoxFuture};
 
 use crate::{
     error::{Infallible, SendError},
-    mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
-    request::{LocalTellRequest, MessageSend, TellRequest, WithoutRequestTimeout},
-    Actor, Reply,
+    Actor,
 };
 
 use super::{ActorID, ActorRef};
@@ -165,8 +163,6 @@ impl<M> PubSub<M> {
     where
         A: Actor + Message<M>,
         M: Send + 'static,
-        for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-            MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
         self.subscribers
             .insert(actor_ref.id(), (Box::new(actor_ref), Box::new(|_| true)));
@@ -212,8 +208,6 @@ impl<M> PubSub<M> {
     ) where
         A: Actor + Message<M>,
         M: Send + 'static,
-        for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-            MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
         self.subscribers
             .insert(actor_ref.id(), (Box::new(actor_ref), Box::new(filter)));
@@ -221,7 +215,6 @@ impl<M> PubSub<M> {
 }
 
 impl<M: 'static> Actor for PubSub<M> {
-    type Mailbox = BoundedMailbox<Self>;
     type Error = Infallible;
 }
 
@@ -264,8 +257,6 @@ impl<A, M> Message<Subscribe<A>> for PubSub<M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = ();
 
@@ -291,8 +282,6 @@ impl<A, M> Message<SubscribeFilter<A, M>> for PubSub<M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = ();
 
@@ -309,13 +298,10 @@ trait MessageSubscriber<M> {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>>;
 }
 
-impl<A, M, Mb> MessageSubscriber<M> for ActorRef<A>
+impl<A, M> MessageSubscriber<M> for ActorRef<A>
 where
-    A: Actor<Mailbox = Mb> + Message<M>,
+    A: Actor + Message<M>,
     M: Send + 'static,
-    Mb: Sync,
-    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
         Box::pin(async move {

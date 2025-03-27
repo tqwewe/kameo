@@ -4,7 +4,6 @@ use kameo::{
     actor::pool::{ActorPool, BroadcastMsg, WorkerMsg},
     prelude::*,
 };
-use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, Default)]
 struct MyActor;
@@ -19,7 +18,7 @@ impl Message<PrintActorID> for MyActor {
         _: PrintActorID,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("{}", ctx.actor_ref().id());
+        println!("Hello from {}", ctx.actor_ref().id());
     }
 }
 
@@ -37,15 +36,9 @@ impl Message<ForceStop> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("warn".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
-
     let pool = kameo::spawn(ActorPool::new(5, || kameo::spawn(MyActor)));
 
-    // Print IDs from 0..=4
+    // Print IDs 0, 2, 4, 6, 8
     for _ in 0..5 {
         pool.tell(WorkerMsg(PrintActorID)).await?;
     }
@@ -56,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Restarted all workers");
 
-    // New IDs from 6..=10 will be printed
+    // New IDs 11, 13, 15, 17, 19 will be printed
     for _ in 0..5 {
         pool.tell(WorkerMsg(PrintActorID)).await?;
     }
