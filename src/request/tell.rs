@@ -1,13 +1,12 @@
-use core::panic;
 use std::{future::IntoFuture, time::Duration};
 
 use futures::{future::BoxFuture, FutureExt};
 
 #[cfg(feature = "remote")]
-use crate::remote;
+use crate::{actor, remote};
 
 use crate::{
-    actor::{self, ActorRef},
+    actor::ActorRef,
     error::{self, SendError},
     mailbox::{MailboxSender, Signal},
     message::Message,
@@ -28,7 +27,7 @@ where
     actor_ref: &'a ActorRef<A>,
     msg: M,
     mailbox_timeout: Tm,
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
 
@@ -40,7 +39,9 @@ where
     pub(crate) fn new(
         actor_ref: &'a ActorRef<A>,
         msg: M,
-        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
     ) -> Self
     where
         Tm: Default,
@@ -49,7 +50,7 @@ where
             actor_ref,
             msg,
             mailbox_timeout: Tm::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
     }
@@ -67,6 +68,7 @@ where
             actor_ref: self.actor_ref,
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
     }
@@ -85,6 +87,7 @@ where
 
         match self.actor_ref.mailbox_sender() {
             MailboxSender::Bounded(tx) => {
+                #[cfg(all(debug_assertions, feature = "tracing"))]
                 warn_deadlock(self.actor_ref, "An actor is sending a `tell` request to itself using a bounded mailbox, which may lead to a deadlock. To avoid this, use `.try_send()`.", self.called_at);
                 match self.mailbox_timeout.into() {
                     Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
@@ -127,6 +130,7 @@ where
 
         match self.actor_ref.mailbox_sender() {
             MailboxSender::Bounded(tx) => {
+                #[cfg(all(debug_assertions, feature = "tracing"))]
                 warn_deadlock(self.actor_ref, "An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.", self.called_at);
                 Ok(tx.blocking_send(signal)?)
             }
@@ -162,7 +166,7 @@ where
     actor_ref: &'a actor::RemoteActorRef<A>,
     msg: &'a M,
     mailbox_timeout: Tm,
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
 
@@ -176,13 +180,15 @@ where
     pub(crate) fn new(
         actor_ref: &'a actor::RemoteActorRef<A>,
         msg: &'a M,
-        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
     ) -> Self {
         RemoteTellRequest {
             actor_ref,
             msg,
             mailbox_timeout: Tm::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
     }
@@ -211,6 +217,7 @@ where
             actor_ref: self.actor_ref,
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
     }
@@ -325,14 +332,6 @@ fn warn_deadlock<A: Actor>(
         }
         MailboxSender::Unbounded(_) => {}
     }
-}
-
-#[cfg(not(all(debug_assertions, feature = "tracing")))]
-fn warn_deadlock<A: Actor>(
-    _actor_ref: &ActorRef<A>,
-    _msg: &'static str,
-    _called_at: &'static std::panic::Location<'static>,
-) {
 }
 
 #[cfg(test)]

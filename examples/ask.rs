@@ -1,21 +1,12 @@
 use std::time::Duration;
 
-use kameo::{error::Infallible, prelude::*};
+use kameo::prelude::*;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Default)]
+#[derive(Actor, Default)]
 pub struct MyActor {
     count: i64,
-}
-
-impl Actor for MyActor {
-    type Mailbox = UnboundedMailbox<Self>;
-    type Error = Infallible;
-
-    fn name() -> &'static str {
-        "MyActor"
-    }
 }
 
 // A simple increment message, returning the new count
@@ -40,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let my_actor_ref = kameo::spawn(MyActor::default());
+    let my_actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
 
     my_actor_ref.tell(Inc { amount: 3 }).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;

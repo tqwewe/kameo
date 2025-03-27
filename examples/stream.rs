@@ -12,7 +12,6 @@ pub struct MyActor {
 }
 
 impl Actor for MyActor {
-    type Mailbox = UnboundedMailbox<Self>;
     type Error = Infallible;
 
     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
@@ -61,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    kameo::spawn(MyActor::default());
+    kameo::spawn(MyActor::default(), mailbox::unbounded());
 
     pending().await
 }

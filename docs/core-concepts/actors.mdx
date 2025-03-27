@@ -62,7 +62,7 @@ impl Actor for MyActor {
 }
 
 // Spawning the actor
-let actor_ref = kameo::spawn(MyActor);
+let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
 ```
 
 The above example demonstrates defining a simple actor and spawning it. The actor prints a message upon starting, showcasing the use of the `on_start` lifecycle hook.

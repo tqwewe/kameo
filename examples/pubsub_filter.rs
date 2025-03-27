@@ -60,10 +60,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let pubsub = kameo::spawn(PubSub::<PrintActorID>::new());
-    let actor_a = kameo::spawn(ActorA);
-    let actor_b = kameo::spawn(ActorB);
-    let actor_c = kameo::spawn(ActorC);
+    let pubsub = kameo::spawn(PubSub::<PrintActorID>::new(), mailbox::unbounded());
+    let actor_a = kameo::spawn(ActorA, mailbox::unbounded());
+    let actor_b = kameo::spawn(ActorB, mailbox::unbounded());
+    let actor_c = kameo::spawn(ActorC, mailbox::unbounded());
     pubsub
         .ask(SubscribeFilter(actor_a, |m: &PrintActorID| {
             m.0.starts_with("TopicA:")

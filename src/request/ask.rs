@@ -3,10 +3,10 @@ use std::{future::IntoFuture, time::Duration};
 use tokio::sync::oneshot;
 
 #[cfg(feature = "remote")]
-use crate::remote;
+use crate::{actor, remote};
 
 use crate::{
-    actor::{self, ActorRef},
+    actor::ActorRef,
     error::{self, SendError},
     mailbox::{MailboxSender, Signal},
     message::Message,
@@ -27,7 +27,7 @@ where
     msg: M,
     mailbox_timeout: Tm,
     reply_timeout: Tr,
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
 
@@ -39,7 +39,9 @@ where
     pub(crate) fn new(
         actor_ref: &'a ActorRef<A>,
         msg: M,
-        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
     ) -> Self
     where
         Tm: Default,
@@ -50,7 +52,7 @@ where
             msg,
             mailbox_timeout: Tm::default(),
             reply_timeout: Tr::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
     }
@@ -72,6 +74,7 @@ where
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(duration),
             reply_timeout: self.reply_timeout,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
     }
@@ -90,6 +93,7 @@ where
             msg: self.msg,
             mailbox_timeout: self.mailbox_timeout,
             reply_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
     }
@@ -102,6 +106,7 @@ where
         Tm: Into<Option<Duration>>,
         Tr: Into<Option<Duration>>,
     {
+        #[cfg(all(debug_assertions, feature = "tracing"))]
         warn_deadlock(self.actor_ref, "An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.", self.called_at);
 
         let (reply, rx) = oneshot::channel();
@@ -245,6 +250,7 @@ where
     M: Send + 'static,
 {
     /// Sends the message in a blocking context.
+    #[allow(clippy::type_complexity)]
     pub fn blocking_send(
         self,
     ) -> Result<<A::Reply as Reply>::Ok, SendError<M, <A::Reply as Reply>::Error>> {
@@ -304,7 +310,7 @@ where
     msg: &'a M,
     mailbox_timeout: Tm,
     reply_timeout: Tr,
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
 
@@ -317,7 +323,9 @@ where
     pub(crate) fn new(
         actor_ref: &'a actor::RemoteActorRef<A>,
         msg: &'a M,
-        #[cfg(debug_assertions)] called_at: &'static std::panic::Location<'static>,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
     ) -> Self
     where
         Tm: Default,
@@ -328,7 +336,7 @@ where
             msg,
             mailbox_timeout: Tm::default(),
             reply_timeout: Tr::default(),
-            #[cfg(debug_assertions)]
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
     }
@@ -343,6 +351,7 @@ where
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(Some(duration)),
             reply_timeout: self.reply_timeout,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
     }
@@ -357,6 +366,7 @@ where
             msg: self.msg,
             mailbox_timeout: self.mailbox_timeout,
             reply_timeout: WithRequestTimeout(Some(duration)),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
     }
@@ -490,14 +500,6 @@ fn warn_deadlock<A: Actor>(
     if actor_ref.is_current() {
         warn!("At {called_at}, {msg}");
     }
-}
-
-#[cfg(not(all(debug_assertions, feature = "tracing")))]
-fn warn_deadlock<A: Actor>(
-    _actor_ref: &ActorRef<A>,
-    _msg: &'static str,
-    _called_at: &'static std::panic::Location<'static>,
-) {
 }
 
 #[cfg(test)]

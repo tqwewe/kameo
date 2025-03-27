@@ -19,6 +19,7 @@
 //! ```
 //! use kameo::Actor;
 //! use kameo::actor::pool::{ActorPool, WorkerMsg, BroadcastMsg};
+//! use kameo::mailbox;
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -31,7 +32,10 @@
 //!
 //! # tokio_test::block_on(async {
 //! // Spawn the actor pool with 4 workers
-//! let pool_actor = kameo::spawn(ActorPool::new(4, || kameo::spawn(MyWorker)));
+//! let pool_actor = kameo::spawn(
+//!     ActorPool::new(4, || kameo::spawn(MyWorker, mailbox::unbounded())),
+//!     mailbox::unbounded()
+//! );
 //!
 //! // Send tasks to the pool
 //! pool_actor.tell(WorkerMsg("Hello worker!")).await?;
@@ -54,13 +58,8 @@ use futures::{
 use crate::{
     actor::{Actor, ActorRef},
     error::{ActorStopReason, Infallible, SendError},
-    mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
     reply::{Reply, ReplyError},
-    request::{
-        AskRequest, ForwardMessageSend, LocalAskRequest, LocalTellRequest, MessageSend,
-        TellRequest, WithoutRequestTimeout,
-    },
 };
 
 use super::{ActorID, WeakActorRef};
@@ -161,7 +160,6 @@ impl<A> Actor for ActorPool<A>
 where
     A: Actor,
 {
-    type Mailbox = BoundedMailbox<Self>;
     type Error = Infallible;
 
     fn name() -> &'static str {
@@ -246,21 +244,11 @@ where
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct WorkerMsg<M>(pub M);
 
-impl<A, M, Mb, R> Message<WorkerMsg<M>> for ActorPool<A>
+impl<A, M, R> Message<WorkerMsg<M>> for ActorPool<A>
 where
-    A: Actor<Mailbox = Mb> + Message<WorkerMsgWrapper<M>, Reply = R>,
+    A: Actor + Message<WorkerMsgWrapper<M>, Reply = R>,
     M: Send + 'static,
-    Mb: Send + 'static,
     R: Reply,
-    for<'a> AskRequest<
-        LocalAskRequest<'a, A, Mb>,
-        Mb,
-        WorkerMsgWrapper<M>,
-        WithoutRequestTimeout,
-        WithoutRequestTimeout,
-    >: ForwardMessageSend<A::Reply, WorkerMsgWrapper<M>>,
-    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, WorkerMsgWrapper<M>, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<WorkerMsgWrapper<M>, <A::Reply as Reply>::Error>>,
 {
     type Reply = WorkerReply<A, M>;
 
@@ -320,8 +308,6 @@ impl<A, M> Message<BroadcastMsg<M>> for ActorPool<A>
 where
     A: Actor + Message<M>,
     M: Clone + Send + 'static,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = Vec<Result<(), SendError<M, <A::Reply as Reply>::Error>>>;
 

@@ -42,12 +42,13 @@ use super::ActorID;
 ///
 /// ```
 /// use kameo::Actor;
+/// use kameo::mailbox;
 ///
 /// #[derive(Actor)]
 /// struct MyActor;
 ///
 /// # tokio_test::block_on(async {
-/// let actor_ref = kameo::spawn(MyActor);
+/// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
 /// # })
 /// ```
 ///
@@ -74,6 +75,7 @@ where
 ///
 /// ```
 /// use kameo::Actor;
+/// use kameo::mailbox;
 ///
 /// #[derive(Actor)]
 /// struct FooActor;
@@ -82,8 +84,8 @@ where
 /// struct BarActor;
 ///
 /// # tokio_test::block_on(async {
-/// let link_ref = kameo::spawn(FooActor);
-/// let actor_ref = kameo::actor::spawn_link(&link_ref, BarActor).await;
+/// let link_ref = kameo::spawn(FooActor, mailbox::unbounded());
+/// let actor_ref = kameo::actor::spawn_link(&link_ref, BarActor, mailbox::unbounded()).await;
 /// # })
 /// ```
 ///
@@ -117,8 +119,8 @@ where
 /// use std::fs::File;
 ///
 /// use kameo::Actor;
+/// use kameo::mailbox;
 /// use kameo::message::{Context, Message};
-/// use kameo::request::MessageSendSync;
 ///
 /// #[derive(Actor)]
 /// struct MyActor {
@@ -134,8 +136,11 @@ where
 ///     }
 /// }
 ///
-/// let actor_ref = kameo::actor::spawn_in_thread(MyActor { file: File::create("output.txt").unwrap() });
-/// actor_ref.tell(Flush).send_sync()?;
+/// let actor_ref = kameo::actor::spawn_in_thread(
+///     MyActor { file: File::create("output.txt").unwrap() },
+///     mailbox::unbounded()
+/// );
+/// actor_ref.tell(Flush).blocking_send()?;
 /// # Ok::<(), kameo::error::SendError<Flush, io::Error>>(())
 /// ```
 ///
@@ -175,13 +180,15 @@ impl<A: Actor> PreparedActor<A> {
     /// ```
     /// # use kameo::Actor;
     /// # use kameo::actor::PreparedActor;
+    /// use kameo::mailbox;
+    ///
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// # let other_actor = kameo::spawn(MyActor);
-    /// let prepared_actor = PreparedActor::new();
+    /// # let other_actor = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let prepared_actor = PreparedActor::new(mailbox::unbounded());
     /// prepared_actor.actor_ref().link(&other_actor).await;
     /// let actor_ref = prepared_actor.spawn(MyActor);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -227,9 +234,10 @@ impl<A: Actor> PreparedActor<A> {
     /// ```no_run
     /// # use kameo::Actor;
     /// # use kameo::actor::PreparedActor;
+    /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
     /// # use kameo::request::MessageSend;
-    /// #
+    ///
     /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
@@ -239,7 +247,7 @@ impl<A: Actor> PreparedActor<A> {
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let prepared_actor = PreparedActor::new();
+    /// let prepared_actor = PreparedActor::new(mailbox::unbounded());
     /// // Send it a message before it runs
     /// prepared_actor.actor_ref().tell("hello!").send().await?;
     /// prepared_actor.run(MyActor).await;

@@ -26,7 +26,7 @@ where
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let player_ref = self.player_map.get(&msg.player_id).unwrap();
-        ctx.forward_sync(player_ref, msg.message)
+        ctx.forward(player_ref, msg.message).await
     }
 }
 
@@ -60,12 +60,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let player_ref = kameo::spawn(Player { health: 100.0 });
+    let player_ref = kameo::spawn(Player { health: 100.0 }, mailbox::unbounded());
 
     let mut player_map = HashMap::new();
     player_map.insert(0, player_ref.clone());
 
-    let players_ref = kameo::spawn(PlayersActor { player_map });
+    let players_ref = kameo::spawn(PlayersActor { player_map }, mailbox::unbounded());
 
     let health = players_ref
         .ask(ForwardToPlayer {

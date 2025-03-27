@@ -43,7 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let pool = kameo::spawn(ActorPool::new(5, || kameo::spawn(MyActor)));
+    let pool = kameo::spawn(
+        ActorPool::new(5, || kameo::spawn(MyActor, mailbox::unbounded())),
+        mailbox::unbounded(),
+    );
 
     // Print IDs from 0..=4
     for _ in 0..5 {

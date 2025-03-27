@@ -19,6 +19,7 @@
 //! ```
 //! use kameo::Actor;
 //! use kameo::actor::pubsub::{PubSub, Publish, Subscribe};
+//! use kameo::mailbox;
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -31,14 +32,14 @@
 //!
 //! # tokio_test::block_on(async {
 //! let mut pubsub = PubSub::new();
-//! let actor_ref = kameo::spawn(MyActor);
+//! let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
 //!
 //! // Use PubSub as a standalone object
 //! pubsub.subscribe(actor_ref.clone());
 //! pubsub.publish("Hello, World!").await;
 //!
 //! // Or spawn PubSub as an actor and use messages
-//! let pubsub_actor_ref = kameo::spawn(PubSub::new());
+//! let pubsub_actor_ref = kameo::spawn(PubSub::new(), mailbox::unbounded());
 //! pubsub_actor_ref.tell(Subscribe(actor_ref)).await?;
 //! pubsub_actor_ref.tell(Publish("Hello, spawned world!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -51,10 +52,8 @@ use futures::future::{join_all, BoxFuture};
 
 use crate::{
     error::{Infallible, SendError},
-    mailbox::bounded::BoundedMailbox,
     message::{Context, Message},
-    request::{LocalTellRequest, MessageSend, TellRequest, WithoutRequestTimeout},
-    Actor, Reply,
+    Actor,
 };
 
 use super::{ActorID, ActorRef};
@@ -140,6 +139,7 @@ impl<M> PubSub<M> {
     /// ```
     /// # use kameo::Actor;
     /// use kameo::actor::pubsub::PubSub;
+    /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -156,7 +156,7 @@ impl<M> PubSub<M> {
     /// # tokio_test::block_on(async {
     /// let mut pubsub: PubSub<Msg> = PubSub::new();
     ///
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
     /// pubsub.subscribe(actor_ref);
     /// # })
     /// ```
@@ -165,8 +165,6 @@ impl<M> PubSub<M> {
     where
         A: Actor + Message<M>,
         M: Send + 'static,
-        for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-            MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
         self.subscribers
             .insert(actor_ref.id(), (Box::new(actor_ref), Box::new(|_| true)));
@@ -184,6 +182,7 @@ impl<M> PubSub<M> {
     /// ```
     /// # use kameo::Actor;
     /// use kameo::actor::pubsub::PubSub;
+    /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -200,7 +199,7 @@ impl<M> PubSub<M> {
     /// # tokio_test::block_on(async {
     /// let mut pubsub = PubSub::new();
     ///
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
     /// pubsub.subscribe_filter(actor_ref, |Msg(msg)| msg.starts_with("my-topic:"));
     /// # })
     /// ```
@@ -212,8 +211,6 @@ impl<M> PubSub<M> {
     ) where
         A: Actor + Message<M>,
         M: Send + 'static,
-        for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-            MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
     {
         self.subscribers
             .insert(actor_ref.id(), (Box::new(actor_ref), Box::new(filter)));
@@ -221,7 +218,6 @@ impl<M> PubSub<M> {
 }
 
 impl<M: 'static> Actor for PubSub<M> {
-    type Mailbox = BoundedMailbox<Self>;
     type Error = Infallible;
 }
 
@@ -264,8 +260,6 @@ impl<A, M> Message<Subscribe<A>> for PubSub<M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = ();
 
@@ -291,8 +285,6 @@ impl<A, M> Message<SubscribeFilter<A, M>> for PubSub<M>
 where
     A: Actor + Message<M>,
     M: Send + 'static,
-    for<'a> TellRequest<LocalTellRequest<'a, A, A::Mailbox>, A::Mailbox, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     type Reply = ();
 
@@ -309,13 +301,10 @@ trait MessageSubscriber<M> {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>>;
 }
 
-impl<A, M, Mb> MessageSubscriber<M> for ActorRef<A>
+impl<A, M> MessageSubscriber<M> for ActorRef<A>
 where
-    A: Actor<Mailbox = Mb> + Message<M>,
+    A: Actor + Message<M>,
     M: Send + 'static,
-    Mb: Sync,
-    for<'a> TellRequest<LocalTellRequest<'a, A, Mb>, Mb, M, WithoutRequestTimeout>:
-        MessageSend<Ok = (), Error = SendError<M, <A::Reply as Reply>::Error>>,
 {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
         Box::pin(async move {

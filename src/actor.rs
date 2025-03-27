@@ -24,8 +24,8 @@
 mod actor_ref;
 mod id;
 mod kind;
-// pub mod pool;
-// pub mod pubsub;
+pub mod pool;
+pub mod pubsub;
 mod spawn;
 
 use std::{any, ops::ControlFlow};
@@ -68,12 +68,10 @@ pub use spawn::*;
 /// ```
 /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
 /// use kameo::error::{ActorStopReason, Infallible};
-/// use kameo::mailbox::unbounded::UnboundedMailbox;
 ///
 /// struct MyActor;
 ///
 /// impl Actor for MyActor {
-///     type Mailbox = UnboundedMailbox<Self>;
 ///     type Error = Infallible;
 ///
 ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
@@ -110,8 +108,6 @@ pub use spawn::*;
 /// [`on_panic`]: Actor::on_panic
 /// [`on_stop`]: Actor::on_stop
 /// [`on_link_died`]: Actor::on_link_died
-/// [**Bounded Mailbox**]: crate::mailbox::bounded::BoundedMailbox
-/// [**Unbounded Mailbox**]: crate::mailbox::unbounded::UnboundedMailbox
 pub trait Actor: Sized + Send + 'static {
     /// Actor error type.
     ///

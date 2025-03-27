@@ -1,10 +1,10 @@
 use quote::{quote, ToTokens};
 use syn::{
-    custom_keyword, parenthesized,
+    custom_keyword,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned,
-    token, DeriveInput, Generics, Ident, LitInt, LitStr, Token,
+    DeriveInput, Generics, Ident, LitStr, Token,
 };
 
 pub struct DeriveActor {
@@ -26,38 +26,13 @@ impl ToTokens for DeriveActor {
         };
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        let mailbox_expanded = match attrs.mailbox {
-            MailboxKind::Bounded(_) => quote! {
-                ::kameo::mailbox::bounded::BoundedMailbox<Self>
-            },
-            MailboxKind::Unbounded => quote! {
-                ::kameo::mailbox::unbounded::UnboundedMailbox<Self>
-            },
-        };
-        let new_mailbox_expanded = match attrs.mailbox {
-            MailboxKind::Bounded(cap) => {
-                let cap = cap.unwrap_or(1000);
-                quote! {
-                    ::kameo::mailbox::bounded::BoundedMailbox::new(#cap)
-                }
-            }
-            MailboxKind::Unbounded => quote! {
-                ::kameo::mailbox::unbounded::UnboundedMailbox::new()
-            },
-        };
-
         tokens.extend(quote! {
             #[automatically_derived]
             impl #impl_generics ::kameo::actor::Actor for #ident #ty_generics #where_clause {
-                type Mailbox = #mailbox_expanded;
                 type Error = ::kameo::error::Infallible;
 
                 fn name() -> &'static str {
                     #name
-                }
-
-                fn new_mailbox() -> (Self::Mailbox, <Self::Mailbox as ::kameo::mailbox::Mailbox<Self>>::Receiver) {
-                    #new_mailbox_expanded
                 }
             }
         });
@@ -93,7 +68,6 @@ impl Parse for DeriveActor {
 #[derive(Default)]
 struct DeriveActorAttrs {
     name: Option<LitStr>,
-    mailbox: MailboxKind,
 }
 
 impl Parse for DeriveActorAttrs {
@@ -101,7 +75,6 @@ impl Parse for DeriveActorAttrs {
         #[derive(Debug)]
         enum Attr {
             Name(name, LitStr),
-            Mailbox(mailbox, MailboxKind),
         }
         let attrs: Punctuated<Attr, Token![,]> =
             Punctuated::parse_terminated_with(input, |input| {
@@ -111,18 +84,12 @@ impl Parse for DeriveActorAttrs {
                     let _: Token![=] = input.parse()?;
                     let name: LitStr = input.parse()?;
                     Ok(Attr::Name(key, name))
-                } else if lookahead.peek(mailbox) {
-                    let key: mailbox = input.parse()?;
-                    let _: Token![=] = input.parse()?;
-                    let mailbox: MailboxKind = input.parse()?;
-                    Ok(Attr::Mailbox(key, mailbox))
                 } else {
                     Err(lookahead.error())
                 }
             })?;
 
         let mut name = None;
-        let mut mailbox = None;
 
         for attr in attrs {
             match attr {
@@ -133,62 +100,11 @@ impl Parse for DeriveActorAttrs {
                         return Err(syn::Error::new(key.span, "name already set"));
                     }
                 }
-                Attr::Mailbox(key, mb) => {
-                    if mailbox.is_none() {
-                        mailbox = Some(mb);
-                    } else {
-                        return Err(syn::Error::new(key.span, "mailbox already set"));
-                    }
-                }
             }
         }
 
-        Ok(DeriveActorAttrs {
-            name,
-            mailbox: mailbox.unwrap_or_default(),
-        })
+        Ok(DeriveActorAttrs { name })
     }
 }
 
 custom_keyword!(name);
-custom_keyword!(mailbox);
-custom_keyword!(bounded);
-custom_keyword!(unbounded);
-
-#[derive(Debug, Default)]
-enum MailboxKind {
-    Bounded(Option<usize>),
-    #[default]
-    Unbounded,
-}
-
-impl Parse for MailboxKind {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let lookahead = input.lookahead1();
-        if lookahead.peek(bounded) {
-            let _: bounded = input.parse()?;
-            if input.peek(token::Paren) {
-                // bounded(10)
-                let content;
-                parenthesized!(content in input);
-                let cap_lit: LitInt = content.parse()?;
-                let cap = cap_lit.base10_parse()?;
-                if cap == 0 {
-                    return Err(syn::Error::new(
-                        cap_lit.span(),
-                        "bounded mailbox channels requires capacity > 0",
-                    ));
-                }
-                Ok(MailboxKind::Bounded(Some(cap)))
-            } else {
-                // bounded
-                Ok(MailboxKind::Bounded(None))
-            }
-        } else if lookahead.peek(unbounded) {
-            let _: unbounded = input.parse()?;
-            Ok(MailboxKind::Unbounded)
-        } else {
-            Err(lookahead.error())
-        }
-    }
-}
