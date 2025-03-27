@@ -339,10 +339,11 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
+        actor::spawn_with_mailbox,
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
-        spawn, Actor,
+        Actor,
     };
 
     #[tokio::test]
@@ -366,7 +367,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(100));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
 
         actor_ref.tell(Msg).await?; // Should be a regular MessageSend request
         actor_ref.tell(Msg).send().await?;
@@ -401,7 +402,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::unbounded());
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
 
         actor_ref.tell(Msg).await?; // Should be a regular MessageSend request
         actor_ref.tell(Msg).send().await?;
@@ -433,7 +434,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(100));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
         actor_ref.stop_gracefully().await?;
         actor_ref.wait_for_stop().await;
 
@@ -479,7 +480,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::unbounded());
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
         actor_ref.stop_gracefully().await?;
         actor_ref.wait_for_stop().await;
 
@@ -526,7 +527,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(1));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(1));
         assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
         assert_eq!(
             actor_ref.tell(Msg).try_send(),
@@ -560,7 +561,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(1));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(1));
         // Mailbox empty, will succeed
         assert_eq!(
             actor_ref

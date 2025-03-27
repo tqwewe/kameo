@@ -36,10 +36,7 @@ impl Message<ForceStop> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pool = kameo::spawn(
-        ActorPool::new(5, || kameo::spawn(MyActor, mailbox::unbounded())),
-        mailbox::unbounded(),
-    );
+    let pool = kameo::spawn(ActorPool::new(5, || kameo::spawn(MyActor)));
 
     // Print IDs from 0..=4
     for _ in 0..5 {

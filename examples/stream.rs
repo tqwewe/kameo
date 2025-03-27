@@ -53,7 +53,7 @@ impl Message<StreamMessage<i64, &'static str, &'static str>> for MyActor {
 
 #[tokio::main]
 async fn main() {
-    let actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
+    let actor_ref = kameo::spawn(MyActor::default());
 
     actor_ref.wait_for_stop().await;
 }

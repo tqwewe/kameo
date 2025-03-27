@@ -59,7 +59,7 @@ use kameo::prelude::*;
 #[tokio::main] // Mark the entry point as an asynchronous main function
 async fn main() -> Result<(), Box<dyn std::error::Error>> { // Use a Result return type for error handling
     // Spawn the HelloWorldActor with an unbounded mailbox
-    let actor_ref = spawn(HelloWorldActor, mailbox::unbounded());
+    let actor_ref = spawn(HelloWorldActor);
 
     // Send a Greet message to the actor
     actor_ref

@@ -12,7 +12,7 @@ To register an actor, use the `ActorRef::register` method, which registers the a
 
 ```rust
 // Spawn and register an actor
-let actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
+let actor_ref = kameo::spawn(MyActor::default());
 actor_ref.register("my_actor").await?;
 ```
 
@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Node 1: Register an actor
     let actor_swarm = ActorSwarm::bootstrap()?;
     actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
-    let actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
+    let actor_ref = kameo::spawn(MyActor::default());
     actor_ref.register("my_actor").await?;
     
     // Node 2: Lookup the actor and send a message

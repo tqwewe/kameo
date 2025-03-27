@@ -53,12 +53,12 @@ impl Message<Damage> for Player {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let player_ref = kameo::spawn(Player { health: 100.0 }, mailbox::unbounded());
+    let player_ref = kameo::spawn(Player { health: 100.0 });
 
     let mut player_map = HashMap::new();
     player_map.insert(0, player_ref.clone());
 
-    let players_ref = kameo::spawn(PlayersActor { player_map }, mailbox::unbounded());
+    let players_ref = kameo::spawn(PlayersActor { player_map });
 
     let health = players_ref
         .ask(ForwardToPlayer {

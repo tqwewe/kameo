@@ -19,7 +19,6 @@
 //! ```
 //! use kameo::Actor;
 //! use kameo::actor::pool::{ActorPool, WorkerMsg, BroadcastMsg};
-//! use kameo::mailbox;
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -32,10 +31,7 @@
 //!
 //! # tokio_test::block_on(async {
 //! // Spawn the actor pool with 4 workers
-//! let pool_actor = kameo::spawn(
-//!     ActorPool::new(4, || kameo::spawn(MyWorker, mailbox::unbounded())),
-//!     mailbox::unbounded()
-//! );
+//! let pool_actor = kameo::spawn(ActorPool::new(4, || kameo::spawn(MyWorker)));
 //!
 //! // Send tasks to the pool
 //! pool_actor.tell(WorkerMsg("Hello worker!")).await?;

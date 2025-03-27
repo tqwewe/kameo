@@ -19,7 +19,6 @@
 //! ```
 //! use kameo::Actor;
 //! use kameo::actor::pubsub::{PubSub, Publish, Subscribe};
-//! use kameo::mailbox;
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -32,14 +31,14 @@
 //!
 //! # tokio_test::block_on(async {
 //! let mut pubsub = PubSub::new();
-//! let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+//! let actor_ref = kameo::spawn(MyActor);
 //!
 //! // Use PubSub as a standalone object
 //! pubsub.subscribe(actor_ref.clone());
 //! pubsub.publish("Hello, World!").await;
 //!
 //! // Or spawn PubSub as an actor and use messages
-//! let pubsub_actor_ref = kameo::spawn(PubSub::new(), mailbox::unbounded());
+//! let pubsub_actor_ref = kameo::spawn(PubSub::new());
 //! pubsub_actor_ref.tell(Subscribe(actor_ref)).await?;
 //! pubsub_actor_ref.tell(Publish("Hello, spawned world!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -139,7 +138,6 @@ impl<M> PubSub<M> {
     /// ```
     /// # use kameo::Actor;
     /// use kameo::actor::pubsub::PubSub;
-    /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -156,7 +154,7 @@ impl<M> PubSub<M> {
     /// # tokio_test::block_on(async {
     /// let mut pubsub: PubSub<Msg> = PubSub::new();
     ///
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// pubsub.subscribe(actor_ref);
     /// # })
     /// ```
@@ -182,7 +180,6 @@ impl<M> PubSub<M> {
     /// ```
     /// # use kameo::Actor;
     /// use kameo::actor::pubsub::PubSub;
-    /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -199,7 +196,7 @@ impl<M> PubSub<M> {
     /// # tokio_test::block_on(async {
     /// let mut pubsub = PubSub::new();
     ///
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// pubsub.subscribe_filter(actor_ref, |Msg(msg)| msg.starts_with("my-topic:"));
     /// # })
     /// ```

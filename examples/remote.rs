@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     if is_host {
-        let actor_ref = kameo::spawn(MyActor { count: 0 }, mailbox::unbounded());
+        let actor_ref = kameo::spawn(MyActor { count: 0 });
         info!("registering actor");
         actor_ref.register("my_actor").await?;
     } else {

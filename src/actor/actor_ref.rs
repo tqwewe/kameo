@@ -214,7 +214,6 @@ where
     ///
     /// use kameo::actor::{Actor, ActorRef};
     /// use kameo::error::Infallible;
-    /// use kameo::mailbox;
     /// use tokio::time::sleep;
     ///
     /// struct MyActor;
@@ -229,7 +228,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// actor_ref.wait_startup().await;
     /// println!("Actor ready to handle messages!");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -252,7 +251,6 @@ where
     /// use std::time::Duration;
     ///
     /// use kameo::actor::{Actor, ActorRef};
-    /// use kameo::mailbox;
     ///
     /// struct MyActor;
     ///
@@ -265,7 +263,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// let startup_result = actor_ref.wait_startup_result().await;
     /// assert!(startup_result.is_err());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -312,7 +310,6 @@ where
     ///
     /// ```
     /// use kameo::actor::ActorRef;
-    /// use kameo::mailbox;
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -325,7 +322,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
     /// let reply = actor_ref.ask(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -358,7 +355,6 @@ where
     ///
     /// ```
     /// use kameo::actor::ActorRef;
-    /// use kameo::mailbox;
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -371,7 +367,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
     /// actor_ref.tell(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -397,14 +393,12 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::mailbox;
-    ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
-    /// let sibbling_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -434,14 +428,13 @@ where
     ///
     /// ```
     /// use std::thread;
-    /// use kameo::mailbox;
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
-    /// let sibbling_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
     ///
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
@@ -471,7 +464,6 @@ where
     ///
     /// ```no_run
     /// # use kameo::actor::RemoteActorRef;
-    /// use kameo::mailbox;
     /// #
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
     /// # struct MyActor;
@@ -480,7 +472,7 @@ where
     /// # struct OtherActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
     ///
     /// actor_ref.link_remote(&sibbling_ref).await?;
@@ -524,14 +516,12 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::mailbox;
-    ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
-    /// let sibbling_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// actor_ref.unlink(&sibbling_ref).await;
@@ -558,16 +548,14 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::mailbox;
-    ///
     /// # use std::thread;
     /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
-    /// let sibbling_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// let sibbling_ref = kameo::spawn(MyActor);
     ///
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
@@ -595,8 +583,6 @@ where
     ///
     /// ```
     /// # use kameo::actor::RemoteActorRef;
-    /// use kameo::mailbox;
-    ///
     /// #
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
     /// # struct MyActor;
@@ -605,7 +591,7 @@ where
     /// # struct OtherActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
     ///
     /// actor_ref.unlink_remote(&sibbling_ref).await?;
@@ -642,7 +628,6 @@ where
     ///
     /// ```
     /// use kameo::Actor;
-    /// use kameo::mailbox;
     /// use kameo::message::{Context, Message, StreamMessage};
     ///
     /// #[derive(kameo::Actor)]
@@ -669,7 +654,7 @@ where
     /// # tokio_test::block_on(async {
     /// let stream = futures::stream::iter(vec![17, 19, 24]);
     ///
-    /// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+    /// let actor_ref = kameo::spawn(MyActor);
     /// actor_ref.attach_stream(stream, (), ()).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });

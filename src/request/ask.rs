@@ -174,7 +174,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let actor_ref = kameo::spawn(MyActor, kameo::mailbox::unbounded());
+    /// # let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
     /// let pending = actor_ref.ask(Msg).enqueue().await?;
     /// // Do some other tasks
@@ -385,7 +385,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let actor_ref = kameo::spawn(MyActor, kameo::mailbox::unbounded());
+    /// # let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
     /// let pending = actor_ref.ask(Msg).try_enqueue()?;
     /// // Do some other tasks
@@ -528,7 +528,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let actor_ref = kameo::spawn(MyActor, kameo::mailbox::unbounded());
+    /// # let actor_ref = kameo::spawn(MyActor);
     /// # let msg = Msg;
     /// # std::thread::spawn(move || {
     /// # let f = move || {
@@ -846,10 +846,11 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
+        actor::spawn_with_mailbox,
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
-        spawn, Actor,
+        Actor,
     };
 
     #[tokio::test]
@@ -874,7 +875,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(100));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
 
         assert!(actor_ref.ask(Msg).await?); // Should be a regular MessageSend request
         assert!(actor_ref.ask(Msg).send().await?);
@@ -912,7 +913,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::unbounded());
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
 
         assert!(actor_ref.ask(Msg).await?); // Should be a regular MessageSend request
         assert!(actor_ref.ask(Msg).send().await?);
@@ -951,7 +952,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(100));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
         actor_ref.stop_gracefully().await?;
         actor_ref.wait_for_stop().await;
 
@@ -998,7 +999,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::unbounded());
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
         actor_ref.stop_gracefully().await?;
         actor_ref.wait_for_stop().await;
 
@@ -1046,7 +1047,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(1));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(1));
         assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
         assert_eq!(
             actor_ref.ask(Msg).try_send().await,
@@ -1081,7 +1082,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(1));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(1));
         // Mailbox empty, this will succeed
         assert_eq!(
             actor_ref
@@ -1138,7 +1139,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::bounded(100));
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
         assert_eq!(
             actor_ref
                 .ask(Sleep(Duration::from_millis(100)))
@@ -1184,7 +1185,7 @@ mod tests {
             }
         }
 
-        let actor_ref = spawn(MyActor, mailbox::unbounded());
+        let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
         assert_eq!(
             actor_ref
                 .ask(Sleep(Duration::from_millis(100)))

@@ -27,16 +27,17 @@ use crate::{
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
     error::{ActorStopReason, PanicError, SendError},
-    mailbox::{MailboxReceiver, MailboxSender, Signal},
+    mailbox::{self, MailboxReceiver, MailboxSender, Signal},
 };
 
 use super::ActorID;
 
-/// Spawns an actor in a Tokio task, running asynchronously.
+const DEFAULT_MAILBOX_CAPACITY: usize = 64;
+
+/// Spawns an actor in a Tokio task with a specific mailbox configuration.
 ///
-/// This function spawns the actor in a non-blocking Tokio task, making it suitable for actors that need to
-/// perform asynchronous operations. The actor runs in the background and can be interacted with through
-/// the returned [`ActorRef`].
+/// This function allows you to explicitly specify a mailbox when spawning an actor.
+/// Use this when you need custom mailbox behavior or capacity.
 ///
 /// # Example
 ///
@@ -48,12 +49,14 @@ use super::ActorID;
 /// struct MyActor;
 ///
 /// # tokio_test::block_on(async {
-/// let actor_ref = kameo::spawn(MyActor, mailbox::unbounded());
+/// // Using a bounded mailbox with custom capacity
+/// let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::bounded(1000));
+///
+/// // Using an unbounded mailbox
+/// let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::unbounded());
 /// # })
 /// ```
-///
-/// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
-pub fn spawn<A>(
+pub fn spawn_with_mailbox<A>(
     actor: A,
     (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
 ) -> ActorRef<A>
@@ -66,9 +69,40 @@ where
     actor_ref
 }
 
-/// Spawns and links an actor in a Tokio task, running asynchronously.
+/// Spawns an actor in a Tokio task, running asynchronously with a default bounded mailbox.
 ///
-/// This function is used to ensure an actor is linked with another actor before its truly spawned,
+/// This function spawns the actor in a non-blocking Tokio task, making it suitable for actors that need to
+/// perform asynchronous operations. The actor runs in the background and can be interacted with through
+/// the returned [`ActorRef`].
+///
+/// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+/// For custom mailbox configuration, use [`spawn_with_mailbox`].
+///
+/// # Example
+///
+/// ```
+/// use kameo::Actor;
+///
+/// #[derive(Actor)]
+/// struct MyActor;
+///
+/// # tokio_test::block_on(async {
+/// // Spawns with a default bounded mailbox (capacity 64)
+/// let actor_ref = kameo::spawn(MyActor);
+/// # })
+/// ```
+///
+/// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
+pub fn spawn<A>(actor: A) -> ActorRef<A>
+where
+    A: Actor,
+{
+    spawn_with_mailbox(actor, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+}
+
+/// Spawns and links an actor in a Tokio task with a specific mailbox configuration.
+///
+/// This function is used to ensure an actor is linked with another actor before it's truly spawned,
 /// which avoids possible edge cases where the actor could die before having the chance to be linked.
 ///
 /// # Example
@@ -84,13 +118,12 @@ where
 /// struct BarActor;
 ///
 /// # tokio_test::block_on(async {
-/// let link_ref = kameo::spawn(FooActor, mailbox::unbounded());
-/// let actor_ref = kameo::actor::spawn_link(&link_ref, BarActor, mailbox::unbounded()).await;
+/// let link_ref = kameo::spawn(FooActor);
+/// // Using a custom mailbox
+/// let actor_ref = kameo::actor::spawn_link_with_mailbox(&link_ref, BarActor, mailbox::unbounded()).await;
 /// # })
 /// ```
-///
-/// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
-pub async fn spawn_link<A, L>(
+pub async fn spawn_link_with_mailbox<A, L>(
     link_ref: &ActorRef<L>,
     actor: A,
     (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
@@ -106,11 +139,43 @@ where
     actor_ref
 }
 
-/// Spawns an actor in its own dedicated thread, allowing for blocking operations.
+/// Spawns and links an actor in a Tokio task with a default bounded mailbox.
 ///
-/// This function spawns the actor in a separate thread, making it suitable for actors that perform blocking
-/// operations, such as file I/O or other tasks that cannot be efficiently executed in an asynchronous context.
-/// Despite running in a blocking thread, the actor can still communicate asynchronously with other actors.
+/// This function is used to ensure an actor is linked with another actor before it's truly spawned,
+/// which avoids possible edge cases where the actor could die before having the chance to be linked.
+///
+/// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+/// For custom mailbox configuration, use [`spawn_link_with_mailbox`].
+///
+/// # Example
+///
+/// ```
+/// use kameo::Actor;
+///
+/// #[derive(Actor)]
+/// struct FooActor;
+///
+/// #[derive(Actor)]
+/// struct BarActor;
+///
+/// # tokio_test::block_on(async {
+/// let link_ref = kameo::spawn(FooActor);
+/// // Spawns with default bounded mailbox (capacity 64)
+/// let actor_ref = kameo::actor::spawn_link(&link_ref, BarActor).await;
+/// # })
+/// ```
+pub async fn spawn_link<A, L>(link_ref: &ActorRef<L>, actor: A) -> ActorRef<A>
+where
+    A: Actor,
+    L: Actor,
+{
+    spawn_link_with_mailbox(link_ref, actor, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY)).await
+}
+
+/// Spawns an actor in its own dedicated thread with a specific mailbox configuration.
+///
+/// This function allows you to explicitly specify a mailbox when spawning an actor in a dedicated thread.
+/// Use this when you need custom mailbox behavior or capacity for actors that perform blocking operations.
 ///
 /// # Example
 ///
@@ -136,17 +201,14 @@ where
 ///     }
 /// }
 ///
-/// let actor_ref = kameo::actor::spawn_in_thread(
+/// let actor_ref = kameo::actor::spawn_in_thread_with_mailbox(
 ///     MyActor { file: File::create("output.txt").unwrap() },
-///     mailbox::unbounded()
+///     mailbox::bounded(100)
 /// );
 /// actor_ref.tell(Flush).blocking_send()?;
 /// # Ok::<(), kameo::error::SendError<Flush, io::Error>>(())
 /// ```
-///
-/// This function is useful for actors that require or benefit from running blocking operations while still
-/// enabling asynchronous functionality.
-pub fn spawn_in_thread<A>(
+pub fn spawn_in_thread_with_mailbox<A>(
     actor: A,
     (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
 ) -> ActorRef<A>
@@ -157,6 +219,54 @@ where
     let actor_ref = prepared_actor.actor_ref().clone();
     prepared_actor.spawn_in_thread(actor);
     actor_ref
+}
+
+/// Spawns an actor in its own dedicated thread with a default bounded mailbox.
+///
+/// This function spawns the actor in a separate thread, making it suitable for actors that perform blocking
+/// operations, such as file I/O or other tasks that cannot be efficiently executed in an asynchronous context.
+/// Despite running in a blocking thread, the actor can still communicate asynchronously with other actors.
+///
+/// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+/// For custom mailbox configuration, use [`spawn_in_thread_with_mailbox`].
+///
+/// # Example
+///
+/// ```no_run
+/// use std::io::{self, Write};
+/// use std::fs::File;
+///
+/// use kameo::Actor;
+/// use kameo::message::{Context, Message};
+///
+/// #[derive(Actor)]
+/// struct MyActor {
+///     file: File,
+/// }
+///
+/// struct Flush;
+/// impl Message<Flush> for MyActor {
+///     type Reply = io::Result<()>;
+///
+///     async fn handle(&mut self, _: Flush, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+///         self.file.flush() // This blocking operation is handled in its own thread
+///     }
+/// }
+///
+/// let actor_ref = kameo::actor::spawn_in_thread(
+///     MyActor { file: File::create("output.txt").unwrap() }
+/// );
+/// actor_ref.tell(Flush).blocking_send()?;
+/// # Ok::<(), kameo::error::SendError<Flush, io::Error>>(())
+/// ```
+///
+/// This function is useful for actors that require or benefit from running blocking operations while still
+/// enabling asynchronous functionality.
+pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
+where
+    A: Actor,
+{
+    spawn_in_thread_with_mailbox(actor, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
 }
 
 /// A `PreparedActor` represents an actor that has been initialized and is ready to be either run
@@ -181,13 +291,12 @@ impl<A: Actor> PreparedActor<A> {
     /// # use kameo::Actor;
     /// # use kameo::actor::PreparedActor;
     /// use kameo::mailbox;
-    ///
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// # let other_actor = kameo::spawn(MyActor, mailbox::unbounded());
+    /// # let other_actor = kameo::spawn(MyActor);
     /// let prepared_actor = PreparedActor::new(mailbox::unbounded());
     /// prepared_actor.actor_ref().link(&other_actor).await;
     /// let actor_ref = prepared_actor.spawn(MyActor);

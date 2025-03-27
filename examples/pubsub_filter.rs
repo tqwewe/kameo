@@ -53,11 +53,11 @@ impl Message<PrintActorID> for ActorC {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pubsub = kameo::spawn(PubSub::<PrintActorID>::new(), mailbox::unbounded());
+    let pubsub = kameo::spawn(PubSub::<PrintActorID>::new());
 
-    let actor_a = kameo::spawn(ActorA, mailbox::unbounded());
-    let actor_b = kameo::spawn(ActorB, mailbox::unbounded());
-    let actor_c = kameo::spawn(ActorC, mailbox::unbounded());
+    let actor_a = kameo::spawn(ActorA);
+    let actor_b = kameo::spawn(ActorB);
+    let actor_c = kameo::spawn(ActorC);
 
     pubsub
         .ask(SubscribeFilter(actor_a, |m: &PrintActorID| {

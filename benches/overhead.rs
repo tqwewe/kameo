@@ -23,7 +23,7 @@ fn actor_benchmarks(c: &mut Criterion) {
         let rt = Builder::new_current_thread().build().unwrap();
         let _guard = rt.enter();
         let actor_ref = rt.block_on(async {
-            let actor_ref = kameo::actor::spawn(MyActor, mailbox::bounded(10));
+            let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::bounded(10));
             actor_ref.ask(0).send().await.unwrap(); // Ask an initial message to make sure the actor is ready
             actor_ref
         });
@@ -37,7 +37,7 @@ fn actor_benchmarks(c: &mut Criterion) {
         let rt = Builder::new_current_thread().build().unwrap();
         let _guard = rt.enter();
         let actor_ref = rt.block_on(async {
-            let actor_ref = kameo::actor::spawn(MyActor, mailbox::unbounded());
+            let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::unbounded());
             actor_ref.ask(0).send().await.unwrap(); // Ask an initial message to make sure the actor is ready
             actor_ref
         });
