@@ -54,7 +54,6 @@ tokio = { version = "1", features = [
 ] }
 tokio-stream = { version = "0.1.15", features = ["time"] }
 tokio-test = "0.4.4"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
 name = "remote"

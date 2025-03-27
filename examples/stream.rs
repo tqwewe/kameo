@@ -1,25 +1,20 @@
-use std::{future::pending, time};
+use std::time::Duration;
 
 use futures::stream;
 use kameo::{error::Infallible, message::StreamMessage, prelude::*};
 use tokio_stream::StreamExt;
-use tracing::info;
-use tracing_subscriber::EnvFilter;
 
 #[derive(Default)]
 pub struct MyActor {
     count: i64,
+    streams_complete: u8,
 }
 
 impl Actor for MyActor {
     type Error = Infallible;
 
     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
-        let stream = Box::pin(
-            stream::repeat(1)
-                .take(5)
-                .throttle(time::Duration::from_secs(1)),
-        );
+        let stream = Box::pin(stream::repeat(1).take(5).throttle(Duration::from_secs(1)));
         actor_ref.attach_stream(stream, "1st stream", "1st stream");
 
         let stream = stream::repeat(1).take(5);
@@ -35,32 +30,30 @@ impl Message<StreamMessage<i64, &'static str, &'static str>> for MyActor {
     async fn handle(
         &mut self,
         msg: StreamMessage<i64, &'static str, &'static str>,
-        _ctx: &mut Context<Self, Self::Reply>,
+        ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         match msg {
             StreamMessage::Next(amount) => {
                 self.count += amount;
-                info!("Count is {}", self.count);
+                println!("Count is {}", self.count);
             }
             StreamMessage::Started(s) => {
-                info!("Started {s}");
+                println!("Started {s}");
             }
             StreamMessage::Finished(s) => {
-                info!("Finished {s}");
+                println!("Finished {s}");
+                self.streams_complete += 1;
+                if self.streams_complete == 2 {
+                    ctx.actor_ref().stop_gracefully().await.unwrap();
+                }
             }
         }
     }
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("trace".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
+async fn main() {
+    let actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
 
-    kameo::spawn(MyActor::default(), mailbox::unbounded());
-
-    pending().await
+    actor_ref.wait_for_stop().await;
 }

@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use kameo::{prelude::*, reply::ForwardedReply};
-use tracing_subscriber::EnvFilter;
 
 #[derive(Actor)]
 struct PlayersActor {
@@ -54,12 +53,6 @@ impl Message<Damage> for Player {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("trace".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
-
     let player_ref = kameo::spawn(Player { health: 100.0 }, mailbox::unbounded());
 
     let mut player_map = HashMap::new();

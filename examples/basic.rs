@@ -1,18 +1,8 @@
-use kameo::{error::Infallible, prelude::*};
-use tracing::info;
-use tracing_subscriber::EnvFilter;
+use kameo::prelude::*;
 
-#[derive(Default)]
+#[derive(Actor, Default)]
 pub struct MyActor {
     count: i64,
-}
-
-impl Actor for MyActor {
-    type Error = Infallible;
-
-    fn name() -> &'static str {
-        "MyActor"
-    }
 }
 
 // A simple increment message, returning the new count
@@ -24,6 +14,7 @@ impl Message<Inc> for MyActor {
     type Reply = i64;
 
     async fn handle(&mut self, msg: Inc, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+        println!("Incrementing count by {}", msg.amount);
         self.count += msg.amount as i64;
         self.count
     }
@@ -46,24 +37,18 @@ impl Message<ForceErr> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("trace".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
-
     let my_actor_ref = kameo::spawn(MyActor::default(), mailbox::unbounded());
 
     // Increment the count by 3
     let count = my_actor_ref.ask(Inc { amount: 3 }).await?;
-    info!("Count is {count}");
+    println!("Count is {count}");
 
     // Increment the count by 50 in the background
     my_actor_ref.tell(Inc { amount: 50 }).await?;
 
     // Increment the count by 2
     let count = my_actor_ref.ask(Inc { amount: 2 }).await?;
-    info!("Count is {count}");
+    println!("Count is {count}");
 
     // Async messages that return an Err will cause the actor to panic
     my_actor_ref.tell(ForceErr).await?;

@@ -2,7 +2,6 @@ use kameo::{
     actor::pubsub::{PubSub, Publish, Subscribe},
     prelude::*,
 };
-use tracing_subscriber::EnvFilter;
 
 #[derive(Clone)]
 struct PrintActorID;
@@ -39,15 +38,11 @@ impl Message<PrintActorID> for ActorB {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("warn".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
-
     let pubsub = kameo::spawn(PubSub::<PrintActorID>::new(), mailbox::unbounded());
+
     let actor_a = kameo::spawn(ActorA, mailbox::unbounded());
     let actor_b = kameo::spawn(ActorB, mailbox::unbounded());
+
     pubsub.ask(Subscribe(actor_a)).await?;
     pubsub.ask(Subscribe(actor_b)).await?;
     pubsub.ask(Publish(PrintActorID)).await?;

@@ -2,9 +2,8 @@ use kameo::{
     actor::pubsub::{PubSub, Publish, Subscribe, SubscribeFilter},
     prelude::*,
 };
-use tracing_subscriber::EnvFilter;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 struct PrintActorID(String);
 
 #[derive(Actor, Default)]
@@ -15,10 +14,10 @@ impl Message<PrintActorID> for ActorA {
 
     async fn handle(
         &mut self,
-        m: PrintActorID,
+        PrintActorID(msg): PrintActorID,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("ActorA: {} - {:?}", ctx.actor_ref().id(), m);
+        println!("ActorA: {} - {msg}", ctx.actor_ref().id());
     }
 }
 
@@ -30,10 +29,10 @@ impl Message<PrintActorID> for ActorB {
 
     async fn handle(
         &mut self,
-        m: PrintActorID,
+        PrintActorID(msg): PrintActorID,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("ActorB: {} - {:?}", ctx.actor_ref().id(), m);
+        println!("ActorB: {} - {msg}", ctx.actor_ref().id());
     }
 }
 
@@ -45,25 +44,21 @@ impl Message<PrintActorID> for ActorC {
 
     async fn handle(
         &mut self,
-        m: PrintActorID,
+        PrintActorID(msg): PrintActorID,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("ActorC: {} - {:?}", ctx.actor_ref().id(), m);
+        println!("ActorC: {} - {msg}", ctx.actor_ref().id());
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tracing_subscriber::fmt()
-        .with_env_filter("warn".parse::<EnvFilter>().unwrap())
-        .without_time()
-        .with_target(false)
-        .init();
-
     let pubsub = kameo::spawn(PubSub::<PrintActorID>::new(), mailbox::unbounded());
+
     let actor_a = kameo::spawn(ActorA, mailbox::unbounded());
     let actor_b = kameo::spawn(ActorB, mailbox::unbounded());
     let actor_c = kameo::spawn(ActorC, mailbox::unbounded());
+
     pubsub
         .ask(SubscribeFilter(actor_a, |m: &PrintActorID| {
             m.0.starts_with("TopicA:")

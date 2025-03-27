@@ -13,6 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let other_actor_ref = ActorRef::<MyActor>::lookup("my awesome actor")?.unwrap();
 
     assert_eq!(actor_ref.id(), other_actor_ref.id());
+    println!("Registered and looked up actor");
 
     Ok(())
 }
@@ -30,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     assert_eq!(actor_ref.id(), other_actor_ref.id());
+    println!("Registered and looked up actor");
 
     Ok(())
 }
