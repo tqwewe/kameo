@@ -38,7 +38,7 @@ impl Message<ForceStop> for MyActor {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pool = kameo::spawn(ActorPool::new(5, || kameo::spawn(MyActor)));
 
-    // Print IDs from 0..=4
+    // Print IDs 0, 2, 4, 6, 8
     for _ in 0..5 {
         pool.tell(WorkerMsg(PrintActorID)).await?;
     }
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Restarted all workers");
 
-    // New IDs from 6..=10 will be printed
+    // New IDs 11, 13, 15, 17, 19 will be printed
     for _ in 0..5 {
         pool.tell(WorkerMsg(PrintActorID)).await?;
     }
