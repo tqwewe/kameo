@@ -304,7 +304,7 @@ impl<A: Actor> PreparedActor<A> {
 async fn run_actor_lifecycle<A, S>(
     mut actor: A,
     actor_ref: ActorRef<A>,
-    mailbox_rx: MailboxReceiver<A>,
+    mut mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
 ) -> (A, ActorStopReason)
 where
@@ -368,7 +368,12 @@ where
     let mut state = S::new_from_actor(actor, actor_ref.clone());
 
     let reason = Abortable::new(
-        abortable_actor_loop(&mut state, mailbox_rx, startup_semaphore, startup_finished),
+        abortable_actor_loop(
+            &mut state,
+            &mut mailbox_rx,
+            startup_semaphore,
+            startup_finished,
+        ),
         abort_registration,
     )
     .await
@@ -435,7 +440,7 @@ where
 
 async fn abortable_actor_loop<A, S>(
     state: &mut S,
-    mut mailbox_rx: MailboxReceiver<A>,
+    mailbox_rx: &mut MailboxReceiver<A>,
     startup_semaphore: Arc<Semaphore>,
     startup_finished: bool,
 ) -> ActorStopReason
@@ -449,7 +454,7 @@ where
         }
     }
     loop {
-        let reason = recv_mailbox_loop(state, &mut mailbox_rx, &startup_semaphore).await;
+        let reason = recv_mailbox_loop(state, mailbox_rx, &startup_semaphore).await;
         if let ControlFlow::Break(reason) = state.on_shutdown(reason).await {
             return reason;
         }
