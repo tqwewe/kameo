@@ -7,34 +7,97 @@ on:
 env: 
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
+  CARGO_TERM_VERBOSE: true
 
 jobs:
-  build_and_test:
-    name: Rust project - latest
+  build:
+    name: Build - ${{ matrix.toolchain }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        toolchain:
-          - stable
-          # - beta
-          # - nightly
+        toolchain: [stable, beta]
+        features: ["--no-default-features", "--no-default-features --features macros", "--no-default-features --features tracing", "--no-default-features --features remote", "-p kameo_actors"]
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update ${{ matrix.toolchain }} && rustup default ${{ matrix.toolchain }}
-      - run: cargo build --no-default-features --verbose
-      - run: cargo build --no-default-features --features macros --verbose
-      - run: cargo build --no-default-features --features tracing --verbose
-      - run: cargo build --no-default-features --features remote --verbose
-      - run: cargo build -p kameo_actors --verbose
-      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --verbose
-      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --features macros --verbose
-      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --features tracing --verbose
-      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --features remote --verbose
-      - run: cargo test --no-default-features --verbose
-      - run: cargo test --no-default-features --features macros --verbose
-      - run: cargo test --no-default-features --features tracing --verbose
-      - run: cargo test --no-default-features --features remote --verbose
-      - run: cargo clippy --no-default-features
-      - run: cargo clippy --no-default-features --features macros
-      - run: cargo clippy --no-default-features --features tracing
-      - run: cargo clippy --no-default-features --features remote
+      
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
+      
+      - name: Standard build
+        run: cargo build ${{ matrix.features }}
+        
+      - name: Tokio unstable build
+        if: "!contains(matrix.features, 'kameo_actors')"
+        run: RUSTFLAGS="--cfg tokio_unstable" cargo build ${{ matrix.features }}
+
+  test:
+    name: Test - ${{ matrix.toolchain }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable, beta]
+        features: ["--no-default-features", "--no-default-features --features macros", "--no-default-features --features tracing", "--no-default-features --features remote"]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
+      
+      - name: Run tests
+        run: cargo test ${{ matrix.features }}
+
+  lint:
+    name: Clippy - ${{ matrix.toolchain }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: [stable]
+        features: ["--no-default-features", "--no-default-features --features macros", "--no-default-features --features tracing", "--no-default-features --features remote"]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+          components: clippy
+      
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
+      
+      - name: Run clippy
+        run: cargo clippy ${{ matrix.features }}
