@@ -3,7 +3,7 @@ resolver = "2"
 members = [".", "actors", "macros"]
 
 [workspace.dependencies]
-kameo = { path = "." }
+kameo = { path = ".", version = "0.16.0" }
 
 futures = "0.3"
 tokio = "1.44"
