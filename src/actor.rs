@@ -33,7 +33,8 @@ use futures::Future;
 use crate::{
     error::{ActorStopReason, PanicError},
     mailbox::{MailboxReceiver, Signal},
-    reply::ReplyError,
+    message::BoxMessage,
+    reply::{BoxReplySender, ReplyError},
 };
 
 pub use actor_ref::*;
@@ -116,6 +117,7 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// # Default Implementation
     /// By default, this returns the type name of the actor.
+    #[inline]
     fn name() -> &'static str {
         any::type_name::<Self>()
     }
@@ -127,11 +129,50 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// This ensures that the actor can properly initialize before handling external messages.
     #[allow(unused_variables)]
+    #[inline]
     fn on_start(
         &mut self,
         actor_ref: ActorRef<Self>,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send {
         async { Ok(()) }
+    }
+
+    /// Called when the actor receives a message to be processed.
+    ///
+    /// By default, this method handles the incoming message immediately using the
+    /// actor's standard message handling logic.
+    ///
+    /// Advanced use cases can override this method to customize how messages are processed,
+    /// such as buffering messages for later processing or implementing custom scheduling.
+    ///
+    /// # Parameters
+    /// - `msg`: The incoming message, wrapped in a `BoxMessage<Self>`.
+    /// - `actor_ref`: A reference to the actor itself.
+    /// - `tx`: An optional reply sender, used when the message expects a response.
+    ///
+    /// # Returns
+    /// A future that resolves to `Result<(), Box<dyn ReplyError>>`. An `Ok(())` indicates successful processing,
+    /// while an `Err` indicates an error occurred during message handling.
+    ///
+    /// # Default Implementation
+    /// The default implementation handles the message immediately by calling
+    /// `msg.handle_dyn(self, actor_ref, tx).await`.
+    ///
+    /// # Notes
+    /// - Overriding this method allows you to intercept and manipulate messages before they are processed.
+    /// - Be cautious when buffering messages, as unbounded buffering can lead to increased memory usage.
+    /// - Custom implementations should ensure that messages are eventually handled or appropriately discarded to
+    ///   prevent message loss.
+    /// - The `tx` (reply sender) is tied to the specific `BoxMessage` it corresponds to,
+    ///   and passing an incorrect or mismatched `tx` can lead to a panic.
+    #[inline]
+    fn on_message(
+        &mut self,
+        msg: BoxMessage<Self>,
+        actor_ref: ActorRef<Self>,
+        tx: Option<BoxReplySender>,
+    ) -> impl Future<Output = Result<(), Box<dyn ReplyError>>> + Send {
+        async move { msg.handle_dyn(self, actor_ref, tx).await }
     }
 
     /// Called when the actor encounters a panic or an error during "tell" message handling.
@@ -150,6 +191,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # Returns
     /// Whether the actor should stop or continue processing messages.
     #[allow(unused_variables)]
+    #[inline]
     fn on_panic(
         &mut self,
         actor_ref: WeakActorRef<Self>,
@@ -166,6 +208,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # Returns
     /// Whether the actor should stop or continue processing messages.
     #[allow(unused_variables)]
+    #[inline]
     fn on_link_died(
         &mut self,
         actor_ref: WeakActorRef<Self>,
@@ -198,6 +241,7 @@ pub trait Actor: Sized + Send + 'static {
     /// The error returned by this method will be unwraped by kameo, causing a panic in the tokio task or
     /// thread running the actor.
     #[allow(unused_variables)]
+    #[inline]
     fn on_stop(
         &mut self,
         actor_ref: WeakActorRef<Self>,
@@ -211,6 +255,7 @@ pub trait Actor: Sized + Send + 'static {
     /// This can be overwritten for more advanced actor behaviour, such as awaiting multiple channels, etc.
     /// The return value is a signal which will be handled by the actor.
     #[allow(unused_variables)]
+    #[inline]
     fn next(
         &mut self,
         actor_ref: WeakActorRef<Self>,

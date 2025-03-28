@@ -6,7 +6,7 @@ use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, PanicError},
     mailbox::{MailboxReceiver, Signal},
-    message::DynMessage,
+    message::BoxMessage,
     reply::BoxReplySender,
 };
 
@@ -26,7 +26,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 
     fn handle_message(
         &mut self,
-        message: Box<dyn DynMessage<A>>,
+        message: BoxMessage<A>,
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
@@ -96,7 +96,7 @@ where
     #[inline]
     async fn handle_message(
         &mut self,
-        message: Box<dyn DynMessage<A>>,
+        message: BoxMessage<A>,
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
@@ -116,8 +116,8 @@ where
             .catch_unwind()
             .await;
         match res {
-            Ok(None) => ControlFlow::Continue(()),
-            Ok(Some(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Ok(Ok(())) => ControlFlow::Continue(()),
+            Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
                 PanicError::new_from_panic_any(err),
             )), // The handler panicked

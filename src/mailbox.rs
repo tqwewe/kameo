@@ -14,7 +14,7 @@ use tokio::sync::mpsc::{self, error::TryRecvError};
 use crate::{
     actor::{ActorID, ActorRef},
     error::{ActorStopReason, SendError},
-    message::DynMessage,
+    message::BoxMessage,
     reply::BoxReplySender,
     Actor,
 };
@@ -441,7 +441,7 @@ impl<A: Actor> fmt::Debug for MailboxReceiver<A> {
 pub enum Signal<A: Actor> {
     StartupFinished,
     Message {
-        message: Box<dyn DynMessage<A>>,
+        message: BoxMessage<A>,
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
