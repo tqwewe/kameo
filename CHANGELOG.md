@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2025-03-28
+
+* @attila-lin made their first contribution in #149
+
+### <!-- 0 -->Added
+
+- Add prelude module (#145)
+- Add `Actor::next` method (#147)
+- Add `on_message` function to `Actor` trait (#155)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Use `ForwardMessageSend` trait for `Context::forward` methods (#146)
+- **BREAKING:** Move pool and pubsub actors into new `kameo_actors` crate (#154)
+
+### <!-- 2 -->Removed
+
+- **BREAKING:** Remove mailbox generics and request traits (#153)
+- Remove unnecessary trait bound in `Context::forward` method [</>](https://github.com/tqwewe/kameo/commit/11a68e2fdcf688e7edc2ff91e367206a01873eee)
+
+### <!-- 3 -->Fixed
+
+- Spawn with tokio unstable cfg flags [</>](https://github.com/tqwewe/kameo/commit/ada0a915cbf61d551a0f39059f6f2b1855696603)
+
+### <!-- 4 -->Documentation
+
+- Bump version in getting started page [</>](https://github.com/tqwewe/kameo/commit/8dc73601381e6265effa887638e1334f350a1949)
+- Remove unnecessary tokio time sleep import in code docs [</>](https://github.com/tqwewe/kameo/commit/8b447771370321547e5c29ea8dfbb682c9ed449e)
+- Add vanhouc sponsor to README.md [</>](https://github.com/tqwewe/kameo/commit/7d2e5a3e45d7e4e0ec49a08343875e66446519b8)
+- Fix sponsor badge link [</>](https://github.com/tqwewe/kameo/commit/74b4284cd007857fd91144da1122dd42b89e1448)
+- Impove registerering and looking up actors example [</>](https://github.com/tqwewe/kameo/commit/69b894258c76c19d4635c1cdbb8d0760375ff323)
+
+### <!-- 5 -->Misc
+
+- Fix clippy lints (#149)
+- Ci updates [</>](https://github.com/tqwewe/kameo/commit/6f4f2ae0b28be3f4f0e0285bfc6aa26f4c664896)
+- Improve ci and run in parallel (#156)
+- Add release scripts [</>](https://github.com/tqwewe/kameo/commit/2a9582ced99b984d4f4df3c3dac40ed3c4b4c19f)
+- Bump kameo_macros to version 0.16.0 [</>](https://github.com/tqwewe/kameo/commit/818b1a44bfa2944ab64c2fed09133dab6bce9a1d)
+
 ## [0.15.0] - 2025-03-13
 
 * @Tristaan made their first contribution in #142
