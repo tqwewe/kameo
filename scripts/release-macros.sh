@@ -51,7 +51,7 @@ fi
 
 execute_step "Updating kameo_macros Cargo.toml version to $NEW_VERSION" "perl -i -pe \"s/^version = \\\".*\\\"/version = \\\"$NEW_VERSION\\\"/\" ./macros/Cargo.toml"
 
-execute_step "Updating kameo_macros version dependency in kameo Cargo.toml" "perl -i -pe \"s/kameo_macros = { version = \\\"[^\\\"]*\\\"/kameo_macros = { version = \\\"^$NEW_VERSION\\\"/\" ./Cargo.toml"
+execute_step "Updating kameo_macros version dependency in kameo Cargo.toml" "perl -i -pe \"s/kameo_macros = { version = \\\"[^\\\"]*\\\"/kameo_macros = { version = \\\"$NEW_VERSION\\\"/\" ./Cargo.toml"
 
 execute_step "Publishing kameo_macros version $NEW_VERSION" "cargo publish -p kameo_macros --allow-dirty"
 
