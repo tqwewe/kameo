@@ -558,7 +558,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
-[0.15.0]: https://github.com/tqwewe/kameo/compare/v0.13.0..v0.15.0
+[0.16.0]: https://github.com/tqwewe/kameo/compare/v0.15.0..v0.16.0
+[0.15.0]: https://github.com/tqwewe/kameo/compare/v0.14.0..v0.15.0
 [0.14.0]: https://github.com/tqwewe/kameo/compare/v0.13.0..v0.14.0
 [0.13.0]: https://github.com/tqwewe/kameo/compare/v0.12.2..v0.13.0
 [0.12.2]: https://github.com/tqwewe/kameo/compare/v0.12.1..v0.12.2
