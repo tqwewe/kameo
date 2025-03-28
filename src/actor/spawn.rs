@@ -376,12 +376,12 @@ impl<A: Actor> PreparedActor<A> {
     ///
     /// See [`spawn`] for more information.
     pub fn spawn(self, actor: A) -> JoinHandle<(A, ActorStopReason)> {
-        #[cfg(not(tokio_unstable))]
+        #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         {
             tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(actor)))
         }
 
-        #[cfg(tokio_unstable)]
+        #[cfg(all(tokio_unstable, feature = "tracing"))]
         {
             tokio::task::Builder::new()
                 .name(A::name())
