@@ -25,6 +25,16 @@ jobs:
       - run: cargo build --no-default-features --features macros --verbose
       - run: cargo build --no-default-features --features tracing --verbose
       - run: cargo build --no-default-features --features remote --verbose
-      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --verbose
-      - run: cargo test --features remote --verbose
-      - run: cargo clippy --features remote
+      - run: cargo build -p kameo_actors --verbose
+      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --verbose
+      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --features macros --verbose
+      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --features tracing --verbose
+      - run: RUSTFLAGS="--cfg tokio_unstable" cargo build --no-default-features --features remote --verbose
+      - run: cargo test --no-default-features --verbose
+      - run: cargo test --no-default-features --features macros --verbose
+      - run: cargo test --no-default-features --features tracing --verbose
+      - run: cargo test --no-default-features --features remote --verbose
+      - run: cargo clippy --no-default-features
+      - run: cargo clippy --no-default-features --features macros
+      - run: cargo clippy --no-default-features --features tracing
+      - run: cargo clippy --no-default-features --features remote
