@@ -1,5 +1,6 @@
 use std::{borrow::Cow, env::args, time::Duration};
 
+use futures::StreamExt;
 use kameo::{
     prelude::*,
     remote::{
@@ -18,7 +19,6 @@ use libp2p::{
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder,
 };
 use serde::{Deserialize, Serialize};
-use tokio_stream::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

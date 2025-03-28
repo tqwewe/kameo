@@ -1,9 +1,7 @@
 use std::time::Duration;
 
-use kameo::{
-    actor::pool::{ActorPool, BroadcastMsg, WorkerMsg},
-    prelude::*,
-};
+use kameo::prelude::*;
+use kameo_actors::pool::{ActorPool, Broadcast, Dispatch};
 
 #[derive(Actor, Default)]
 struct MyActor;
@@ -40,18 +38,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print IDs 0, 2, 4, 6, 8
     for _ in 0..5 {
-        pool.tell(WorkerMsg(PrintActorID)).await?;
+        pool.tell(Dispatch(PrintActorID)).await?;
     }
 
     // Force all workers to stop, causing them to be restarted
-    pool.ask(BroadcastMsg(ForceStop)).await?;
+    pool.ask(Broadcast(ForceStop)).await?;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     println!("Restarted all workers");
 
     // New IDs 11, 13, 15, 17, 19 will be printed
     for _ in 0..5 {
-        pool.tell(WorkerMsg(PrintActorID)).await?;
+        pool.tell(Dispatch(PrintActorID)).await?;
     }
 
     tokio::time::sleep(Duration::from_millis(200)).await;

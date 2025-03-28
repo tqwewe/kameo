@@ -24,8 +24,6 @@
 mod actor_ref;
 mod id;
 mod kind;
-pub mod pool;
-pub mod pubsub;
 mod spawn;
 
 use std::{any, ops::ControlFlow};

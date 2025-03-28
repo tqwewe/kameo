@@ -47,15 +47,8 @@
 
 use std::collections::HashMap;
 
-use futures::future::{join_all, BoxFuture};
-
-use crate::{
-    error::{Infallible, SendError},
-    message::{Context, Message},
-    Actor,
-};
-
-use super::{ActorID, ActorRef};
+use futures::future::{BoxFuture, join_all};
+use kameo::{error::Infallible, prelude::*};
 
 type Subscriber<M> = Box<dyn MessageSubscriber<M> + Send>;
 type FilterFn<M> = Box<dyn FnMut(&M) -> bool + Send>;

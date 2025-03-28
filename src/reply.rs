@@ -454,7 +454,6 @@ impl_infallible_reply!([
     {T: 'static + Send} tokio::sync::oneshot::Receiver<T>,
     {T: 'static + Send} tokio::sync::Mutex<T>,
     {T: 'static + Send} tokio::sync::RwLock<T>,
-    {T: 'static + Send} tokio_stream::wrappers::ReceiverStream<T>,
     {A: 'static + Send} (A,),
     {A: 'static + Send, B: 'static + Send} (A, B),
     {A: 'static + Send, B: 'static + Send, C: 'static + Send} (A, B, C),
