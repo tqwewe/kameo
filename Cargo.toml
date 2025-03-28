@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = [".", "macros"]
+members = [".", "actors", "macros"]
+
+[workspace.dependencies]
+kameo = { path = "." }
+
+futures = "0.3"
+tokio = "1.44"
 
 [profile.release]
 lto = true
@@ -32,19 +38,19 @@ kameo_macros = { version = "0.15.0", path = "./macros", optional = true }
 
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
-futures = "0.3"
+futures.workspace = true
 libp2p = { version = "0.55.0", features = ["cbor", "dns", "kad", "mdns", "macros", "quic", "request-response", "rsa", "serde", "tokio"], optional = true }
 libp2p-identity = { version = "0.2.9", features = ["rand", "rsa"], optional = true }
 linkme = { version= "0.3.28", optional = true }
 once_cell = "1.19"
 rmp-serde = { version = "1.3.0", optional = true }
 serde = { version = "1.0", features = ["derive"] }
-tokio = { version = "1.44", features = ["macros", "rt", "sync", "time"] }
-tokio-stream = "0.1"
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["async_tokio"] }
+kameo_actors = { path = "actors" }
 tokio = { version = "1", features = [
   "macros",
   "rt",

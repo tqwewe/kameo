@@ -1,0 +1,8 @@
+[package]
+name = "kameo_actors"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures.workspace = true
+kameo.workspace = true

@@ -47,19 +47,10 @@ use std::{
 };
 
 use futures::{
-    future::{join_all, BoxFuture},
     Future, FutureExt, TryFutureExt,
+    future::{BoxFuture, join_all},
 };
-
-use crate::{
-    actor::{spawn_with_mailbox, Actor, ActorRef},
-    error::{ActorStopReason, Infallible, SendError},
-    mailbox::{self, MailboxSender},
-    message::{Context, Message},
-    reply::{Reply, ReplyError},
-};
-
-use super::{ActorID, WeakActorRef};
+use kameo::{actor::spawn_with_mailbox, error::Infallible, prelude::*};
 
 enum Factory<A: Actor> {
     Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
@@ -306,11 +297,11 @@ where
     }
 }
 
-/// A message sent to a worker in an actor pool.
+/// A message to be handled by a worker in an actor pool.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct WorkerMsg<M>(pub M);
+pub struct Dispatch<M>(pub M);
 
-impl<A, M, R> Message<WorkerMsg<M>> for ActorPool<A>
+impl<A, M, R> Message<Dispatch<M>> for ActorPool<A>
 where
     A: Actor + Message<M, Reply = R>,
     M: Send + 'static,
@@ -320,7 +311,7 @@ where
 
     async fn handle(
         &mut self,
-        WorkerMsg(mut msg): WorkerMsg<M>,
+        Dispatch(mut msg): Dispatch<M>,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let (_, mut reply_sender) = ctx.reply_sender();
@@ -337,8 +328,10 @@ where
                             SendError::ActorNotRunning((m, tx)) => {
                                 msg = m.msg;
                                 reply_sender = Some(tx);
-                            },
-                            _ => unreachable!("message was forwarded, so the only error should be if the actor is not running")
+                            }
+                            _ => unreachable!(
+                                "message was forwarded, so the only error should be if the actor is not running"
+                            ),
                         }
                         continue;
                     }
@@ -351,8 +344,10 @@ where
                             SendError::ActorNotRunning(m) => {
                                 msg = m.msg;
                                 reply_sender = None;
-                            },
-                            _ => unreachable!("message was sent with `tell`, so the only error should be if the actor is not running")
+                            }
+                            _ => unreachable!(
+                                "message was sent with `tell`, so the only error should be if the actor is not running"
+                            ),
                         }
                         continue;
                     }
@@ -368,9 +363,9 @@ where
 
 /// A message broadcasted to all workers in an actor pool.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct BroadcastMsg<M>(pub M);
+pub struct Broadcast<M>(pub M);
 
-impl<A, M> Message<BroadcastMsg<M>> for ActorPool<A>
+impl<A, M> Message<Broadcast<M>> for ActorPool<A>
 where
     A: Actor + Message<M>,
     M: Clone + Send + 'static,
@@ -379,7 +374,7 @@ where
 
     async fn handle(
         &mut self,
-        BroadcastMsg(msg): BroadcastMsg<M>,
+        Broadcast(msg): Broadcast<M>,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         join_all(

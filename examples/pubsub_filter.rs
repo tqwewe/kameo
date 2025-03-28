@@ -1,7 +1,5 @@
-use kameo::{
-    actor::pubsub::{PubSub, Publish, Subscribe, SubscribeFilter},
-    prelude::*,
-};
+use kameo::prelude::*;
+use kameo_actors::pubsub::{PubSub, Publish, Subscribe, SubscribeFilter};
 
 #[derive(Clone)]
 struct PrintActorID(String);

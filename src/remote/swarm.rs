@@ -1,7 +1,7 @@
 use core::task;
 use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
-use futures::{ready, stream::FuturesUnordered, Future, FutureExt};
+use futures::{ready, stream::FuturesUnordered, Future, FutureExt, StreamExt};
 use libp2p::{
     core::{transport::ListenerId, ConnectedPoint},
     identity::Keypair,
@@ -21,7 +21,6 @@ use libp2p::{
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
-use tokio_stream::StreamExt;
 
 use crate::{
     actor::{ActorID, ActorRef, RemoteActorRef},
