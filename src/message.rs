@@ -24,7 +24,11 @@ use crate::{
     Actor,
 };
 
-pub(crate) type BoxReply = Box<dyn any::Any + Send>;
+/// A boxed dynamic message type for the actor `A`.
+pub type BoxMessage<A> = Box<dyn DynMessage<A>>;
+
+/// A boxed dynamic type used for message replies.
+pub type BoxReply = Box<dyn any::Any + Send>;
 
 /// A message that can modify an actors state.
 ///
@@ -257,7 +261,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Option<Box<dyn ReplyError>>>;
+    ) -> BoxFuture<'_, Result<(), Box<dyn ReplyError>>>;
 
     /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -273,7 +277,7 @@ where
         state: &mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Option<Box<dyn ReplyError>>> {
+    ) -> BoxFuture<'_, Result<(), Box<dyn ReplyError>>> {
         async move {
             let reply_sender = tx.map(ReplySender::new);
             let mut ctx: Context<A, <A as Message<T>>::Reply> =
@@ -281,9 +285,12 @@ where
             let reply = Message::handle(state, *self, &mut ctx).await;
             if let Some(tx) = ctx.reply.take() {
                 tx.send(reply.into_value());
-                None
+                Ok(())
             } else {
-                reply.into_any_err()
+                match reply.into_any_err() {
+                    Some(err) => Err(err),
+                    None => Ok(()),
+                }
             }
         }
         .boxed()
