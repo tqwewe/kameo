@@ -92,19 +92,20 @@ static REMOTE_ACTORS_MAP: LazyLock<HashMap<&'static str, RemoteActorFns>> = Lazy
     REMOTE_ACTORS.iter().copied().collect()
 });
 
-static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>> =
-    Lazy::new(|| {
-        let mut existing_ids = HashSet::new();
-        for (id, _) in REMOTE_MESSAGES {
-            if !existing_ids.insert(id) {
-                panic!(
-                    "duplicate remote message detected for actor '{}' and message '{}'",
-                    id.actor_remote_id, id.message_remote_id
-                );
-            }
+static REMOTE_MESSAGES_MAP: LazyLock<
+    HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>,
+> = LazyLock::new(|| {
+    let mut existing_ids = HashSet::new();
+    for (id, _) in REMOTE_MESSAGES {
+        if !existing_ids.insert(id) {
+            panic!(
+                "duplicate remote message detected for actor '{}' and message '{}'",
+                id.actor_remote_id, id.message_remote_id
+            );
         }
-        REMOTE_MESSAGES.iter().copied().collect()
-    });
+    }
+    REMOTE_MESSAGES.iter().copied().collect()
+});
 
 /// `RemoteActor` is a trait for identifying actors remotely.
 ///
