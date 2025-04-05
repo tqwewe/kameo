@@ -49,6 +49,7 @@ use std::{
     any,
     borrow::Cow,
     collections::{HashMap, HashSet},
+    sync::LazyLock,
     time::Duration,
 };
 
@@ -58,7 +59,6 @@ use _internal::{
 pub use libp2p::swarm::dial_opts;
 pub use libp2p::PeerId;
 pub use libp2p_identity::Keypair;
-use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -73,8 +73,8 @@ mod swarm;
 
 pub use swarm::*;
 
-pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, RemoteRegistryActorRef>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorID, RemoteRegistryActorRef>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) struct RemoteRegistryActorRef {
     pub(crate) actor_ref: Box<dyn any::Any + Send + Sync>,
@@ -82,7 +82,7 @@ pub(crate) struct RemoteRegistryActorRef {
     pub(crate) links: Links,
 }
 
-static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteActorFns>> = Lazy::new(|| {
+static REMOTE_ACTORS_MAP: LazyLock<HashMap<&'static str, RemoteActorFns>> = LazyLock::new(|| {
     let mut existing_ids = HashSet::new();
     for (id, _) in REMOTE_ACTORS {
         if !existing_ids.insert(id) {
@@ -92,19 +92,20 @@ static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteActorFns>> = Lazy::ne
     REMOTE_ACTORS.iter().copied().collect()
 });
 
-static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>> =
-    Lazy::new(|| {
-        let mut existing_ids = HashSet::new();
-        for (id, _) in REMOTE_MESSAGES {
-            if !existing_ids.insert(id) {
-                panic!(
-                    "duplicate remote message detected for actor '{}' and message '{}'",
-                    id.actor_remote_id, id.message_remote_id
-                );
-            }
+static REMOTE_MESSAGES_MAP: LazyLock<
+    HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>,
+> = LazyLock::new(|| {
+    let mut existing_ids = HashSet::new();
+    for (id, _) in REMOTE_MESSAGES {
+        if !existing_ids.insert(id) {
+            panic!(
+                "duplicate remote message detected for actor '{}' and message '{}'",
+                id.actor_remote_id, id.message_remote_id
+            );
         }
-        REMOTE_MESSAGES.iter().copied().collect()
-    });
+    }
+    REMOTE_MESSAGES.iter().copied().collect()
+});
 
 /// `RemoteActor` is a trait for identifying actors remotely.
 ///
