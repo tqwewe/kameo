@@ -1,4 +1,5 @@
 use core::task;
+use std::sync::OnceLock;
 use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
 
 use futures::{ready, stream::FuturesUnordered, Future, FutureExt, StreamExt};
@@ -18,7 +19,6 @@ use libp2p::{
     },
     Multiaddr, PeerId, StreamProtocol, Swarm, SwarmBuilder, TransportError,
 };
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
@@ -30,7 +30,7 @@ use crate::{
 
 use super::{RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY};
 
-static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
+static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
 
 /// `ActorSwarm` is the core component for remote actors within Kameo.
 ///
