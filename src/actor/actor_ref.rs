@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use dyn_clone::DynClone;
 use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt, TryFutureExt};
 use tokio::{
     sync::{Mutex, Semaphore},
@@ -786,9 +787,77 @@ impl<M: Send + 'static> Recipient<M> {
         self.handler.id()
     }
 
+    /// Returns whether the actor is currently alive.
+    #[inline]
+    pub fn is_alive(&self) -> bool {
+        self.handler.is_alive()
+    }
+
+    /// Converts the `Recipient` to a [`WeakRecipient`] that does not count
+    /// towards RAII semantics, i.e. if all `ActorRef`/`Recipient` instances of the
+    /// actor were dropped and only `WeakActorRef`/`WeakRecipient` instances remain,
+    /// the actor is stopped.
+    #[must_use = "Downgrade creates a WeakRecipient without destroying the original non-weak recipient."]
+    #[inline]
+    pub fn downgrade(&self) -> WeakRecipient<M> {
+        self.handler.downgrade()
+    }
+
+    /// Returns the number of [`ActorRef`]/[`Recipient`] handles.
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.handler.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`]/[`WeakRecipient`] handles.
+    #[inline]
+    pub fn weak_count(&self) -> usize {
+        self.handler.weak_count()
+    }
+
+    /// Returns `true` if the current task is the actor itself.
+    ///
+    /// See [`ActorRef::is_current`].
+    #[inline]
+    pub fn is_current(&self) -> bool {
+        self.handler.is_current()
+    }
+
+    /// Signals the actor to stop after processing all messages currently in its mailbox.
+    ///
+    /// See [`ActorRef::stop_gracefully`].
+    #[inline]
+    pub async fn stop_gracefully(&self) -> Result<(), SendError> {
+        self.handler.stop_gracefully().await
+    }
+
+    /// Kills the actor immediately.
+    ///
+    /// See [`ActorRef::kill`].
+    #[inline]
+    pub fn kill(&self) {
+        self.handler.kill()
+    }
+
+    /// Waits for the actor to finish startup and become ready to process messages.
+    ///
+    /// See [`ActorRef::wait_startup`].
+    #[inline]
+    pub async fn wait_startup(&self) {
+        self.handler.wait_startup().await
+    }
+
+    /// Waits for the actor to finish processing and stop.
+    ///
+    /// See [`ActorRef::wait_for_stop`].
+    #[inline]
+    pub async fn wait_for_stop(&self) {
+        self.handler.wait_for_stop().await
+    }
+
     /// Sends a message to the actor without waiting for a reply.
     ///
-    /// See [ActorRef::tell].
+    /// See [`ActorRef::tell`].
     pub fn tell(&self, msg: M) -> RecipientTellRequest<'_, M, WithoutRequestTimeout> {
         RecipientTellRequest::new(
             self,
@@ -796,6 +865,14 @@ impl<M: Send + 'static> Recipient<M> {
             #[cfg(all(debug_assertions, feature = "tracing"))]
             std::panic::Location::caller(),
         )
+    }
+}
+
+impl<M: Send + 'static> Clone for Recipient<M> {
+    fn clone(&self) -> Self {
+        Recipient {
+            handler: dyn_clone::clone_box(&*self.handler),
+        }
     }
 }
 
@@ -1136,6 +1213,50 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
     }
 }
 
+/// A weak recipient that does not prevent the actor from being stopped.
+pub struct WeakRecipient<M: Send + 'static> {
+    handler: Box<dyn WeakMessageHandler<M>>,
+}
+
+impl<M: Send + 'static> WeakRecipient<M> {
+    /// Returns the actor identifier.
+    pub fn id(&self) -> ActorID {
+        self.handler.id()
+    }
+
+    /// Tries to convert a `WeakRecipient` into a [`Recipient`]. This will return `Some`
+    /// if there are other `ActorRef`/`Recipient` instances alive, otherwise `None` is returned.
+    pub fn upgrade(&self) -> Option<Recipient<M>> {
+        self.handler.upgrade()
+    }
+
+    /// Returns the number of [`ActorRef`]/[`Recipient`] handles.
+    pub fn strong_count(&self) -> usize {
+        self.handler.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`]/[`WeakRecipient`] handles.
+    pub fn weak_count(&self) -> usize {
+        self.handler.weak_count()
+    }
+}
+
+impl<A: Actor> Clone for WeakRecipient<A> {
+    fn clone(&self) -> Self {
+        WeakRecipient {
+            handler: dyn_clone::clone_box(&*self.handler),
+        }
+    }
+}
+
+impl<A: Actor> fmt::Debug for WeakRecipient<A> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("WeakRecipient");
+        d.field("id", &self.handler.id());
+        d.finish()
+    }
+}
+
 /// A collection of links to other actors that are notified when the actor dies.
 ///
 /// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
@@ -1158,8 +1279,19 @@ pub(crate) enum Link {
     Remote(std::borrow::Cow<'static, str>),
 }
 
-pub(crate) trait MessageHandler<M: Send + 'static>: Send + Sync + 'static {
+pub(crate) trait MessageHandler<M: Send + 'static>:
+    DynClone + Send + Sync + 'static
+{
     fn id(&self) -> ActorID;
+    fn is_alive(&self) -> bool;
+    fn downgrade(&self) -> WeakRecipient<M>;
+    fn strong_count(&self) -> usize;
+    fn weak_count(&self) -> usize;
+    fn is_current(&self) -> bool;
+    fn stop_gracefully(&self) -> BoxFuture<'_, Result<(), SendError>>;
+    fn kill(&self);
+    fn wait_startup(&self) -> BoxFuture<'_, ()>;
+    fn wait_for_stop(&self) -> BoxFuture<'_, ()>;
 
     #[allow(clippy::type_complexity)]
     fn tell(
@@ -1179,6 +1311,51 @@ where
     #[inline]
     fn id(&self) -> ActorID {
         self.id
+    }
+
+    #[inline]
+    fn is_alive(&self) -> bool {
+        self.is_alive()
+    }
+
+    #[inline]
+    fn downgrade(&self) -> WeakRecipient<M> {
+        todo!()
+    }
+
+    #[inline]
+    fn strong_count(&self) -> usize {
+        self.strong_count()
+    }
+
+    #[inline]
+    fn weak_count(&self) -> usize {
+        self.weak_count()
+    }
+
+    #[inline]
+    fn is_current(&self) -> bool {
+        self.is_current()
+    }
+
+    #[inline]
+    fn stop_gracefully(&self) -> BoxFuture<'_, Result<(), SendError>> {
+        self.stop_gracefully().boxed()
+    }
+
+    #[inline]
+    fn kill(&self) {
+        self.kill()
+    }
+
+    #[inline]
+    fn wait_startup(&self) -> BoxFuture<'_, ()> {
+        self.wait_startup().boxed()
+    }
+
+    #[inline]
+    fn wait_for_stop(&self) -> BoxFuture<'_, ()> {
+        self.wait_for_stop().boxed()
     }
 
     fn tell(
@@ -1205,5 +1382,38 @@ where
         self.tell(msg).blocking_send().map_err(|err| {
             err.map_err(|_| unreachable!("tell requests don't handle the reply errors"))
         })
+    }
+}
+
+trait WeakMessageHandler<M: Send + 'static>: DynClone + Send + Sync + 'static {
+    fn id(&self) -> ActorID;
+    fn upgrade(&self) -> Option<Recipient<M>>;
+    fn strong_count(&self) -> usize;
+    fn weak_count(&self) -> usize;
+}
+
+impl<A, M> WeakMessageHandler<M> for WeakActorRef<A>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+{
+    #[inline]
+    fn id(&self) -> ActorID {
+        self.id
+    }
+
+    #[inline]
+    fn upgrade(&self) -> Option<Recipient<M>> {
+        self.upgrade().map(Recipient::new)
+    }
+
+    #[inline]
+    fn strong_count(&self) -> usize {
+        self.strong_count()
+    }
+
+    #[inline]
+    fn weak_count(&self) -> usize {
+        self.weak_count()
     }
 }
