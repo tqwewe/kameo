@@ -206,7 +206,7 @@ where
 ///     mailbox::bounded(100)
 /// );
 /// actor_ref.tell(Flush).blocking_send()?;
-/// # Ok::<(), kameo::error::SendError<Flush, io::Error>>(())
+/// # Ok::<(), kameo::error::SendError<Flush>>(())
 /// ```
 pub fn spawn_in_thread_with_mailbox<A>(
     actor: A,
@@ -257,7 +257,7 @@ where
 ///     MyActor { file: File::create("output.txt").unwrap() }
 /// );
 /// actor_ref.tell(Flush).blocking_send()?;
-/// # Ok::<(), kameo::error::SendError<Flush, io::Error>>(())
+/// # Ok::<(), kameo::error::SendError<Flush>>(())
 /// ```
 ///
 /// This function is useful for actors that require or benefit from running blocking operations while still
