@@ -22,6 +22,7 @@ use super::{WithRequestTimeout, WithoutRequestTimeout};
 
 /// A request to send a message to an actor, waiting for a reply.
 #[allow(missing_debug_implementations)]
+#[must_use = "request won't be sent without awaiting, or calling a send method"]
 pub struct AskRequest<'a, A, M, Tm, Tr>
 where
     A: Actor + Message<M>,
@@ -594,6 +595,7 @@ where
 ///
 /// This is returned by [`AskRequest::enqueue`] and [`AskRequest::try_enqueue`].
 #[allow(missing_debug_implementations)]
+#[must_use = "reply wont be received without awaiting"]
 pub struct PendingReply<'a, M, R>
 where
     R: Reply,
@@ -619,6 +621,7 @@ where
 ///
 /// This is returned by [`AskRequest::blocking_enqueue`].
 #[allow(missing_debug_implementations)]
+#[must_use = "reply wont be received without calling .recv()"]
 pub struct BlockingPendingReply<'a, M, R>
 where
     R: Reply,
@@ -640,6 +643,7 @@ where
 /// A request to send a message to an actor, waiting for a reply.
 #[cfg(feature = "remote")]
 #[allow(missing_debug_implementations)]
+#[must_use = "request won't be sent without awaiting, or calling a send method"]
 pub struct RemoteAskRequest<'a, A, M, Tm, Tr>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,

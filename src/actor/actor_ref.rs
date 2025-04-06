@@ -3,9 +3,10 @@ use std::{
     collections::HashMap,
     fmt, ops,
     sync::{Arc, OnceLock},
+    time::Duration,
 };
 
-use futures::{stream::AbortHandle, Stream, StreamExt};
+use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt, TryFutureExt};
 use tokio::{
     sync::{Mutex, Semaphore},
     task::JoinHandle,
@@ -24,8 +25,8 @@ use crate::{
     error::{self, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
-    reply::Reply,
-    request::{AskRequest, TellRequest, WithoutRequestTimeout},
+    reply::{Reply, ReplyError},
+    request::{AskRequest, RecipientTellRequest, TellRequest, WithoutRequestTimeout},
     Actor,
 };
 
@@ -139,6 +140,22 @@ where
             .ok_or(error::RegistryError::SwarmNotBootstrapped)?
             .lookup_local(name.to_string())
             .await
+    }
+
+    /// Creates a message-specific recipient for this actor.
+    ///
+    /// Returns a `Recipient<M>` that can only handle messages of type `M`.
+    /// This allows creating a more specific reference that hides the concrete
+    /// actor type while preserving the ability to send messages.
+    ///
+    /// The recipient maintains the same message handling behavior as the
+    /// original actor reference, but with a more focused API.
+    pub fn recipient<M>(self) -> Recipient<M>
+    where
+        A: Message<M>,
+        M: Send + 'static,
+    {
+        Recipient::new(self)
     }
 
     /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
@@ -747,6 +764,50 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
     }
 }
 
+/// A type erased actor ref, accepting only a single message type.
+///
+/// This is returned by [ActorRef::recipient].
+pub struct Recipient<M: Send + 'static> {
+    pub(crate) handler: Box<dyn MessageHandler<M>>,
+}
+
+impl<M: Send + 'static> Recipient<M> {
+    fn new<A>(actor_ref: ActorRef<A>) -> Self
+    where
+        A: Actor + Message<M>,
+    {
+        Recipient {
+            handler: Box::new(actor_ref),
+        }
+    }
+
+    /// Returns the unique identifier of the actor.
+    #[inline]
+    pub fn id(&self) -> ActorID {
+        self.handler.id()
+    }
+
+    /// Sends a message to the actor without waiting for a reply.
+    ///
+    /// See [ActorRef::tell].
+    pub fn tell(&self, msg: M) -> RecipientTellRequest<'_, M, WithoutRequestTimeout> {
+        RecipientTellRequest::new(
+            self,
+            msg,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            std::panic::Location::caller(),
+        )
+    }
+}
+
+impl<M: Send + 'static> fmt::Debug for Recipient<M> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("Recipient");
+        d.field("id", &self.handler.id());
+        d.finish()
+    }
+}
+
 /// A reference to an actor running remotely.
 ///
 /// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
@@ -1096,4 +1157,52 @@ pub(crate) enum Link {
     Local(Box<dyn SignalMailbox>),
     #[cfg(feature = "remote")]
     Remote(std::borrow::Cow<'static, str>),
+}
+
+pub(crate) trait MessageHandler<M: Send + 'static>: Send + Sync + 'static {
+    fn id(&self) -> ActorID;
+
+    #[allow(clippy::type_complexity)]
+    fn tell(
+        &self,
+        msg: M,
+        mailbox_timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<(), SendError<M, Box<dyn ReplyError>>>>;
+    fn try_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>>;
+    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>>;
+}
+
+impl<A, M> MessageHandler<M> for ActorRef<A>
+where
+    A: Actor + Message<M>,
+    M: Send + 'static,
+{
+    #[inline]
+    fn id(&self) -> ActorID {
+        self.id
+    }
+
+    fn tell(
+        &self,
+        msg: M,
+        mailbox_timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<(), SendError<M, Box<dyn ReplyError>>>> {
+        self.tell(msg)
+            .mailbox_timeout_opt(mailbox_timeout)
+            .send()
+            .map_err(|err| err.map_err(|err| Box::new(err) as Box<dyn ReplyError>))
+            .boxed()
+    }
+
+    fn try_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>> {
+        self.tell(msg)
+            .try_send()
+            .map_err(|err| err.map_err(|err| Box::new(err) as Box<dyn ReplyError>))
+    }
+
+    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>> {
+        self.tell(msg)
+            .blocking_send()
+            .map_err(|err| err.map_err(|err| Box::new(err) as Box<dyn ReplyError>))
+    }
 }
