@@ -1125,7 +1125,7 @@ pub enum SwarmCommand {
     /// Send a tell response.
     SendTellResponse {
         /// Tell result.
-        result: Result<(), RemoteSendError<Vec<u8>>>,
+        result: Result<(), RemoteSendError>,
         /// Response channel.
         channel: ResponseChannel<SwarmResponse>,
     },
@@ -1309,7 +1309,7 @@ pub enum SwarmResponse {
     /// Represents the response to a `Tell` request.
     ///
     /// Contains either a successful acknowledgment or an error indicating why the send failed.
-    Tell(Result<(), RemoteSendError<Vec<u8>>>),
+    Tell(Result<(), RemoteSendError>),
 
     /// Represents the response to a link request.
     Link(Result<(), RemoteSendError<Infallible>>),
@@ -1400,7 +1400,7 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     fn send_tell_response(
         &mut self,
         channel: ResponseChannel<SwarmResponse>,
-        result: Result<(), RemoteSendError<Vec<u8>>>,
+        result: Result<(), RemoteSendError>,
     ) -> Result<(), SwarmResponse>;
 
     /// Sends a response to a previously received `link` request.
@@ -1645,7 +1645,7 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
     fn send_tell_response(
         &mut self,
         channel: ResponseChannel<SwarmResponse>,
-        result: Result<(), RemoteSendError<Vec<u8>>>,
+        result: Result<(), RemoteSendError>,
     ) -> Result<(), SwarmResponse> {
         self.request_response
             .send_response(channel, SwarmResponse::Tell(result))

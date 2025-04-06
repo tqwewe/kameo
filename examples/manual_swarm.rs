@@ -276,7 +276,7 @@ impl SwarmBehaviour for CustomBehaviour {
     fn send_tell_response(
         &mut self,
         channel: ResponseChannel<kameo::remote::SwarmResponse>,
-        result: Result<(), RemoteSendError<Vec<u8>>>,
+        result: Result<(), RemoteSendError>,
     ) -> Result<(), SwarmResponse> {
         self.actor_request_response
             .send_response(channel, SwarmResponse::Tell(result))

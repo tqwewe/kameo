@@ -12,7 +12,7 @@ pub use ask::RemoteAskRequest;
 pub use tell::RemoteTellRequest;
 
 pub use ask::{AskRequest, BlockingPendingReply, PendingReply};
-pub use tell::TellRequest;
+pub use tell::{RecipientTellRequest, TellRequest};
 
 /// A type for requests without any timeout set.
 #[derive(Clone, Copy, Debug, Default)]

@@ -179,7 +179,7 @@ pub(crate) async fn tell(
     payload: Vec<u8>,
     mailbox_timeout: Option<Duration>,
     immediate: bool,
-) -> Result<(), RemoteSendError<Vec<u8>>> {
+) -> Result<(), RemoteSendError> {
     let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
         actor_remote_id: &actor_remote_id,
         message_remote_id: &message_remote_id,

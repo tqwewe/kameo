@@ -3,14 +3,14 @@ use std::{future::IntoFuture, time::Duration};
 use futures::{future::BoxFuture, FutureExt};
 
 #[cfg(feature = "remote")]
-use crate::{actor, remote};
+use crate::{actor, error, remote};
 
 use crate::{
-    actor::ActorRef,
-    error::{self, SendError},
+    actor::{ActorRef, Recipient},
+    error::SendError,
     mailbox::{MailboxSender, Signal},
     message::Message,
-    Actor, Reply,
+    Actor,
 };
 
 use super::{WithRequestTimeout, WithoutRequestTimeout};
@@ -19,6 +19,7 @@ use super::{WithRequestTimeout, WithoutRequestTimeout};
 ///
 /// This can be thought of as "fire and forget".
 #[allow(missing_debug_implementations)]
+#[must_use = "request won't be sent without awaiting, or calling a send method"]
 pub struct TellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M>,
@@ -74,7 +75,7 @@ where
     }
 
     /// Sends the message.
-    pub async fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
+    pub async fn send(self) -> Result<(), SendError<M>>
     where
         Tm: Into<Option<Duration>>,
     {
@@ -105,7 +106,7 @@ where
     M: Send + 'static,
 {
     /// Tries to send the message without waiting for mailbox capacity.
-    pub fn try_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+    pub fn try_send(self) -> Result<(), SendError<M>> {
         let signal = Signal::Message {
             message: Box::new(self.msg),
             actor_ref: self.actor_ref.clone(),
@@ -120,7 +121,7 @@ where
     }
 
     /// Sends the message in a blocking context.
-    pub fn blocking_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+    pub fn blocking_send(self) -> Result<(), SendError<M>> {
         let signal = Signal::Message {
             message: Box::new(self.msg),
             actor_ref: self.actor_ref.clone(),
@@ -145,11 +146,111 @@ where
     M: Send + 'static,
     Tm: Into<Option<Duration>> + Send + 'static,
 {
-    type Output = Result<(), error::SendError<M, <A::Reply as Reply>::Error>>;
+    type Output = Result<(), SendError<M>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
         self.send().boxed()
+    }
+}
+
+/// A request to send a message to a typed actor without any reply.
+#[allow(missing_debug_implementations)]
+#[must_use = "request won't be sent without awaiting, or calling a send method"]
+pub struct RecipientTellRequest<'a, M, Tm>
+where
+    M: Send + 'static,
+{
+    actor_ref: &'a Recipient<M>,
+    msg: M,
+    mailbox_timeout: Tm,
+    #[cfg(all(debug_assertions, feature = "tracing"))]
+    called_at: &'static std::panic::Location<'static>,
+}
+
+impl<'a, M, Tm> RecipientTellRequest<'a, M, Tm>
+where
+    M: Send + 'static,
+{
+    pub(crate) fn new(
+        actor_ref: &'a Recipient<M>,
+        msg: M,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
+    ) -> Self
+    where
+        Tm: Default,
+    {
+        RecipientTellRequest {
+            actor_ref,
+            msg,
+            mailbox_timeout: Tm::default(),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at,
+        }
+    }
+
+    /// Sets the timeout for waiting for the actors mailbox to have capacity.
+    pub fn mailbox_timeout(
+        self,
+        duration: Duration,
+    ) -> RecipientTellRequest<'a, M, WithRequestTimeout> {
+        self.mailbox_timeout_opt(Some(duration))
+    }
+
+    pub(crate) fn mailbox_timeout_opt(
+        self,
+        duration: Option<Duration>,
+    ) -> RecipientTellRequest<'a, M, WithRequestTimeout> {
+        RecipientTellRequest {
+            actor_ref: self.actor_ref,
+            msg: self.msg,
+            mailbox_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at: self.called_at,
+        }
+    }
+
+    /// Sends the message.
+    pub async fn send(self) -> Result<(), SendError<M>>
+    where
+        Tm: Into<Option<Duration>>,
+    {
+        self.actor_ref
+            .handler
+            .tell(self.msg, self.mailbox_timeout.into())
+            .await
+    }
+}
+
+impl<M> RecipientTellRequest<'_, M, WithoutRequestTimeout>
+where
+    M: Send + 'static,
+{
+    /// Tries to send the message without waiting for mailbox capacity.
+    pub fn try_send(self) -> Result<(), SendError<M>> {
+        self.actor_ref.handler.try_tell(self.msg)
+    }
+
+    /// Sends the message in a blocking context.
+    pub fn blocking_send(self) -> Result<(), SendError<M>> {
+        self.actor_ref.handler.blocking_tell(self.msg)
+    }
+}
+
+impl<'a, M, Tm> IntoFuture for RecipientTellRequest<'a, M, Tm>
+where
+    M: Send + 'static,
+    Tm: Into<Option<Duration>> + Send + 'static,
+{
+    type Output = Result<(), SendError<M>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        self.actor_ref
+            .handler
+            .tell(self.msg, self.mailbox_timeout.into())
     }
 }
 
@@ -158,6 +259,7 @@ where
 /// This can be thought of as "fire and forget".
 #[cfg(feature = "remote")]
 #[allow(missing_debug_implementations)]
+#[must_use = "request won't be sent without awaiting, or calling a send method"]
 pub struct RemoteTellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
@@ -199,7 +301,6 @@ impl<'a, A, M, Tm> RemoteTellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     /// Sets the timeout for waiting for the actors mailbox to have capacity.
     pub fn mailbox_timeout(
@@ -228,11 +329,10 @@ impl<A, M, Tm> RemoteTellRequest<'_, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
     Tm: Into<Option<Duration>>,
 {
     /// Sends the message.
-    pub async fn send(self) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>> {
+    pub async fn send(self) -> Result<(), error::RemoteSendError> {
         remote_tell(self.actor_ref, self.msg, self.mailbox_timeout.into(), false).await
     }
 }
@@ -242,10 +342,9 @@ impl<A, M> RemoteTellRequest<'_, A, M, WithoutRequestTimeout>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     /// Tries to send the message without waiting for mailbox capacity.
-    pub async fn try_send(self) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>> {
+    pub async fn try_send(self) -> Result<(), error::RemoteSendError> {
         remote_tell(self.actor_ref, self.msg, self.mailbox_timeout.into(), true).await
     }
 }
@@ -255,10 +354,9 @@ impl<'a, A, M, Tm> IntoFuture for RemoteTellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + Sync + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
     Tm: Into<Option<Duration>> + Send + 'static,
 {
-    type Output = Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>>;
+    type Output = Result<(), error::RemoteSendError>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -272,11 +370,10 @@ async fn remote_tell<A, M>(
     msg: &M,
     mailbox_timeout: Option<Duration>,
     immediate: bool,
-) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>>
+) -> Result<(), error::RemoteSendError>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     use remote::*;
     use std::borrow::Cow;
@@ -300,12 +397,7 @@ where
     match reply_rx.await.unwrap() {
         SwarmResponse::Tell(res) => match res {
             Ok(()) => Ok(()),
-            Err(err) => Err(err
-                .map_err(|err| match rmp_serde::decode::from_slice(&err) {
-                    Ok(err) => error::RemoteSendError::HandlerError(err),
-                    Err(err) => error::RemoteSendError::DeserializeHandlerError(err.to_string()),
-                })
-                .flatten()),
+            Err(err) => Err(err),
         },
         SwarmResponse::OutboundFailure(err) => {
             Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))

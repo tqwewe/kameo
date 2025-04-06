@@ -390,7 +390,15 @@ where
                             counter: Arc::downgrade(counter),
                         })
                         .send()
-                        .map_err(|err| err.map_msg(|msg| msg.msg).flatten())
+                        .map_err(|err| {
+                            err.map_msg(|msg| msg.msg)
+                                .map_err(|_| {
+                                    panic!(
+                                        "reset err infallible called on a `SendError::HandlerError`"
+                                    )
+                                })
+                                .flatten()
+                        })
                 }),
         )
         .await
