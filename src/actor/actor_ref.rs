@@ -25,7 +25,6 @@ use crate::{
     error::{self, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
-    reply::{Reply, ReplyError},
     request::{AskRequest, RecipientTellRequest, TellRequest, WithoutRequestTimeout},
     Actor,
 };
@@ -684,7 +683,7 @@ where
         mut stream: S,
         start_value: T,
         finish_value: F,
-    ) -> JoinHandle<Result<S, SendError<StreamMessage<M, T, F>, <A::Reply as Reply>::Error>>>
+    ) -> JoinHandle<Result<S, SendError<StreamMessage<M, T, F>>>>
     where
         A: Message<StreamMessage<M, T, F>>,
         S: Stream<Item = M> + Send + Unpin + 'static,
@@ -1167,9 +1166,9 @@ pub(crate) trait MessageHandler<M: Send + 'static>: Send + Sync + 'static {
         &self,
         msg: M,
         mailbox_timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), SendError<M, Box<dyn ReplyError>>>>;
-    fn try_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>>;
-    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>>;
+    ) -> BoxFuture<'_, Result<(), SendError<M>>>;
+    fn try_tell(&self, msg: M) -> Result<(), SendError<M>>;
+    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M>>;
 }
 
 impl<A, M> MessageHandler<M> for ActorRef<A>
@@ -1186,23 +1185,25 @@ where
         &self,
         msg: M,
         mailbox_timeout: Option<Duration>,
-    ) -> BoxFuture<'_, Result<(), SendError<M, Box<dyn ReplyError>>>> {
+    ) -> BoxFuture<'_, Result<(), SendError<M>>> {
         self.tell(msg)
             .mailbox_timeout_opt(mailbox_timeout)
             .send()
-            .map_err(|err| err.map_err(|err| Box::new(err) as Box<dyn ReplyError>))
+            .map_err(|err| {
+                err.map_err(|_| unreachable!("tell requests don't handle the reply errors"))
+            })
             .boxed()
     }
 
-    fn try_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>> {
-        self.tell(msg)
-            .try_send()
-            .map_err(|err| err.map_err(|err| Box::new(err) as Box<dyn ReplyError>))
+    fn try_tell(&self, msg: M) -> Result<(), SendError<M>> {
+        self.tell(msg).try_send().map_err(|err| {
+            err.map_err(|_| unreachable!("tell requests don't handle the reply errors"))
+        })
     }
 
-    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M, Box<dyn ReplyError>>> {
-        self.tell(msg)
-            .blocking_send()
-            .map_err(|err| err.map_err(|err| Box::new(err) as Box<dyn ReplyError>))
+    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M>> {
+        self.tell(msg).blocking_send().map_err(|err| {
+            err.map_err(|_| unreachable!("tell requests don't handle the reply errors"))
+        })
     }
 }

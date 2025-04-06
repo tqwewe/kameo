@@ -38,17 +38,6 @@ pub enum SendError<M = (), E = Infallible> {
 }
 
 impl<M, E> SendError<M, E> {
-    /// Clears in inner data back to `()`.
-    pub fn reset(self) -> SendError<(), ()> {
-        match self {
-            SendError::ActorNotRunning(_) => SendError::ActorNotRunning(()),
-            SendError::ActorStopped => SendError::ActorStopped,
-            SendError::MailboxFull(_) => SendError::MailboxFull(()),
-            SendError::HandlerError(_) => SendError::HandlerError(()),
-            SendError::Timeout(_) => SendError::Timeout(None),
-        }
-    }
-
     /// Maps the inner message to another type if the variant is [`ActorNotRunning`](SendError::ActorNotRunning).
     pub fn map_msg<N, F>(self, mut f: F) -> SendError<N, E>
     where
@@ -118,6 +107,10 @@ impl<M, E> SendError<M, E> {
             SendError::HandlerError(err) => err,
             _ => panic!("called `SendError::unwrap_err()` on a non error"),
         }
+    }
+
+    pub(crate) fn reset_err_infallible<F>(self) -> SendError<M, F> {
+        self.map_err(|_| panic!("reset err infallible called on a `SendError::HandlerError`"))
     }
 }
 
@@ -356,7 +349,7 @@ impl error::Error for RegistryError {}
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]
 #[derive(Debug, Serialize, Deserialize)]
-pub enum RemoteSendError<E> {
+pub enum RemoteSendError<E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning,
     /// The actor panicked or was stopped before a reply could be received.

@@ -20,6 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 
 use crate::{
     actor::ActorRef,
+    error::SendError,
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
     Actor,
 };
@@ -176,7 +177,11 @@ where
                 ForwardedReply::new(res)
             }
             None => {
-                let res = actor_ref.tell(message).send().await;
+                let res = actor_ref
+                    .tell(message)
+                    .send()
+                    .await
+                    .map_err(SendError::reset_err_infallible);
                 ForwardedReply::new(res)
             }
         }
@@ -207,7 +212,10 @@ where
                 ForwardedReply::new(res)
             }
             None => {
-                let res = actor_ref.tell(message).try_send();
+                let res = actor_ref
+                    .tell(message)
+                    .try_send()
+                    .map_err(SendError::reset_err_infallible);
                 ForwardedReply::new(res)
             }
         }
@@ -239,7 +247,10 @@ where
                 ForwardedReply::new(res)
             }
             None => {
-                let res = actor_ref.tell(message).blocking_send();
+                let res = actor_ref
+                    .tell(message)
+                    .blocking_send()
+                    .map_err(SendError::reset_err_infallible);
                 ForwardedReply::new(res)
             }
         }

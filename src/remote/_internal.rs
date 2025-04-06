@@ -51,10 +51,10 @@ pub type RemoteTellFn = fn(
     actor_id: ActorID,
     msg: Vec<u8>,
     mailbox_timeout: Option<Duration>,
-) -> BoxFuture<'static, Result<(), RemoteSendError<Vec<u8>>>>;
+) -> BoxFuture<'static, Result<(), RemoteSendError>>;
 
 pub type RemoteTryTellFn =
-    fn(actor_id: ActorID, msg: Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError<Vec<u8>>>>;
+    fn(actor_id: ActorID, msg: Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError>>;
 
 pub type RemoteLinkFn = fn(
     actor_id: ActorID,
@@ -168,11 +168,10 @@ pub async fn tell<A, M>(
     actor_id: ActorID,
     msg: Vec<u8>,
     mailbox_timeout: Option<Duration>,
-) -> Result<(), RemoteSendError<Vec<u8>>>
+) -> Result<(), RemoteSendError>
 where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
-    <A::Reply as Reply>::Error: Serialize,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -194,20 +193,14 @@ where
         .await;
     match res {
         Ok(()) => Ok(()),
-        Err(err) => Err(RemoteSendError::from(err)
-            .map_err(|err| match rmp_serde::to_vec_named(&err) {
-                Ok(payload) => RemoteSendError::HandlerError(payload),
-                Err(err) => RemoteSendError::SerializeHandlerError(err.to_string()),
-            })
-            .flatten()),
+        Err(err) => Err(RemoteSendError::from(err)),
     }
 }
 
-pub async fn try_tell<A, M>(actor_id: ActorID, msg: Vec<u8>) -> Result<(), RemoteSendError<Vec<u8>>>
+pub async fn try_tell<A, M>(actor_id: ActorID, msg: Vec<u8>) -> Result<(), RemoteSendError>
 where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
-    <A::Reply as Reply>::Error: Serialize,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -225,12 +218,7 @@ where
     let res = actor_ref.tell(msg).try_send();
     match res {
         Ok(()) => Ok(()),
-        Err(err) => Err(RemoteSendError::from(err)
-            .map_err(|err| match rmp_serde::to_vec_named(&err) {
-                Ok(payload) => RemoteSendError::HandlerError(payload),
-                Err(err) => RemoteSendError::SerializeHandlerError(err.to_string()),
-            })
-            .flatten()),
+        Err(err) => Err(RemoteSendError::from(err)),
     }
 }
 

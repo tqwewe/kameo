@@ -3,15 +3,14 @@ use std::{future::IntoFuture, time::Duration};
 use futures::{future::BoxFuture, FutureExt};
 
 #[cfg(feature = "remote")]
-use crate::{actor, remote};
+use crate::{actor, error, remote};
 
 use crate::{
     actor::{ActorRef, Recipient},
-    error::{self, SendError},
+    error::SendError,
     mailbox::{MailboxSender, Signal},
     message::Message,
-    reply::ReplyError,
-    Actor, Reply,
+    Actor,
 };
 
 use super::{WithRequestTimeout, WithoutRequestTimeout};
@@ -76,7 +75,7 @@ where
     }
 
     /// Sends the message.
-    pub async fn send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>>
+    pub async fn send(self) -> Result<(), SendError<M>>
     where
         Tm: Into<Option<Duration>>,
     {
@@ -107,7 +106,7 @@ where
     M: Send + 'static,
 {
     /// Tries to send the message without waiting for mailbox capacity.
-    pub fn try_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+    pub fn try_send(self) -> Result<(), SendError<M>> {
         let signal = Signal::Message {
             message: Box::new(self.msg),
             actor_ref: self.actor_ref.clone(),
@@ -122,7 +121,7 @@ where
     }
 
     /// Sends the message in a blocking context.
-    pub fn blocking_send(self) -> Result<(), SendError<M, <A::Reply as Reply>::Error>> {
+    pub fn blocking_send(self) -> Result<(), SendError<M>> {
         let signal = Signal::Message {
             message: Box::new(self.msg),
             actor_ref: self.actor_ref.clone(),
@@ -147,7 +146,7 @@ where
     M: Send + 'static,
     Tm: Into<Option<Duration>> + Send + 'static,
 {
-    type Output = Result<(), error::SendError<M, <A::Reply as Reply>::Error>>;
+    type Output = Result<(), SendError<M>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -214,7 +213,7 @@ where
     }
 
     /// Sends the message.
-    pub async fn send(self) -> Result<(), SendError<M, Box<dyn ReplyError>>>
+    pub async fn send(self) -> Result<(), SendError<M>>
     where
         Tm: Into<Option<Duration>>,
     {
@@ -230,12 +229,12 @@ where
     M: Send + 'static,
 {
     /// Tries to send the message without waiting for mailbox capacity.
-    pub fn try_send(self) -> Result<(), SendError<M, Box<dyn ReplyError>>> {
+    pub fn try_send(self) -> Result<(), SendError<M>> {
         self.actor_ref.handler.try_tell(self.msg)
     }
 
     /// Sends the message in a blocking context.
-    pub fn blocking_send(self) -> Result<(), SendError<M, Box<dyn ReplyError>>> {
+    pub fn blocking_send(self) -> Result<(), SendError<M>> {
         self.actor_ref.handler.blocking_tell(self.msg)
     }
 }
@@ -245,7 +244,7 @@ where
     M: Send + 'static,
     Tm: Into<Option<Duration>> + Send + 'static,
 {
-    type Output = Result<(), SendError<M, Box<dyn ReplyError>>>;
+    type Output = Result<(), SendError<M>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -302,7 +301,6 @@ impl<'a, A, M, Tm> RemoteTellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     /// Sets the timeout for waiting for the actors mailbox to have capacity.
     pub fn mailbox_timeout(
@@ -331,11 +329,10 @@ impl<A, M, Tm> RemoteTellRequest<'_, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
     Tm: Into<Option<Duration>>,
 {
     /// Sends the message.
-    pub async fn send(self) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>> {
+    pub async fn send(self) -> Result<(), error::RemoteSendError> {
         remote_tell(self.actor_ref, self.msg, self.mailbox_timeout.into(), false).await
     }
 }
@@ -345,10 +342,9 @@ impl<A, M> RemoteTellRequest<'_, A, M, WithoutRequestTimeout>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     /// Tries to send the message without waiting for mailbox capacity.
-    pub async fn try_send(self) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>> {
+    pub async fn try_send(self) -> Result<(), error::RemoteSendError> {
         remote_tell(self.actor_ref, self.msg, self.mailbox_timeout.into(), true).await
     }
 }
@@ -358,10 +354,9 @@ impl<'a, A, M, Tm> IntoFuture for RemoteTellRequest<'a, A, M, Tm>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + Sync + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
     Tm: Into<Option<Duration>> + Send + 'static,
 {
-    type Output = Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>>;
+    type Output = Result<(), error::RemoteSendError>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
@@ -375,11 +370,10 @@ async fn remote_tell<A, M>(
     msg: &M,
     mailbox_timeout: Option<Duration>,
     immediate: bool,
-) -> Result<(), error::RemoteSendError<<A::Reply as Reply>::Error>>
+) -> Result<(), error::RemoteSendError>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: serde::Serialize + Send + 'static,
-    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
     use remote::*;
     use std::borrow::Cow;
@@ -403,12 +397,7 @@ where
     match reply_rx.await.unwrap() {
         SwarmResponse::Tell(res) => match res {
             Ok(()) => Ok(()),
-            Err(err) => Err(err
-                .map_err(|err| match rmp_serde::decode::from_slice(&err) {
-                    Ok(err) => error::RemoteSendError::HandlerError(err),
-                    Err(err) => error::RemoteSendError::DeserializeHandlerError(err.to_string()),
-                })
-                .flatten()),
+            Err(err) => Err(err),
         },
         SwarmResponse::OutboundFailure(err) => {
             Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
