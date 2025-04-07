@@ -11,18 +11,12 @@
 //! - **Multiple Delivery Strategies**: Configure how messages are delivered to handle different reliability needs.
 //! - **Automatic Cleanup**: Dead actor references are automatically removed from subscription lists.
 //!
-//! # When to use Broker vs PubSub
-//!
-//! The `broker` module provides a more sophisticated routing system compared to the simpler `pubsub` module:
-//!
-//! - Use **Broker** when you need hierarchical topics, pattern-based subscriptions, or different delivery strategies.
-//! - Use **PubSub** when you only need simple broadcast to all listeners with optional type-based filtering.
-//!
 //! # Example
 //!
 //! ```
 //! use kameo::Actor;
-//! use kameo_actors::broker::{Broker, Subscribe, Publish, DeliveryStrategy};
+//! use kameo_actors::broker::{Broker, Subscribe, Publish};
+//! use kameo_actors::DeliveryStrategy;
 //! use glob::Pattern;
 //! # use std::time::Duration;
 //! # use kameo::message::{Context, Message};
@@ -62,10 +56,12 @@
 //! # });
 //! ```
 
-use std::{collections::HashMap, time::Duration};
+use std::collections::HashMap;
 
 use glob::{MatchOptions, Pattern};
 use kameo::prelude::*;
+
+use crate::DeliveryStrategy;
 
 /// A generic topic-based message broker for the actor system.
 ///
@@ -267,43 +263,4 @@ impl<M: Clone + Send + 'static> Message<Publish<M>> for Broker<M> {
             self.unsubscribe(&pattern, actor_id);
         }
     }
-}
-
-/// Strategies for delivering messages to subscribers.
-///
-/// Different strategies provide different trade-offs between reliability,
-/// performance, and resource usage.
-#[derive(Clone, Copy, Debug, Default, Hash, PartialEq, Eq)]
-pub enum DeliveryStrategy {
-    /// Block until all messages are delivered.
-    ///
-    /// This strategy ensures reliable delivery but may cause the broker
-    /// to block if any recipient's mailbox is full.
-    Guaranteed,
-
-    /// Skip actors with full mailboxes.
-    ///
-    /// This strategy attempts to deliver messages immediately without blocking,
-    /// but will skip recipients whose mailboxes are full.
-    #[default]
-    BestEffort,
-
-    /// Try to deliver with timeout (blocks the publisher).
-    ///
-    /// This strategy waits for each recipient to accept the message, but only
-    /// up to the specified timeout duration. The broker will block during delivery.
-    TimedDelivery(Duration),
-
-    /// Spawn a task for each delivery (non-blocking).
-    ///
-    /// This strategy spawns a separate task for each message delivery,
-    /// allowing the broker to continue processing other messages immediately.
-    /// Tasks will retry indefinitely if mailboxes are full.
-    Spawned,
-
-    /// Spawn a task with timeout for each delivery.
-    ///
-    /// This strategy combines the benefits of spawned delivery with a timeout,
-    /// ensuring that delivery attempts don't consume resources indefinitely.
-    SpawnedWithTimeout(Duration),
 }
