@@ -18,7 +18,7 @@
 //!
 //! ```
 //! use kameo::Actor;
-//! use kameo::actor::pool::{ActorPool, WorkerMsg, BroadcastMsg};
+//! use kameo_actors::pool::{ActorPool, Broadcast, Dispatch};
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -34,8 +34,8 @@
 //! let pool_actor = kameo::spawn(ActorPool::new(4, || kameo::spawn(MyWorker)));
 //!
 //! // Send tasks to the pool
-//! pool_actor.tell(WorkerMsg("Hello worker!")).await?;
-//! pool_actor.tell(BroadcastMsg("Hello all workers!")).await?;
+//! pool_actor.tell(Dispatch("Hello worker!")).await?;
+//! pool_actor.tell(Broadcast("Hello all workers!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! # });
 //! ```
