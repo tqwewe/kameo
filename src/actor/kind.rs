@@ -151,7 +151,10 @@ where
 
     #[inline]
     async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
-        ControlFlow::Break(ActorStopReason::Normal)
+        match self.handle_startup_finished().await {
+            ControlFlow::Continue(_) => ControlFlow::Break(ActorStopReason::Normal),
+            ControlFlow::Break(reason) => ControlFlow::Break(reason),
+        }
     }
 
     #[inline]
