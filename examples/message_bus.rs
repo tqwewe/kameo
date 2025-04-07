@@ -1,6 +1,6 @@
 use kameo::prelude::*;
 use kameo_actors::{
-    broker::{Broker, Publish, Subscribe},
+    message_bus::{MessageBus, Publish, Register},
     DeliveryStrategy,
 };
 
@@ -22,38 +22,29 @@ impl Message<Echo> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let broker_ref = kameo::spawn(Broker::new(DeliveryStrategy::Guaranteed));
+    let message_bus_ref = kameo::spawn(MessageBus::new(DeliveryStrategy::Guaranteed));
 
     // Subscribe
     let my_actor_ref = kameo::spawn(MyActor);
-    broker_ref
-        .tell(Subscribe {
-            topic: "my-topic".parse()?,
-            recipient: my_actor_ref.clone().recipient(),
-        })
+    message_bus_ref
+        .tell(Register(my_actor_ref.clone().recipient()))
         .await?;
 
     let my_actor_ref2 = kameo::spawn(MyActor);
-    broker_ref
-        .tell(Subscribe {
-            topic: "my-*".parse()?,
-            recipient: my_actor_ref2.clone().recipient(),
-        })
+    message_bus_ref
+        .tell(Register(my_actor_ref2.clone().recipient()))
         .await?;
 
     // Publish
-    broker_ref
-        .tell(Publish {
-            topic: "my-topic".to_string(),
-            message: Echo {
-                message: "Hola".to_string(),
-            },
-        })
+    message_bus_ref
+        .tell(Publish(Echo {
+            message: "Hola".to_string(),
+        }))
         .await?;
 
     // Shutdown everything
-    broker_ref.stop_gracefully().await?;
-    broker_ref.wait_for_stop().await;
+    message_bus_ref.stop_gracefully().await?;
+    message_bus_ref.wait_for_stop().await;
 
     my_actor_ref.stop_gracefully().await?;
     my_actor_ref2.stop_gracefully().await?;
