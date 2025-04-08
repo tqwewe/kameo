@@ -1,5 +1,6 @@
 //! Local actor registry for registering and looking up actors by arbitrary names.
 
+use std::sync::LazyLock;
 use std::{
     any::Any,
     borrow::{Borrow, Cow},
@@ -8,13 +9,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use once_cell::sync::Lazy;
-
 use crate::{actor::ActorRef, error::RegistryError, Actor};
 
 /// Global actor registry for local actors.
-pub static ACTOR_REGISTRY: Lazy<Arc<Mutex<ActorRegistry>>> =
-    Lazy::new(|| Arc::new(Mutex::new(ActorRegistry::new())));
+pub static ACTOR_REGISTRY: LazyLock<Arc<Mutex<ActorRegistry>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(ActorRegistry::new())));
 
 type AnyActorRef = Box<dyn Any + Send>;
 
