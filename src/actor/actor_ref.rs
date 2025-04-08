@@ -858,6 +858,7 @@ impl<M: Send + 'static> Recipient<M> {
     /// Sends a message to the actor without waiting for a reply.
     ///
     /// See [`ActorRef::tell`].
+    #[track_caller]
     pub fn tell(&self, msg: M) -> RecipientTellRequest<'_, M, WithoutRequestTimeout> {
         RecipientTellRequest::new(
             self,
