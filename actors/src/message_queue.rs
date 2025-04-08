@@ -1,6 +1,7 @@
 use crate::DeliveryStrategy;
 use glob::{MatchOptions, Pattern};
 use kameo::prelude::*;
+// use regex::Regex as TPRegex;
 use std::{
     any::{Any, TypeId},
     collections::{HashMap, HashSet},
@@ -16,11 +17,60 @@ pub struct MessageQueue {
     delivery_strategy: DeliveryStrategy,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct MessageProperties {
+    pub headers: Option<HashMap<String, String>>,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExchangeType {
     Direct,
     Topic,
     Fanout,
+    Headers,
+}
+#[derive(Debug, Clone)]
+pub enum HeaderMatch {
+    All(HashMap<String, String>),
+    Any(HashMap<String, String>),
+    // Custom(String, MatchRule),
+}
+
+impl HeaderMatch {
+    pub fn matches(&self, headers: &HashMap<String, String>) -> bool {
+        match self {
+            HeaderMatch::All(rules) => rules
+                .iter()
+                .all(|(k, v)| headers.get(k).map_or(false, |val| val == v)),
+            HeaderMatch::Any(rules) => rules
+                .iter()
+                .any(|(k, v)| headers.get(k).map_or(false, |val| val == v)),
+            // HeaderMatch::Custom(key, rule) => match rule {
+            //     MatchRule::Exact(value) => headers.get(key) == Some(value),
+            //     MatchRule::Prefix(prefix) => {
+            //         headers.get(key).map_or(false, |v| v.starts_with(prefix))
+            //     }
+            //     MatchRule::Suffix(suffix) => {
+            //         headers.get(key).map_or(false, |v| v.ends_with(suffix))
+            //     }
+            //     MatchRule::Regex(regex) => {
+            //         let re = TPRegex::new(regex).unwrap();
+            //         headers.get(key).map_or(false, |v| re.is_match(v))
+            //     }
+            //     MatchRule::Exist => headers.contains_key(key),
+            //     MatchRule::NotExist => !headers.contains_key(key),
+            // },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum MatchRule {
+    Exact(String),
+    Prefix(String),
+    Suffix(String),
+    Regex(String),
+    Exist,
+    NotExist,
 }
 
 #[derive(Debug)]
@@ -33,6 +83,8 @@ struct Exchange {
 struct Binding {
     queue_name: String,
     routing_key: String,
+    header_match: Option<HeaderMatch>,
+    arguments: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -63,6 +115,10 @@ pub enum AmqpError {
     BindingNotFound,
     #[error("Consumer not found")]
     ConsumerNotFound,
+    #[error("Headers required")]
+    HeadersRequired,
+    #[error("Invalid header match")]
+    InvalidHeaderMatch,
 }
 
 #[derive(Debug)]
@@ -79,7 +135,6 @@ pub struct ExchangeDelete {
 #[derive(Debug)]
 pub struct QueueDeclare {
     pub queue: String,
-    pub durable: bool,
 }
 
 #[derive(Debug)]
@@ -87,11 +142,12 @@ pub struct QueueDelete {
     pub queue: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct QueueBind {
     pub queue: String,
     pub exchange: String,
     pub routing_key: String,
+    pub arguments: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -101,11 +157,12 @@ pub struct QueueUnbind {
     pub routing_key: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BasicPublish<M: Clone + Send + 'static> {
     pub exchange: String,
     pub routing_key: String,
     pub message: M,
+    pub properties: MessageProperties,
 }
 
 pub struct BasicConsume<M: Send + 'static> {
@@ -354,9 +411,30 @@ impl Message<QueueBind> for MessageQueue {
             return Err(AmqpError::BindingAlreadyExists);
         }
 
+        let header_match = if exchange.kind == ExchangeType::Headers {
+            let x_match = msg
+                .arguments
+                .get("x-match")
+                .map(|s| s.as_str())
+                .unwrap_or("all");
+
+            let mut match_args = msg.arguments.clone();
+            match_args.remove("x-match");
+
+            match x_match {
+                "all" => Some(HeaderMatch::All(match_args)),
+                "any" => Some(HeaderMatch::Any(match_args)),
+                _ => return Err(AmqpError::InvalidHeaderMatch),
+            }
+        } else {
+            None
+        };
+
         exchange.bindings.push(Binding {
             queue_name: msg.queue,
             routing_key: msg.routing_key,
+            header_match: header_match,
+            arguments: msg.arguments,
         });
         Ok(())
     }
@@ -431,6 +509,21 @@ impl<M: Clone + Send + Sync + 'static> Message<BasicPublish<M>> for MessageQueue
             ExchangeType::Fanout => {
                 for binding in &exchange.bindings {
                     target_queues.insert(binding.queue_name.clone());
+                }
+            }
+            ExchangeType::Headers => {
+                let message_headers = msg
+                    .properties
+                    .headers
+                    .as_ref()
+                    .ok_or(AmqpError::HeadersRequired)?;
+
+                for binding in &exchange.bindings {
+                    if let Some(header_match) = &binding.header_match {
+                        if header_match.matches(message_headers) {
+                            target_queues.insert(binding.queue_name.clone());
+                        }
+                    }
                 }
             }
         }

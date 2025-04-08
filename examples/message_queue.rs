@@ -32,13 +32,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     amqp.tell(QueueDeclare {
         queue: "temperature".to_string(),
-        durable: false,
     }).await?;
 
     amqp.tell(QueueBind {
         queue: "temperature".to_string(),
         exchange: "sensors".to_string(),
         routing_key: "temperature.*".to_string(),
+        ..Default::default()
     }).await?;
 
     let display = kameo::spawn(TemperatureDisplay);
@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
         exchange: "sensors".to_string(),
         routing_key: "temperature.kitchen".to_string(),
         message: TemperatureUpdate(22.5),
+        ..Default::default()
     }).await?;
     amqp.stop_gracefully().await?;
     amqp.wait_for_stop().await;
