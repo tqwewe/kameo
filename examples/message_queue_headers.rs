@@ -33,18 +33,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tell(ExchangeDeclare {
             exchange: "headers-exchange".to_string(),
             kind: ExchangeType::Headers,
+            ..Default::default()
         })
         .await;
 
     mq_ref
         .tell(QueueDeclare {
             queue: "queue1".to_string(),
+            ..Default::default()
         })
         .await;
 
     mq_ref
         .tell(QueueDeclare {
             queue: "queue2".to_string(),
+            ..Default::default()
         })
         .await;
 

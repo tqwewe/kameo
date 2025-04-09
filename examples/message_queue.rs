@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-use std::thread::sleep;
 use kameo::message::Context;
 use kameo::prelude::Message;
 use kameo_actors::DeliveryStrategy;
@@ -28,10 +26,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
     amqp.tell(ExchangeDeclare {
         exchange: "sensors".to_string(),
         kind: ExchangeType::Topic,
+        .. Default::default()
     }).await?;
 
     amqp.tell(QueueDeclare {
         queue: "temperature".to_string(),
+        ..Default::default()
     }).await?;
 
     amqp.tell(QueueBind {
@@ -51,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
         exchange: "sensors".to_string(),
         routing_key: "temperature.kitchen".to_string(),
         message: TemperatureUpdate(22.5),
-        ..Default::default()
+        properties: Default::default(),
     }).await?;
     amqp.stop_gracefully().await?;
     amqp.wait_for_stop().await;

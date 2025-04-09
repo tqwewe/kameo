@@ -1,18 +1,17 @@
 use crate::DeliveryStrategy;
 use glob::{MatchOptions, Pattern};
 use kameo::prelude::*;
-// use regex::Regex as TPRegex;
+use std::collections::hash_map::Entry;
 use std::{
     any::{Any, TypeId},
     collections::{HashMap, HashSet},
-    sync::Arc,
 };
 use tokio::sync::RwLock;
 
 #[derive(Actor, Debug)]
 pub struct MessageQueue {
-    exchanges: Arc<RwLock<HashMap<String, Exchange>>>,
-    queues: Arc<RwLock<HashMap<String, Queue>>>,
+    exchanges: RwLock<HashMap<String, Exchange>>,
+    queues: RwLock<HashMap<String, Queue>>,
     default_exchange: Exchange,
     delivery_strategy: DeliveryStrategy,
 }
@@ -21,8 +20,9 @@ pub struct MessageQueue {
 pub struct MessageProperties {
     pub headers: Option<HashMap<String, String>>,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExchangeType {
+    #[default]
     Direct,
     Topic,
     Fanout,
@@ -32,7 +32,6 @@ pub enum ExchangeType {
 pub enum HeaderMatch {
     All(HashMap<String, String>),
     Any(HashMap<String, String>),
-    // Custom(String, MatchRule),
 }
 
 impl HeaderMatch {
@@ -44,39 +43,15 @@ impl HeaderMatch {
             HeaderMatch::Any(rules) => rules
                 .iter()
                 .any(|(k, v)| headers.get(k).map_or(false, |val| val == v)),
-            // HeaderMatch::Custom(key, rule) => match rule {
-            //     MatchRule::Exact(value) => headers.get(key) == Some(value),
-            //     MatchRule::Prefix(prefix) => {
-            //         headers.get(key).map_or(false, |v| v.starts_with(prefix))
-            //     }
-            //     MatchRule::Suffix(suffix) => {
-            //         headers.get(key).map_or(false, |v| v.ends_with(suffix))
-            //     }
-            //     MatchRule::Regex(regex) => {
-            //         let re = TPRegex::new(regex).unwrap();
-            //         headers.get(key).map_or(false, |v| re.is_match(v))
-            //     }
-            //     MatchRule::Exist => headers.contains_key(key),
-            //     MatchRule::NotExist => !headers.contains_key(key),
-            // },
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum MatchRule {
-    Exact(String),
-    Prefix(String),
-    Suffix(String),
-    Regex(String),
-    Exist,
-    NotExist,
 }
 
 #[derive(Debug)]
 struct Exchange {
     name: String,
     kind: ExchangeType,
+    auto_delete: bool,
     bindings: Vec<Binding>,
 }
 #[derive(Debug)]
@@ -84,12 +59,11 @@ struct Binding {
     queue_name: String,
     routing_key: String,
     header_match: Option<HeaderMatch>,
-    arguments: HashMap<String, String>,
 }
 
 #[derive(Debug)]
 struct Queue {
-    name: String,
+    auto_delete: bool,
     recipients: HashMap<TypeId, Vec<Registration>>,
 }
 
@@ -111,35 +85,39 @@ pub enum AmqpError {
     QueueNotFound,
     #[error("Binding already exists")]
     BindingAlreadyExists,
-    #[error("Binding not found")]
-    BindingNotFound,
-    #[error("Consumer not found")]
-    ConsumerNotFound,
     #[error("Headers required")]
     HeadersRequired,
     #[error("Invalid header match")]
     InvalidHeaderMatch,
+    #[error("Exchange in use")]
+    ExchangeInUse,
+    #[error("Queue in use")]
+    QueueInUse,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExchangeDeclare {
     pub exchange: String,
     pub kind: ExchangeType,
+    pub auto_delete: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ExchangeDelete {
     pub exchange: String,
+    pub if_unused: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct QueueDeclare {
     pub queue: String,
+    pub auto_delete: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct QueueDelete {
     pub queue: String,
+    pub if_unused: bool,
 }
 
 #[derive(Debug, Default)]
@@ -150,14 +128,14 @@ pub struct QueueBind {
     pub arguments: HashMap<String, String>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct QueueUnbind {
     pub queue: String,
     pub exchange: String,
     pub routing_key: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BasicPublish<M: Clone + Send + 'static> {
     pub exchange: String,
     pub routing_key: String,
@@ -179,15 +157,45 @@ pub struct BasicCancel<M: Send + 'static> {
 impl MessageQueue {
     pub fn new(delivery_strategy: DeliveryStrategy) -> Self {
         Self {
-            exchanges: Arc::new(RwLock::new(HashMap::new())),
-            queues: Arc::new(RwLock::new(HashMap::new())),
+            exchanges: RwLock::new(HashMap::new()),
+            queues: RwLock::new(HashMap::new()),
             default_exchange: Exchange {
                 name: "".to_string(),
                 kind: ExchangeType::Direct,
+                auto_delete: false,
                 bindings: Vec::new(),
             },
             delivery_strategy,
         }
+    }
+
+    async fn queue_delete(&self, queue_name: String, if_unused: bool) -> Result<(), AmqpError> {
+        let mut queues = self.queues.write().await;
+
+        match queues.get(&queue_name) {
+            Some(queue) => {
+                if if_unused && !queue.recipients.is_empty() {
+                    return Err(AmqpError::QueueInUse);
+                }
+                queues.remove(&queue_name);
+            }
+            None => {
+                return Err(AmqpError::QueueNotFound);
+            }
+        }
+
+        let mut exchanges = self.exchanges.write().await;
+        let mut to_delete = Vec::new();
+        for exchange in exchanges.values_mut() {
+            exchange.bindings.retain(|b| b.queue_name != queue_name);
+            if exchange.bindings.is_empty() && exchange.auto_delete {
+                to_delete.push(exchange.name.clone());
+            }
+        }
+        for exchange_name in to_delete {
+            exchanges.remove(&exchange_name);
+        }
+        Ok(())
     }
 
     async fn basic_cancel<M: Send + 'static>(
@@ -195,29 +203,25 @@ impl MessageQueue {
         queue_name: String,
         recipient: Recipient<M>,
     ) -> Result<(), AmqpError> {
-        let mut queues = self.queues.write().await;
-        let queue = queues
-            .get_mut(&queue_name)
-            .ok_or(AmqpError::QueueNotFound)?;
-        let type_id = TypeId::of::<M>();
-        let mut found = false;
-        if let Some(recipients) = queue.recipients.get_mut(&type_id) {
-            recipients.retain(|registration| {
-                if registration.actor_id == recipient.id() {
-                    found = true;
-                    return false;
-                }
-                return true;
-            });
+        let queue_delete = {
+            let mut queues = self.queues.write().await;
+            let queue = queues
+                .get_mut(&queue_name)
+                .ok_or(AmqpError::QueueNotFound)?;
+            let type_id = TypeId::of::<M>();
+            if let Some(recipients) = queue.recipients.get_mut(&type_id) {
+                recipients.retain(|registration| registration.actor_id != recipient.id());
+            }
+            queue.recipients.retain(|_, v| !v.is_empty());
+
+            queue.auto_delete
+        };
+
+        if queue_delete {
+            self.queue_delete(queue_name, true).await?;
         }
 
-        queue.recipients.retain(|_, v| !v.is_empty());
-
-        if found {
-            Ok(())
-        } else {
-            Err(AmqpError::ConsumerNotFound)
-        }
+        Ok(())
     }
 
     async fn delivery_message<M: Clone + Send + 'static>(
@@ -292,7 +296,8 @@ impl MessageQueue {
             }
         }
         for recipient in to_cancel {
-            self.basic_cancel::<M>(queue_name.clone(), recipient.clone())
+            let _ = self
+                .basic_cancel::<M>(queue_name.clone(), recipient.clone())
                 .await;
         }
     }
@@ -316,6 +321,7 @@ impl Message<ExchangeDeclare> for MessageQueue {
             Exchange {
                 name: msg.exchange,
                 kind: msg.kind,
+                auto_delete: msg.auto_delete,
                 bindings: Vec::new(),
             },
         );
@@ -332,9 +338,19 @@ impl Message<ExchangeDelete> for MessageQueue {
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let mut exchanges = self.exchanges.write().await;
-        if exchanges.remove(&msg.exchange).is_none() {
-            return Err(AmqpError::ExchangeNotFound);
+        match exchanges.get(&msg.exchange) {
+            Some(exchange) => {
+                if msg.if_unused && !exchange.bindings.is_empty() {
+                    return Err(AmqpError::ExchangeInUse);
+                } else {
+                    exchanges.remove(&msg.exchange);
+                }
+            }
+            None => {
+                return Err(AmqpError::ExchangeNotFound);
+            }
         }
+
         Ok(())
     }
 }
@@ -355,10 +371,16 @@ impl Message<QueueDeclare> for MessageQueue {
         queues.insert(
             msg.queue.clone(),
             Queue {
-                name: msg.queue,
+                auto_delete: msg.auto_delete,
                 recipients: HashMap::new(),
             },
         );
+
+        self.default_exchange.bindings.push(Binding {
+            queue_name: msg.queue.clone(),
+            routing_key: msg.queue.clone(),
+            header_match: None,
+        });
         Ok(())
     }
 }
@@ -371,15 +393,10 @@ impl Message<QueueDelete> for MessageQueue {
         msg: QueueDelete,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut queues = self.queues.write().await;
-        if queues.remove(&msg.queue).is_none() {
-            return Err(AmqpError::QueueNotFound);
-        }
-
-        let mut exchanges = self.exchanges.write().await;
-        for exchange in exchanges.values_mut() {
-            exchange.bindings.retain(|b| b.queue_name != msg.queue);
-        }
+        self.queue_delete(msg.queue.clone(), msg.if_unused).await?;
+        self.default_exchange
+            .bindings
+            .retain(|b| b.queue_name != msg.queue);
         Ok(())
     }
 }
@@ -433,8 +450,7 @@ impl Message<QueueBind> for MessageQueue {
         exchange.bindings.push(Binding {
             queue_name: msg.queue,
             routing_key: msg.routing_key,
-            header_match: header_match,
-            arguments: msg.arguments,
+            header_match,
         });
         Ok(())
     }
@@ -449,24 +465,24 @@ impl Message<QueueUnbind> for MessageQueue {
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let mut exchanges = self.exchanges.write().await;
-        let exchange = exchanges
-            .get_mut(&msg.exchange)
-            .ok_or(AmqpError::ExchangeNotFound)?;
+        let mut entry = match exchanges.entry(msg.exchange.clone()) {
+            Entry::Occupied(e) => e,
+            Entry::Vacant(_) => return Err(AmqpError::ExchangeNotFound),
+        };
 
-        let original_len = exchange.bindings.len();
+        let exchange = entry.get_mut();
         exchange
             .bindings
             .retain(|b| !(b.queue_name == msg.queue && b.routing_key == msg.routing_key));
 
-        if exchange.bindings.len() == original_len {
-            Err(AmqpError::BindingNotFound)
-        } else {
-            Ok(())
+        if exchange.bindings.is_empty() && exchange.auto_delete {
+            entry.remove();
         }
+        Ok(())
     }
 }
 
-impl<M: Clone + Send + Sync + 'static> Message<BasicPublish<M>> for MessageQueue {
+impl<M: Clone + Send + 'static> Message<BasicPublish<M>> for MessageQueue {
     type Reply = Result<(), AmqpError>;
 
     async fn handle(
@@ -475,9 +491,13 @@ impl<M: Clone + Send + Sync + 'static> Message<BasicPublish<M>> for MessageQueue
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         let exchanges = self.exchanges.read().await;
-        let exchange = exchanges
-            .get(&msg.exchange)
-            .unwrap_or(&self.default_exchange);
+        let exchange = if msg.exchange.is_empty() {
+            &self.default_exchange
+        } else if let Some(exchange) = exchanges.get(&msg.exchange) {
+            exchange
+        } else {
+            return Err(AmqpError::ExchangeNotFound);
+        };
 
         let queues = self.queues.read().await;
         let mut target_queues = HashSet::new();
@@ -546,7 +566,7 @@ impl<M: Clone + Send + Sync + 'static> Message<BasicPublish<M>> for MessageQueue
     }
 }
 
-impl<M: Clone + Send + 'static> Message<BasicConsume<M>> for MessageQueue {
+impl<M: Send + 'static> Message<BasicConsume<M>> for MessageQueue {
     type Reply = Result<(), AmqpError>;
 
     async fn handle(
