@@ -1,17 +1,16 @@
+use std::{
+    any::{Any, TypeId},
+    collections::{hash_map::Entry, HashMap, HashSet},
+};
+
 use crate::DeliveryStrategy;
 use glob::{MatchOptions, Pattern};
 use kameo::prelude::*;
-use std::collections::hash_map::Entry;
-use std::{
-    any::{Any, TypeId},
-    collections::{HashMap, HashSet},
-};
-use tokio::sync::RwLock;
 
 #[derive(Actor, Debug)]
 pub struct MessageQueue {
-    exchanges: RwLock<HashMap<String, Exchange>>,
-    queues: RwLock<HashMap<String, Queue>>,
+    exchanges: HashMap<String, Exchange>,
+    queues: HashMap<String, Queue>,
     default_exchange: Exchange,
     delivery_strategy: DeliveryStrategy,
 }
@@ -39,10 +38,10 @@ impl HeaderMatch {
         match self {
             HeaderMatch::All(rules) => rules
                 .iter()
-                .all(|(k, v)| headers.get(k).map_or(false, |val| val == v)),
+                .all(|(k, v)| headers.get(k).is_some_and(|val| val == v)),
             HeaderMatch::Any(rules) => rules
                 .iter()
-                .any(|(k, v)| headers.get(k).map_or(false, |val| val == v)),
+                .any(|(k, v)| headers.get(k).is_some_and(|val| val == v)),
         }
     }
 }
@@ -157,8 +156,8 @@ pub struct BasicCancel<M: Send + 'static> {
 impl MessageQueue {
     pub fn new(delivery_strategy: DeliveryStrategy) -> Self {
         Self {
-            exchanges: RwLock::new(HashMap::new()),
-            queues: RwLock::new(HashMap::new()),
+            exchanges: HashMap::new(),
+            queues: HashMap::new(),
             default_exchange: Exchange {
                 name: "".to_string(),
                 kind: ExchangeType::Direct,
@@ -169,43 +168,40 @@ impl MessageQueue {
         }
     }
 
-    async fn queue_delete(&self, queue_name: String, if_unused: bool) -> Result<(), AmqpError> {
-        let mut queues = self.queues.write().await;
-
-        match queues.get(&queue_name) {
+    fn queue_delete(&mut self, queue_name: String, if_unused: bool) -> Result<(), AmqpError> {
+        match self.queues.get(&queue_name) {
             Some(queue) => {
                 if if_unused && !queue.recipients.is_empty() {
                     return Err(AmqpError::QueueInUse);
                 }
-                queues.remove(&queue_name);
+                self.queues.remove(&queue_name);
             }
             None => {
                 return Err(AmqpError::QueueNotFound);
             }
         }
 
-        let mut exchanges = self.exchanges.write().await;
         let mut to_delete = Vec::new();
-        for exchange in exchanges.values_mut() {
+        for exchange in self.exchanges.values_mut() {
             exchange.bindings.retain(|b| b.queue_name != queue_name);
             if exchange.bindings.is_empty() && exchange.auto_delete {
                 to_delete.push(exchange.name.clone());
             }
         }
         for exchange_name in to_delete {
-            exchanges.remove(&exchange_name);
+            self.exchanges.remove(&exchange_name);
         }
         Ok(())
     }
 
-    async fn basic_cancel<M: Send + 'static>(
-        &self,
+    fn basic_cancel<M: Send + 'static>(
+        &mut self,
         queue_name: String,
         recipient: Recipient<M>,
     ) -> Result<(), AmqpError> {
         let queue_delete = {
-            let mut queues = self.queues.write().await;
-            let queue = queues
+            let queue = self
+                .queues
                 .get_mut(&queue_name)
                 .ok_or(AmqpError::QueueNotFound)?;
             let type_id = TypeId::of::<M>();
@@ -218,87 +214,92 @@ impl MessageQueue {
         };
 
         if queue_delete {
-            self.queue_delete(queue_name, true).await?;
+            self.queue_delete(queue_name, true)?;
         }
 
         Ok(())
     }
 
     async fn delivery_message<M: Clone + Send + 'static>(
-        &self,
+        &mut self,
         queue_name: String,
-        recipients: &Vec<Registration>,
         message: M,
         self_ref: ActorRef<Self>,
     ) {
         let mut to_cancel = Vec::new();
-        for regis in recipients {
-            let queue_name = queue_name.clone();
-            let recipient: &Recipient<M> = regis.recipient.downcast_ref().unwrap();
-            match self.delivery_strategy {
-                DeliveryStrategy::Guaranteed => {
-                    let res = recipient.tell(message.clone()).await;
-                    if let Err(SendError::ActorNotRunning(_)) = res {
-                        to_cancel.push(recipient);
-                    }
-                }
-                DeliveryStrategy::BestEffort => {
-                    let res = recipient.tell(message.clone()).try_send();
-                    if let Err(SendError::ActorNotRunning(_)) = res {
-                        to_cancel.push(recipient);
-                    }
-                }
-                DeliveryStrategy::TimedDelivery(duration) => {
-                    let res = recipient
-                        .tell(message.clone())
-                        .mailbox_timeout(duration)
-                        .await;
-                    if let Err(SendError::ActorNotRunning(_)) = res {
-                        to_cancel.push(recipient);
-                    }
-                }
-                DeliveryStrategy::Spawned => {
-                    let recipient = recipient.clone();
-                    let message = message.clone();
-                    let self_ref = self_ref.clone();
-                    tokio::spawn(async move {
-                        let res = recipient.tell(message).send().await;
+
+        if let Some(recipients) = self
+            .queues
+            .get(&queue_name)
+            .and_then(|queue| queue.recipients.get(&TypeId::of::<M>()))
+        {
+            for regis in recipients {
+                let queue_name = queue_name.clone();
+                let recipient: &Recipient<M> = regis.recipient.downcast_ref().unwrap();
+                match self.delivery_strategy {
+                    DeliveryStrategy::Guaranteed => {
+                        let res = recipient.tell(message.clone()).await;
                         if let Err(SendError::ActorNotRunning(_)) = res {
-                            let _ = self_ref
-                                .tell(BasicCancel::<M> {
-                                    queue: queue_name.clone(),
-                                    recipient: recipient.clone(),
-                                })
-                                .await;
+                            to_cancel.push(recipient.clone());
                         }
-                    });
-                }
-                DeliveryStrategy::SpawnedWithTimeout(duration) => {
-                    let recipient = recipient.clone();
-                    let message = message.clone();
-                    let self_ref = self_ref.clone();
-                    tokio::spawn(async move {
+                    }
+                    DeliveryStrategy::BestEffort => {
+                        let res = recipient.tell(message.clone()).try_send();
+                        if let Err(SendError::ActorNotRunning(_)) = res {
+                            to_cancel.push(recipient.clone());
+                        }
+                    }
+                    DeliveryStrategy::TimedDelivery(duration) => {
                         let res = recipient
-                            .tell(message)
+                            .tell(message.clone())
                             .mailbox_timeout(duration)
-                            .send()
                             .await;
                         if let Err(SendError::ActorNotRunning(_)) = res {
-                            let _ = self_ref
-                                .tell(BasicCancel::<M> {
-                                    queue: queue_name.clone(),
-                                    recipient: recipient.clone(),
-                                })
-                                .await;
+                            to_cancel.push(recipient.clone());
                         }
-                    });
+                    }
+                    DeliveryStrategy::Spawned => {
+                        let recipient = recipient.clone();
+                        let message = message.clone();
+                        let self_ref = self_ref.clone();
+                        tokio::spawn(async move {
+                            let res = recipient.tell(message).send().await;
+                            if let Err(SendError::ActorNotRunning(_)) = res {
+                                let _ = self_ref
+                                    .tell(BasicCancel::<M> {
+                                        queue: queue_name.clone(),
+                                        recipient: recipient.clone(),
+                                    })
+                                    .await;
+                            }
+                        });
+                    }
+                    DeliveryStrategy::SpawnedWithTimeout(duration) => {
+                        let recipient = recipient.clone();
+                        let message = message.clone();
+                        let self_ref = self_ref.clone();
+                        tokio::spawn(async move {
+                            let res = recipient
+                                .tell(message)
+                                .mailbox_timeout(duration)
+                                .send()
+                                .await;
+                            if let Err(SendError::ActorNotRunning(_)) = res {
+                                let _ = self_ref
+                                    .tell(BasicCancel::<M> {
+                                        queue: queue_name.clone(),
+                                        recipient: recipient.clone(),
+                                    })
+                                    .await;
+                            }
+                        });
+                    }
                 }
             }
         }
+
         for recipient in to_cancel {
-            let _ = self
-                .basic_cancel::<M>(queue_name.clone(), recipient.clone())
-                .await;
+            let _ = self.basic_cancel::<M>(queue_name.clone(), recipient);
         }
     }
 }
@@ -311,12 +312,11 @@ impl Message<ExchangeDeclare> for MessageQueue {
         msg: ExchangeDeclare,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut exchanges = self.exchanges.write().await;
-        if exchanges.contains_key(&msg.exchange) {
+        if self.exchanges.contains_key(&msg.exchange) {
             return Err(AmqpError::ExchangeAlreadyExists);
         }
 
-        exchanges.insert(
+        self.exchanges.insert(
             msg.exchange.clone(),
             Exchange {
                 name: msg.exchange,
@@ -337,13 +337,12 @@ impl Message<ExchangeDelete> for MessageQueue {
         msg: ExchangeDelete,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut exchanges = self.exchanges.write().await;
-        match exchanges.get(&msg.exchange) {
+        match self.exchanges.get(&msg.exchange) {
             Some(exchange) => {
                 if msg.if_unused && !exchange.bindings.is_empty() {
                     return Err(AmqpError::ExchangeInUse);
                 } else {
-                    exchanges.remove(&msg.exchange);
+                    self.exchanges.remove(&msg.exchange);
                 }
             }
             None => {
@@ -363,12 +362,11 @@ impl Message<QueueDeclare> for MessageQueue {
         msg: QueueDeclare,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut queues = self.queues.write().await;
-        if queues.contains_key(&msg.queue) {
+        if self.queues.contains_key(&msg.queue) {
             return Err(AmqpError::QueueAlreadyExists);
         }
 
-        queues.insert(
+        self.queues.insert(
             msg.queue.clone(),
             Queue {
                 auto_delete: msg.auto_delete,
@@ -393,7 +391,7 @@ impl Message<QueueDelete> for MessageQueue {
         msg: QueueDelete,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.queue_delete(msg.queue.clone(), msg.if_unused).await?;
+        self.queue_delete(msg.queue.clone(), msg.if_unused)?;
         self.default_exchange
             .bindings
             .retain(|b| b.queue_name != msg.queue);
@@ -409,14 +407,12 @@ impl Message<QueueBind> for MessageQueue {
         msg: QueueBind,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut exchanges = self.exchanges.write().await;
-        let queues = self.queues.read().await;
-
-        if !queues.contains_key(&msg.queue) {
+        if !self.queues.contains_key(&msg.queue) {
             return Err(AmqpError::QueueNotFound);
         }
 
-        let exchange = exchanges
+        let exchange = self
+            .exchanges
             .get_mut(&msg.exchange)
             .ok_or(AmqpError::ExchangeNotFound)?;
 
@@ -464,8 +460,7 @@ impl Message<QueueUnbind> for MessageQueue {
         msg: QueueUnbind,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut exchanges = self.exchanges.write().await;
-        let mut entry = match exchanges.entry(msg.exchange.clone()) {
+        let mut entry = match self.exchanges.entry(msg.exchange.clone()) {
             Entry::Occupied(e) => e,
             Entry::Vacant(_) => return Err(AmqpError::ExchangeNotFound),
         };
@@ -490,16 +485,14 @@ impl<M: Clone + Send + 'static> Message<BasicPublish<M>> for MessageQueue {
         msg: BasicPublish<M>,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let exchanges = self.exchanges.read().await;
         let exchange = if msg.exchange.is_empty() {
             &self.default_exchange
-        } else if let Some(exchange) = exchanges.get(&msg.exchange) {
+        } else if let Some(exchange) = self.exchanges.get(&msg.exchange) {
             exchange
         } else {
             return Err(AmqpError::ExchangeNotFound);
         };
 
-        let queues = self.queues.read().await;
         let mut target_queues = HashSet::new();
 
         match exchange.kind {
@@ -549,17 +542,12 @@ impl<M: Clone + Send + 'static> Message<BasicPublish<M>> for MessageQueue {
         }
 
         for queue_name in target_queues {
-            if let Some(queue) = queues.get(&queue_name) {
-                if let Some(recipients) = queue.recipients.get(&TypeId::of::<M>()) {
-                    self.delivery_message(
-                        queue_name.clone(),
-                        recipients,
-                        msg.message.clone(),
-                        ctx.actor_ref().clone(),
-                    )
-                    .await
-                }
-            }
+            self.delivery_message(
+                queue_name,
+                msg.message.clone(),
+                ctx.actor_ref(),
+            )
+            .await
         }
 
         Ok(())
@@ -574,8 +562,10 @@ impl<M: Send + 'static> Message<BasicConsume<M>> for MessageQueue {
         msg: BasicConsume<M>,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        let mut queues = self.queues.write().await;
-        let queue = queues.get_mut(&msg.queue).ok_or(AmqpError::QueueNotFound)?;
+        let queue = self
+            .queues
+            .get_mut(&msg.queue)
+            .ok_or(AmqpError::QueueNotFound)?;
         let artor_id = msg.recipient.id();
         queue
             .recipients
@@ -597,6 +587,6 @@ impl<M: Send + 'static> Message<BasicCancel<M>> for MessageQueue {
         msg: BasicCancel<M>,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.basic_cancel(msg.queue, msg.recipient).await
+        self.basic_cancel(msg.queue, msg.recipient)
     }
 }
