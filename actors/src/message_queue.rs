@@ -181,14 +181,18 @@ impl MessageQueue {
             }
         }
 
-        let mut to_delete = Vec::new();
+        self.default_exchange
+            .bindings
+            .retain(|b| b.queue_name != queue_name);
+
+        let mut exchanges_to_delete = Vec::new();
         for exchange in self.exchanges.values_mut() {
             exchange.bindings.retain(|b| b.queue_name != queue_name);
             if exchange.bindings.is_empty() && exchange.auto_delete {
-                to_delete.push(exchange.name.clone());
+                exchanges_to_delete.push(exchange.name.clone());
             }
         }
-        for exchange_name in to_delete {
+        for exchange_name in exchanges_to_delete {
             self.exchanges.remove(&exchange_name);
         }
         Ok(())
@@ -392,9 +396,6 @@ impl Message<QueueDelete> for MessageQueue {
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.queue_delete(msg.queue.clone(), msg.if_unused)?;
-        self.default_exchange
-            .bindings
-            .retain(|b| b.queue_name != msg.queue);
         Ok(())
     }
 }
