@@ -28,7 +28,7 @@ pub enum ExchangeType {
     Headers,
 }
 #[derive(Debug, Clone)]
-pub enum HeaderMatch {
+enum HeaderMatch {
     All(HashMap<String, String>),
     Any(HashMap<String, String>),
 }
@@ -141,7 +141,7 @@ pub struct BasicPublish<M: Clone + Send + 'static> {
     pub message: M,
     pub properties: MessageProperties,
 }
-
+#[derive(Debug)]
 pub struct BasicConsume<M: Send + 'static> {
     pub queue: String,
     pub recipient: Recipient<M>,
@@ -312,7 +312,7 @@ impl Message<ExchangeDeclare> for MessageQueue {
         msg: ExchangeDeclare,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        if self.exchanges.contains_key(&msg.exchange) {
+        if msg.exchange.is_empty() || self.exchanges.contains_key(&msg.exchange) {
             return Err(AmqpError::ExchangeAlreadyExists);
         }
 
@@ -373,7 +373,7 @@ impl Message<QueueDeclare> for MessageQueue {
                 recipients: HashMap::new(),
             },
         );
-
+        
         self.default_exchange.bindings.push(Binding {
             queue_name: msg.queue.clone(),
             routing_key: msg.queue.clone(),
@@ -542,12 +542,8 @@ impl<M: Clone + Send + 'static> Message<BasicPublish<M>> for MessageQueue {
         }
 
         for queue_name in target_queues {
-            self.delivery_message(
-                queue_name,
-                msg.message.clone(),
-                ctx.actor_ref(),
-            )
-            .await
+            self.delivery_message(queue_name, msg.message.clone(), ctx.actor_ref())
+                .await
         }
 
         Ok(())
