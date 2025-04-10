@@ -377,7 +377,7 @@ impl Message<QueueDeclare> for MessageQueue {
                 recipients: HashMap::new(),
             },
         );
-        
+
         self.default_exchange.bindings.push(Binding {
             queue_name: msg.queue.clone(),
             routing_key: msg.queue.clone(),
@@ -563,15 +563,15 @@ impl<M: Send + 'static> Message<BasicConsume<M>> for MessageQueue {
             .queues
             .get_mut(&msg.queue)
             .ok_or(AmqpError::QueueNotFound)?;
-        let artor_id = msg.recipient.id();
-        queue
-            .recipients
-            .entry(TypeId::of::<M>())
-            .or_default()
-            .push(Registration {
-                actor_id: artor_id,
+        let actor_id = msg.recipient.id();
+        let recipients = queue.recipients.entry(TypeId::of::<M>()).or_default();
+
+        if !recipients.iter().any(|reg| reg.actor_id == actor_id) {
+            recipients.push(Registration {
+                actor_id: actor_id,
                 recipient: Box::new(msg.recipient),
             });
+        }
         Ok(())
     }
 }
