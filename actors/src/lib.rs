@@ -19,6 +19,7 @@ pub mod broker;
 pub mod message_bus;
 pub mod pool;
 pub mod pubsub;
+pub mod message_queue;
 
 /// Strategies for delivering messages to subscribers.
 ///
