@@ -8,7 +8,10 @@ use std::{
     any::{self},
     cmp, error, fmt,
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicPtr, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +21,64 @@ use tokio::{
 };
 
 use crate::{actor::ActorID, mailbox::Signal, reply::ReplyError, Actor};
+
+type ErrorHookFn = fn(&PanicError);
+
+static PANIC_HOOK: AtomicPtr<()> = AtomicPtr::new(default_panic_hook as *mut ());
+
+fn default_panic_hook(err: &PanicError) {
+    #[cfg(feature = "tracing")]
+    tracing::error!("actor panicked: {err}");
+}
+
+/// Sets a custom error hook function that's called when an actor's lifecycle hooks return an error.
+///
+/// This function allows you to define custom error handling behavior when an actor's
+/// `on_start` or `on_stop` method returns an error. The hook will be called immediately
+/// when such errors occur, regardless of whether the error is explicitly handled elsewhere.
+///
+/// By default, the actor system uses a hook that simply logs the error. Setting a custom
+/// hook allows for more sophisticated error handling, such as metrics collection,
+/// alerting, or custom logging formats.
+///
+/// # Parameters
+///
+/// * `hook`: A function that takes a reference to the error information and performs
+///   custom error handling.
+///
+/// # Example
+///
+/// ```
+/// use kameo::error::{set_actor_error_hook, PanicError};
+///
+/// // Define a custom error hook
+/// fn my_custom_hook(err: &PanicError) {
+///     ...
+/// }
+///
+/// // Install the custom hook
+/// set_actor_error_hook(my_custom_hook);
+/// ```
+///
+/// # Notes
+///
+/// * This hook is global and will affect all actors in the system.
+/// * Setting a new hook replaces any previously set hook.
+/// * The hook is called even if the error is also being explicitly handled via
+///   `wait_for_startup_result` or `wait_for_shutdown_result`.
+pub fn set_actor_error_hook(hook: ErrorHookFn) {
+    let fn_ptr = hook as *mut ();
+    PANIC_HOOK.store(fn_ptr, Ordering::SeqCst);
+}
+
+pub(crate) fn invoke_actor_error_hook(err: &PanicError) {
+    // Load the function pointer atomically
+    let fn_ptr = PANIC_HOOK.load(Ordering::SeqCst);
+
+    // Cast back to function type and call it
+    let hook = unsafe { std::mem::transmute::<*mut (), ErrorHookFn>(fn_ptr) };
+    hook(err);
+}
 
 /// A dyn boxed send error.
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
