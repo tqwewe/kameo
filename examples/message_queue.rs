@@ -54,8 +54,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
         properties: Default::default(),
     }).await?;
     amqp.stop_gracefully().await?;
-    amqp.wait_for_stop().await;
+    amqp.wait_for_shutdown().await;
     display.stop_gracefully().await?;
-    display.wait_for_stop().await;
+    display.wait_for_shutdown().await;
     Ok(())
 }

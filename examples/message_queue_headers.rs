@@ -146,11 +146,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     mq_ref.stop_gracefully().await?;
-    mq_ref.wait_for_stop().await;
+    mq_ref.wait_for_shutdown().await;
     consumer1.stop_gracefully().await?;
-    consumer1.wait_for_stop().await;
+    consumer1.wait_for_shutdown().await;
     consumer2.stop_gracefully().await?;
-    consumer2.wait_for_stop().await;
+    consumer2.wait_for_shutdown().await;
 
     Ok(())
 }
