@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         type Reply = ();
         async fn handle(&mut self, msg: TestMessage, ctx: &mut Context<Self, Self::Reply>) {
             println!(
-                "Actor id:{},Received message: {:?}",
+                "Actor id: {}, Received message: {:?}",
                 ctx.actor_ref().id(),
                 msg
             );
@@ -51,8 +51,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    let consumer1 = kameo::spawn(TestConsumer::default());
-    let consumer2 = kameo::spawn(TestConsumer::default());
+    let consumer1 = kameo::spawn(TestConsumer);
+    let consumer2 = kameo::spawn(TestConsumer);
 
     //  format=json and priority=high (x-match=all)
     let mut bind_args1 = HashMap::new();

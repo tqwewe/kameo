@@ -80,7 +80,7 @@
 
 use std::{
     any::{Any, TypeId},
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
 };
 
 use crate::DeliveryStrategy;
@@ -392,7 +392,7 @@ impl MessageQueue {
     async fn delivery_message<M: Clone + Send + 'static>(
         &mut self,
         queue_name: String,
-        message: M,
+        message: &M,
         self_ref: ActorRef<Self>,
     ) {
         let mut to_cancel = Vec::new();
@@ -643,7 +643,10 @@ impl Message<QueueUnbind> for MessageQueue {
     }
 }
 
-impl<M: Clone + Send + 'static> Message<BasicPublish<M>> for MessageQueue {
+impl<M> Message<BasicPublish<M>> for MessageQueue
+where
+    M: Clone + Send + Sync + 'static,
+{
     type Reply = Result<(), AmqpError>;
 
     async fn handle(
@@ -708,7 +711,7 @@ impl<M: Clone + Send + 'static> Message<BasicPublish<M>> for MessageQueue {
         }
 
         for queue_name in target_queues {
-            self.delivery_message(queue_name, msg.message.clone(), ctx.actor_ref())
+            self.delivery_message(queue_name, &msg.message, ctx.actor_ref())
                 .await
         }
 
@@ -733,7 +736,7 @@ impl<M: Send + 'static> Message<BasicConsume<M>> for MessageQueue {
 
         if !recipients.iter().any(|reg| reg.actor_id == actor_id) {
             recipients.push(Registration {
-                actor_id: actor_id,
+                actor_id,
                 recipient: Box::new(msg.recipient),
             });
         }
