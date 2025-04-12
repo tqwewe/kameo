@@ -54,7 +54,7 @@ fn default_panic_hook(err: &PanicError) {
 ///
 /// // Define a custom error hook
 /// fn my_custom_hook(err: &PanicError) {
-///     ...
+///     // log the error or something...
 /// }
 ///
 /// // Install the custom hook
