@@ -28,7 +28,7 @@ impl Message<ForceStop> for MyActor {
 
     async fn handle(&mut self, _: ForceStop, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         ctx.actor_ref().kill();
-        ctx.actor_ref().wait_for_stop().await;
+        ctx.actor_ref().wait_for_shutdown().await;
     }
 }
 
