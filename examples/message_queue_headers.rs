@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         type Reply = ();
         async fn handle(&mut self, msg: TestMessage, ctx: &mut Context<Self, Self::Reply>) {
             println!(
-                "Actor id:{},Received message: {:?}",
+                "Actor id: {}, Received message: {:?}",
                 ctx.actor_ref().id(),
                 msg
             );
@@ -35,24 +35,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kind: ExchangeType::Headers,
             ..Default::default()
         })
-        .await;
+        .await?;
 
     mq_ref
         .tell(QueueDeclare {
             queue: "queue1".to_string(),
             ..Default::default()
         })
-        .await;
+        .await?;
 
     mq_ref
         .tell(QueueDeclare {
             queue: "queue2".to_string(),
             ..Default::default()
         })
-        .await;
+        .await?;
 
-    let consumer1 = kameo::spawn(TestConsumer::default());
-    let consumer2 = kameo::spawn(TestConsumer::default());
+    let consumer1 = kameo::spawn(TestConsumer);
+    let consumer2 = kameo::spawn(TestConsumer);
 
     //  format=json and priority=high (x-match=all)
     let mut bind_args1 = HashMap::new();
@@ -67,14 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             routing_key: "".to_string(),
             arguments: bind_args1,
         })
-        .await;
+        .await?;
 
     mq_ref
         .tell(BasicConsume {
             queue: "queue1".to_string(),
             recipient: consumer1.clone().recipient::<TestMessage>(),
         })
-        .await;
+        .await?;
 
     //  format=xml or priority=low  (x-match=any)
     let mut bind_args2 = HashMap::new();
@@ -89,14 +89,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             routing_key: "".to_string(),
             arguments: bind_args2,
         })
-        .await;
+        .await?;
 
     mq_ref
         .tell(BasicConsume {
             queue: "queue2".to_string(),
             recipient: consumer2.clone().recipient::<TestMessage>(),
         })
-        .await;
+        .await?;
 
     // match all
     let mut headers1 = HashMap::new();
@@ -112,7 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 headers: Some(headers1),
             },
         })
-        .await;
+        .await?;
 
     // match priority=low
     let mut headers2 = HashMap::new();
@@ -127,7 +127,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 headers: Some(headers2),
             },
         })
-        .await;
+        .await?;
 
     // no match
     let mut headers3 = HashMap::new();
@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 headers: Some(headers3),
             },
         })
-        .await;
+        .await?;
 
     mq_ref.stop_gracefully().await?;
     mq_ref.wait_for_stop().await;
