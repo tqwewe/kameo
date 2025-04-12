@@ -26,6 +26,7 @@ type ErrorHookFn = fn(&PanicError);
 
 static PANIC_HOOK: AtomicPtr<()> = AtomicPtr::new(default_panic_hook as *mut ());
 
+#[allow(unused_variables)]
 fn default_panic_hook(err: &PanicError) {
     #[cfg(feature = "tracing")]
     tracing::error!("actor panicked: {err}");
