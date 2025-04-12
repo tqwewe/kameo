@@ -958,7 +958,7 @@ mod tests {
 
         let actor_ref = spawn_with_mailbox(MyActor, mailbox::bounded(100));
         actor_ref.stop_gracefully().await?;
-        actor_ref.wait_for_stop().await;
+        actor_ref.wait_for_shutdown().await;
 
         assert_eq!(
             actor_ref.ask(Msg).send().await,
@@ -1005,7 +1005,7 @@ mod tests {
 
         let actor_ref = spawn_with_mailbox(MyActor, mailbox::unbounded());
         actor_ref.stop_gracefully().await?;
-        actor_ref.wait_for_stop().await;
+        actor_ref.wait_for_shutdown().await;
 
         assert_eq!(
             actor_ref.ask(Msg).send().await,

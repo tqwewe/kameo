@@ -53,12 +53,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Shutdown everything
     broker_ref.stop_gracefully().await?;
-    broker_ref.wait_for_stop().await;
+    broker_ref.wait_for_shutdown().await;
 
     my_actor_ref.stop_gracefully().await?;
     my_actor_ref2.stop_gracefully().await?;
-    my_actor_ref.wait_for_stop().await;
-    my_actor_ref2.wait_for_stop().await;
+    my_actor_ref.wait_for_shutdown().await;
+    my_actor_ref2.wait_for_shutdown().await;
 
     Ok(())
 }

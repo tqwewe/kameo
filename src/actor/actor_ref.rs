@@ -51,6 +51,7 @@ pub struct ActorRef<A: Actor> {
     pub(crate) links: Links,
     pub(crate) startup_semaphore: Arc<Semaphore>,
     pub(crate) startup_error: Arc<OnceLock<Option<PanicError>>>,
+    pub(crate) shutdown_error: Arc<OnceLock<Option<PanicError>>>,
 }
 
 impl<A> ActorRef<A>
@@ -64,6 +65,7 @@ where
         links: Links,
         startup_semaphore: Arc<Semaphore>,
         startup_error: Arc<OnceLock<Option<PanicError>>>,
+        shutdown_error: Arc<OnceLock<Option<PanicError>>>,
     ) -> Self {
         ActorRef {
             id: ActorID::generate(),
@@ -72,6 +74,7 @@ where
             links,
             startup_semaphore,
             startup_error,
+            shutdown_error,
         }
     }
 
@@ -172,6 +175,7 @@ where
             links: self.links.clone(),
             startup_notify: self.startup_semaphore.clone(),
             startup_error: self.startup_error.clone(),
+            shutdown_error: self.shutdown_error.clone(),
         }
     }
 
@@ -222,7 +226,7 @@ where
     /// Waits for the actor to finish startup and become ready to process messages.
     ///
     /// This method ensures the actors on_start lifecycle hook has been fully processed.
-    /// If `wait_startup` is called after the actor has already started up, this will return immediately.
+    /// If `wait_for_startup` is called after the actor has already started up, this will return immediately.
     ///
     /// # Example
     ///
@@ -246,20 +250,29 @@ where
     ///
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
-    /// actor_ref.wait_startup().await;
+    /// actor_ref.wait_for_startup().await;
     /// println!("Actor ready to handle messages!");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     #[inline]
-    pub async fn wait_startup(&self) {
+    pub async fn wait_for_startup(&self) {
         let _ = self.startup_semaphore.acquire().await;
+    }
+
+    /// Waits for the actor to finish startup and become ready to process messages.
+    #[deprecated(
+        since = "0.17.0",
+        note = "wait_startup has been renamed to wait_for_startup"
+    )]
+    pub async fn wait_startup(&self) {
+        self.wait_for_startup().await
     }
 
     /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
     ///
     /// This method ensures the actors on_start lifecycle hook has been fully processed.
-    /// If `wait_startup_result` is called after the actor has already started up, this will return immediately.
+    /// If `wait_for_startup_result` is called after the actor has already started up, this will return immediately.
     ///
     /// # Example
     ///
@@ -281,12 +294,12 @@ where
     ///
     /// # tokio_test::block_on(async {
     /// let actor_ref = kameo::spawn(MyActor);
-    /// let startup_result = actor_ref.wait_startup_result().await;
+    /// let startup_result = actor_ref.wait_for_startup_result().await;
     /// assert!(startup_result.is_err());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn wait_startup_result(&self) -> Result<(), A::Error>
+    pub async fn wait_for_startup_result(&self) -> Result<(), A::Error>
     where
         A::Error: Clone,
     {
@@ -303,7 +316,19 @@ where
         }
     }
 
-    /// Waits for the actor to finish processing and stop.
+    /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
+    #[deprecated(
+        since = "0.17.0",
+        note = "wait_startup_result has been renamed to wait_for_startup_result"
+    )]
+    pub async fn wait_startup_result(&self) -> Result<(), A::Error>
+    where
+        A::Error: Clone,
+    {
+        self.wait_for_startup_result().await
+    }
+
+    /// Waits for the actor to finish processing and stop running.
     ///
     /// This method suspends execution until the actor has stopped, ensuring that any ongoing
     /// processing is completed and the actor has fully terminated. This is particularly useful
@@ -314,8 +339,70 @@ where
     /// stop. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
     /// before calling this method.
     #[inline]
-    pub async fn wait_for_stop(&self) {
+    pub async fn wait_for_shutdown(&self) {
         self.mailbox_sender.closed().await
+    }
+
+    /// Waits for the actor to finish processing and stop running.
+    #[deprecated(
+        since = "0.17.0",
+        note = "wait_for_stop has been renamed to wait_for_shutdown"
+    )]
+    pub async fn wait_for_stop(&self) {
+        self.wait_for_startup().await
+    }
+
+    /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
+    ///
+    /// This method ensures the actor's on_stop lifecycle hook has been fully processed.
+    /// If `wait_for_shutdown_result` is called after the actor has already shut down, this will return immediately.
+    ///
+    /// Note: This method does not initiate the stop process; it only waits for the actor to
+    /// stop and returns the result. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
+    /// before calling this method.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use std::num::ParseIntError;
+    /// use std::time::Duration;
+    ///
+    /// use kameo::actor::{Actor, WeakActorRef};
+    /// use kameo::error::ActorStopReason;
+    ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Error = ParseIntError;
+    ///
+    ///     async fn on_stop(&mut self, actor_ref: WeakActorRef<Self>, reason: ActorStopReason) -> Result<(), Self::Error> {
+    ///         "invalid int".parse().map(|_: i32| ()) // Will always error
+    ///     }
+    /// }
+    ///
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = kameo::spawn(MyActor);
+    /// actor_ref.stop_gracefully().await;
+    /// let shutdown_result = actor_ref.wait_for_shutdown_result().await;
+    /// assert!(shutdown_result.is_err());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn wait_for_shutdown_result(&self) -> Result<(), A::Error>
+    where
+        A::Error: Clone,
+    {
+        self.mailbox_sender.closed().await;
+        match self
+            .shutdown_error
+            .get()
+            .expect("shutdown error should be set")
+        {
+            Some(err) => Err(err
+                .with_downcast_ref(|err: &A::Error| err.clone())
+                .expect("panic error type should be the Actor's error type")),
+            None => Ok(()),
+        }
     }
 
     /// Sends a message to the actor and waits for a reply.
@@ -709,7 +796,7 @@ where
                             None => break,
                         }
                     }
-                    _ = actor_ref.wait_for_stop() => {
+                    _ = actor_ref.wait_for_shutdown() => {
                         return Ok(stream);
                     }
                 }
@@ -744,6 +831,7 @@ impl<A: Actor> Clone for ActorRef<A> {
             links: self.links.clone(),
             startup_semaphore: self.startup_semaphore.clone(),
             startup_error: self.startup_error.clone(),
+            shutdown_error: self.shutdown_error.clone(),
         }
     }
 }
@@ -841,18 +929,18 @@ impl<M: Send + 'static> Recipient<M> {
 
     /// Waits for the actor to finish startup and become ready to process messages.
     ///
-    /// See [`ActorRef::wait_startup`].
+    /// See [`ActorRef::wait_for_startup`].
     #[inline]
-    pub async fn wait_startup(&self) {
-        self.handler.wait_startup().await
+    pub async fn wait_for_startup(&self) {
+        self.handler.wait_for_startup().await
     }
 
     /// Waits for the actor to finish processing and stop.
     ///
-    /// See [`ActorRef::wait_for_stop`].
+    /// See [`ActorRef::wait_for_shutdown`].
     #[inline]
-    pub async fn wait_for_stop(&self) {
-        self.handler.wait_for_stop().await
+    pub async fn wait_for_shutdown(&self) {
+        self.handler.wait_for_shutdown().await
     }
 
     /// Sends a message to the actor without waiting for a reply.
@@ -1152,6 +1240,7 @@ pub struct WeakActorRef<A: Actor> {
     pub(crate) links: Links,
     startup_notify: Arc<Semaphore>,
     startup_error: Arc<OnceLock<Option<PanicError>>>,
+    shutdown_error: Arc<OnceLock<Option<PanicError>>>,
 }
 
 impl<A: Actor> WeakActorRef<A> {
@@ -1170,6 +1259,7 @@ impl<A: Actor> WeakActorRef<A> {
             links: self.links.clone(),
             startup_semaphore: self.startup_notify.clone(),
             startup_error: self.startup_error.clone(),
+            shutdown_error: self.shutdown_error.clone(),
         })
     }
 
@@ -1193,6 +1283,7 @@ impl<A: Actor> Clone for WeakActorRef<A> {
             links: self.links.clone(),
             startup_notify: self.startup_notify.clone(),
             startup_error: self.startup_error.clone(),
+            shutdown_error: self.shutdown_error.clone(),
         }
     }
 }
@@ -1290,8 +1381,8 @@ pub(crate) trait MessageHandler<M: Send + 'static>:
     fn is_current(&self) -> bool;
     fn stop_gracefully(&self) -> BoxFuture<'_, Result<(), SendError>>;
     fn kill(&self);
-    fn wait_startup(&self) -> BoxFuture<'_, ()>;
-    fn wait_for_stop(&self) -> BoxFuture<'_, ()>;
+    fn wait_for_startup(&self) -> BoxFuture<'_, ()>;
+    fn wait_for_shutdown(&self) -> BoxFuture<'_, ()>;
 
     #[allow(clippy::type_complexity)]
     fn tell(
@@ -1349,13 +1440,13 @@ where
     }
 
     #[inline]
-    fn wait_startup(&self) -> BoxFuture<'_, ()> {
-        self.wait_startup().boxed()
+    fn wait_for_startup(&self) -> BoxFuture<'_, ()> {
+        self.wait_for_startup().boxed()
     }
 
     #[inline]
-    fn wait_for_stop(&self) -> BoxFuture<'_, ()> {
-        self.wait_for_stop().boxed()
+    fn wait_for_shutdown(&self) -> BoxFuture<'_, ()> {
+        self.wait_for_shutdown().boxed()
     }
 
     fn tell(

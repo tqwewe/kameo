@@ -26,7 +26,7 @@ use crate::{
         kind::{ActorBehaviour, ActorState},
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
-    error::{ActorStopReason, PanicError, SendError},
+    error::{invoke_actor_error_hook, ActorStopReason, PanicError, SendError},
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -308,12 +308,14 @@ impl<A: Actor> PreparedActor<A> {
         let links = Links::default();
         let startup_semaphore = Arc::new(Semaphore::new(0));
         let startup_error = Arc::new(OnceLock::new());
+        let shutdown_error = Arc::new(OnceLock::new());
         let actor_ref = ActorRef::new(
             mailbox_tx,
             abort_handle,
             links,
             startup_semaphore,
             startup_error,
+            shutdown_error,
         );
 
         PreparedActor {
@@ -433,14 +435,19 @@ where
         .map_err(PanicError::new_from_panic_any)
         .and_then(convert::identity);
     match &start_res {
-        Ok(_) => actor_ref
-            .startup_error
-            .set(None)
-            .expect("nothing else should set the startup error"),
-        Err(err) => actor_ref
-            .startup_error
-            .set(Some(err.clone()))
-            .expect("nothing else should set the startup error"),
+        Ok(()) => {
+            actor_ref
+                .startup_error
+                .set(None)
+                .expect("nothing else should set the startup error");
+        }
+        Err(err) => {
+            invoke_actor_error_hook(err);
+            actor_ref
+                .startup_error
+                .set(Some(err.clone()))
+                .expect("nothing else should set the startup error");
+        }
     }
 
     let mut startup_finished = false;
@@ -466,10 +473,27 @@ where
             .break_value()
             .unwrap_or(reason);
         let mut actor = state.shutdown().await;
-        actor
-            .on_stop(actor_ref.clone(), reason.clone())
-            .await
-            .unwrap();
+        let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
+        match on_stop_res {
+            Ok(()) => {
+                if let Some(actor_ref) = actor_ref.upgrade() {
+                    actor_ref
+                        .shutdown_error
+                        .set(None)
+                        .expect("nothing else should set the shutdown error");
+                }
+            }
+            Err(err) => {
+                let err = PanicError::new(Box::new(err));
+                invoke_actor_error_hook(&err);
+                if let Some(actor_ref) = actor_ref.upgrade() {
+                    actor_ref
+                        .shutdown_error
+                        .set(Some(err))
+                        .expect("nothing else should set the shutdown error");
+                }
+            }
+        }
         log_actor_stop_reason(id, name, &reason);
         return (actor, reason);
     }
@@ -535,14 +559,33 @@ where
         }
     }
 
-    let on_stop_res = actor.on_stop(actor_ref, reason.clone()).await;
+    let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
     log_actor_stop_reason(id, name, &reason);
 
     while let Some(()) = link_notification_futures.next().await {}
     #[cfg(feature = "remote")]
     remote::REMOTE_REGISTRY.lock().await.remove(&id);
 
-    on_stop_res.unwrap();
+    match on_stop_res {
+        Ok(()) => {
+            if let Some(actor_ref) = actor_ref.upgrade() {
+                actor_ref
+                    .shutdown_error
+                    .set(None)
+                    .expect("nothing else should set the shutdown error");
+            }
+        }
+        Err(err) => {
+            let err = PanicError::new(Box::new(err));
+            invoke_actor_error_hook(&err);
+            if let Some(actor_ref) = actor_ref.upgrade() {
+                actor_ref
+                    .shutdown_error
+                    .set(Some(err))
+                    .expect("nothing else should set the shutdown error");
+            }
+        }
+    }
 
     (actor, reason)
 }
