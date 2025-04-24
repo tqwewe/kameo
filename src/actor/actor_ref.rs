@@ -1311,6 +1311,15 @@ pub struct WeakRecipient<M: Send + 'static> {
 }
 
 impl<M: Send + 'static> WeakRecipient<M> {
+    fn new<A>(weak_actor_ref: WeakActorRef<A>) -> Self
+    where
+        A: Actor + Message<M>,
+    {
+        WeakRecipient {
+            handler: Box::new(weak_actor_ref),
+        }
+    }
+
     /// Returns the actor identifier.
     pub fn id(&self) -> ActorID {
         self.handler.id()
@@ -1412,7 +1421,7 @@ where
 
     #[inline]
     fn downgrade(&self) -> WeakRecipient<M> {
-        todo!()
+        WeakRecipient::new(self.downgrade())
     }
 
     #[inline]
