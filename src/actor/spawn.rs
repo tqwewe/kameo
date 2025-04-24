@@ -136,7 +136,7 @@ impl<A: Actor> PreparedActor<A> {
         {
             tokio::task::Builder::new()
                 .name(A::name())
-                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(actor)))
+                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(args)))
                 .unwrap()
         }
     }
