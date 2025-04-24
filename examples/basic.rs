@@ -37,7 +37,7 @@ impl Message<ForceErr> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let my_actor_ref = kameo::spawn(MyActor::default());
+    let my_actor_ref = MyActor::spawn(MyActor::default());
 
     // Increment the count by 3
     let count = my_actor_ref.ask(Inc { amount: 3 }).await?;

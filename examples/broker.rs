@@ -22,10 +22,10 @@ impl Message<Echo> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let broker_ref = kameo::spawn(Broker::new(DeliveryStrategy::Guaranteed));
+    let broker_ref = Broker::spawn(Broker::new(DeliveryStrategy::Guaranteed));
 
     // Subscribe
-    let my_actor_ref = kameo::spawn(MyActor);
+    let my_actor_ref = MyActor::spawn(MyActor);
     broker_ref
         .tell(Subscribe {
             topic: "my-topic".parse()?,
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    let my_actor_ref2 = kameo::spawn(MyActor);
+    let my_actor_ref2 = MyActor::spawn(MyActor);
     broker_ref
         .tell(Subscribe {
             topic: "my-*".parse()?,

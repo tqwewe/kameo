@@ -31,7 +31,7 @@
 //!
 //! # tokio_test::block_on(async {
 //! // Spawn the actor pool with 4 workers
-//! let pool_actor = kameo::spawn(ActorPool::new(4, || kameo::spawn(MyWorker)));
+//! let pool_actor = ActorPool::spawn(ActorPool::new(4, || MyWorker::spawn(MyWorker)));
 //!
 //! // Send tasks to the pool
 //! pool_actor.tell(Dispatch("Hello worker!")).await?;
@@ -50,7 +50,7 @@ use futures::{
     Future, FutureExt, TryFutureExt,
     future::{BoxFuture, join_all},
 };
-use kameo::{actor::spawn_with_mailbox, error::Infallible, prelude::*};
+use kameo::{error::Infallible, prelude::*};
 
 enum Factory<A: Actor> {
     Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),
@@ -109,7 +109,7 @@ where
                     MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
                     MailboxSender::Unbounded(_) => mailbox::unbounded(),
                 };
-                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+                (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             })
             .collect();
 
@@ -138,7 +138,7 @@ where
                     MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
                     MailboxSender::Unbounded(_) => mailbox::unbounded(),
                 };
-                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+                (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             })
         }))
         .await;
@@ -166,18 +166,19 @@ impl<A> Actor for ActorPool<A>
 where
     A: Actor,
 {
+    type Args = Self;
     type Error = Infallible;
 
     fn name() -> &'static str {
         "ActorPool"
     }
 
-    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
-        for (worker, _) in &self.workers {
+    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        for (worker, _) in &state.workers {
             worker.link(&actor_ref).await;
         }
 
-        Ok(())
+        Ok(state)
     }
 
     async fn on_link_died(
@@ -205,7 +206,7 @@ where
                     MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
                     MailboxSender::Unbounded(_) => mailbox::unbounded(),
                 };
-                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+                (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             }
             Factory::Async(f) => {
                 let worker = Worker {
@@ -215,7 +216,7 @@ where
                     MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
                     MailboxSender::Unbounded(_) => mailbox::unbounded(),
                 };
-                (spawn_with_mailbox(worker, mailbox), Arc::new(()))
+                (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             }
         };
         self.workers[i].0.link(&actor_ref).await;
@@ -229,7 +230,12 @@ struct Worker<A: Actor> {
 }
 
 impl<A: Actor> Actor for Worker<A> {
+    type Args = Self;
     type Error = Infallible;
+
+    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(state)
+    }
 }
 
 /// A wrapper type which helps keep track of the load for each worker.

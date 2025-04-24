@@ -95,7 +95,7 @@ impl Message<Inc> for Counter {
 
 ```rust,ignore
 // Spawn the actor and obtain its reference
-let actor_ref = kameo::spawn(Counter { count: 0 });
+let actor_ref = Counter::spawn(Counter { count: 0 });
 
 // Send messages to the actor
 let count = actor_ref.ask(Inc { amount: 42 }).await?;
@@ -110,7 +110,7 @@ Kameo provides built-in support for distributed actors, allowing you to send mes
 
 ```rust,ignore
 // Spawn and register the actor
-let actor_ref = kameo::spawn(MyActor::default());
+let actor_ref = MyActor::spawn(MyActor::default());
 actor_ref.register("my_actor").await?;
 ```
 

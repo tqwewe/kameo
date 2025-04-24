@@ -22,15 +22,15 @@ impl Message<Echo> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let message_bus_ref = kameo::spawn(MessageBus::new(DeliveryStrategy::Guaranteed));
+    let message_bus_ref = MessageBus::spawn(MessageBus::new(DeliveryStrategy::Guaranteed));
 
     // Subscribe
-    let my_actor_ref = kameo::spawn(MyActor);
+    let my_actor_ref = MyActor::spawn(MyActor);
     message_bus_ref
         .tell(Register(my_actor_ref.clone().recipient()))
         .await?;
 
-    let my_actor_ref2 = kameo::spawn(MyActor);
+    let my_actor_ref2 = MyActor::spawn(MyActor);
     message_bus_ref
         .tell(Register(my_actor_ref2.clone().recipient()))
         .await?;
