@@ -590,11 +590,12 @@ where
     ///
     /// ```no_run
     /// # use kameo::actor::RemoteActorRef;
+    /// # use kameo::Actor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct MyActor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct OtherActor;
     /// #
     /// # tokio_test::block_on(async {
@@ -713,11 +714,12 @@ where
     ///
     /// ```
     /// # use kameo::actor::RemoteActorRef;
+    /// # use kameo::Actor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct MyActor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct OtherActor;
     /// #
     /// # tokio_test::block_on(async {
