@@ -145,17 +145,33 @@ impl<M, E> SendError<M, E> {
         }
     }
 
+    /// Returns the inner message if available.
+    pub fn msg(self) -> Option<M> {
+        match self {
+            SendError::ActorNotRunning(msg) => Some(msg),
+            SendError::MailboxFull(msg) => Some(msg),
+            SendError::Timeout(msg) => msg,
+            _ => None,
+        }
+    }
+
+    /// Returns the inner error if available.
+    pub fn err(self) -> Option<E> {
+        match self {
+            SendError::HandlerError(err) => Some(err),
+            _ => None,
+        }
+    }
+
     /// Unwraps the inner message, consuming the `self` value.
     ///
     /// # Panics
     ///
     /// Panics if the error does not contain the inner message.
     pub fn unwrap_msg(self) -> M {
-        match self {
-            SendError::ActorNotRunning(msg) => msg,
-            SendError::MailboxFull(msg) => msg,
-            SendError::Timeout(msg) => msg.unwrap(),
-            _ => panic!("called `SendError::unwrap_msg()` on a non message error"),
+        match self.msg() {
+            Some(msg) => msg,
+            None => panic!("called `SendError::unwrap_msg()` on a non message error"),
         }
     }
 
@@ -165,9 +181,9 @@ impl<M, E> SendError<M, E> {
     ///
     /// Panics if the error does not contain a handler error.
     pub fn unwrap_err(self) -> E {
-        match self {
-            SendError::HandlerError(err) => err,
-            _ => panic!("called `SendError::unwrap_err()` on a non error"),
+        match self.err() {
+            Some(err) => err,
+            None => panic!("called `SendError::unwrap_err()` on a non error"),
         }
     }
 
