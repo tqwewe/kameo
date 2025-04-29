@@ -32,7 +32,7 @@ use futures::Future;
 
 use crate::{
     error::{ActorStopReason, PanicError},
-    mailbox::{MailboxReceiver, Signal},
+    mailbox::{self, MailboxReceiver, MailboxSender, Signal},
     message::BoxMessage,
     reply::{BoxReplySender, ReplyError},
 };
@@ -40,6 +40,8 @@ use crate::{
 pub use actor_ref::*;
 pub use id::*;
 pub use spawn::*;
+
+const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 
 /// Core behavior of an actor, including its lifecycle events and how it processes messages.
 ///
@@ -71,11 +73,15 @@ pub use spawn::*;
 /// struct MyActor;
 ///
 /// impl Actor for MyActor {
+///     type Args = Self;
 ///     type Error = Infallible;
 ///
-///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+///     async fn on_start(
+///         state: Self::Args,
+///         actor_ref: ActorRef<Self>
+///     ) -> Result<Self, Self::Error> {
 ///         println!("actor started");
-///         Ok(())
+///         Ok(state)
 ///     }
 ///
 ///     async fn on_stop(
@@ -97,8 +103,8 @@ pub use spawn::*;
 ///
 /// # Mailboxes
 /// Actors use a mailbox to queue incoming messages. You can choose between:
-/// - [**Bounded Mailbox**]: Limits the number of messages that can be queued, providing backpressure.
-/// - [**Unbounded Mailbox**]: Allows an infinite number of messages, but can lead to high memory usage.
+/// - **Bounded Mailbox**: Limits the number of messages that can be queued, providing backpressure.
+/// - **Unbounded Mailbox**: Allows an infinite number of messages, but can lead to high memory usage.
 ///
 /// Mailboxes enable efficient asynchronous message passing with support for both backpressure and
 /// unbounded queueing depending on system requirements.
@@ -108,6 +114,12 @@ pub use spawn::*;
 /// [`on_stop`]: Actor::on_stop
 /// [`on_link_died`]: Actor::on_link_died
 pub trait Actor: Sized + Send + 'static {
+    /// Arguments to initialize the actor.
+    ///
+    /// Its common for `Args = Self`, allowing the actors state to be passed directly,
+    /// however for more complex use cases, the args can be any other type.
+    type Args: Send;
+
     /// Actor error type.
     ///
     /// This error is used as the error returned by lifecycle hooks in this actor.
@@ -128,14 +140,32 @@ pub trait Actor: Sized + Send + 'static {
     /// before any externally sent messages, even if external messages are received first.
     ///
     /// This ensures that the actor can properly initialize before handling external messages.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use kameo::actor::{Actor, ActorRef};
+    /// # use kameo::error::Infallible;
+    /// #
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(
+    ///         state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
+    /// }
+    /// ```
     #[allow(unused_variables)]
-    #[inline]
     fn on_start(
-        &mut self,
+        args: Self::Args,
         actor_ref: ActorRef<Self>,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async { Ok(()) }
-    }
+    ) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 
     /// Called when the actor receives a message to be processed.
     ///
@@ -262,5 +292,281 @@ pub trait Actor: Sized + Send + 'static {
         mailbox_rx: &mut MailboxReceiver<Self>,
     ) -> impl Future<Output = Option<Signal<Self>>> + Send {
         async move { mailbox_rx.recv().await }
+    }
+
+    /// Spawns the actor in a Tokio task, running asynchronously with a default bounded mailbox.
+    ///
+    /// This function spawns the actor in a non-blocking Tokio task, making it suitable for actors that need to
+    /// perform asynchronous operations. The actor runs in the background and can be interacted with through
+    /// the returned [`ActorRef`].
+    ///
+    /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+    /// For custom mailbox configuration, use [`Actor::spawn_with_mailbox`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor;
+    ///
+    /// # tokio_test::block_on(async {
+    /// // Spawns with a default bounded mailbox (capacity 64)
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// # })
+    /// ```
+    ///
+    /// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
+    fn spawn(args: Self::Args) -> ActorRef<Self> {
+        Self::spawn_with_mailbox(args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+    }
+
+    /// Spawns the actor in a Tokio task with a specific mailbox configuration.
+    ///
+    /// This function allows you to explicitly specify a mailbox when spawning an actor.
+    /// Use this when you need custom mailbox behavior or capacity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    /// use kameo::mailbox;
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor;
+    ///
+    /// # tokio_test::block_on(async {
+    /// // Using a bounded mailbox with custom capacity
+    /// let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1000));
+    ///
+    /// // Using an unbounded mailbox
+    /// let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::unbounded());
+    /// # })
+    /// ```
+    fn spawn_with_mailbox(
+        args: Self::Args,
+        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+    ) -> ActorRef<Self> {
+        let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
+        let actor_ref = prepared_actor.actor_ref().clone();
+        prepared_actor.spawn(args);
+        actor_ref
+    }
+
+    /// Spawns and links the actor in a Tokio task with a default bounded mailbox.
+    ///
+    /// This function is used to ensure an actor is linked with another actor before it's truly spawned,
+    /// which avoids possible edge cases where the actor could die before having the chance to be linked.
+    ///
+    /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+    /// For custom mailbox configuration, use [`Actor::spawn_link_with_mailbox`].
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    ///
+    /// #[derive(Actor)]
+    /// struct FooActor;
+    ///
+    /// #[derive(Actor)]
+    /// struct BarActor;
+    ///
+    /// # tokio_test::block_on(async {
+    /// let link_ref = FooActor::spawn(FooActor);
+    /// // Spawns with default bounded mailbox (capacity 64)
+    /// let actor_ref = BarActor::spawn_link(&link_ref, BarActor).await;
+    /// # })
+    /// ```
+    fn spawn_link<L>(
+        link_ref: &ActorRef<L>,
+        args: Self::Args,
+    ) -> impl Future<Output = ActorRef<Self>> + Send
+    where
+        L: Actor,
+    {
+        Self::spawn_link_with_mailbox(link_ref, args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+    }
+
+    /// Spawns and links the actor in a Tokio task with a specific mailbox configuration.
+    ///
+    /// This function is used to ensure an actor is linked with another actor before it's truly spawned,
+    /// which avoids possible edge cases where the actor could die before having the chance to be linked.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    /// use kameo::mailbox;
+    ///
+    /// #[derive(Actor)]
+    /// struct FooActor;
+    ///
+    /// #[derive(Actor)]
+    /// struct BarActor;
+    ///
+    /// # tokio_test::block_on(async {
+    /// let link_ref = FooActor::spawn(FooActor);
+    /// // Using a custom mailbox
+    /// let actor_ref = BarActor::spawn_link_with_mailbox(&link_ref, BarActor, mailbox::unbounded()).await;
+    /// # })
+    /// ```
+    fn spawn_link_with_mailbox<L>(
+        link_ref: &ActorRef<L>,
+        args: Self::Args,
+        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+    ) -> impl Future<Output = ActorRef<Self>> + Send
+    where
+        L: Actor,
+    {
+        async move {
+            let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
+            let actor_ref = prepared_actor.actor_ref().clone();
+            actor_ref.link(link_ref).await;
+            prepared_actor.spawn(args);
+            actor_ref
+        }
+    }
+
+    /// Spawns the actor in its own dedicated thread with a default bounded mailbox.
+    ///
+    /// This function spawns the actor in a separate thread, making it suitable for actors that perform blocking
+    /// operations, such as file I/O or other tasks that cannot be efficiently executed in an asynchronous context.
+    /// Despite running in a blocking thread, the actor can still communicate asynchronously with other actors.
+    ///
+    /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+    /// For custom mailbox configuration, use [`Actor::spawn_in_thread_with_mailbox`].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::io::{self, Write};
+    /// use std::fs::File;
+    ///
+    /// use kameo::Actor;
+    /// use kameo::message::{Context, Message};
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor {
+    ///     file: File,
+    /// }
+    ///
+    /// struct Flush;
+    /// impl Message<Flush> for MyActor {
+    ///     type Reply = io::Result<()>;
+    ///
+    ///     async fn handle(&mut self, _: Flush, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    ///         self.file.flush() // This blocking operation is handled in its own thread
+    ///     }
+    /// }
+    ///
+    /// let actor_ref = MyActor::spawn_in_thread(
+    ///     MyActor { file: File::create("output.txt").unwrap() }
+    /// );
+    /// actor_ref.tell(Flush).blocking_send()?;
+    /// # Ok::<(), kameo::error::SendError<Flush>>(())
+    /// ```
+    ///
+    /// This function is useful for actors that require or benefit from running blocking operations while still
+    /// enabling asynchronous functionality.
+    fn spawn_in_thread(args: Self::Args) -> ActorRef<Self> {
+        Self::spawn_in_thread_with_mailbox(args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+    }
+
+    /// Spawns the actor in its own dedicated thread with a specific mailbox configuration.
+    ///
+    /// This function allows you to explicitly specify a mailbox when spawning an actor in a dedicated thread.
+    /// Use this when you need custom mailbox behavior or capacity for actors that perform blocking operations.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use std::io::{self, Write};
+    /// use std::fs::File;
+    ///
+    /// use kameo::Actor;
+    /// use kameo::mailbox;
+    /// use kameo::message::{Context, Message};
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor {
+    ///     file: File,
+    /// }
+    ///
+    /// struct Flush;
+    /// impl Message<Flush> for MyActor {
+    ///     type Reply = io::Result<()>;
+    ///
+    ///     async fn handle(&mut self, _: Flush, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    ///         self.file.flush() // This blocking operation is handled in its own thread
+    ///     }
+    /// }
+    ///
+    /// let actor_ref = MyActor::spawn_in_thread_with_mailbox(
+    ///     MyActor { file: File::create("output.txt").unwrap() },
+    ///     mailbox::bounded(100)
+    /// );
+    /// actor_ref.tell(Flush).blocking_send()?;
+    /// # Ok::<(), kameo::error::SendError<Flush>>(())
+    /// ```
+    fn spawn_in_thread_with_mailbox(
+        args: Self::Args,
+        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+    ) -> ActorRef<Self> {
+        let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
+        let actor_ref = prepared_actor.actor_ref().clone();
+        prepared_actor.spawn_in_thread(args);
+        actor_ref
+    }
+
+    /// Creates a new prepared actor, allowing access to its [`ActorRef`] before spawning.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use kameo::Actor;
+    /// #
+    /// # #[derive(Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// # let other_actor = MyActor::spawn(MyActor);
+    /// let prepared_actor = MyActor::prepare();
+    /// prepared_actor.actor_ref().link(&other_actor).await;
+    /// let actor_ref = prepared_actor.spawn(MyActor);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    fn prepare() -> PreparedActor<Self> {
+        Self::prepare_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+    }
+
+    /// Creates a new prepared actor with a specific mailbox configuration, allowing access to its [`ActorRef`] before spawning.
+    ///
+    /// This function allows you to explicitly specify a mailbox when preparing an actor.
+    /// Use this when you need custom mailbox behavior or capacity.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use kameo::Actor;
+    /// use kameo::mailbox;
+    /// #
+    /// # #[derive(Actor)]
+    /// # struct MyActor;
+    /// #
+    /// # tokio_test::block_on(async {
+    /// # let other_actor = MyActor::spawn(MyActor);
+    /// let prepared_actor = MyActor::prepare_with_mailbox(mailbox::unbounded());
+    /// prepared_actor.actor_ref().link(&other_actor).await;
+    /// let actor_ref = prepared_actor.spawn(MyActor);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    fn prepare_with_mailbox(
+        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+    ) -> PreparedActor<Self> {
+        PreparedActor::new((mailbox_tx, mailbox_rx))
     }
 }

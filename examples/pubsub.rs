@@ -36,10 +36,10 @@ impl Message<PrintActorID> for ActorB {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pubsub = kameo::spawn(PubSub::<PrintActorID>::new());
+    let pubsub = PubSub::spawn(PubSub::<PrintActorID>::new());
 
-    let actor_a = kameo::spawn(ActorA);
-    let actor_b = kameo::spawn(ActorB);
+    let actor_a = ActorA::spawn(ActorA);
+    let actor_b = ActorB::spawn(ActorB);
 
     pubsub.ask(Subscribe(actor_a)).await?;
     pubsub.ask(Subscribe(actor_b)).await?;

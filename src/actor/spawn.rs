@@ -27,247 +27,10 @@ use crate::{
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
     error::{invoke_actor_error_hook, ActorStopReason, PanicError, SendError},
-    mailbox::{self, MailboxReceiver, MailboxSender, Signal},
+    mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
 use super::ActorID;
-
-const DEFAULT_MAILBOX_CAPACITY: usize = 64;
-
-/// Spawns an actor in a Tokio task with a specific mailbox configuration.
-///
-/// This function allows you to explicitly specify a mailbox when spawning an actor.
-/// Use this when you need custom mailbox behavior or capacity.
-///
-/// # Example
-///
-/// ```
-/// use kameo::Actor;
-/// use kameo::mailbox;
-///
-/// #[derive(Actor)]
-/// struct MyActor;
-///
-/// # tokio_test::block_on(async {
-/// // Using a bounded mailbox with custom capacity
-/// let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::bounded(1000));
-///
-/// // Using an unbounded mailbox
-/// let actor_ref = kameo::actor::spawn_with_mailbox(MyActor, mailbox::unbounded());
-/// # })
-/// ```
-pub fn spawn_with_mailbox<A>(
-    actor: A,
-    (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
-) -> ActorRef<A>
-where
-    A: Actor,
-{
-    let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
-    let actor_ref = prepared_actor.actor_ref().clone();
-    prepared_actor.spawn(actor);
-    actor_ref
-}
-
-/// Spawns an actor in a Tokio task, running asynchronously with a default bounded mailbox.
-///
-/// This function spawns the actor in a non-blocking Tokio task, making it suitable for actors that need to
-/// perform asynchronous operations. The actor runs in the background and can be interacted with through
-/// the returned [`ActorRef`].
-///
-/// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
-/// For custom mailbox configuration, use [`spawn_with_mailbox`].
-///
-/// # Example
-///
-/// ```
-/// use kameo::Actor;
-///
-/// #[derive(Actor)]
-/// struct MyActor;
-///
-/// # tokio_test::block_on(async {
-/// // Spawns with a default bounded mailbox (capacity 64)
-/// let actor_ref = kameo::spawn(MyActor);
-/// # })
-/// ```
-///
-/// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
-pub fn spawn<A>(actor: A) -> ActorRef<A>
-where
-    A: Actor,
-{
-    spawn_with_mailbox(actor, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
-}
-
-/// Spawns and links an actor in a Tokio task with a specific mailbox configuration.
-///
-/// This function is used to ensure an actor is linked with another actor before it's truly spawned,
-/// which avoids possible edge cases where the actor could die before having the chance to be linked.
-///
-/// # Example
-///
-/// ```
-/// use kameo::Actor;
-/// use kameo::mailbox;
-///
-/// #[derive(Actor)]
-/// struct FooActor;
-///
-/// #[derive(Actor)]
-/// struct BarActor;
-///
-/// # tokio_test::block_on(async {
-/// let link_ref = kameo::spawn(FooActor);
-/// // Using a custom mailbox
-/// let actor_ref = kameo::actor::spawn_link_with_mailbox(&link_ref, BarActor, mailbox::unbounded()).await;
-/// # })
-/// ```
-pub async fn spawn_link_with_mailbox<A, L>(
-    link_ref: &ActorRef<L>,
-    actor: A,
-    (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
-) -> ActorRef<A>
-where
-    A: Actor,
-    L: Actor,
-{
-    let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
-    let actor_ref = prepared_actor.actor_ref().clone();
-    actor_ref.link(link_ref).await;
-    prepared_actor.spawn(actor);
-    actor_ref
-}
-
-/// Spawns and links an actor in a Tokio task with a default bounded mailbox.
-///
-/// This function is used to ensure an actor is linked with another actor before it's truly spawned,
-/// which avoids possible edge cases where the actor could die before having the chance to be linked.
-///
-/// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
-/// For custom mailbox configuration, use [`spawn_link_with_mailbox`].
-///
-/// # Example
-///
-/// ```
-/// use kameo::Actor;
-///
-/// #[derive(Actor)]
-/// struct FooActor;
-///
-/// #[derive(Actor)]
-/// struct BarActor;
-///
-/// # tokio_test::block_on(async {
-/// let link_ref = kameo::spawn(FooActor);
-/// // Spawns with default bounded mailbox (capacity 64)
-/// let actor_ref = kameo::actor::spawn_link(&link_ref, BarActor).await;
-/// # })
-/// ```
-pub async fn spawn_link<A, L>(link_ref: &ActorRef<L>, actor: A) -> ActorRef<A>
-where
-    A: Actor,
-    L: Actor,
-{
-    spawn_link_with_mailbox(link_ref, actor, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY)).await
-}
-
-/// Spawns an actor in its own dedicated thread with a specific mailbox configuration.
-///
-/// This function allows you to explicitly specify a mailbox when spawning an actor in a dedicated thread.
-/// Use this when you need custom mailbox behavior or capacity for actors that perform blocking operations.
-///
-/// # Example
-///
-/// ```no_run
-/// use std::io::{self, Write};
-/// use std::fs::File;
-///
-/// use kameo::Actor;
-/// use kameo::mailbox;
-/// use kameo::message::{Context, Message};
-///
-/// #[derive(Actor)]
-/// struct MyActor {
-///     file: File,
-/// }
-///
-/// struct Flush;
-/// impl Message<Flush> for MyActor {
-///     type Reply = io::Result<()>;
-///
-///     async fn handle(&mut self, _: Flush, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-///         self.file.flush() // This blocking operation is handled in its own thread
-///     }
-/// }
-///
-/// let actor_ref = kameo::actor::spawn_in_thread_with_mailbox(
-///     MyActor { file: File::create("output.txt").unwrap() },
-///     mailbox::bounded(100)
-/// );
-/// actor_ref.tell(Flush).blocking_send()?;
-/// # Ok::<(), kameo::error::SendError<Flush>>(())
-/// ```
-pub fn spawn_in_thread_with_mailbox<A>(
-    actor: A,
-    (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
-) -> ActorRef<A>
-where
-    A: Actor,
-{
-    let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
-    let actor_ref = prepared_actor.actor_ref().clone();
-    prepared_actor.spawn_in_thread(actor);
-    actor_ref
-}
-
-/// Spawns an actor in its own dedicated thread with a default bounded mailbox.
-///
-/// This function spawns the actor in a separate thread, making it suitable for actors that perform blocking
-/// operations, such as file I/O or other tasks that cannot be efficiently executed in an asynchronous context.
-/// Despite running in a blocking thread, the actor can still communicate asynchronously with other actors.
-///
-/// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
-/// For custom mailbox configuration, use [`spawn_in_thread_with_mailbox`].
-///
-/// # Example
-///
-/// ```no_run
-/// use std::io::{self, Write};
-/// use std::fs::File;
-///
-/// use kameo::Actor;
-/// use kameo::message::{Context, Message};
-///
-/// #[derive(Actor)]
-/// struct MyActor {
-///     file: File,
-/// }
-///
-/// struct Flush;
-/// impl Message<Flush> for MyActor {
-///     type Reply = io::Result<()>;
-///
-///     async fn handle(&mut self, _: Flush, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-///         self.file.flush() // This blocking operation is handled in its own thread
-///     }
-/// }
-///
-/// let actor_ref = kameo::actor::spawn_in_thread(
-///     MyActor { file: File::create("output.txt").unwrap() }
-/// );
-/// actor_ref.tell(Flush).blocking_send()?;
-/// # Ok::<(), kameo::error::SendError<Flush>>(())
-/// ```
-///
-/// This function is useful for actors that require or benefit from running blocking operations while still
-/// enabling asynchronous functionality.
-pub fn spawn_in_thread<A>(actor: A) -> ActorRef<A>
-where
-    A: Actor,
-{
-    spawn_in_thread_with_mailbox(actor, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
-}
 
 /// A `PreparedActor` represents an actor that has been initialized and is ready to be either run
 /// in the current task or spawned into a new task.
@@ -276,6 +39,7 @@ where
 /// before it starts running. It allows for flexible execution, either by running the actor
 /// synchronously in the current task or spawning it in a separate task or thread.
 #[allow(missing_debug_implementations)]
+#[must_use = "the prepared actor needs to be ran/spawned"]
 pub struct PreparedActor<A: Actor> {
     actor_ref: ActorRef<A>,
     mailbox_rx: MailboxReceiver<A>,
@@ -283,26 +47,12 @@ pub struct PreparedActor<A: Actor> {
 }
 
 impl<A: Actor> PreparedActor<A> {
-    /// Creates a new prepared actor, allowing access to its [`ActorRef`] before spawning.
+    /// Creates a new prepared actor with a specific mailbox configuration, allowing access to its [`ActorRef`] before spawning.
     ///
-    /// # Example
+    /// This function allows you to explicitly specify a mailbox when preparing an actor.
+    /// Use this when you need custom mailbox behavior or capacity.
     ///
-    /// ```
-    /// # use kameo::Actor;
-    /// # use kameo::actor::PreparedActor;
-    /// use kameo::mailbox;
-    /// #
-    /// # #[derive(Actor)]
-    /// # struct MyActor;
-    /// #
-    /// # tokio_test::block_on(async {
-    /// # let other_actor = kameo::spawn(MyActor);
-    /// let prepared_actor = PreparedActor::new(mailbox::unbounded());
-    /// prepared_actor.actor_ref().link(&other_actor).await;
-    /// let actor_ref = prepared_actor.spawn(MyActor);
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
+    /// This is typically created though [`Actor::prepare`] and [`Actor::prepare_with_mailbox`].
     pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
@@ -345,7 +95,6 @@ impl<A: Actor> PreparedActor<A> {
     /// ```no_run
     /// # use kameo::Actor;
     /// # use kameo::actor::PreparedActor;
-    /// use kameo::mailbox;
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -357,16 +106,16 @@ impl<A: Actor> PreparedActor<A> {
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let prepared_actor = PreparedActor::new(mailbox::unbounded());
+    /// let prepared_actor = MyActor::prepare();
     /// // Send it a message before it runs
     /// prepared_actor.actor_ref().tell("hello!").await?;
     /// prepared_actor.run(MyActor).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn run(self, actor: A) -> (A, ActorStopReason) {
+    pub async fn run(self, args: A::Args) -> Result<(A, ActorStopReason), PanicError> {
         run_actor_lifecycle::<A, ActorBehaviour<A>>(
-            actor,
+            args,
             self.actor_ref,
             self.mailbox_rx,
             self.abort_registration,
@@ -376,26 +125,29 @@ impl<A: Actor> PreparedActor<A> {
 
     /// Spawns the actor in a new background tokio task, returning the `JoinHandle`.
     ///
-    /// See [`spawn`] for more information.
-    pub fn spawn(self, actor: A) -> JoinHandle<(A, ActorStopReason)> {
+    /// See [`Actor::spawn`] for more information.
+    pub fn spawn(self, args: A::Args) -> JoinHandle<Result<(A, ActorStopReason), PanicError>> {
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         {
-            tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(actor)))
+            tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(args)))
         }
 
         #[cfg(all(tokio_unstable, feature = "tracing"))]
         {
             tokio::task::Builder::new()
                 .name(A::name())
-                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(actor)))
+                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(args)))
                 .unwrap()
         }
     }
 
     /// Spawns the actor in a new background thread, returning the `JoinHandle`.
     ///
-    /// See [`spawn_in_thread`] for more information.
-    pub fn spawn_in_thread(self, actor: A) -> thread::JoinHandle<(A, ActorStopReason)> {
+    /// See [`Actor::spawn_in_thread`] for more information.
+    pub fn spawn_in_thread(
+        self,
+        args: A::Args,
+    ) -> thread::JoinHandle<Result<(A, ActorStopReason), PanicError>> {
         let handle = Handle::current();
         if matches!(handle.runtime_flavor(), RuntimeFlavor::CurrentThread) {
             panic!("threaded actors are not supported in a single threaded tokio runtime");
@@ -405,7 +157,7 @@ impl<A: Actor> PreparedActor<A> {
             .name(A::name().to_string())
             .spawn({
                 let actor_ref = self.actor_ref.clone();
-                move || handle.block_on(CURRENT_ACTOR_ID.scope(actor_ref.id(), self.run(actor)))
+                move || handle.block_on(CURRENT_ACTOR_ID.scope(actor_ref.id(), self.run(args)))
             })
             .unwrap()
     }
@@ -413,11 +165,11 @@ impl<A: Actor> PreparedActor<A> {
 
 #[inline]
 async fn run_actor_lifecycle<A, S>(
-    mut actor: A,
+    args: A::Args,
     actor_ref: ActorRef<A>,
     mut mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
-) -> (A, ActorStopReason)
+) -> Result<(A, ActorStopReason), PanicError>
 where
     A: Actor,
     S: ActorState<A>,
@@ -428,18 +180,19 @@ where
     #[cfg(feature = "tracing")]
     trace!(%id, %name, "actor started");
 
-    let start_res = AssertUnwindSafe(actor.on_start(actor_ref.clone()))
+    let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
         .catch_unwind()
         .await
         .map(|res| res.map_err(|err| PanicError::new(Box::new(err))))
         .map_err(PanicError::new_from_panic_any)
         .and_then(convert::identity);
     match &start_res {
-        Ok(()) => {
+        Ok(actor) => {
             actor_ref
                 .startup_error
                 .set(None)
                 .expect("nothing else should set the startup error");
+            Some(actor)
         }
         Err(err) => {
             invoke_actor_error_hook(err);
@@ -447,8 +200,9 @@ where
                 .startup_error
                 .set(Some(err.clone()))
                 .expect("nothing else should set the startup error");
+            None
         }
-    }
+    };
 
     let mut startup_finished = false;
     if let Err(SendError::MailboxFull(())) =
@@ -463,42 +217,18 @@ where
         (weak_actor_ref, actor_ref.links, actor_ref.startup_semaphore)
     };
 
-    if let Err(err) = start_res {
-        startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
-        let reason = ActorStopReason::Panicked(err);
-        let mut state = S::new_from_actor(actor, actor_ref.clone());
-        let reason = state
-            .on_shutdown(reason.clone())
-            .await
-            .break_value()
-            .unwrap_or(reason);
-        let mut actor = state.shutdown().await;
-        let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
-        match on_stop_res {
-            Ok(()) => {
-                if let Some(actor_ref) = actor_ref.upgrade() {
-                    actor_ref
-                        .shutdown_error
-                        .set(None)
-                        .expect("nothing else should set the shutdown error");
-                }
-            }
-            Err(err) => {
-                let err = PanicError::new(Box::new(err));
-                invoke_actor_error_hook(&err);
-                if let Some(actor_ref) = actor_ref.upgrade() {
-                    actor_ref
-                        .shutdown_error
-                        .set(Some(err))
-                        .expect("nothing else should set the shutdown error");
-                }
-            }
+    let mut state = match start_res {
+        Ok(actor) => S::new_from_actor(actor, actor_ref.clone()),
+        Err(err) => {
+            startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
+            let reason = ActorStopReason::Panicked(err);
+            log_actor_stop_reason(id, name, &reason);
+            let ActorStopReason::Panicked(err) = reason else {
+                unreachable!()
+            };
+            return Err(err);
         }
-        log_actor_stop_reason(id, name, &reason);
-        return (actor, reason);
-    }
-
-    let mut state = S::new_from_actor(actor, actor_ref.clone());
+    };
 
     let reason = Abortable::new(
         abortable_actor_loop(
@@ -587,7 +317,7 @@ where
         }
     }
 
-    (actor, reason)
+    Ok((actor, reason))
 }
 
 async fn abortable_actor_loop<A, S>(

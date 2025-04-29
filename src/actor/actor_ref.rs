@@ -240,16 +240,20 @@ where
     /// struct MyActor;
     ///
     /// impl Actor for MyActor {
+    ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+    ///     async fn on_start(
+    ///         state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
     ///         sleep(Duration::from_secs(2)).await; // Some io operation
-    ///         Ok(())
+    ///         Ok(state)
     ///     }
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// actor_ref.wait_for_startup().await;
     /// println!("Actor ready to handle messages!");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -285,15 +289,19 @@ where
     /// struct MyActor;
     ///
     /// impl Actor for MyActor {
+    ///     type Args = Self;
     ///     type Error = ParseIntError;
     ///
-    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
-    ///         "invalid int".parse().map(|_: i32| ()) // Will always error
+    ///     async fn on_start(
+    ///         _state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
+    ///         "invalid int".parse().map(|_: i32| MyActor) // Will always error
     ///     }
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// let startup_result = actor_ref.wait_for_startup_result().await;
     /// assert!(startup_result.is_err());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -367,13 +375,21 @@ where
     /// use std::num::ParseIntError;
     /// use std::time::Duration;
     ///
-    /// use kameo::actor::{Actor, WeakActorRef};
+    /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
     /// use kameo::error::ActorStopReason;
     ///
     /// struct MyActor;
     ///
     /// impl Actor for MyActor {
+    ///     type Args = Self;
     ///     type Error = ParseIntError;
+    ///
+    ///     async fn on_start(
+    ///         state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
     ///
     ///     async fn on_stop(&mut self, actor_ref: WeakActorRef<Self>, reason: ActorStopReason) -> Result<(), Self::Error> {
     ///         "invalid int".parse().map(|_: i32| ()) // Will always error
@@ -381,7 +397,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// actor_ref.stop_gracefully().await;
     /// let shutdown_result = actor_ref.wait_for_shutdown_result().await;
     /// assert!(shutdown_result.is_err());
@@ -413,7 +429,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::ActorRef;
+    /// use kameo::actor::{Actor, ActorRef};
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -426,7 +442,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// # let msg = Msg;
     /// let reply = actor_ref.ask(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -459,7 +475,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::ActorRef;
+    /// use kameo::actor::{Actor, ActorRef};
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -472,7 +488,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// # let msg = Msg;
     /// actor_ref.tell(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -499,12 +515,14 @@ where
     /// # Example
     ///
     /// ```
-    /// # #[derive(kameo::Actor)]
+    /// # use kameo::Actor;
+    /// #
+    /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
-    /// let sibbling_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let sibbling_ref = MyActor::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -535,12 +553,14 @@ where
     /// ```
     /// use std::thread;
     ///
-    /// # #[derive(kameo::Actor)]
+    /// # use kameo::Actor;
+    /// #
+    /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
-    /// let sibbling_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let sibbling_ref = MyActor::spawn(MyActor);
     ///
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
@@ -570,15 +590,16 @@ where
     ///
     /// ```no_run
     /// # use kameo::actor::RemoteActorRef;
+    /// # use kameo::Actor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct MyActor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct OtherActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
     ///
     /// actor_ref.link_remote(&sibbling_ref).await?;
@@ -622,12 +643,14 @@ where
     /// # Example
     ///
     /// ```
-    /// # #[derive(kameo::Actor)]
+    /// # use kameo::Actor;
+    /// #
+    /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
-    /// let sibbling_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let sibbling_ref = MyActor::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// actor_ref.unlink(&sibbling_ref).await;
@@ -656,12 +679,14 @@ where
     /// ```
     /// # use std::thread;
     /// #
-    /// # #[derive(kameo::Actor)]
+    /// # use kameo::Actor;
+    /// #
+    /// # #[derive(Actor)]
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
-    /// let sibbling_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let sibbling_ref = MyActor::spawn(MyActor);
     ///
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
@@ -689,15 +714,16 @@ where
     ///
     /// ```
     /// # use kameo::actor::RemoteActorRef;
+    /// # use kameo::Actor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct MyActor;
     /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
+    /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct OtherActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
     ///
     /// actor_ref.unlink_remote(&sibbling_ref).await?;
@@ -760,7 +786,7 @@ where
     /// # tokio_test::block_on(async {
     /// let stream = futures::stream::iter(vec![17, 19, 24]);
     ///
-    /// let actor_ref = kameo::spawn(MyActor);
+    /// let actor_ref = MyActor::spawn(MyActor);
     /// actor_ref.attach_stream(stream, (), ()).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });

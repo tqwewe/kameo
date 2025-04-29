@@ -34,7 +34,7 @@ impl Message<ForceStop> for MyActor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pool = kameo::spawn(ActorPool::new(5, || kameo::spawn(MyActor)));
+    let pool = ActorPool::spawn(ActorPool::new(5, || MyActor::spawn(MyActor)));
 
     // Print IDs 0, 2, 4, 6, 8
     for _ in 0..5 {
