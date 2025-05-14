@@ -54,7 +54,7 @@
 //!     queue: "order_processing".to_string(),
 //!     exchange: "orders".to_string(),
 //!     routing_key: "order.*".to_string(),
-//!     arguments: HashMap::new(),
+//!     arguments: Default::default(),
 //! }).await?;
 //!
 //! // Register a consumer
@@ -62,6 +62,7 @@
 //! mq_ref.tell(BasicConsume {
 //!     queue: "order_processing".to_string(),
 //!     recipient: processor.recipient::<OrderEvent>(),
+//!     tags: Default::default(),
 //! }).await?;
 //!
 //! // Publish an order event
@@ -114,6 +115,10 @@ pub struct MessageQueue {
 pub struct MessageProperties {
     /// Optional headers for header-based routing
     pub headers: Option<HashMap<String, String>>,
+    /// Optional filter function for message routing based on consumer tags
+    /// The function takes a reference to the consumer's tags and returns true if the message should be delivered
+    pub filter: Option<fn(&HashMap<String, String>) -> bool>,
+
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExchangeType {
@@ -191,6 +196,10 @@ struct Registration {
     actor_id: ActorID,
     /// Typed recipient for messages
     recipient: Box<dyn Any + Send + Sync>,
+    /// Key-value tags associated with this consumer that can be used for filtered message delivery
+    /// These tags are checked against the message's filter function (if provided) to determine
+    /// whether this consumer should receive the message
+    tags: HashMap<String, String>,
 }
 
 /// Error types for message queue operations
@@ -280,7 +289,10 @@ pub struct QueueUnbind {
 
 /// Message for publishing a message to an exchange
 #[derive(Debug)]
-pub struct BasicPublish<M: Clone + Send + 'static> {
+pub struct BasicPublish<M>
+where 
+    M: Clone + Send  + 'static,
+{
     /// Exchange name (empty for default)
     pub exchange: String,
     /// Routing key
@@ -298,6 +310,10 @@ pub struct BasicConsume<M: Send + 'static> {
     pub queue: String,
     /// Recipient for messages
     pub recipient: Recipient<M>,
+    /// Tags associated with this consumer that can be used for filtered message delivery
+    /// These tags will be passed to the message's filter function (if provided) when determining
+    /// whether this consumer should receive published messages
+    pub tags: HashMap<String, String>,
 }
 
 /// Message for canceling a consumer
@@ -389,20 +405,23 @@ impl MessageQueue {
         Ok(())
     }
 
-    async fn delivery_message<M: Clone + Send + 'static>(
+    async fn delivery_message<M>(
         &mut self,
         queue_name: String,
         message: &M,
         self_ref: ActorRef<Self>,
-    ) {
+        filter: impl Fn(&HashMap<String, String>) -> bool,
+    ) 
+    where 
+        M: Clone + Send +'static,
+    {
         let mut to_cancel = Vec::new();
-
         if let Some(recipients) = self
             .queues
             .get(&queue_name)
             .and_then(|queue| queue.recipients.get(&TypeId::of::<M>()))
         {
-            for regis in recipients {
+            for regis in recipients.iter().filter(|regis| filter(&regis.tags)) {
                 let queue_name = queue_name.clone();
                 let recipient: &Recipient<M> = regis.recipient.downcast_ref().unwrap();
                 match self.delivery_strategy {
@@ -598,8 +617,8 @@ impl Message<QueueBind> for MessageQueue {
                 .unwrap_or("all");
 
             let mut match_args = msg.arguments.clone();
-            match_args.remove("x-match");
-
+            match_args.retain(|key, _| !key.starts_with("x-"));
+            
             match x_match {
                 "all" => Some(HeaderMatch::All(match_args)),
                 "any" => Some(HeaderMatch::Any(match_args)),
@@ -661,7 +680,8 @@ where
         } else {
             return Err(AmqpError::ExchangeNotFound);
         };
-
+        
+        let filter = msg.properties.filter.unwrap_or(|_| true);
         let mut target_queues = HashSet::new();
 
         match exchange.kind {
@@ -710,8 +730,8 @@ where
             }
         }
 
-        for queue_name in target_queues {
-            self.delivery_message(queue_name, &msg.message, ctx.actor_ref())
+        for queue_name in target_queues {             
+            self.delivery_message(queue_name, &msg.message, ctx.actor_ref(),filter)
                 .await
         }
 
@@ -738,6 +758,7 @@ impl<M: Send + 'static> Message<BasicConsume<M>> for MessageQueue {
             recipients.push(Registration {
                 actor_id,
                 recipient: Box::new(msg.recipient),
+                tags: msg.tags,
             });
         }
         Ok(())

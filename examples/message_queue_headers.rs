@@ -73,6 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tell(BasicConsume {
             queue: "queue1".to_string(),
             recipient: consumer1.clone().recipient::<TestMessage>(),
+            tags: Default::default(),
         })
         .await?;
 
@@ -95,6 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tell(BasicConsume {
             queue: "queue2".to_string(),
             recipient: consumer2.clone().recipient::<TestMessage>(),
+            tags: Default::default(),
         })
         .await?;
 
@@ -110,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message: TestMessage("msg1"),
             properties: MessageProperties {
                 headers: Some(headers1),
+                filter:Default::default(),
             },
         })
         .await?;
@@ -125,6 +128,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message: TestMessage("msg2"),
             properties: MessageProperties {
                 headers: Some(headers2),
+                filter:Default::default(),
             },
         })
         .await?;
@@ -141,6 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message: TestMessage("msg3"),
             properties: MessageProperties {
                 headers: Some(headers3),
+                filter:Default::default(),
             },
         })
         .await?;

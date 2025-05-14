@@ -45,6 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
     amqp.tell(BasicConsume {
         queue: "temperature".to_string(),
         recipient: display.clone().recipient(),
+        tags: Default::default(),
     }).await?;
 
     amqp.tell(BasicPublish {
