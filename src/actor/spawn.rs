@@ -212,6 +212,8 @@ where
     }
 
     let (actor_ref, links, startup_semaphore) = {
+        //shadow actor_ref so it will be dropped at the end of the scope
+        let actor_ref = actor_ref;
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
         (weak_actor_ref, actor_ref.links, actor_ref.startup_semaphore)
