@@ -26,8 +26,12 @@ use crate::{
     error::{self, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
-    request::{AskRequest, RecipientTellRequest, TellRequest, WithoutRequestTimeout},
-    Actor,
+    reply::ReplyError,
+    request::{
+        AskRequest, RecipientTellRequest, ReplyRecipientAskRequest, ReplyRecipientTellRequest,
+        TellRequest, WithoutRequestTimeout,
+    },
+    Actor, Reply,
 };
 
 use super::id::ActorID;
@@ -147,18 +151,42 @@ where
 
     /// Creates a message-specific recipient for this actor.
     ///
-    /// Returns a `Recipient<M>` that can only handle messages of type `M`.
+    /// Returns a `Recipient<M>` that can only handle messages of type `M`, but without ability to
+    /// do `ask` requests.
     /// This allows creating a more specific reference that hides the concrete
     /// actor type while preserving the ability to send messages.
     ///
     /// The recipient maintains the same message handling behavior as the
     /// original actor reference, but with a more focused API.
+    ///
+    /// If you need ask requests see [ActorRef::reply_recipient]
     pub fn recipient<M>(self) -> Recipient<M>
     where
         A: Message<M>,
         M: Send + 'static,
     {
         Recipient::new(self)
+    }
+
+    /// Creates a message-specific recipient for this actor.
+    ///
+    /// Returns a [ReplyRecipient<M, OK, ERR>] that can only handle messages of type `M`.
+    /// Types `OK` and `ERR` determined by the [Message<M>::Reply] of the corresponding `Message<M>`
+    /// This allows creating a more specific reference that hides the concrete
+    /// actor type while preserving the ability to send messages.
+    ///
+    /// The recipient maintains the same message handling behavior as the
+    /// original actor reference, but with a more focused API.
+    ///
+    /// If you don't need ask requests and need more flexible API see [ActorRef::recipient]
+    pub fn reply_recipient<M>(
+        self,
+    ) -> ReplyRecipient<M, <A::Reply as Reply>::Ok, <A::Reply as Reply>::Error>
+    where
+        A: Message<M>,
+        M: Send + 'static,
+    {
+        ReplyRecipient::new(self)
     }
 
     /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
@@ -880,6 +908,150 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
 
 /// A type erased actor ref, accepting only a single message type.
 ///
+/// This is returned by [ActorRef::reply_recipient].
+pub struct ReplyRecipient<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> {
+    pub(crate) handler: Box<dyn ReplyMessageHandler<M, OK, ERR>>,
+}
+
+impl<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> ReplyRecipient<M, OK, ERR> {
+    fn new<A, AR>(actor_ref: ActorRef<A>) -> Self
+    where
+        AR: Reply<Ok = OK, Error = ERR>,
+        A: Actor + Message<M, Reply = AR>,
+    {
+        ReplyRecipient {
+            handler: Box::new(actor_ref),
+        }
+    }
+
+    /// Returns [`Recipient<M>`] erasing reply types
+    pub fn erase_reply(self) -> Recipient<M> {
+        Recipient {
+            handler: self.handler,
+        }
+    }
+
+    /// Returns the unique identifier of the actor.
+    #[inline]
+    pub fn id(&self) -> ActorID {
+        self.handler.id()
+    }
+
+    /// Returns whether the actor is currently alive.
+    #[inline]
+    pub fn is_alive(&self) -> bool {
+        self.handler.is_alive()
+    }
+
+    /// Converts the `Recipient` to a [`WeakRecipient`] that does not count
+    /// towards RAII semantics, i.e. if all `ActorRef`/`Recipient` instances of the
+    /// actor were dropped and only `WeakActorRef`/`WeakRecipient` instances remain,
+    /// the actor is stopped.
+    #[must_use = "Downgrade creates a WeakRecipient without destroying the original non-weak recipient."]
+    #[inline]
+    pub fn downgrade(&self) -> WeakRecipient<M> {
+        self.handler.downgrade()
+    }
+
+    /// Returns the number of [`ActorRef`]/[`Recipient`] handles.
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.handler.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`]/[`WeakRecipient`] handles.
+    #[inline]
+    pub fn weak_count(&self) -> usize {
+        self.handler.weak_count()
+    }
+
+    /// Returns `true` if the current task is the actor itself.
+    ///
+    /// See [`ActorRef::is_current`].
+    #[inline]
+    pub fn is_current(&self) -> bool {
+        self.handler.is_current()
+    }
+
+    /// Signals the actor to stop after processing all messages currently in its mailbox.
+    ///
+    /// See [`ActorRef::stop_gracefully`].
+    #[inline]
+    pub async fn stop_gracefully(&self) -> Result<(), SendError> {
+        self.handler.stop_gracefully().await
+    }
+
+    /// Kills the actor immediately.
+    ///
+    /// See [`ActorRef::kill`].
+    #[inline]
+    pub fn kill(&self) {
+        self.handler.kill()
+    }
+
+    /// Waits for the actor to finish startup and become ready to process messages.
+    ///
+    /// See [`ActorRef::wait_for_startup`].
+    #[inline]
+    pub async fn wait_for_startup(&self) {
+        self.handler.wait_for_startup().await
+    }
+
+    /// Waits for the actor to finish processing and stop.
+    ///
+    /// See [`ActorRef::wait_for_shutdown`].
+    #[inline]
+    pub async fn wait_for_shutdown(&self) {
+        self.handler.wait_for_shutdown().await
+    }
+
+    /// Sends a message to the actor without waiting for a reply.
+    ///
+    /// See [`ActorRef::tell`].
+    #[track_caller]
+    pub fn tell(&self, msg: M) -> ReplyRecipientTellRequest<'_, M, OK, ERR, WithoutRequestTimeout> {
+        ReplyRecipientTellRequest::new(
+            self,
+            msg,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            std::panic::Location::caller(),
+        )
+    }
+
+    /// Sends a message to the actor waits for a reply.
+    ///
+    /// See [`ActorRef::ask`].
+    #[track_caller]
+    pub fn ask(&self, msg: M) -> ReplyRecipientAskRequest<'_, M, OK, ERR, WithoutRequestTimeout> {
+        ReplyRecipientAskRequest::new(
+            self,
+            msg,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            std::panic::Location::caller(),
+        )
+    }
+}
+
+impl<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> Clone for ReplyRecipient<M, OK, ERR> {
+    fn clone(&self) -> Self {
+        ReplyRecipient {
+            handler: dyn_clone::clone_box(&*self.handler),
+        }
+    }
+}
+
+impl<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> fmt::Debug
+    for ReplyRecipient<M, OK, ERR>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("ReplyRecipient");
+        d.field("id", &self.handler.id());
+        d.finish()
+    }
+}
+
+/// A type erased actor ref, accepting only a single message type.
+///
 /// This is returned by [ActorRef::recipient].
 pub struct Recipient<M: Send + 'static> {
     pub(crate) handler: Box<dyn MessageHandler<M>>,
@@ -1509,6 +1681,46 @@ where
         self.tell(msg).blocking_send().map_err(|err| {
             err.map_err(|_| unreachable!("tell requests don't handle the reply errors"))
         })
+    }
+}
+
+pub(crate) trait ReplyMessageHandler<M: Send + 'static, OK: Send + 'static, ERR: ReplyError>:
+    MessageHandler<M>
+{
+    #[allow(clippy::type_complexity)]
+    fn ask(
+        &self,
+        msg: M,
+        mailbox_timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<OK, SendError<M, ERR>>>;
+    fn try_ask(&self, msg: M) -> BoxFuture<'_, Result<OK, SendError<M, ERR>>>;
+    fn blocking_ask(&self, msg: M) -> Result<OK, SendError<M, ERR>>;
+}
+
+impl<A, M, AR, OK, ERR> ReplyMessageHandler<M, OK, ERR> for ActorRef<A>
+where
+    AR: Reply<Ok = OK, Error = ERR>,
+    A: Actor + Message<M, Reply = AR>,
+    M: Send + 'static,
+    OK: Send + 'static,
+    ERR: ReplyError,
+{
+    #[allow(clippy::type_complexity)]
+    fn ask(
+        &self,
+        msg: M,
+        mailbox_timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<OK, SendError<M, ERR>>> {
+        self.ask(msg)
+            .mailbox_timeout_opt(mailbox_timeout)
+            .send()
+            .boxed()
+    }
+    fn try_ask(&self, msg: M) -> BoxFuture<'_, Result<OK, SendError<M, ERR>>> {
+        Box::pin(self.ask(msg).try_send())
+    }
+    fn blocking_ask(&self, msg: M) -> Result<OK, SendError<M, ERR>> {
+        self.ask(msg).blocking_send()
     }
 }
 

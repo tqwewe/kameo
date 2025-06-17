@@ -10,11 +10,11 @@ use tokio::sync::oneshot;
 use crate::{actor, remote};
 
 use crate::{
-    actor::ActorRef,
+    actor::{ActorRef, ReplyRecipient},
     error::{self, SendError},
     mailbox::{MailboxSender, Signal},
     message::Message,
-    reply::ReplySender,
+    reply::{ReplyError, ReplySender},
     Actor, Reply,
 };
 
@@ -643,6 +643,114 @@ where
     /// Receives the reply in a blocking context.
     pub fn recv(self) -> Result<R::Ok, SendError<M, R::Error>> {
         (self.f)()
+    }
+}
+
+/// A request to send a message to a typed actor with reply.
+#[allow(missing_debug_implementations)]
+#[must_use = "request won't be sent without awaiting, or calling a send method"]
+pub struct ReplyRecipientAskRequest<'a, M, OK, ERR, Tm>
+where
+    M: Send + 'static,
+    OK: Send + 'static,
+    ERR: ReplyError,
+{
+    actor_ref: &'a ReplyRecipient<M, OK, ERR>,
+    msg: M,
+    mailbox_timeout: Tm,
+    #[cfg(all(debug_assertions, feature = "tracing"))]
+    called_at: &'static std::panic::Location<'static>,
+}
+
+impl<'a, M, OK, ERR, Tm> ReplyRecipientAskRequest<'a, M, OK, ERR, Tm>
+where
+    M: Send + 'static,
+    OK: Send + 'static,
+    ERR: ReplyError,
+{
+    pub(crate) fn new(
+        actor_ref: &'a ReplyRecipient<M, OK, ERR>,
+        msg: M,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
+    ) -> Self
+    where
+        Tm: Default,
+    {
+        ReplyRecipientAskRequest {
+            actor_ref,
+            msg,
+            mailbox_timeout: Tm::default(),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at,
+        }
+    }
+
+    /// Sets the timeout for waiting for the actors mailbox to have capacity.
+    pub fn mailbox_timeout(
+        self,
+        duration: Duration,
+    ) -> ReplyRecipientAskRequest<'a, M, OK, ERR, WithRequestTimeout> {
+        self.mailbox_timeout_opt(Some(duration))
+    }
+
+    pub(crate) fn mailbox_timeout_opt(
+        self,
+        duration: Option<Duration>,
+    ) -> ReplyRecipientAskRequest<'a, M, OK, ERR, WithRequestTimeout> {
+        ReplyRecipientAskRequest {
+            actor_ref: self.actor_ref,
+            msg: self.msg,
+            mailbox_timeout: WithRequestTimeout(duration),
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at: self.called_at,
+        }
+    }
+
+    /// Sends the message.
+    pub async fn send(self) -> Result<OK, SendError<M, ERR>>
+    where
+        Tm: Into<Option<Duration>>,
+    {
+        self.actor_ref
+            .handler
+            .ask(self.msg, self.mailbox_timeout.into())
+            .await
+    }
+}
+
+impl<M, OK, ERR> ReplyRecipientAskRequest<'_, M, OK, ERR, WithoutRequestTimeout>
+where
+    M: Send + 'static,
+    OK: Send + 'static,
+    ERR: ReplyError,
+{
+    /// Tries to send the message without waiting for mailbox capacity.
+    pub async fn try_send(self) -> Result<OK, SendError<M, ERR>> {
+        self.actor_ref.handler.try_ask(self.msg).await
+    }
+
+    /// Sends the message in a blocking context.
+    pub fn blocking_send(self) -> Result<OK, SendError<M, ERR>> {
+        self.actor_ref.handler.blocking_ask(self.msg)
+    }
+}
+
+impl<'a, M, OK, ERR, Tm> IntoFuture for ReplyRecipientAskRequest<'a, M, OK, ERR, Tm>
+where
+    M: Send + 'static,
+    OK: Send + 'static,
+    ERR: ReplyError,
+    Tm: Into<Option<Duration>> + Send + 'static,
+{
+    type Output = Result<OK, SendError<M, ERR>>;
+    type IntoFuture = BoxFuture<'a, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        self.actor_ref
+            .handler
+            .ask(self.msg, self.mailbox_timeout.into())
     }
 }
 
