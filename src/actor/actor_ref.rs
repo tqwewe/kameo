@@ -943,23 +943,23 @@ impl<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> ReplyRecipient<M, O
         self.handler.is_alive()
     }
 
-    /// Converts the `Recipient` to a [`WeakRecipient`] that does not count
-    /// towards RAII semantics, i.e. if all `ActorRef`/`Recipient` instances of the
-    /// actor were dropped and only `WeakActorRef`/`WeakRecipient` instances remain,
+    /// Converts the `ReplyRecipient` to a [`WeakReplyRecipient`] that does not count
+    /// towards RAII semantics, i.e. if all `ActorRef`/`ReplyRecipient` instances of the
+    /// actor were dropped and only `WeakActorRef`/`WeakReplyRecipient` instances remain,
     /// the actor is stopped.
-    #[must_use = "Downgrade creates a WeakRecipient without destroying the original non-weak recipient."]
+    #[must_use = "Downgrade creates a WeakReplyRecipient without destroying the original non-weak recipient."]
     #[inline]
-    pub fn downgrade(&self) -> WeakRecipient<M> {
-        self.handler.downgrade()
+    pub fn downgrade(&self) -> WeakReplyRecipient<M, OK, ERR> {
+        self.handler.reply_downgrade()
     }
 
-    /// Returns the number of [`ActorRef`]/[`Recipient`] handles.
+    /// Returns the number of [`ActorRef`]/[`ReplyRecipient`] handles.
     #[inline]
     pub fn strong_count(&self) -> usize {
         self.handler.strong_count()
     }
 
-    /// Returns the number of [`WeakActorRef`]/[`WeakRecipient`] handles.
+    /// Returns the number of [`WeakActorRef`]/[`WeakReplyRecipient`] handles.
     #[inline]
     pub fn weak_count(&self) -> usize {
         self.handler.weak_count()
@@ -1556,6 +1556,60 @@ impl<A: Actor> fmt::Debug for WeakRecipient<A> {
     }
 }
 
+/// A weak recipient that does not prevent the actor from being stopped.
+pub struct WeakReplyRecipient<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> {
+    handler: Box<dyn WeakReplyMessageHandler<M, OK, ERR>>,
+}
+
+impl<M: Send + 'static, OK: Send + 'static, ERR: ReplyError> WeakReplyRecipient<M, OK, ERR> {
+    fn new<A, AR>(weak_actor_ref: WeakActorRef<A>) -> Self
+    where
+        AR: Reply<Ok = OK, Error = ERR>,
+        A: Actor + Message<M, Reply = AR>,
+    {
+        WeakReplyRecipient {
+            handler: Box::new(weak_actor_ref),
+        }
+    }
+
+    /// Returns the actor identifier.
+    pub fn id(&self) -> ActorID {
+        self.handler.id()
+    }
+
+    /// Tries to convert a `WeakReplyRecipient` into a [`ReplyRecipient`]. This will return `Some`
+    /// if there are other `ActorRef`/`ReplyRecipient` instances alive, otherwise `None` is returned.
+    pub fn upgrade(&self) -> Option<ReplyRecipient<M, OK, ERR>> {
+        self.handler.reply_upgrade()
+    }
+
+    /// Returns the number of [`ActorRef`]/[`ReplyRecipient`] handles.
+    pub fn strong_count(&self) -> usize {
+        self.handler.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`]/[`WeakReplyRecipient`] handles.
+    pub fn weak_count(&self) -> usize {
+        self.handler.weak_count()
+    }
+}
+
+impl<A: Actor, OK: Send + 'static, ERR: ReplyError> Clone for WeakReplyRecipient<A, OK, ERR> {
+    fn clone(&self) -> Self {
+        WeakReplyRecipient {
+            handler: dyn_clone::clone_box(&*self.handler),
+        }
+    }
+}
+
+impl<A: Actor, OK: Send + 'static, ERR: ReplyError> fmt::Debug for WeakReplyRecipient<A, OK, ERR> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("WeakReplyRecipient");
+        d.field("id", &self.handler.id());
+        d.finish()
+    }
+}
+
 /// A collection of links to other actors that are notified when the actor dies.
 ///
 /// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
@@ -1695,6 +1749,8 @@ pub(crate) trait ReplyMessageHandler<M: Send + 'static, OK: Send + 'static, ERR:
     ) -> BoxFuture<'_, Result<OK, SendError<M, ERR>>>;
     fn try_ask(&self, msg: M) -> BoxFuture<'_, Result<OK, SendError<M, ERR>>>;
     fn blocking_ask(&self, msg: M) -> Result<OK, SendError<M, ERR>>;
+
+    fn reply_downgrade(&self) -> WeakReplyRecipient<M, OK, ERR>;
 }
 
 impl<A, M, AR, OK, ERR> ReplyMessageHandler<M, OK, ERR> for ActorRef<A>
@@ -1721,6 +1777,11 @@ where
     }
     fn blocking_ask(&self, msg: M) -> Result<OK, SendError<M, ERR>> {
         self.ask(msg).blocking_send()
+    }
+
+    #[inline]
+    fn reply_downgrade(&self) -> WeakReplyRecipient<M, OK, ERR> {
+        WeakReplyRecipient::new(self.downgrade())
     }
 }
 
@@ -1754,5 +1815,25 @@ where
     #[inline]
     fn weak_count(&self) -> usize {
         self.weak_count()
+    }
+}
+
+trait WeakReplyMessageHandler<M: Send + 'static, OK: Send + 'static, ERR: ReplyError>:
+    WeakMessageHandler<M>
+{
+    fn reply_upgrade(&self) -> Option<ReplyRecipient<M, OK, ERR>>;
+}
+
+impl<A, M, AR, OK, ERR> WeakReplyMessageHandler<M, OK, ERR> for WeakActorRef<A>
+where
+    AR: Reply<Ok = OK, Error = ERR>,
+    A: Actor + Message<M, Reply = AR>,
+    M: Send + 'static,
+    OK: Send + 'static,
+    ERR: ReplyError,
+{
+    #[inline]
+    fn reply_upgrade(&self) -> Option<ReplyRecipient<M, OK, ERR>> {
+        self.upgrade().map(ReplyRecipient::new)
     }
 }
