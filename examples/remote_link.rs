@@ -92,6 +92,7 @@ pub struct LinkMe {
 impl Message<LinkMe> for Supervisor {
     type Reply = Result<(), String>;
 
+    #[allow(unused_variables)]
     async fn handle(&mut self, msg: LinkMe, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         let panicker = RemoteActorRef::<Panicker>::lookup(&msg.actor_registry_name)
             .await
