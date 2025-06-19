@@ -258,27 +258,27 @@ where
 /// A request to send a message to a typed actor without any reply.
 #[allow(missing_debug_implementations)]
 #[must_use = "request won't be sent without awaiting, or calling a send method"]
-pub struct ReplyRecipientTellRequest<'a, M, OK, ERR, Tm>
+pub struct ReplyRecipientTellRequest<'a, M, Ok, Err, Tm>
 where
     M: Send + 'static,
-    OK: Send + 'static,
-    ERR: ReplyError,
+    Ok: Send + 'static,
+    Err: ReplyError,
 {
-    actor_ref: &'a ReplyRecipient<M, OK, ERR>,
+    actor_ref: &'a ReplyRecipient<M, Ok, Err>,
     msg: M,
     mailbox_timeout: Tm,
     #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
 
-impl<'a, M, OK, ERR, Tm> ReplyRecipientTellRequest<'a, M, OK, ERR, Tm>
+impl<'a, M, Ok, Err, Tm> ReplyRecipientTellRequest<'a, M, Ok, Err, Tm>
 where
     M: Send + 'static,
-    OK: Send + 'static,
-    ERR: ReplyError,
+    Ok: Send + 'static,
+    Err: ReplyError,
 {
     pub(crate) fn new(
-        actor_ref: &'a ReplyRecipient<M, OK, ERR>,
+        actor_ref: &'a ReplyRecipient<M, Ok, Err>,
         msg: M,
         #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
             'static,
@@ -300,14 +300,14 @@ where
     pub fn mailbox_timeout(
         self,
         duration: Duration,
-    ) -> ReplyRecipientTellRequest<'a, M, OK, ERR, WithRequestTimeout> {
+    ) -> ReplyRecipientTellRequest<'a, M, Ok, Err, WithRequestTimeout> {
         self.mailbox_timeout_opt(Some(duration))
     }
 
     pub(crate) fn mailbox_timeout_opt(
         self,
         duration: Option<Duration>,
-    ) -> ReplyRecipientTellRequest<'a, M, OK, ERR, WithRequestTimeout> {
+    ) -> ReplyRecipientTellRequest<'a, M, Ok, Err, WithRequestTimeout> {
         ReplyRecipientTellRequest {
             actor_ref: self.actor_ref,
             msg: self.msg,
@@ -329,11 +329,11 @@ where
     }
 }
 
-impl<M, OK, ERR> ReplyRecipientTellRequest<'_, M, OK, ERR, WithoutRequestTimeout>
+impl<M, Ok, Err> ReplyRecipientTellRequest<'_, M, Ok, Err, WithoutRequestTimeout>
 where
     M: Send + 'static,
-    OK: Send + 'static,
-    ERR: ReplyError,
+    Ok: Send + 'static,
+    Err: ReplyError,
 {
     /// Tries to send the message without waiting for mailbox capacity.
     pub fn try_send(self) -> Result<(), SendError<M>> {
@@ -346,11 +346,11 @@ where
     }
 }
 
-impl<'a, M, OK, ERR, Tm> IntoFuture for ReplyRecipientTellRequest<'a, M, OK, ERR, Tm>
+impl<'a, M, Ok, Err, Tm> IntoFuture for ReplyRecipientTellRequest<'a, M, Ok, Err, Tm>
 where
     M: Send + 'static,
-    OK: Send + 'static,
-    ERR: ReplyError,
+    Ok: Send + 'static,
+    Err: ReplyError,
     Tm: Into<Option<Duration>> + Send + 'static,
 {
     type Output = Result<(), SendError<M>>;
