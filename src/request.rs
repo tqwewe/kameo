@@ -11,8 +11,8 @@ pub use ask::RemoteAskRequest;
 #[cfg(feature = "remote")]
 pub use tell::RemoteTellRequest;
 
-pub use ask::{AskRequest, BlockingPendingReply, PendingReply};
-pub use tell::{RecipientTellRequest, TellRequest};
+pub use ask::{AskRequest, BlockingPendingReply, PendingReply, ReplyRecipientAskRequest};
+pub use tell::{RecipientTellRequest, ReplyRecipientTellRequest, TellRequest};
 
 /// A type for requests without any timeout set.
 #[derive(Clone, Copy, Debug, Default)]

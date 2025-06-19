@@ -23,11 +23,15 @@ use crate::remote;
 use crate::request;
 
 use crate::{
-    error::{self, PanicError, SendError},
+    error::{self, Infallible, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
-    request::{AskRequest, RecipientTellRequest, TellRequest, WithoutRequestTimeout},
-    Actor,
+    reply::ReplyError,
+    request::{
+        AskRequest, RecipientTellRequest, ReplyRecipientAskRequest, ReplyRecipientTellRequest,
+        TellRequest, WithoutRequestTimeout,
+    },
+    Actor, Reply,
 };
 
 use super::id::ActorID;
@@ -147,18 +151,41 @@ where
 
     /// Creates a message-specific recipient for this actor.
     ///
-    /// Returns a `Recipient<M>` that can only handle messages of type `M`.
     /// This allows creating a more specific reference that hides the concrete
-    /// actor type while preserving the ability to send messages.
+    /// actor type while preserving the ability to send messages via `tell`.
     ///
     /// The recipient maintains the same message handling behavior as the
     /// original actor reference, but with a more focused API.
+    ///
+    /// For bidirectional communication that supports `ask` requests,
+    /// see [`ActorRef::reply_recipient`].
     pub fn recipient<M>(self) -> Recipient<M>
     where
         A: Message<M>,
         M: Send + 'static,
     {
         Recipient::new(self)
+    }
+
+    /// Creates a message-specific recipient for this actor with bidirectional communication.
+    ///
+    /// This allows creating a more specific reference that hides the concrete
+    /// actor type while preserving the ability to send messages via both `tell` and `ask`.
+    ///
+    /// The recipient maintains the same message handling behavior as the
+    /// original actor reference, but with a more focused API. The `Ok` and `Err`
+    /// types are determined by the message's `Reply` implementation.
+    ///
+    /// For unidirectional communication that only supports `tell`,
+    /// see [`ActorRef::recipient`].
+    pub fn reply_recipient<M>(
+        self,
+    ) -> ReplyRecipient<M, <A::Reply as Reply>::Ok, <A::Reply as Reply>::Error>
+    where
+        A: Message<M>,
+        M: Send + 'static,
+    {
+        ReplyRecipient::new(self)
     }
 
     /// Converts the `ActorRef` to a [`WeakActorRef`] that does not count
@@ -878,6 +905,158 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
     }
 }
 
+/// A type-erased actor reference for bidirectional communication with a single message type.
+///
+/// Supports both `tell` and `ask` operations, with response types determined by the
+/// message's `Reply` implementation. This provides a focused API while hiding the
+/// concrete actor type.
+///
+/// Created by [`ActorRef::reply_recipient`].
+pub struct ReplyRecipient<M: Send + 'static, Ok: Send + 'static, Err: ReplyError = Infallible> {
+    pub(crate) handler: Box<dyn ReplyMessageHandler<M, Ok, Err>>,
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> ReplyRecipient<M, Ok, Err> {
+    fn new<A, AR>(actor_ref: ActorRef<A>) -> Self
+    where
+        AR: Reply<Ok = Ok, Error = Err>,
+        A: Actor + Message<M, Reply = AR>,
+    {
+        ReplyRecipient {
+            handler: Box::new(actor_ref),
+        }
+    }
+
+    /// Converts this reply recipient into a regular recipient, losing `ask` capability.
+    ///
+    /// Returns a [`Recipient<M>`] that only supports `tell` operations. This is useful
+    /// when you need to pass the recipient to code that doesn't require bidirectional
+    /// communication.
+    pub fn erase_reply(self) -> Recipient<M> {
+        Recipient {
+            handler: self.handler.upcast(),
+        }
+    }
+
+    /// Returns the unique identifier of the actor.
+    #[inline]
+    pub fn id(&self) -> ActorID {
+        self.handler.id()
+    }
+
+    /// Returns whether the actor is currently alive.
+    #[inline]
+    pub fn is_alive(&self) -> bool {
+        self.handler.is_alive()
+    }
+
+    /// Converts the `ReplyRecipient` to a [`WeakReplyRecipient`] that does not count
+    /// towards RAII semantics, i.e. if all `ActorRef`/`ReplyRecipient` instances of the
+    /// actor were dropped and only `WeakActorRef`/`WeakReplyRecipient` instances remain,
+    /// the actor is stopped.
+    #[must_use = "Downgrade creates a WeakReplyRecipient without destroying the original non-weak recipient."]
+    #[inline]
+    pub fn downgrade(&self) -> WeakReplyRecipient<M, Ok, Err> {
+        self.handler.reply_downgrade()
+    }
+
+    /// Returns the number of [`ActorRef`]/[`ReplyRecipient`] handles.
+    #[inline]
+    pub fn strong_count(&self) -> usize {
+        self.handler.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`]/[`WeakReplyRecipient`] handles.
+    #[inline]
+    pub fn weak_count(&self) -> usize {
+        self.handler.weak_count()
+    }
+
+    /// Returns `true` if the current task is the actor itself.
+    ///
+    /// See [`ActorRef::is_current`].
+    #[inline]
+    pub fn is_current(&self) -> bool {
+        self.handler.is_current()
+    }
+
+    /// Signals the actor to stop after processing all messages currently in its mailbox.
+    ///
+    /// See [`ActorRef::stop_gracefully`].
+    #[inline]
+    pub async fn stop_gracefully(&self) -> Result<(), SendError> {
+        self.handler.stop_gracefully().await
+    }
+
+    /// Kills the actor immediately.
+    ///
+    /// See [`ActorRef::kill`].
+    #[inline]
+    pub fn kill(&self) {
+        self.handler.kill()
+    }
+
+    /// Waits for the actor to finish startup and become ready to process messages.
+    ///
+    /// See [`ActorRef::wait_for_startup`].
+    #[inline]
+    pub async fn wait_for_startup(&self) {
+        self.handler.wait_for_startup().await
+    }
+
+    /// Waits for the actor to finish processing and stop.
+    ///
+    /// See [`ActorRef::wait_for_shutdown`].
+    #[inline]
+    pub async fn wait_for_shutdown(&self) {
+        self.handler.wait_for_shutdown().await
+    }
+
+    /// Sends a message to the actor without waiting for a reply.
+    ///
+    /// See [`ActorRef::tell`].
+    #[track_caller]
+    pub fn tell(&self, msg: M) -> ReplyRecipientTellRequest<'_, M, Ok, Err, WithoutRequestTimeout> {
+        ReplyRecipientTellRequest::new(
+            self,
+            msg,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            std::panic::Location::caller(),
+        )
+    }
+
+    /// Sends a message to the actor waits for a reply.
+    ///
+    /// See [`ActorRef::ask`].
+    #[track_caller]
+    pub fn ask(&self, msg: M) -> ReplyRecipientAskRequest<'_, M, Ok, Err, WithoutRequestTimeout> {
+        ReplyRecipientAskRequest::new(
+            self,
+            msg,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            std::panic::Location::caller(),
+        )
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Clone for ReplyRecipient<M, Ok, Err> {
+    fn clone(&self) -> Self {
+        ReplyRecipient {
+            handler: dyn_clone::clone_box(&*self.handler),
+        }
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> fmt::Debug
+    for ReplyRecipient<M, Ok, Err>
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("ReplyRecipient");
+        d.field("id", &self.handler.id());
+        d.finish()
+    }
+}
+
 /// A type erased actor ref, accepting only a single message type.
 ///
 /// This is returned by [ActorRef::recipient].
@@ -1384,6 +1563,60 @@ impl<A: Actor> fmt::Debug for WeakRecipient<A> {
     }
 }
 
+/// A weak recipient that does not prevent the actor from being stopped.
+pub struct WeakReplyRecipient<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> {
+    handler: Box<dyn WeakReplyMessageHandler<M, Ok, Err>>,
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> WeakReplyRecipient<M, Ok, Err> {
+    fn new<A, AR>(weak_actor_ref: WeakActorRef<A>) -> Self
+    where
+        AR: Reply<Ok = Ok, Error = Err>,
+        A: Actor + Message<M, Reply = AR>,
+    {
+        WeakReplyRecipient {
+            handler: Box::new(weak_actor_ref),
+        }
+    }
+
+    /// Returns the actor identifier.
+    pub fn id(&self) -> ActorID {
+        self.handler.id()
+    }
+
+    /// Tries to convert a `WeakReplyRecipient` into a [`ReplyRecipient`]. This will return `Some`
+    /// if there are other `ActorRef`/`ReplyRecipient` instances alive, otherwise `None` is returned.
+    pub fn upgrade(&self) -> Option<ReplyRecipient<M, Ok, Err>> {
+        self.handler.reply_upgrade()
+    }
+
+    /// Returns the number of [`ActorRef`]/[`ReplyRecipient`] handles.
+    pub fn strong_count(&self) -> usize {
+        self.handler.strong_count()
+    }
+
+    /// Returns the number of [`WeakActorRef`]/[`WeakReplyRecipient`] handles.
+    pub fn weak_count(&self) -> usize {
+        self.handler.weak_count()
+    }
+}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Clone for WeakReplyRecipient<A, Ok, Err> {
+    fn clone(&self) -> Self {
+        WeakReplyRecipient {
+            handler: dyn_clone::clone_box(&*self.handler),
+        }
+    }
+}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> fmt::Debug for WeakReplyRecipient<A, Ok, Err> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut d = f.debug_struct("WeakReplyRecipient");
+        d.field("id", &self.handler.id());
+        d.finish()
+    }
+}
+
 /// A collection of links to other actors that are notified when the actor dies.
 ///
 /// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
@@ -1512,6 +1745,58 @@ where
     }
 }
 
+pub(crate) trait ReplyMessageHandler<M: Send + 'static, Ok: Send + 'static, Err: ReplyError>:
+    MessageHandler<M>
+{
+    #[allow(clippy::type_complexity)]
+    fn ask(
+        &self,
+        msg: M,
+        mailbox_timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<Ok, SendError<M, Err>>>;
+    fn try_ask(&self, msg: M) -> BoxFuture<'_, Result<Ok, SendError<M, Err>>>;
+    fn blocking_ask(&self, msg: M) -> Result<Ok, SendError<M, Err>>;
+
+    fn reply_downgrade(&self) -> WeakReplyRecipient<M, Ok, Err>;
+    fn upcast(self: Box<Self>) -> Box<dyn MessageHandler<M>>;
+}
+
+impl<A, M, AR, Ok, Err> ReplyMessageHandler<M, Ok, Err> for ActorRef<A>
+where
+    AR: Reply<Ok = Ok, Error = Err>,
+    A: Actor + Message<M, Reply = AR>,
+    M: Send + 'static,
+    Ok: Send + 'static,
+    Err: ReplyError,
+{
+    #[allow(clippy::type_complexity)]
+    fn ask(
+        &self,
+        msg: M,
+        mailbox_timeout: Option<Duration>,
+    ) -> BoxFuture<'_, Result<Ok, SendError<M, Err>>> {
+        self.ask(msg)
+            .mailbox_timeout_opt(mailbox_timeout)
+            .send()
+            .boxed()
+    }
+    fn try_ask(&self, msg: M) -> BoxFuture<'_, Result<Ok, SendError<M, Err>>> {
+        Box::pin(self.ask(msg).try_send())
+    }
+    fn blocking_ask(&self, msg: M) -> Result<Ok, SendError<M, Err>> {
+        self.ask(msg).blocking_send()
+    }
+
+    #[inline]
+    fn reply_downgrade(&self) -> WeakReplyRecipient<M, Ok, Err> {
+        WeakReplyRecipient::new(self.downgrade())
+    }
+
+    fn upcast(self: Box<Self>) -> Box<dyn MessageHandler<M>> {
+        self
+    }
+}
+
 trait WeakMessageHandler<M: Send + 'static>: DynClone + Send + Sync + 'static {
     fn id(&self) -> ActorID;
     fn upgrade(&self) -> Option<Recipient<M>>;
@@ -1542,5 +1827,25 @@ where
     #[inline]
     fn weak_count(&self) -> usize {
         self.weak_count()
+    }
+}
+
+trait WeakReplyMessageHandler<M: Send + 'static, Ok: Send + 'static, Err: ReplyError>:
+    WeakMessageHandler<M>
+{
+    fn reply_upgrade(&self) -> Option<ReplyRecipient<M, Ok, Err>>;
+}
+
+impl<A, M, AR, Ok, Err> WeakReplyMessageHandler<M, Ok, Err> for WeakActorRef<A>
+where
+    AR: Reply<Ok = Ok, Error = Err>,
+    A: Actor + Message<M, Reply = AR>,
+    M: Send + 'static,
+    Ok: Send + 'static,
+    Err: ReplyError,
+{
+    #[inline]
+    fn reply_upgrade(&self) -> Option<ReplyRecipient<M, Ok, Err>> {
+        self.upgrade().map(ReplyRecipient::new)
     }
 }
