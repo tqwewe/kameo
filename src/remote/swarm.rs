@@ -160,7 +160,7 @@ impl ActorSwarm {
             }
             Err((actor_swarm, _)) => Err(BootstrapError::AlreadyBootstrapped(
                 actor_swarm,
-                Some(swarm),
+                Some(Box::new(swarm)),
             )),
         }
     }
@@ -524,13 +524,13 @@ impl ActorSwarmHandler {
                             self.handle_event(swarm, ActorSwarmEvent::ConnectionClosed { peer_id, connection_id, endpoint, num_established, cause });
                         }
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)) => {
-                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)));
+                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(Box::new(ActorSwarmBehaviourEvent::Kademlia(event))));
                         }
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(event)) => {
-                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(event)));
+                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(Box::new(ActorSwarmBehaviourEvent::RequestResponse(event))));
                         }
                         SwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(event)) => {
-                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(event)));
+                            self.handle_event(swarm, ActorSwarmEvent::Behaviour(Box::new(ActorSwarmBehaviourEvent::Mdns(event))));
                         }
                         _ => {},
                     }
@@ -816,182 +816,181 @@ impl ActorSwarmHandler {
                     while (futures.next().await).is_some() {}
                 });
             }
-            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(
-                mdns::Event::Discovered(list),
-            )) => {
-                for (peer_id, multiaddr) in list {
-                    swarm
-                        .behaviour_mut()
-                        .kademlia_add_address(&peer_id, multiaddr);
-                }
-            }
-            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(
-                kad::Event::OutboundQueryProgressed { id, result, .. },
-            )) => match result {
-                kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(
-                    record @ kad::PeerRecord {
-                        record: kad::Record { .. },
-                        ..
-                    },
-                ))) => {
-                    if let Some(tx) = self.get_queries.remove(&id) {
-                        let _ = tx.send(Ok(record));
+            ActorSwarmEvent::Behaviour(ev) => match *ev {
+                ActorSwarmBehaviourEvent::Mdns(mdns::Event::Discovered(list)) => {
+                    for (peer_id, multiaddr) in list {
+                        swarm
+                            .behaviour_mut()
+                            .kademlia_add_address(&peer_id, multiaddr);
                     }
                 }
-                kad::QueryResult::GetRecord(Ok(_)) => {}
-                kad::QueryResult::GetRecord(Err(err)) => {
-                    if let Some(tx) = self.get_queries.remove(&id) {
-                        let _ = tx.send(Err(err));
+                ActorSwarmBehaviourEvent::Kademlia(kad::Event::OutboundQueryProgressed {
+                    id,
+                    result,
+                    ..
+                }) => match result {
+                    kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(
+                        record @ kad::PeerRecord {
+                            record: kad::Record { .. },
+                            ..
+                        },
+                    ))) => {
+                        if let Some(tx) = self.get_queries.remove(&id) {
+                            let _ = tx.send(Ok(record));
+                        }
                     }
-                }
-                kad::QueryResult::PutRecord(res @ Ok(kad::PutRecordOk { .. })) => {
-                    if let Some(tx) = self.put_queries.remove(&id) {
-                        let _ = tx.send(res);
+                    kad::QueryResult::GetRecord(Ok(_)) => {}
+                    kad::QueryResult::GetRecord(Err(err)) => {
+                        if let Some(tx) = self.get_queries.remove(&id) {
+                            let _ = tx.send(Err(err));
+                        }
                     }
-                }
-                kad::QueryResult::PutRecord(res @ Err(_)) => {
-                    if let Some(tx) = self.put_queries.remove(&id) {
-                        let _ = tx.send(res);
+                    kad::QueryResult::PutRecord(res @ Ok(kad::PutRecordOk { .. })) => {
+                        if let Some(tx) = self.put_queries.remove(&id) {
+                            let _ = tx.send(res);
+                        }
                     }
-                }
-                _ => {}
-            },
-            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
-                request_response::Event::Message {
+                    kad::QueryResult::PutRecord(res @ Err(_)) => {
+                        if let Some(tx) = self.put_queries.remove(&id) {
+                            let _ = tx.send(res);
+                        }
+                    }
+                    _ => {}
+                },
+                ActorSwarmBehaviourEvent::RequestResponse(request_response::Event::Message {
                     message:
                         request_response::Message::Request {
                             request, channel, ..
                         },
                     ..
+                }) => match request {
+                    SwarmRequest::Ask {
+                        actor_id,
+                        actor_remote_id,
+                        message_remote_id,
+                        payload,
+                        mailbox_timeout,
+                        reply_timeout,
+                        immediate,
+                    } => {
+                        let tx = self.cmd_tx.clone();
+                        tokio::spawn(async move {
+                            let result = remote::ask(
+                                actor_id,
+                                actor_remote_id,
+                                message_remote_id,
+                                payload,
+                                mailbox_timeout,
+                                reply_timeout,
+                                immediate,
+                            )
+                            .await;
+                            tx.send(SwarmCommand::SendAskResponse { result, channel });
+                        });
+                    }
+                    SwarmRequest::Tell {
+                        actor_id,
+                        actor_remote_id,
+                        message_remote_id,
+                        payload,
+                        mailbox_timeout,
+                        immediate,
+                    } => {
+                        let tx = self.cmd_tx.clone();
+                        tokio::spawn(async move {
+                            let result = remote::tell(
+                                actor_id,
+                                actor_remote_id,
+                                message_remote_id,
+                                payload,
+                                mailbox_timeout,
+                                immediate,
+                            )
+                            .await;
+                            tx.send(SwarmCommand::SendTellResponse { result, channel });
+                        });
+                    }
+                    SwarmRequest::Link {
+                        actor_id,
+                        actor_remote_id,
+                        sibbling_id,
+                        sibbling_remote_id,
+                    } => {
+                        let tx = self.cmd_tx.clone();
+                        tokio::spawn(async move {
+                            let result = remote::link(
+                                actor_id,
+                                actor_remote_id,
+                                sibbling_id,
+                                sibbling_remote_id,
+                            )
+                            .await;
+                            tx.send(SwarmCommand::SendLinkResponse { result, channel });
+                        });
+                    }
+                    SwarmRequest::Unlink {
+                        actor_id,
+                        actor_remote_id,
+                        sibbling_id,
+                    } => {
+                        let tx = self.cmd_tx.clone();
+                        tokio::spawn(async move {
+                            let result =
+                                remote::unlink(actor_id, actor_remote_id, sibbling_id).await;
+                            tx.send(SwarmCommand::SendUnlinkResponse { result, channel });
+                        });
+                    }
+                    SwarmRequest::SignalLinkDied {
+                        dead_actor_id,
+                        notified_actor_id,
+                        notified_actor_remote_id,
+                        stop_reason,
+                    } => {
+                        let tx = self.cmd_tx.clone();
+                        tokio::spawn(async move {
+                            let result = remote::signal_link_died(
+                                dead_actor_id,
+                                notified_actor_id,
+                                notified_actor_remote_id,
+                                stop_reason,
+                            )
+                            .await;
+                            tx.send(SwarmCommand::SendSignalLinkDiedResponse { result, channel });
+                        });
+                    }
                 },
-            )) => match request {
-                SwarmRequest::Ask {
-                    actor_id,
-                    actor_remote_id,
-                    message_remote_id,
-                    payload,
-                    mailbox_timeout,
-                    reply_timeout,
-                    immediate,
-                } => {
-                    let tx = self.cmd_tx.clone();
-                    tokio::spawn(async move {
-                        let result = remote::ask(
-                            actor_id,
-                            actor_remote_id,
-                            message_remote_id,
-                            payload,
-                            mailbox_timeout,
-                            reply_timeout,
-                            immediate,
-                        )
-                        .await;
-                        tx.send(SwarmCommand::SendAskResponse { result, channel });
-                    });
-                }
-                SwarmRequest::Tell {
-                    actor_id,
-                    actor_remote_id,
-                    message_remote_id,
-                    payload,
-                    mailbox_timeout,
-                    immediate,
-                } => {
-                    let tx = self.cmd_tx.clone();
-                    tokio::spawn(async move {
-                        let result = remote::tell(
-                            actor_id,
-                            actor_remote_id,
-                            message_remote_id,
-                            payload,
-                            mailbox_timeout,
-                            immediate,
-                        )
-                        .await;
-                        tx.send(SwarmCommand::SendTellResponse { result, channel });
-                    });
-                }
-                SwarmRequest::Link {
-                    actor_id,
-                    actor_remote_id,
-                    sibbling_id,
-                    sibbling_remote_id,
-                } => {
-                    let tx = self.cmd_tx.clone();
-                    tokio::spawn(async move {
-                        let result = remote::link(
-                            actor_id,
-                            actor_remote_id,
-                            sibbling_id,
-                            sibbling_remote_id,
-                        )
-                        .await;
-                        tx.send(SwarmCommand::SendLinkResponse { result, channel });
-                    });
-                }
-                SwarmRequest::Unlink {
-                    actor_id,
-                    actor_remote_id,
-                    sibbling_id,
-                } => {
-                    let tx = self.cmd_tx.clone();
-                    tokio::spawn(async move {
-                        let result = remote::unlink(actor_id, actor_remote_id, sibbling_id).await;
-                        tx.send(SwarmCommand::SendUnlinkResponse { result, channel });
-                    });
-                }
-                SwarmRequest::SignalLinkDied {
-                    dead_actor_id,
-                    notified_actor_id,
-                    notified_actor_remote_id,
-                    stop_reason,
-                } => {
-                    let tx = self.cmd_tx.clone();
-                    tokio::spawn(async move {
-                        let result = remote::signal_link_died(
-                            dead_actor_id,
-                            notified_actor_id,
-                            notified_actor_remote_id,
-                            stop_reason,
-                        )
-                        .await;
-                        tx.send(SwarmCommand::SendSignalLinkDiedResponse { result, channel });
-                    });
-                }
-            },
-            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
-                request_response::Event::Message {
+                ActorSwarmBehaviourEvent::RequestResponse(request_response::Event::Message {
                     message:
                         request_response::Message::Response {
                             request_id,
                             response,
                         },
                     ..
-                },
-            )) => {
-                if let Some(tx) = self.requests.remove(&request_id) {
-                    let _ = tx.send(response);
+                }) => {
+                    if let Some(tx) = self.requests.remove(&request_id) {
+                        let _ = tx.send(response);
+                    }
                 }
-            }
-            ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(
-                request_response::Event::OutboundFailure {
-                    request_id, error, ..
-                },
-            )) => {
-                if let Some(tx) = self.requests.remove(&request_id) {
-                    let err = match error {
-                        OutboundFailure::DialFailure => RemoteSendError::DialFailure,
-                        OutboundFailure::Timeout => RemoteSendError::NetworkTimeout,
-                        OutboundFailure::ConnectionClosed => RemoteSendError::ConnectionClosed,
-                        OutboundFailure::UnsupportedProtocols => {
-                            RemoteSendError::UnsupportedProtocols
-                        }
-                        OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
-                    };
-                    let _ = tx.send(SwarmResponse::OutboundFailure(err));
+                ActorSwarmBehaviourEvent::RequestResponse(
+                    request_response::Event::OutboundFailure {
+                        request_id, error, ..
+                    },
+                ) => {
+                    if let Some(tx) = self.requests.remove(&request_id) {
+                        let err = match error {
+                            OutboundFailure::DialFailure => RemoteSendError::DialFailure,
+                            OutboundFailure::Timeout => RemoteSendError::NetworkTimeout,
+                            OutboundFailure::ConnectionClosed => RemoteSendError::ConnectionClosed,
+                            OutboundFailure::UnsupportedProtocols => {
+                                RemoteSendError::UnsupportedProtocols
+                            }
+                            OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
+                        };
+                        let _ = tx.send(SwarmResponse::OutboundFailure(err));
+                    }
                 }
-            }
-            _ => {}
+                _ => {}
+            },
         }
     }
 }
@@ -1509,7 +1508,7 @@ pub enum ActorSwarmEvent {
         cause: Option<ConnectionError>,
     },
     /// Network behaviour event.
-    Behaviour(ActorSwarmBehaviourEvent),
+    Behaviour(Box<ActorSwarmBehaviourEvent>),
 }
 
 impl ActorSwarmBehaviour {

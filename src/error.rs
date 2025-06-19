@@ -347,7 +347,7 @@ pub enum BootstrapError {
     /// Swarm already bootstrapped.
     AlreadyBootstrapped(
         &'static crate::remote::ActorSwarm,
-        Option<libp2p::Swarm<crate::remote::ActorSwarmBehaviour>>,
+        Option<Box<libp2p::Swarm<crate::remote::ActorSwarmBehaviour>>>,
     ),
     /// Behaviour error.
     BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
@@ -694,7 +694,6 @@ impl fmt::Display for ActorStopReason {
 
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
-#[allow(missing_debug_implementations)]
 pub struct PanicError(Arc<Mutex<Box<dyn ReplyError>>>);
 
 impl PanicError {
