@@ -436,20 +436,30 @@ impl<A: Actor> fmt::Debug for MailboxReceiver<A> {
     }
 }
 
+/// A signal which can be sent to an actors mailbox.
 #[allow(missing_debug_implementations)]
-#[doc(hidden)]
 pub enum Signal<A: Actor> {
+    /// The actor has finished starting up.
     StartupFinished,
+    /// A message.
     Message {
+        /// The boxed message.
         message: BoxMessage<A>,
+        /// The actor ref, to keep the actor from stopping due to RAII semantics.
         actor_ref: ActorRef<A>,
+        /// The reply sender.
         reply: Option<BoxReplySender>,
+        /// If the message sent from within the actor's tokio task/thread
         sent_within_actor: bool,
     },
+    /// A linked actor has died.
     LinkDied {
+        /// The dead actor's ID.
         id: ActorID,
+        /// The reason the actor stopped.
         reason: ActorStopReason,
     },
+    /// Signals the actor to stop.
     Stop,
 }
 

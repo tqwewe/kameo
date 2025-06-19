@@ -103,15 +103,17 @@ fn handle_event(
         SwarmEvent::Behaviour(event) => match event {
             CustomBehaviourEvent::Kademlia(event) => swarm_handler.handle_event(
                 swarm,
-                ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Kademlia(event)),
+                ActorSwarmEvent::Behaviour(Box::new(ActorSwarmBehaviourEvent::Kademlia(event))),
             ),
             CustomBehaviourEvent::ActorRequestResponse(event) => swarm_handler.handle_event(
                 swarm,
-                ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::RequestResponse(event)),
+                ActorSwarmEvent::Behaviour(Box::new(ActorSwarmBehaviourEvent::RequestResponse(
+                    event,
+                ))),
             ),
             CustomBehaviourEvent::Mdns(event) => swarm_handler.handle_event(
                 swarm,
-                ActorSwarmEvent::Behaviour(ActorSwarmBehaviourEvent::Mdns(event)),
+                ActorSwarmEvent::Behaviour(Box::new(ActorSwarmBehaviourEvent::Mdns(event))),
             ),
             CustomBehaviourEvent::CustomRequestResponse(request_response::Event::Message {
                 message,

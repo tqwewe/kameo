@@ -43,7 +43,7 @@ struct MyActor { }
 
 ## Actor Creation and Messaging
 
-Creating an actor involves implementing the `Actor` trait and then spawning the actor using `kameo::spawn`. Upon spawning, an `ActorRef<T>` is returned, which is used to send messages to the actor. The actor processes messages using the `handle` method from the `Message` trait, optionally returning a reply.
+Creating an actor involves implementing the `Actor` trait and then spawning the actor using `Actor::spawn`. Upon spawning, an `ActorRef<T>` is returned, which is used to send messages to the actor. The actor processes messages using the `handle` method from the `Message` trait, optionally returning a reply.
 
 ### Example Usage
 
@@ -62,7 +62,7 @@ impl Actor for MyActor {
 }
 
 // Spawning the actor
-let actor_ref = kameo::spawn(MyActor);
+let actor_ref = MyActor::spawn(MyActor);
 ```
 
 The above example demonstrates defining a simple actor and spawning it. The actor prints a message upon starting, showcasing the use of the `on_start` lifecycle hook.
