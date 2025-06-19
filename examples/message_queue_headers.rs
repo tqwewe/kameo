@@ -1,10 +1,11 @@
-use kameo::message::{Context, Message};
-use kameo_actors::message_queue::{
-    BasicConsume, BasicPublish, ExchangeDeclare, ExchangeType, MessageProperties, MessageQueue,
-    QueueBind, QueueDeclare,
+use kameo::prelude::*;
+use kameo_actors::{
+    message_queue::{
+        BasicConsume, BasicPublish, ExchangeDeclare, ExchangeType, MessageProperties, MessageQueue,
+        QueueBind, QueueDeclare,
+    },
+    DeliveryStrategy,
 };
-use kameo_actors::DeliveryStrategy;
-use kameo_macros::Actor;
 use std::collections::HashMap;
 
 #[tokio::main]
@@ -27,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let message_queue = MessageQueue::new(DeliveryStrategy::BestEffort);
-    let mq_ref = kameo::spawn(message_queue);
+    let mq_ref = MessageQueue::spawn(message_queue);
 
     mq_ref
         .tell(ExchangeDeclare {
@@ -51,8 +52,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .await?;
 
-    let consumer1 = kameo::spawn(TestConsumer);
-    let consumer2 = kameo::spawn(TestConsumer);
+    let consumer1 = TestConsumer::spawn(TestConsumer);
+    let consumer2 = TestConsumer::spawn(TestConsumer);
 
     //  format=json and priority=high (x-match=all)
     let mut bind_args1 = HashMap::new();
@@ -112,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message: TestMessage("msg1"),
             properties: MessageProperties {
                 headers: Some(headers1),
-                filter:Default::default(),
+                filter: Default::default(),
             },
         })
         .await?;
@@ -128,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message: TestMessage("msg2"),
             properties: MessageProperties {
                 headers: Some(headers2),
-                filter:Default::default(),
+                filter: Default::default(),
             },
         })
         .await?;
@@ -145,7 +146,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             message: TestMessage("msg3"),
             properties: MessageProperties {
                 headers: Some(headers3),
-                filter:Default::default(),
+                filter: Default::default(),
             },
         })
         .await?;
