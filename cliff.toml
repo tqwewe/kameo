@@ -60,20 +60,20 @@ filter_unconventional = true
 # process each line of a commit as an individual commit
 split_commits = false
 commit_parsers = [
-    { message = "^chore: bump version to .*", skip = true },
-    { message = "^chore: bump to version .*", skip = true },
-    { message = "^.*\\(example(s)?\\):.*", skip = true },
-    { message = "^chore(\\(.*\\))?: .*", group = "<!-- 5 -->Misc" },
-    { message = "^feat(\\(.*\\))?: .*", group = "<!-- 0 -->Added" },
-    { message = "^docs(\\(.*\\))?: .*", group = "<!-- 4 -->Documentation" },
-    { message = "^.*: add", group = "<!-- 0 -->Added" },
-    { message = "^.*: support", group = "<!-- 0 -->Added" },
-    { message = "^.*: remove", group = "<!-- 2 -->Removed" },
-    { message = "^.*: delete", group = "<!-- 2 -->Removed" },
-    { message = "^test", group = "<!-- 3 -->Fixed" },
-    { message = "^fix", group = "<!-- 3 -->Fixed" },
-    { message = "^.*: fix", group = "<!-- 3 -->Fixed" },
-    { message = "^.*", group = "<!-- 1 -->Changed" },
+  { message = "^chore: bump version to .*", skip = true },
+  { message = "^chore: bump to version .*", skip = true },
+  { message = "^.*\\(example(s)?\\):.*", skip = true },
+  { message = "^chore(\\(.*\\))?: .*", group = "<!-- 5 -->Misc" },
+  { message = "^feat(\\(.*\\))?: .*", group = "<!-- 0 -->Added" },
+  { message = "^docs(\\(.*\\))?: .*", group = "<!-- 4 -->Documentation" },
+  { message = "^.*: add", group = "<!-- 0 -->Added" },
+  { message = "^.*: support", group = "<!-- 0 -->Added" },
+  { message = "^.*: remove", group = "<!-- 2 -->Removed" },
+  { message = "^.*: delete", group = "<!-- 2 -->Removed" },
+  { message = "^test", group = "<!-- 3 -->Fixed" },
+  { message = "^fix", group = "<!-- 3 -->Fixed" },
+  { message = "^.*: fix", group = "<!-- 3 -->Fixed" },
+  { message = "^.*", group = "<!-- 1 -->Changed" },
 ] # regex for parsing and grouping commits
 # protect breaking changes from being skipped due to matching a skipping commit_parser
 protect_breaking_commits = false
