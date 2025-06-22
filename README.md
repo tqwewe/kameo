@@ -163,17 +163,20 @@ If you find Kameo useful and would like to support its development, please consi
 
 ### Special Thanks to Our Sponsors
 
-A huge thank you to [**Huly Labs**], [**Caido Community**], and [**vanhouc**] for supporting Kameo's development! 💖
+A huge thank you to [**Huly Labs**], [**Caido Community**], [**vanhouc**], and [**cawfeecoder**] for supporting Kameo's development! 💖
 
 [![Huly Labs](https://avatars.githubusercontent.com/u/87086734?s=100&v=4)](https://huly.io/)
 &nbsp;&nbsp;&nbsp;
 [![Caido Community](https://avatars.githubusercontent.com/u/168573261?s=100&v=4)](https://github.com/caido-community)
 &nbsp;&nbsp;&nbsp;
 [![vanhouc](https://avatars.githubusercontent.com/u/3475140?s=100&v=4)](https://github.com/vanhouc)
+&nbsp;&nbsp;&nbsp;
+[![cawfeecoder](https://avatars.githubusercontent.com/u/10661697?s=100&v=4)](https://github.com/cawfeecoder)
 
 [**Huly Labs**]: https://huly.io/
 [**Caido Community**]: https://github.com/caido-community
 [**vanhouc**]: https://github.com/vanhouc
+[**cawfeecoder**]: https://github.com/cawfeecoder
 
 ## License
 
