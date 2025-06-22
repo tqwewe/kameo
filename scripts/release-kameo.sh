@@ -55,6 +55,8 @@ execute_step "Updating changelog" "git cliff --tag \"$NEW_VERSION\" --ignore-tag
 
 execute_step "Updating Cargo.toml package version to $NEW_VERSION" "perl -i -pe \"s/^version = \\\".*\\\"/version = \\\"$NEW_VERSION\\\"/\" ./Cargo.toml"
 
+execute_step "Updating Cargo.toml workspace dependency version to $NEW_VERSION" "perl -i -pe \"s/^kameo = \\{ path = \\\".\\\", version = \\\".*\\\" \\}/kameo = { path = \\\".\\\", version = \\\"$NEW_VERSION\\\" }/\" ./Cargo.toml"
+
 execute_step "Updating README.md version to $MAJOR_MINOR_VERSION" "perl -i -pe 's/kameo = \"[^\"]*\"/kameo = \"$MAJOR_MINOR_VERSION\"/' README.md"
 
 execute_step "Updating getting-started.mdx version to $MAJOR_MINOR_VERSION" "perl -i -pe 's/kameo = \"[^\"]*\"/kameo = \"$MAJOR_MINOR_VERSION\"/' ./docs/getting-started.mdx"
