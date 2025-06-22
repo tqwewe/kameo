@@ -81,10 +81,6 @@ name = "remote"
 required-features = ["remote"]
 
 [[example]]
-name = "remote_link"
-required-features = ["remote"]
-
-[[example]]
 name = "manual_swarm"
 required-features = ["remote"]
 
