@@ -51,7 +51,7 @@ if [ "$BRANCH" != "main" ]; then
   exit 1
 fi
 
-execute_step "Updating changelog" "git cliff --tag \"$NEW_VERSION\" --ignore-tags \"\w-\" --prepend ./CHANGELOG.md --unreleased"
+execute_step "Updating changelog" "git cliff --tag \"$NEW_VERSION\" --ignore-tags \"\w-\" --prepend ./CHANGELOG.md --latest"
 
 execute_step "Updating Cargo.toml package version to $NEW_VERSION" "perl -i -pe \"s/^version = \\\".*\\\"/version = \\\"$NEW_VERSION\\\"/\" ./Cargo.toml"
 
