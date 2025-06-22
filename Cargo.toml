@@ -34,7 +34,7 @@ remote = ["dep:libp2p", "dep:libp2p-identity", "dep:linkme", "dep:rmp-serde"]
 tracing = ["dep:tracing", "tokio/tracing"]
 
 [dependencies]
-kameo_macros = { version = "^0.16.0", path = "./macros", optional = true }
+kameo_macros = { version = "0.17.0", path = "./macros", optional = true }
 
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
