@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2025-06-22
+
+* @Malefaro made their first contribution in #179
+
+* @hanekoo made their first contribution in #163
+
+* @Avi-D-coder made their first contribution in #170
+
+* @dependabot[bot] made their first contribution in #173
+
+* @artemijan made their first contribution in #177
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add `Recipient` type for type erased actor refs (#160)
+- **BREAKING:** Add `Actor::Args` associated type and actor spawn methods (#168)
+- Add `Recipient` and `WeakRecipient` to prelude [</>](https://github.com/tqwewe/kameo/commit/7587048967aac42f7cb2b89649a099d116ab125f)
+- Add broker actor (#161)
+- Add message bus actor (#162)
+- Add `track_caller` to `Recipient::tell` [</>](https://github.com/tqwewe/kameo/commit/6d1d2859ea2161caa614238b8d2a68b496f919c4)
+- Add actor shutdown result handling and error hook (#166)
+- Implement downgrade for `Recipient` [</>](https://github.com/tqwewe/kameo/commit/58bce52a66bf1f7de4abdf4bf40855f0c95661bd)
+- Add `msg` and `err` methods to `SendError` (#169)
+- Add message_queue actor (#163)
+- Add reply recipient that can do ask requests (#179)
+
+### <!-- 1 -->Changed
+
+- Wrap large enum variant in Box to fix clippy lint [</>](https://github.com/tqwewe/kameo/commit/463a47eb8c4db25773f9a324295ede8859a05618)
+- Format toml files [</>](https://github.com/tqwewe/kameo/commit/69e743737ce7fa5962422e2b0e7361491c7d52e1)
+
+### <!-- 3 -->Fixed
+
+- Process buffered messages before stopping gracefully [</>](https://github.com/tqwewe/kameo/commit/d3026040ca7d4e1142697ea8b1fd3b1fe57e3a4a)
+- Actors not stopping due to leaked ActorRef
+
+### <!-- 5 -->Misc
+
+- Update criterion requirement from 0.5 to 0.6 (#173)
+- Update release script shabangs [</>](https://github.com/tqwewe/kameo/commit/e57bd269236685ff72e03754a6670c34415d524a)
+- Bump kameo_macros to version 0.17.0 [</>](https://github.com/tqwewe/kameo/commit/b8eba36a277557d4ce0b0854a4fa19f01b0ecaf2)
+
 ## [0.16.0] - 2025-03-28
 
 * @attila-lin made their first contribution in #149
