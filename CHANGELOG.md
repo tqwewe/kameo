@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2025-06-24
+
+### <!-- 0 -->Added
+
+- Add ReplyRecipient and WeakReplyRecipient to prelude (#184)
+
+### <!-- 3 -->Fixed
+
+- Wait_for_stop calls for wait_for_shutdown instead of wait_for_startup (#183)
+
+### <!-- 5 -->Misc
+
+- Add cawfeecoder to README.md sponsors <3 [</>](https://github.com/tqwewe/kameo/commit/ac6cb93e2f08496d3ad462ee97c1991a6c5c647c)
+- Bump kameo_actors to version 0.2.0 [</>](https://github.com/tqwewe/kameo/commit/ed1a84bb5929a1ab32a9612c0dc1173e9ae7c08f)
+
 ## [0.17.0] - 2025-06-22
 
 * @Malefaro made their first contribution in #179
