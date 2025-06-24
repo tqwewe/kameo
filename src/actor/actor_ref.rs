@@ -384,7 +384,7 @@ where
         note = "wait_for_stop has been renamed to wait_for_shutdown"
     )]
     pub async fn wait_for_stop(&self) {
-        self.wait_for_startup().await
+        self.wait_for_shutdown().await
     }
 
     /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
