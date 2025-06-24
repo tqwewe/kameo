@@ -37,7 +37,8 @@ pub mod prelude {
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;
     pub use crate::actor::{
-        Actor, ActorID, ActorRef, PreparedActor, Recipient, WeakActorRef, WeakRecipient,
+        Actor, ActorID, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef,
+        WeakRecipient, WeakReplyRecipient,
     };
     #[cfg(feature = "remote")]
     pub use crate::error::RemoteSendError;
