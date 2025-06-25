@@ -112,7 +112,7 @@ where
             return ControlFlow::Continue(());
         }
 
-        let res = AssertUnwindSafe(message.handle_dyn(&mut self.state, actor_ref, reply))
+        let res = AssertUnwindSafe(self.state.on_message(message, actor_ref, reply))
             .catch_unwind()
             .await;
         match res {
