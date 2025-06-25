@@ -1,7 +1,9 @@
 use std::{
     cell::Cell,
     collections::HashMap,
-    fmt, ops,
+    fmt,
+    hash::{Hash, Hasher},
+    ops,
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -905,6 +907,20 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
     }
 }
 
+impl<A: Actor> PartialEq for ActorRef<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<A: Actor> Eq for ActorRef<A> {}
+
+impl<A: Actor> Hash for ActorRef<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 /// A type-erased actor reference for bidirectional communication with a single message type.
 ///
 /// Supports both `tell` and `ask` operations, with response types determined by the
@@ -1057,6 +1073,22 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> fmt::Debug
     }
 }
 
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> PartialEq
+    for ReplyRecipient<M, Ok, Err>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Eq for ReplyRecipient<M, Ok, Err> {}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Hash for ReplyRecipient<M, Ok, Err> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
+    }
+}
+
 /// A type erased actor ref, accepting only a single message type.
 ///
 /// This is returned by [ActorRef::recipient].
@@ -1175,6 +1207,20 @@ impl<M: Send + 'static> fmt::Debug for Recipient<M> {
         let mut d = f.debug_struct("Recipient");
         d.field("id", &self.handler.id());
         d.finish()
+    }
+}
+
+impl<M: Send + 'static> PartialEq for Recipient<M> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<M: Send + 'static> Eq for Recipient<M> {}
+
+impl<M: Send + 'static> Hash for Recipient<M> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
     }
 }
 
@@ -1431,6 +1477,23 @@ impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
     }
 }
 
+#[cfg(feature = "remote")]
+impl<A: Actor> PartialEq for RemoteActorRef<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<A: Actor> Eq for RemoteActorRef<A> {}
+
+#[cfg(feature = "remote")]
+impl<A: Actor> Hash for RemoteActorRef<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
@@ -1510,6 +1573,20 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
     }
 }
 
+impl<A: Actor> PartialEq for WeakActorRef<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<A: Actor> Eq for WeakActorRef<A> {}
+
+impl<A: Actor> Hash for WeakActorRef<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
+
 /// A weak recipient that does not prevent the actor from being stopped.
 pub struct WeakRecipient<M: Send + 'static> {
     handler: Box<dyn WeakMessageHandler<M>>,
@@ -1560,6 +1637,20 @@ impl<A: Actor> fmt::Debug for WeakRecipient<A> {
         let mut d = f.debug_struct("WeakRecipient");
         d.field("id", &self.handler.id());
         d.finish()
+    }
+}
+
+impl<A: Actor> PartialEq for WeakRecipient<A> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<A: Actor> Eq for WeakRecipient<A> {}
+
+impl<A: Actor> Hash for WeakRecipient<A> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
     }
 }
 
@@ -1614,6 +1705,20 @@ impl<A: Actor, Ok: Send + 'static, Err: ReplyError> fmt::Debug for WeakReplyReci
         let mut d = f.debug_struct("WeakReplyRecipient");
         d.field("id", &self.handler.id());
         d.finish()
+    }
+}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> PartialEq for WeakReplyRecipient<A, Ok, Err> {
+    fn eq(&self, other: &Self) -> bool {
+        self.handler.id() == other.handler.id()
+    }
+}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Eq for WeakReplyRecipient<A, Ok, Err> {}
+
+impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Hash for WeakReplyRecipient<A, Ok, Err> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.handler.id().hash(state);
     }
 }
 
