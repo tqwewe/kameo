@@ -3,7 +3,7 @@ resolver = "2"
 members = [".", "actors", "macros"]
 
 [workspace.dependencies]
-kameo = { path = ".", version = "0.17.1" }
+kameo = { path = ".", version = "0.17.2" }
 
 futures = "0.3"
 tokio = "1.44"
@@ -19,7 +19,7 @@ all-features = true
 [package]
 name = "kameo"
 description = "Fault-tolerant Async Actors Built on Tokio"
-version = "0.17.1"
+version = "0.17.2"
 edition = "2021"
 readme = "README.md"
 repository = "https://github.com/tqwewe/kameo"
