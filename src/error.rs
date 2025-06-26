@@ -404,6 +404,12 @@ pub enum RegistryError {
     /// Timeout.
     #[cfg(feature = "remote")]
     Timeout,
+    /// Get providers error.
+    #[cfg(feature = "remote")]
+    GetProviders(libp2p::kad::GetProvidersError),
+    /// Get record error.
+    #[cfg(feature = "remote")]
+    GetRecord(libp2p::kad::GetRecordError),
 }
 
 impl fmt::Display for RegistryError {
@@ -418,11 +424,29 @@ impl fmt::Display for RegistryError {
             }
             #[cfg(feature = "remote")]
             RegistryError::Timeout => write!(f, "the request timed out"),
+            #[cfg(feature = "remote")]
+            RegistryError::GetProviders(err) => err.fmt(f),
+            #[cfg(feature = "remote")]
+            RegistryError::GetRecord(err) => err.fmt(f),
         }
     }
 }
 
 impl error::Error for RegistryError {}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::GetProvidersError> for RegistryError {
+    fn from(err: libp2p::kad::GetProvidersError) -> Self {
+        RegistryError::GetProviders(err)
+    }
+}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::GetRecordError> for RegistryError {
+    fn from(err: libp2p::kad::GetRecordError) -> Self {
+        RegistryError::GetRecord(err)
+    }
+}
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]

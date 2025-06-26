@@ -1266,6 +1266,19 @@ where
             .await
     }
 
+    /// Looks up all actors registered by name across the distributed network.
+    ///
+    /// Returns a stream of remote actor refs found under the registered name.
+    pub fn lookup_all(name: &str) -> remote::LookupStream<A>
+    where
+        A: remote::RemoteActor + 'static,
+    {
+        match remote::ActorSwarm::get() {
+            Some(swarm) => swarm.lookup_all(name.to_string()),
+            None => remote::LookupStream::new_err(),
+        }
+    }
+
     /// Sends a message to the remote actor and waits for a reply.
     ///
     /// The `ask` pattern is used when a response is expected from the remote actor. This method
