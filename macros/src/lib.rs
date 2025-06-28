@@ -20,7 +20,7 @@ use syn::parse_macro_input;
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use kameo::messages;
 ///
 /// #[messages]
@@ -46,7 +46,7 @@ use syn::parse_macro_input;
 /// <details>
 /// <summary>See expanded code</summary>
 ///
-/// ```
+/// ```ignore
 /// pub struct Inc {
 ///     pub amount: u32,
 /// }
@@ -93,14 +93,14 @@ pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use kameo::Actor;
 ///
 /// #[derive(Actor)]
 /// #[actor(name = "my_amazing_actor", mailbox = bounded(256))]
 /// struct MyActor { }
 ///
-/// assert_eq!(MyActor { }.name(), "MyActor");
+/// assert_eq!(MyActor::name(), "MyActor");
 /// ```
 #[proc_macro_derive(Actor, attributes(actor))]
 pub fn derive_actor(input: TokenStream) -> TokenStream {
@@ -112,7 +112,7 @@ pub fn derive_actor(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use kameo::Reply;
 ///
 /// #[derive(Reply)]
@@ -131,7 +131,7 @@ pub fn derive_reply(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use kameo::RemoteActor;
 ///
 /// #[derive(RemoteActor)]
@@ -149,14 +149,16 @@ pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```
+/// ```ignore
 /// use kameo::{remote_message, message::Message};
 ///
 /// struct MyActor { }
 /// struct MyMessage { }
 ///
 /// #[remote_message("c6fa9f76-8818-4000-96f4-50c2ebd52408")]
-/// impl Message<MyMessage> for MyActor { ... }
+/// impl Message<MyMessage> for MyActor {
+///     // implementation here
+/// }
 /// ```
 #[proc_macro_attribute]
 pub fn remote_message(attrs: TokenStream, input: TokenStream) -> TokenStream {

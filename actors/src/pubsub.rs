@@ -38,7 +38,7 @@
 //! pubsub.publish("Hello, World!").await;
 //!
 //! // Or spawn PubSub as an actor and use messages
-//! let pubsub_actor_ref = MyActor::spawn(PubSub::new());
+//! let pubsub_actor_ref = PubSub::spawn(PubSub::new());
 //! pubsub_actor_ref.tell(Subscribe(actor_ref)).await?;
 //! pubsub_actor_ref.tell(Publish("Hello, spawned world!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())

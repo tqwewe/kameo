@@ -38,10 +38,10 @@
 //! # tokio_test::block_on(async {
 //! // Create a broker with best effort delivery
 //! let broker = Broker::<TemperatureUpdate>::new(DeliveryStrategy::BestEffort);
-//! let broker_ref = MyActor::spawn(broker);
+//! let broker_ref = Broker::spawn(broker);
 //!
 //! // Create a display actor and subscribe to kitchen temperature updates
-//! let display = MyActor::spawn(DisplayActor);
+//! let display = DisplayActor::spawn(DisplayActor);
 //! broker_ref.tell(Subscribe {
 //!     topic: Pattern::new("sensors/kitchen/*").unwrap(),
 //!     recipient: display.recipient(),

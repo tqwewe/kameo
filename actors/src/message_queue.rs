@@ -38,7 +38,7 @@
 //! # tokio_test::block_on(async {
 //! // Create a message queue with best effort delivery
 //! let mq = MessageQueue::new(DeliveryStrategy::BestEffort);
-//! let mq_ref = kameo::spawn(mq);
+//! let mq_ref = MessageQueue::spawn(mq);
 //!
 //! // Set up exchange and queue
 //! mq_ref.tell(ExchangeDeclare {
@@ -58,7 +58,7 @@
 //! }).await?;
 //!
 //! // Register a consumer
-//! let processor = kameo::spawn(OrderProcessor);
+//! let processor = OrderProcessor::spawn(OrderProcessor);
 //! mq_ref.tell(BasicConsume {
 //!     queue: "order_processing".to_string(),
 //!     recipient: processor.recipient::<OrderEvent>(),
@@ -87,6 +87,8 @@ use std::{
 use crate::DeliveryStrategy;
 use glob::{MatchOptions, Pattern};
 use kameo::prelude::*;
+
+pub type FilterFn = fn(&HashMap<String, String>) -> bool;
 
 /// The main message queue actor that manages exchanges, queues and message routing.
 ///
@@ -117,8 +119,7 @@ pub struct MessageProperties {
     pub headers: Option<HashMap<String, String>>,
     /// Optional filter function for message routing based on consumer tags
     /// The function takes a reference to the consumer's tags and returns true if the message should be delivered
-    pub filter: Option<fn(&HashMap<String, String>) -> bool>,
-
+    pub filter: Option<FilterFn>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExchangeType {
@@ -290,8 +291,8 @@ pub struct QueueUnbind {
 /// Message for publishing a message to an exchange
 #[derive(Debug)]
 pub struct BasicPublish<M>
-where 
-    M: Clone + Send  + 'static,
+where
+    M: Clone + Send + 'static,
 {
     /// Exchange name (empty for default)
     pub exchange: String,
@@ -411,9 +412,8 @@ impl MessageQueue {
         message: &M,
         self_ref: ActorRef<Self>,
         filter: impl Fn(&HashMap<String, String>) -> bool,
-    ) 
-    where 
-        M: Clone + Send +'static,
+    ) where
+        M: Clone + Send + 'static,
     {
         let mut to_cancel = Vec::new();
         if let Some(recipients) = self
@@ -618,7 +618,7 @@ impl Message<QueueBind> for MessageQueue {
 
             let mut match_args = msg.arguments.clone();
             match_args.retain(|key, _| !key.starts_with("x-"));
-            
+
             match x_match {
                 "all" => Some(HeaderMatch::All(match_args)),
                 "any" => Some(HeaderMatch::Any(match_args)),
@@ -680,7 +680,7 @@ where
         } else {
             return Err(AmqpError::ExchangeNotFound);
         };
-        
+
         let filter = msg.properties.filter.unwrap_or(|_| true);
         let mut target_queues = HashSet::new();
 
@@ -730,8 +730,8 @@ where
             }
         }
 
-        for queue_name in target_queues {             
-            self.delivery_message(queue_name, &msg.message, ctx.actor_ref(),filter)
+        for queue_name in target_queues {
+            self.delivery_message(queue_name, &msg.message, ctx.actor_ref(), filter)
                 .await
         }
 
