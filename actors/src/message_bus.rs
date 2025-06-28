@@ -36,10 +36,10 @@
 //! # tokio_test::block_on(async {
 //! // Create a message bus with best effort delivery
 //! let message_bus = MessageBus::new(DeliveryStrategy::BestEffort);
-//! let message_bus_ref = MessageBuf::spawn(message_bus);
+//! let message_bus_ref = MessageBus::spawn(message_bus);
 //!
 //! // Create a display actor and register it for temperature updates
-//! let display = MessageBuf::spawn(DisplayActor);
+//! let display = DisplayActor::spawn(DisplayActor);
 //! message_bus_ref.tell(Register(display.recipient::<TemperatureUpdate>())).await?;
 //!
 //! // Publish a temperature update - automatically routes to all registered handlers
