@@ -518,7 +518,27 @@ impl ActorSwarm {
     }
 }
 
-/// A stream of remote actor id responses from a lookup.
+/// A stream of remote actor references discovered during distributed lookup.
+///
+/// This stream yields [`RemoteActorRef<A>`] instances as they are discovered across
+/// the network. The stream completes when all known actors matching the lookup
+/// name have been found.
+///
+/// # Errors
+///
+/// Individual stream items may be errors if specific actors cannot be reached
+/// or validated during lookup.
+///
+/// # Example
+///
+/// ```rust
+/// let mut stream = RemoteActorRef::<MyActor>::lookup_all("my-service");
+/// while let Some(actor_ref) = stream.try_next().await? {
+///     // Handle each discovered actor
+/// }
+/// ```
+///
+/// [`RemoteActorRef<A>`]: crate::actor::RemoteActorRef
 #[derive(Debug)]
 pub struct LookupStream<A> {
     inner: LookupStreamInner,

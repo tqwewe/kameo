@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use futures::StreamExt;
+use futures::TryStreamExt;
 use kameo::prelude::*;
 use libp2p::swarm::dial_opts::DialOpts;
 use serde::{Deserialize, Serialize};
@@ -87,8 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !is_host {
             let mut remote_actor_refs = RemoteActorRef::<MyActor>::lookup_all("my_actor");
             let mut found = 0;
-            while let Some(res) = remote_actor_refs.next().await {
-                let remote_actor_ref = res?;
+            while let Some(remote_actor_ref) = remote_actor_refs.try_next().await? {
                 let count = remote_actor_ref.ask(&Inc { amount: 10 }).await?;
                 println!("Incremented! Count is {count}");
                 found += 1;

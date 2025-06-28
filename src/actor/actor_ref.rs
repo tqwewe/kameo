@@ -1257,9 +1257,16 @@ where
         self.id
     }
 
-    /// Looks up an actor registered by name across the distributed network.
+    /// Looks up a single actor registered by name across the distributed network.
     ///
-    /// Returns `Some` if the actor is found, or `None` if no actor with the given name is registered.
+    /// If multiple actors are registered under the same name, returns one of them.
+    /// The specific actor returned is not deterministic and may vary between calls.
+    ///
+    /// Returns `None` if no actor with the given name is found.
+    ///
+    /// Use [`lookup_all`] when multiple actors might exist and you need deterministic behavior.
+    ///
+    /// [`lookup_all`]: Self::lookup_all
     pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
@@ -1272,7 +1279,11 @@ where
 
     /// Looks up all actors registered by name across the distributed network.
     ///
-    /// Returns a stream of remote actor refs found under the registered name.
+    /// Returns a stream of all remote actor refs found under the given name.
+    /// The stream completes when all known actors have been discovered.
+    ///
+    /// Use this when multiple actors may be registered under the same name
+    /// and you need to handle all of them or make deterministic choices.
     pub fn lookup_all(name: &str) -> remote::LookupStream<A>
     where
         A: remote::RemoteActor + 'static,
