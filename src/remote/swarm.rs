@@ -323,11 +323,29 @@ impl ActorSwarm {
         &self,
         name: String,
     ) -> Result<Option<RemoteActorRef<A>>, RegistryError> {
-        self.lookup_all(name).next().await.transpose()
+        #[cfg(debug_assertions)]
+        let name_clone = name.clone();
+        let mut stream = self.lookup_all(name);
+
+        let first = stream.next().await.transpose()?;
+
+        #[cfg(debug_assertions)]
+        if first.is_some() {
+            tokio::spawn(async move {
+                // Check if there's a second actor
+                if let Ok(Some(_)) = stream.next().await.transpose() {
+                    tracing::warn!(
+                        "Multiple actors found for '{name_clone}'. Consider using lookup_all() for deterministic behavior when multiple actors may exist."
+                    );
+                }
+            });
+        }
+
+        Ok(first)
     }
 
     /// Looks up all actors with a given name in the swarm.
-    pub fn lookup_all<A: Actor + RemoteActor>(&self, name: String) -> LookupStream<A> {
+    pub(crate) fn lookup_all<A: Actor + RemoteActor>(&self, name: String) -> LookupStream<A> {
         let (reply_tx, reply_rx) = mpsc::unbounded_channel();
         let cmd = SwarmCommand::Lookup {
             name,
