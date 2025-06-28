@@ -346,4 +346,28 @@ impl SwarmBehaviour for CustomBehaviour {
     fn kademlia_remove_record_local(&mut self, key: &kad::RecordKey) {
         self.kademlia.store_mut().remove(key);
     }
+
+    fn kademlia_get_providers(&mut self, key: kad::RecordKey) -> kad::QueryId {
+        self.kademlia.get_providers(key)
+    }
+
+    fn kademlia_get_providers_local(&mut self, key: &kad::RecordKey) -> usize {
+        // Get providers from local store
+        self.kademlia
+            .store_mut()
+            .provided()
+            .filter(|k| &k.key == key)
+            .count()
+    }
+
+    fn kademlia_start_providing(
+        &mut self,
+        key: kad::RecordKey,
+    ) -> Result<kad::QueryId, kad::store::Error> {
+        self.kademlia.start_providing(key)
+    }
+
+    fn kademlia_stop_providing(&mut self, key: &kad::RecordKey) {
+        self.kademlia.stop_providing(key);
+    }
 }
