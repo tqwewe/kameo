@@ -531,11 +531,20 @@ impl ActorSwarm {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
+/// # use kameo::{Actor, RemoteActor, actor::RemoteActorRef};
+/// # use futures::TryStreamExt;
+/// #
+/// # #[derive(Actor, RemoteActor)]
+/// # struct MyActor;
+/// #
+/// # tokio_test::block_on(async {
 /// let mut stream = RemoteActorRef::<MyActor>::lookup_all("my-service");
 /// while let Some(actor_ref) = stream.try_next().await? {
 ///     // Handle each discovered actor
 /// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # });
 /// ```
 ///
 /// [`RemoteActorRef<A>`]: crate::actor::RemoteActorRef
