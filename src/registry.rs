@@ -105,7 +105,7 @@ impl ActorRegistry {
             return false;
         }
 
-        self.actor_refs.insert(name.into(), Box::new(actor_ref));
+        self.actor_refs.insert(name, Box::new(actor_ref));
         true
     }
 
