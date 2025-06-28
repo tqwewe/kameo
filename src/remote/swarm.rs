@@ -323,13 +323,13 @@ impl ActorSwarm {
         &self,
         name: String,
     ) -> Result<Option<RemoteActorRef<A>>, RegistryError> {
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, feature = "tracing"))]
         let name_clone = name.clone();
         let mut stream = self.lookup_all(name);
 
         let first = stream.next().await.transpose()?;
 
-        #[cfg(debug_assertions)]
+        #[cfg(all(debug_assertions, feature = "tracing"))]
         if first.is_some() {
             tokio::spawn(async move {
                 // Check if there's a second actor
