@@ -295,6 +295,8 @@ where
     log_actor_stop_reason(id, name, &reason);
 
     while let Some(()) = link_notification_futures.next().await {}
+    #[cfg(not(feature = "remote"))]
+    crate::registry::ACTOR_REGISTRY.lock().unwrap().remove(name);
     #[cfg(feature = "remote")]
     remote::REMOTE_REGISTRY.lock().await.remove(&id);
 

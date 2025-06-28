@@ -104,11 +104,15 @@ where
         &self,
         name: impl Into<std::borrow::Cow<'static, str>>,
     ) -> Result<(), error::RegistryError> {
-        crate::registry::ACTOR_REGISTRY
+        let was_inserted = crate::registry::ACTOR_REGISTRY
             .lock()
             .unwrap()
             .insert(name, self.clone());
-        Ok(())
+        if !was_inserted {
+            Err(error::RegistryError::NameAlreadyRegistered)
+        } else {
+            Ok(())
+        }
     }
 
     /// Registers the actor under a given name within the actor swarm.

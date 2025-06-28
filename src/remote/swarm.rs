@@ -370,14 +370,7 @@ impl ActorSwarm {
 
         async move {
             // Wait for both operations
-            match provide_reply_rx.await {
-                Ok(kad::AddProviderOk { .. }) => {
-                    // Continue with metadata storage
-                }
-                Err(kad::AddProviderError::Timeout { .. }) => {
-                    return Err(RegistryError::Timeout);
-                }
-            }
+            provide_reply_rx.await?;
 
             match metadata_reply_rx.await {
                 Ok(kad::PutRecordOk { .. }) => {
@@ -607,7 +600,7 @@ pub struct ActorSwarmHandler {
         ),
     >,
     start_providing_queries:
-        HashMap<kad::QueryId, oneshot::Sender<Result<kad::AddProviderOk, kad::AddProviderError>>>,
+        HashMap<kad::QueryId, oneshot::Sender<Result<kad::AddProviderOk, RegistryError>>>,
     requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResponse>>,
 }
 
@@ -735,8 +728,12 @@ impl ActorSwarmHandler {
                 }
             }
             SwarmCommand::StartProviding { key, reply } => {
-                let query_id = swarm.behaviour_mut().kademlia_start_providing(key).unwrap();
-                self.start_providing_queries.insert(query_id, reply);
+                if swarm.behaviour_mut().kademlia_get_providers_local(&key) > 0 {
+                    let _ = reply.send(Err(RegistryError::NameAlreadyRegistered));
+                } else {
+                    let query_id = swarm.behaviour_mut().kademlia_start_providing(key).unwrap();
+                    self.start_providing_queries.insert(query_id, reply);
+                }
             }
             SwarmCommand::StopProviding { key, reply } => {
                 swarm.behaviour_mut().kademlia_stop_providing(&key);
@@ -1023,14 +1020,14 @@ impl ActorSwarmHandler {
                             let _ = tx.send(Err(err.into()));
                         }
                     }
-                    kad::QueryResult::StartProviding(res @ Ok(kad::AddProviderOk { .. })) => {
+                    kad::QueryResult::StartProviding(Ok(res @ kad::AddProviderOk { .. })) => {
                         if let Some(tx) = self.start_providing_queries.remove(&id) {
-                            let _ = tx.send(res);
+                            let _ = tx.send(Ok(res));
                         }
                     }
-                    kad::QueryResult::StartProviding(res @ Err(_)) => {
+                    kad::QueryResult::StartProviding(Err(err)) => {
                         if let Some(tx) = self.start_providing_queries.remove(&id) {
-                            let _ = tx.send(res);
+                            let _ = tx.send(Err(err.into()));
                         }
                     }
                     _ => {}
@@ -1257,7 +1254,7 @@ pub enum SwarmCommand {
         /// Kademlia record key.
         key: kad::RecordKey,
         /// Reply sender.
-        reply: oneshot::Sender<Result<kad::AddProviderOk, kad::AddProviderError>>,
+        reply: oneshot::Sender<Result<kad::AddProviderOk, RegistryError>>,
     },
     /// Stop providing a key.
     StopProviding {

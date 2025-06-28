@@ -395,6 +395,8 @@ pub enum RegistryError {
     SwarmNotBootstrapped,
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
+    /// An actor has already been registered under the name.
+    NameAlreadyRegistered,
     /// Quorum failed.
     #[cfg(feature = "remote")]
     QuorumFailed {
@@ -417,6 +419,7 @@ impl fmt::Display for RegistryError {
         match self {
             #[cfg(feature = "remote")]
             RegistryError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
+            RegistryError::NameAlreadyRegistered => write!(f, "name already registered"),
             RegistryError::BadActorType => write!(f, "bad actor type"),
             #[cfg(feature = "remote")]
             RegistryError::QuorumFailed { quorum } => {
@@ -433,6 +436,15 @@ impl fmt::Display for RegistryError {
 }
 
 impl error::Error for RegistryError {}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::AddProviderError> for RegistryError {
+    fn from(err: libp2p::kad::AddProviderError) -> Self {
+        match err {
+            libp2p::kad::AddProviderError::Timeout { .. } => RegistryError::Timeout,
+        }
+    }
+}
 
 #[cfg(feature = "remote")]
 impl From<libp2p::kad::GetProvidersError> for RegistryError {
