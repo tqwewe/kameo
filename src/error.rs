@@ -395,6 +395,8 @@ pub enum RegistryError {
     SwarmNotBootstrapped,
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
+    /// An actor has already been registered under the name.
+    NameAlreadyRegistered,
     /// Quorum failed.
     #[cfg(feature = "remote")]
     QuorumFailed {
@@ -404,6 +406,12 @@ pub enum RegistryError {
     /// Timeout.
     #[cfg(feature = "remote")]
     Timeout,
+    /// Get providers error.
+    #[cfg(feature = "remote")]
+    GetProviders(libp2p::kad::GetProvidersError),
+    /// Get record error.
+    #[cfg(feature = "remote")]
+    GetRecord(libp2p::kad::GetRecordError),
 }
 
 impl fmt::Display for RegistryError {
@@ -411,6 +419,7 @@ impl fmt::Display for RegistryError {
         match self {
             #[cfg(feature = "remote")]
             RegistryError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
+            RegistryError::NameAlreadyRegistered => write!(f, "name already registered"),
             RegistryError::BadActorType => write!(f, "bad actor type"),
             #[cfg(feature = "remote")]
             RegistryError::QuorumFailed { quorum } => {
@@ -418,11 +427,38 @@ impl fmt::Display for RegistryError {
             }
             #[cfg(feature = "remote")]
             RegistryError::Timeout => write!(f, "the request timed out"),
+            #[cfg(feature = "remote")]
+            RegistryError::GetProviders(err) => err.fmt(f),
+            #[cfg(feature = "remote")]
+            RegistryError::GetRecord(err) => err.fmt(f),
         }
     }
 }
 
 impl error::Error for RegistryError {}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::AddProviderError> for RegistryError {
+    fn from(err: libp2p::kad::AddProviderError) -> Self {
+        match err {
+            libp2p::kad::AddProviderError::Timeout { .. } => RegistryError::Timeout,
+        }
+    }
+}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::GetProvidersError> for RegistryError {
+    fn from(err: libp2p::kad::GetProvidersError) -> Self {
+        RegistryError::GetProviders(err)
+    }
+}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::GetRecordError> for RegistryError {
+    fn from(err: libp2p::kad::GetRecordError) -> Self {
+        RegistryError::GetRecord(err)
+    }
+}
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]

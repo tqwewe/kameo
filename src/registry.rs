@@ -100,9 +100,13 @@ impl ActorRegistry {
         name: impl Into<Cow<'static, str>>,
         actor_ref: ActorRef<A>,
     ) -> bool {
-        self.actor_refs
-            .insert(name.into(), Box::new(actor_ref))
-            .is_some()
+        let name = name.into();
+        if self.actor_refs.contains_key(&name) {
+            return false;
+        }
+
+        self.actor_refs.insert(name, Box::new(actor_ref));
+        true
     }
 
     /// Removes a previously registered actor ref under a given name.

@@ -1,7 +1,9 @@
 use core::task;
-use std::{borrow::Cow, collections::HashMap, io, pin, time::Duration};
+use std::{
+    borrow::Cow, collections::HashMap, io, marker::PhantomData, pin, task::Poll, time::Duration,
+};
 
-use futures::{ready, stream::FuturesUnordered, Future, FutureExt, StreamExt};
+use futures::{ready, stream::FuturesUnordered, Future, FutureExt, Stream, StreamExt};
 use libp2p::{
     core::{transport::ListenerId, ConnectedPoint},
     identity::Keypair,
@@ -317,40 +319,42 @@ impl ActorSwarm {
     }
 
     /// Looks up an actor in the swarm.
-    pub(crate) fn lookup<A: Actor + RemoteActor>(
+    pub(crate) async fn lookup<A: Actor + RemoteActor>(
         &self,
         name: String,
-    ) -> impl Future<Output = Result<Option<RemoteActorRef<A>>, RegistryError>> {
-        let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Lookup {
-            key: name.into_bytes().into(),
-            reply,
-        });
+    ) -> Result<Option<RemoteActorRef<A>>, RegistryError> {
+        #[cfg(all(debug_assertions, feature = "tracing"))]
+        let name_clone = name.clone();
+        let mut stream = self.lookup_all(name);
+
+        let first = stream.next().await.transpose()?;
+
+        #[cfg(all(debug_assertions, feature = "tracing"))]
+        if first.is_some() {
+            tokio::spawn(async move {
+                // Check if there's a second actor
+                if let Ok(Some(_)) = stream.next().await.transpose() {
+                    tracing::warn!(
+                        "Multiple actors found for '{name_clone}'. Consider using lookup_all() for deterministic behavior when multiple actors may exist."
+                    );
+                }
+            });
+        }
+
+        Ok(first)
+    }
+
+    /// Looks up all actors with a given name in the swarm.
+    pub(crate) fn lookup_all<A: Actor + RemoteActor>(&self, name: String) -> LookupStream<A> {
+        let (reply_tx, reply_rx) = mpsc::unbounded_channel();
+        let cmd = SwarmCommand::Lookup {
+            name,
+            reply: reply_tx,
+        };
+        self.swarm_tx.send(cmd);
 
         let swarm_tx = self.swarm_tx.clone();
-        async move {
-            match reply_rx.await {
-                Ok(kad::PeerRecord { record, .. }) => {
-                    if record.value.is_empty() {
-                        return Ok(None);
-                    }
-
-                    let ActorRegistration {
-                        actor_id,
-                        remote_id,
-                    } = ActorRegistration::from_bytes(&record.value);
-                    if A::REMOTE_ID != remote_id {
-                        return Err(RegistryError::BadActorType);
-                    }
-
-                    Ok(Some(RemoteActorRef::new(actor_id, swarm_tx.clone())))
-                }
-                Err(kad::GetRecordError::NotFound { .. }) => Ok(None),
-                Err(kad::GetRecordError::QuorumFailed { quorum, .. }) => {
-                    Err(RegistryError::QuorumFailed { quorum })
-                }
-                Err(kad::GetRecordError::Timeout { .. }) => Err(RegistryError::Timeout),
-            }
-        }
+        LookupStream::new(swarm_tx, reply_rx)
     }
 
     /// Registers an actor within the swarm.
@@ -361,15 +365,32 @@ impl ActorSwarm {
     ) -> impl Future<Output = Result<(), RegistryError>> {
         let actor_registration =
             ActorRegistration::new(actor_ref.id(), Cow::Borrowed(A::REMOTE_ID));
-        let reply_rx = self
+
+        // Start providing the actor name
+        let provide_reply_rx =
+            self.swarm_tx
+                .send_with_reply(|reply| SwarmCommand::StartProviding {
+                    key: name.clone().into_bytes().into(),
+                    reply,
+                });
+
+        // Store metadata with composite key
+        let metadata_key = format!("{}:meta:{}", name, self.local_peer_id);
+        let metadata_reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Register {
-                record: kad::Record::new(name.into_bytes(), actor_registration.into_bytes()),
+                record: kad::Record::new(
+                    metadata_key.into_bytes(),
+                    actor_registration.into_bytes(),
+                ),
                 reply,
             });
 
         async move {
-            match reply_rx.await {
+            // Wait for both operations
+            provide_reply_rx.await?;
+
+            match metadata_reply_rx.await {
                 Ok(kad::PutRecordOk { .. }) => {
                     let signal_mailbox = actor_ref.weak_signal_mailbox();
                     let links = actor_ref.links.clone();
@@ -396,15 +417,28 @@ impl ActorSwarm {
     /// The future returned by unregister does not have to be awaited.
     /// Awaiting it is only necessary to handle the result.
     pub fn unregister(&self, name: String) -> impl Future<Output = Result<(), RegistryError>> {
-        let reply_rx = self
+        // Stop providing the actor name
+        let stop_reply_rx = self
+            .swarm_tx
+            .send_with_reply(|reply| SwarmCommand::StopProviding {
+                key: name.clone().into_bytes().into(),
+                reply,
+            });
+
+        // Remove metadata
+        let metadata_key = format!("{}:meta:{}", name, self.local_peer_id);
+        let metadata_reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Unregister {
-                key: name.into_bytes().into(),
+                key: metadata_key.into_bytes().into(),
                 reply,
             });
 
         async move {
-            match reply_rx.await {
+            // Wait for both operations
+            stop_reply_rx.await;
+
+            match metadata_reply_rx.await {
                 Ok(kad::PutRecordOk { .. }) => Ok(()),
                 Err(kad::PutRecordError::QuorumFailed { quorum, .. }) => {
                     Err(RegistryError::QuorumFailed { quorum })
@@ -484,6 +518,109 @@ impl ActorSwarm {
     }
 }
 
+/// A stream of remote actor references discovered during distributed lookup.
+///
+/// This stream yields [`RemoteActorRef<A>`] instances as they are discovered across
+/// the network. The stream completes when all known actors matching the lookup
+/// name have been found.
+///
+/// # Errors
+///
+/// Individual stream items may be errors if specific actors cannot be reached
+/// or validated during lookup.
+///
+/// # Example
+///
+/// ```rust,no_run
+/// # use kameo::{Actor, RemoteActor, actor::RemoteActorRef};
+/// # use futures::TryStreamExt;
+/// #
+/// # #[derive(Actor, RemoteActor)]
+/// # struct MyActor;
+/// #
+/// # tokio_test::block_on(async {
+/// let mut stream = RemoteActorRef::<MyActor>::lookup_all("my-service");
+/// while let Some(actor_ref) = stream.try_next().await? {
+///     // Handle each discovered actor
+/// }
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// # });
+/// ```
+///
+/// [`RemoteActorRef<A>`]: crate::actor::RemoteActorRef
+#[derive(Debug)]
+pub struct LookupStream<A> {
+    inner: LookupStreamInner,
+    _phantom: PhantomData<fn() -> A>,
+}
+
+impl<A> LookupStream<A> {
+    fn new(
+        swarm_tx: SwarmSender,
+        reply_rx: mpsc::UnboundedReceiver<Result<ActorRegistration<'static>, RegistryError>>,
+    ) -> Self {
+        LookupStream {
+            inner: LookupStreamInner::Stream { swarm_tx, reply_rx },
+            _phantom: PhantomData,
+        }
+    }
+
+    pub(crate) fn new_err() -> Self {
+        LookupStream {
+            inner: LookupStreamInner::SwarmNotBootstrapped { done: false },
+            _phantom: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug)]
+enum LookupStreamInner {
+    SwarmNotBootstrapped {
+        done: bool,
+    },
+    Stream {
+        swarm_tx: SwarmSender,
+        reply_rx: mpsc::UnboundedReceiver<Result<ActorRegistration<'static>, RegistryError>>,
+    },
+}
+
+impl<A: Actor + RemoteActor> Stream for LookupStream<A> {
+    type Item = Result<RemoteActorRef<A>, RegistryError>;
+
+    fn poll_next(
+        self: pin::Pin<&mut Self>,
+        cx: &mut task::Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match &mut this.inner {
+            LookupStreamInner::SwarmNotBootstrapped { done } => {
+                if *done {
+                    Poll::Ready(None)
+                } else {
+                    *done = true;
+                    Poll::Ready(Some(Err(RegistryError::SwarmNotBootstrapped)))
+                }
+            }
+            LookupStreamInner::Stream { swarm_tx, reply_rx } => {
+                match ready!(reply_rx.poll_recv(cx)) {
+                    Some(Ok(registration)) => {
+                        if A::REMOTE_ID != registration.remote_id {
+                            Poll::Ready(Some(Err(RegistryError::BadActorType)))
+                        } else {
+                            Poll::Ready(Some(Ok(RemoteActorRef::new(
+                                registration.actor_id,
+                                swarm_tx.clone(),
+                            ))))
+                        }
+                    }
+                    Some(Err(err)) => Poll::Ready(Some(Err(err))),
+                    None => Poll::Ready(None),
+                }
+            }
+        }
+    }
+}
+
 /// A concrete implementation of the `SwarmBehaviour` trait.
 ///
 /// `ActorSwarmHandler` manages swarm-related operations, including handling
@@ -497,9 +634,20 @@ impl ActorSwarm {
 pub struct ActorSwarmHandler {
     cmd_tx: SwarmSender,
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
-    get_queries:
-        HashMap<kad::QueryId, oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>>,
+    get_queries: HashMap<
+        kad::QueryId,
+        mpsc::UnboundedSender<Result<ActorRegistration<'static>, RegistryError>>,
+    >,
     put_queries: HashMap<kad::QueryId, oneshot::Sender<kad::PutRecordResult>>,
+    provider_queries: HashMap<
+        kad::QueryId,
+        (
+            String,
+            mpsc::UnboundedSender<Result<ActorRegistration<'static>, RegistryError>>,
+        ),
+    >,
+    start_providing_queries:
+        HashMap<kad::QueryId, oneshot::Sender<Result<kad::AddProviderOk, RegistryError>>>,
     requests: HashMap<OutboundRequestId, oneshot::Sender<SwarmResponse>>,
 }
 
@@ -510,6 +658,8 @@ impl ActorSwarmHandler {
             cmd_rx: rx,
             get_queries: HashMap::new(),
             put_queries: HashMap::new(),
+            provider_queries: HashMap::new(),
+            start_providing_queries: HashMap::new(),
             requests: HashMap::new(),
         }
     }
@@ -567,16 +717,32 @@ impl ActorSwarmHandler {
             SwarmCommand::DisconnectPeerId { peer_id } => {
                 let _ = swarm.disconnect_peer_id(peer_id);
             }
-            SwarmCommand::Lookup { key, reply } => {
-                let query_id = swarm.behaviour_mut().kademlia_get_record(key);
-                self.get_queries.insert(query_id, reply);
+            SwarmCommand::Lookup { name, reply } => {
+                let query_id = swarm
+                    .behaviour_mut()
+                    .kademlia_get_providers(kad::RecordKey::new(&name));
+                self.provider_queries.insert(query_id, (name, reply));
             }
             SwarmCommand::LookupLocal { key, reply } => {
-                let registration = swarm
-                    .behaviour_mut()
-                    .kademlia_get_record_local(&key)
-                    .map(|record| ActorRegistration::from_bytes(&record.value).into_owned());
-                let _ = reply.send(registration);
+                // Check if we're providing this key locally
+                let providers = swarm.behaviour_mut().kademlia_get_providers_local(&key);
+                let local_peer_id = *swarm.local_peer_id();
+
+                if providers > 0 {
+                    // Get metadata for local provider
+                    let metadata_key = format!(
+                        "{}:meta:{}",
+                        String::from_utf8_lossy(key.as_ref()),
+                        local_peer_id
+                    );
+                    let registration = swarm
+                        .behaviour_mut()
+                        .kademlia_get_record_local(&kad::RecordKey::new(&metadata_key))
+                        .map(|record| ActorRegistration::from_bytes(&record.value).into_owned());
+                    let _ = reply.send(registration);
+                } else {
+                    let _ = reply.send(None);
+                }
             }
             SwarmCommand::Register { record, reply } => {
                 if swarm.network_info().num_peers() == 0 {
@@ -607,6 +773,18 @@ impl ActorSwarmHandler {
                     swarm.behaviour_mut().kademlia_remove_record(&key);
                     self.put_queries.insert(query_id, reply);
                 }
+            }
+            SwarmCommand::StartProviding { key, reply } => {
+                if swarm.behaviour_mut().kademlia_get_providers_local(&key) > 0 {
+                    let _ = reply.send(Err(RegistryError::NameAlreadyRegistered));
+                } else {
+                    let query_id = swarm.behaviour_mut().kademlia_start_providing(key).unwrap();
+                    self.start_providing_queries.insert(query_id, reply);
+                }
+            }
+            SwarmCommand::StopProviding { key, reply } => {
+                swarm.behaviour_mut().kademlia_stop_providing(&key);
+                let _ = reply.send(());
             }
             SwarmCommand::Ask {
                 peer_id,
@@ -827,22 +1005,26 @@ impl ActorSwarmHandler {
                 ActorSwarmBehaviourEvent::Kademlia(kad::Event::OutboundQueryProgressed {
                     id,
                     result,
+                    step,
                     ..
                 }) => match result {
                     kad::QueryResult::GetRecord(Ok(kad::GetRecordOk::FoundRecord(
-                        record @ kad::PeerRecord {
-                            record: kad::Record { .. },
+                        kad::PeerRecord {
+                            record: kad::Record { value, .. },
                             ..
                         },
                     ))) => {
                         if let Some(tx) = self.get_queries.remove(&id) {
-                            let _ = tx.send(Ok(record));
+                            if !value.is_empty() {
+                                let registration = ActorRegistration::from_bytes(&value);
+                                let _ = tx.send(Ok(registration.into_owned()));
+                            }
                         }
                     }
                     kad::QueryResult::GetRecord(Ok(_)) => {}
                     kad::QueryResult::GetRecord(Err(err)) => {
                         if let Some(tx) = self.get_queries.remove(&id) {
-                            let _ = tx.send(Err(err));
+                            let _ = tx.send(Err(err.into()));
                         }
                     }
                     kad::QueryResult::PutRecord(res @ Ok(kad::PutRecordOk { .. })) => {
@@ -853,6 +1035,46 @@ impl ActorSwarmHandler {
                     kad::QueryResult::PutRecord(res @ Err(_)) => {
                         if let Some(tx) = self.put_queries.remove(&id) {
                             let _ = tx.send(res);
+                        }
+                    }
+                    kad::QueryResult::GetProviders(Ok(kad::GetProvidersOk::FoundProviders {
+                        providers,
+                        ..
+                    })) => {
+                        if let Some((name, tx)) = self.provider_queries.get_mut(&id) {
+                            if !tx.is_closed() {
+                                for provider in providers {
+                                    let key = format!("{name}:meta:{provider}");
+                                    let query_id = swarm
+                                        .behaviour_mut()
+                                        .kademlia_get_record(key.into_bytes().into());
+                                    self.get_queries.insert(query_id, tx.clone());
+                                }
+
+                                if step.last {
+                                    self.provider_queries.remove(&id);
+                                }
+                            }
+                        }
+                    }
+                    kad::QueryResult::GetProviders(Ok(
+                        kad::GetProvidersOk::FinishedWithNoAdditionalRecord { .. },
+                    )) => {
+                        self.provider_queries.remove(&id);
+                    }
+                    kad::QueryResult::GetProviders(Err(err)) => {
+                        if let Some((_, tx)) = self.provider_queries.remove(&id) {
+                            let _ = tx.send(Err(err.into()));
+                        }
+                    }
+                    kad::QueryResult::StartProviding(Ok(res @ kad::AddProviderOk { .. })) => {
+                        if let Some(tx) = self.start_providing_queries.remove(&id) {
+                            let _ = tx.send(Ok(res));
+                        }
+                    }
+                    kad::QueryResult::StartProviding(Err(err)) => {
+                        if let Some(tx) = self.start_providing_queries.remove(&id) {
+                            let _ = tx.send(Err(err.into()));
                         }
                     }
                     _ => {}
@@ -1046,12 +1268,12 @@ pub enum SwarmCommand {
         /// Peer ID.
         peer_id: PeerId,
     },
-    /// Lookup an actor by name in the kademlia network.
+    /// Lookup providers for an actor by name in the kademlia network.
     Lookup {
-        /// Kademlia record key.
-        key: kad::RecordKey,
+        /// Registered name.
+        name: String,
         /// Reply sender.
-        reply: oneshot::Sender<Result<kad::PeerRecord, kad::GetRecordError>>,
+        reply: mpsc::UnboundedSender<Result<ActorRegistration<'static>, RegistryError>>,
     },
     /// Lookup an actor by name on the local node only.
     LookupLocal {
@@ -1073,6 +1295,20 @@ pub enum SwarmCommand {
         key: kad::RecordKey,
         /// Reply sender.
         reply: oneshot::Sender<kad::PutRecordResult>,
+    },
+    /// Start providing a key.
+    StartProviding {
+        /// Kademlia record key.
+        key: kad::RecordKey,
+        /// Reply sender.
+        reply: oneshot::Sender<Result<kad::AddProviderOk, RegistryError>>,
+    },
+    /// Stop providing a key.
+    StopProviding {
+        /// Kademlia record key.
+        key: kad::RecordKey,
+        /// Reply sender.
+        reply: oneshot::Sender<()>,
     },
     /// An actor ask request.
     Ask {
@@ -1468,6 +1704,21 @@ pub trait SwarmBehaviour: NetworkBehaviour {
 
     /// Removes a record locally.
     fn kademlia_remove_record_local(&mut self, key: &kad::RecordKey);
+
+    /// Gets providers for a key from the Kademlia network.
+    fn kademlia_get_providers(&mut self, key: kad::RecordKey) -> kad::QueryId;
+
+    /// Gets providers for a key from local storage only.
+    fn kademlia_get_providers_local(&mut self, key: &kad::RecordKey) -> usize;
+
+    /// Starts providing a key in the Kademlia network.
+    fn kademlia_start_providing(
+        &mut self,
+        key: kad::RecordKey,
+    ) -> Result<kad::QueryId, kad::store::Error>;
+
+    /// Stops providing a key in the Kademlia network.
+    fn kademlia_stop_providing(&mut self, key: &kad::RecordKey);
 }
 
 #[allow(missing_docs)]
@@ -1711,6 +1962,30 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
 
     fn kademlia_remove_record_local(&mut self, key: &kad::RecordKey) {
         self.kademlia.store_mut().remove(key);
+    }
+
+    fn kademlia_get_providers(&mut self, key: kad::RecordKey) -> kad::QueryId {
+        self.kademlia.get_providers(key)
+    }
+
+    fn kademlia_get_providers_local(&mut self, key: &kad::RecordKey) -> usize {
+        // Get providers from local store
+        self.kademlia
+            .store_mut()
+            .provided()
+            .filter(|k| &k.key == key)
+            .count()
+    }
+
+    fn kademlia_start_providing(
+        &mut self,
+        key: kad::RecordKey,
+    ) -> Result<kad::QueryId, kad::store::Error> {
+        self.kademlia.start_providing(key)
+    }
+
+    fn kademlia_stop_providing(&mut self, key: &kad::RecordKey) {
+        self.kademlia.stop_providing(key);
     }
 }
 
