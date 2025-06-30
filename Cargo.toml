@@ -39,7 +39,7 @@ kameo_macros = { version = "0.17.0", path = "./macros", optional = true }
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
 futures.workspace = true
-libp2p = { version = "0.55.0", features = [
+libp2p = { version = "0.56.0", features = [
   "cbor",
   "dns",
   "kad",
