@@ -4,7 +4,7 @@ use futures::TryStreamExt;
 use kameo::prelude::*;
 use libp2p::swarm::dial_opts::DialOpts;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, RemoteActor)]
@@ -67,11 +67,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
             .await?;
     } else {
-        ActorSwarm::bootstrap()?.dial(
-            DialOpts::unknown_peer_id()
-                .address("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
-                .build(),
-        );
+        // let res = ActorSwarm::bootstrap()?
+        //     .dial(
+        //         DialOpts::unknown_peer_id()
+        //             .address("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?)
+        //             .build(),
+        //     )
+        //     .await;
+
+        // match res {
+        //     Ok(peer_id) => info!("connected to host with peer ID: {peer_id}"),
+        //     Err(e) => {
+        //         error!("failed to connect to host: {e}");
+        //     }
+        // }
+        ActorSwarm::bootstrap()?;
+        warn!("Not dialing to any peer, if it workd, it's because of mDNS discovery");
     }
 
     if is_host {
