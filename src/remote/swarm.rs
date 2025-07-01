@@ -6,7 +6,7 @@ use std::{
 
 use futures::{ready, stream::FuturesUnordered, Future, FutureExt, Stream, StreamExt};
 use libp2p::{
-    core::{connection, transport::ListenerId, ConnectedPoint},
+    core::{transport::ListenerId, ConnectedPoint},
     identity::Keypair,
     kad::{
         self,
@@ -995,10 +995,7 @@ impl ActorSwarmHandler {
             ActorSwarmEvent::ConnectionEstablished {
                 peer_id,
                 connection_id,
-                endpoint,
-                num_established,
-                concurrent_dial_errors,
-                established_in,
+                ..
             } => {
                 if let Some(tx) = self.dialings.remove(&connection_id) {
                     let _ = tx.send(Ok(peer_id));
@@ -1042,7 +1039,7 @@ impl ActorSwarmHandler {
             } => {
                 // Notify dialing task if it exists
                 if let Some(tx) = self.dialings.remove(&connection_id) {
-                    let _ = tx.send(Err(DialError::from(error)));
+                    let _ = tx.send(Err(error));
                 }
             }
             // ActorSwarmEvent::Dialing {
