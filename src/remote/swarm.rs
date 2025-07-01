@@ -635,7 +635,7 @@ impl<A: Actor + RemoteActor> Stream for LookupStream<A> {
 pub struct ActorSwarmHandler {
     cmd_tx: SwarmSender,
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
-    dialing: HashMap<ConnectionId, oneshot::Sender<Result<PeerId, DialError>>>,
+    dialings: HashMap<ConnectionId, oneshot::Sender<Result<PeerId, DialError>>>,
     get_queries: HashMap<
         kad::QueryId,
         mpsc::UnboundedSender<Result<ActorRegistration<'static>, RegistryError>>,
@@ -658,7 +658,7 @@ impl ActorSwarmHandler {
         ActorSwarmHandler {
             cmd_tx: tx,
             cmd_rx: rx,
-            dialing: HashMap::new(),
+            dialings: HashMap::new(),
             get_queries: HashMap::new(),
             put_queries: HashMap::new(),
             provider_queries: HashMap::new(),
@@ -732,7 +732,7 @@ impl ActorSwarmHandler {
                 let connection_id = opts.connection_id();
 
                 if let Ok(()) = swarm.dial(opts) {
-                    self.dialing.insert(connection_id, reply);
+                    self.dialings.insert(connection_id, reply);
                 } else {
                     // todo Handle dialing attempt failure
                 }
@@ -1000,7 +1000,7 @@ impl ActorSwarmHandler {
                 concurrent_dial_errors,
                 established_in,
             } => {
-                if let Some(tx) = self.dialing.remove(&connection_id) {
+                if let Some(tx) = self.dialings.remove(&connection_id) {
                     let _ = tx.send(Ok(peer_id));
                 }
 
@@ -1041,7 +1041,7 @@ impl ActorSwarmHandler {
                 error,
             } => {
                 // Notify dialing task if it exists
-                if let Some(tx) = self.dialing.remove(&connection_id) {
+                if let Some(tx) = self.dialings.remove(&connection_id) {
                     let _ = tx.send(Err(DialError::from(error)));
                 }
             }
