@@ -1033,7 +1033,7 @@ impl ActorSwarmHandler {
                 });
             }
             ActorSwarmEvent::OutgoingConnectionError {
-                peer_id,
+                peer_id: _,
                 connection_id,
                 error,
             } => {

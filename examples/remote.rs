@@ -4,7 +4,7 @@ use futures::TryStreamExt;
 use kameo::prelude::*;
 use libp2p::swarm::dial_opts::DialOpts;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, RemoteActor)]
