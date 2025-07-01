@@ -254,7 +254,7 @@ impl ActorSwarm {
         self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
             opts: opts.into(),
             reply,
-        });
+        })
     }
 
     /// Adds an external address for a remote peer, allowing the swarm to discover and connect to that peer.
