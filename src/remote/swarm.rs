@@ -692,7 +692,7 @@ impl ActorSwarmHandler {
                         SwarmEvent::OutgoingConnectionError { peer_id, connection_id, error } => {
                             self.handle_event(swarm, ActorSwarmEvent::OutgoingConnectionError { peer_id, connection_id, error });
                         },
-                        // ! No extra information from this event other than it is working as expected
+                        // ! No extra information from this event other than it is working as expected.
                         // SwarmEvent::Dialing { connection_id, peer_id } => {
                         //     self.handle_event(swarm, ActorSwarmEvent::Dialing { connection_id, peer_id });
                         // },
@@ -1002,7 +1002,6 @@ impl ActorSwarmHandler {
                 concurrent_dial_errors,
                 established_in,
             } => {
-                // Notify dialing task if it exists
                 if let Some(tx) = self.dialing.remove(&connection_id) {
                     let _ = tx.send(Ok(peer_id));
                 }
@@ -1849,13 +1848,13 @@ pub enum ActorSwarmEvent {
         cause: Option<ConnectionError>,
     },
     // ! No extra information from Dialing event other that it initiated properly.
-    // /// A new dialing attempt has been initiated by the [`NetworkBehaviour`]
-    // /// implementation.
-    // ///
-    // /// A [`ConnectionEstablished`](SwarmEvent::ConnectionEstablished) event is
-    // /// reported if the dialing attempt succeeds, otherwise a
-    // /// [`OutgoingConnectionError`](SwarmEvent::OutgoingConnectionError) event
-    // /// is reported.
+    /// A new dialing attempt has been initiated by the [`NetworkBehaviour`]
+    /// implementation.
+    ///
+    /// A [`ConnectionEstablished`](SwarmEvent::ConnectionEstablished) event is
+    /// reported if the dialing attempt succeeds, otherwise a
+    /// [`OutgoingConnectionError`](SwarmEvent::OutgoingConnectionError) event
+    /// is reported.
     // Dialing {
     //     /// Identity of the peer that we are connecting to.
     //     peer_id: Option<PeerId>,
@@ -1863,7 +1862,7 @@ pub enum ActorSwarmEvent {
     //     /// Identifier of the connection.
     //     connection_id: ConnectionId,
     // },
-    /// Network behaviour event.
+    // /// Network behaviour event.
     Behaviour(Box<ActorSwarmBehaviourEvent>),
 }
 
