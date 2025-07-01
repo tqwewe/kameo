@@ -28,8 +28,7 @@ categories = ["asynchronous", "concurrency", "rust-patterns"]
 keywords = ["actor", "tokio"]
 
 [features]
-# ! temp for IDE support
-fault = ["macros", "tracing", "remote"]
+fault = ["macros", "tracing"]
 macros = ["dep:kameo_macros"]
 remote = ["dep:libp2p", "dep:libp2p-identity", "dep:linkme", "dep:rmp-serde"]
 tracing = ["dep:tracing", "tokio/tracing"]

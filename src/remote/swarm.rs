@@ -251,12 +251,10 @@ impl ActorSwarm {
     /// ## Returns
     /// A `SwarmFuture` that resolves to either `Ok` if the dialing succeeds or a `DialError` if it fails.
     pub fn dial(&self, opts: impl Into<DialOpts>) -> SwarmFuture<Result<PeerId, DialError>> {
-        let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
+        self.swarm_tx.send_with_reply(|reply| SwarmCommand::Dial {
             opts: opts.into(),
             reply,
         });
-
-        reply_rx
     }
 
     /// Adds an external address for a remote peer, allowing the swarm to discover and connect to that peer.
