@@ -1,0 +1,27 @@
+[package]
+name = "kameo_remote"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libp2p = { version = "0.56.0", features = [
+  "cbor",
+  "dns",
+  "kad",
+  "mdns",
+  "macros",
+  "quic",
+  "request-response",
+  "rsa",
+  "serde",
+  "tokio",
+] }
+libp2p-identity = { version = "0.2.9", features = ["rand", "rsa"] }
+rmp-serde = { version = "1.3.0" }
+serde = { version = "1.0", features = ["derive"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing = { workspace = true }
+
+[features]
+default = ["tracing"]
+tracing = ["dep:tracing", "tokio/tracing"]

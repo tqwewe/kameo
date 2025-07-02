@@ -914,9 +914,6 @@ where
     let actor_id = actor_ref.id();
     let (reply_tx, reply_rx) = oneshot::channel();
     actor_ref.send_to_swarm(remote::SwarmCommand::Ask {
-        peer_id: *actor_id
-            .peer_id()
-            .expect("actor swarm should be bootstrapped"),
         actor_id,
         actor_remote_id: Cow::Borrowed(<A as remote::RemoteActor>::REMOTE_ID),
         message_remote_id: Cow::Borrowed(<A as remote::RemoteMessage<M>>::REMOTE_ID),

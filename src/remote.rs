@@ -7,70 +7,39 @@
 //!
 //! ## Key Features
 //!
-//! - **Swarm Management**: The `ActorSwarm` struct handles a distributed swarm of nodes,
+//! - **Swarm Management**: The [`ActorSwarm`] struct handles a distributed swarm of nodes,
 //!   managing peer discovery and communication.
 //! - **Actor Registration**: Actors can be registered under a unique name and looked up across
-//!   the network using the `RemoteActorRef`.
+//!   the network using the [`RemoteActorRef`](crate::actor::RemoteActorRef).
 //! - **Message Routing**: Ensures reliable message delivery between nodes using a combination
 //!   of Kademlia DHT and libp2p's networking capabilities.
-//!
-//! ## Getting Started
-//!
-//! To use remote actors, you must first initialize an `ActorSwarm`, which will set up the necessary
-//! networking components to allow remote actors to communicate across nodes.
-//!
-//! ```
-//! use kameo::remote::ActorSwarm;
-//!
-//! # tokio_test::block_on(async {
-//! // Initialize the actor swarm
-//! ActorSwarm::bootstrap()?
-//!     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! # });
-//! ```
-//!
-//! ## Example Use Case
-//!
-//! - A distributed chat system where actors represent individual users, and messages are sent between them across multiple nodes.
-//!
-//! ## Types in the Module
-//!
-//! - [`ActorSwarm`]: The core struct for managing the distributed swarm of nodes and coordinating actor registration and messaging.
-//! - [`SwarmFuture`]: A future that holds the response from the actor swarm.
-//! - [`RemoteActor`]: A trait for identifying remote actors via a unique ID.
-//! - [`RemoteMessage`]: A trait for identifying remote messages via a unique ID.
-//!
-//! ### Re-exports
-//!
-//! - `Keypair`, `PeerId`, `dial_opts`: Re-exported from the libp2p library to assist with handling peer identities and dialing options.
 
 use std::{
     any,
     borrow::Cow,
     collections::{HashMap, HashSet},
+    fmt, str,
     time::Duration,
 };
 
 use _internal::{
     RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_ACTORS, REMOTE_MESSAGES,
 };
-pub use libp2p::swarm::dial_opts;
-pub use libp2p::PeerId;
-pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
-    actor::{ActorId, Links},
+    actor::{ActorId, ActorIdFromBytesError, Links},
     error::{ActorStopReason, Infallible, RemoteSendError},
     mailbox::SignalMailbox,
 };
 
 #[doc(hidden)]
 pub mod _internal;
+mod behaviour;
 mod swarm;
 
+pub use behaviour::*;
 pub use swarm::*;
 
 pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
@@ -145,6 +114,106 @@ pub trait RemoteActor {
 pub trait RemoteMessage<M> {
     /// The remote identifier string.
     const REMOTE_ID: &'static str;
+}
+
+/// Represents an actor registration in the distributed registry.
+///
+/// Contains the actor's unique ID and its remote type identifier,
+/// which together allow remote peers to locate and communicate
+/// with the actor.
+#[derive(Debug)]
+pub struct ActorRegistration<'a> {
+    /// The unique identifier of the actor.
+    pub actor_id: ActorId,
+    /// The remote type identifier for the actor.
+    pub remote_id: Cow<'a, str>,
+}
+
+impl<'a> ActorRegistration<'a> {
+    /// Creates a new actor registration.
+    ///
+    /// # Arguments
+    ///
+    /// * `actor_id` - The unique identifier of the actor
+    /// * `remote_id` - The remote type identifier for the actor
+    pub fn new(actor_id: ActorId, remote_id: Cow<'a, str>) -> Self {
+        ActorRegistration {
+            actor_id,
+            remote_id,
+        }
+    }
+
+    /// Serializes the actor registration into bytes for storage in the DHT.
+    ///
+    /// The format includes the peer ID length, actor ID bytes, and remote ID string.
+    pub fn into_bytes(self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + 8 + 42 + self.remote_id.len());
+        let actor_id_bytes = self.actor_id.to_bytes();
+        let peer_id_len = (actor_id_bytes.len() - 8) as u8;
+        bytes.extend_from_slice(&peer_id_len.to_le_bytes());
+        bytes.extend_from_slice(&actor_id_bytes);
+        bytes.extend_from_slice(self.remote_id.as_bytes());
+        bytes
+    }
+
+    /// Deserializes an actor registration from bytes retrieved from the DHT.
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` - The serialized registration data
+    ///
+    /// # Returns
+    ///
+    /// The deserialized actor registration, or an error if the data is invalid.
+    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, InvalidActorRegistration> {
+        if bytes.is_empty() {
+            return Err(InvalidActorRegistration::EmptyActorRegistration);
+        }
+
+        let peer_id_bytes_len = u8::from_le_bytes(bytes[..1].try_into().unwrap()) as usize;
+        let actor_id = ActorId::from_bytes(&bytes[1..1 + 8 + peer_id_bytes_len])?;
+        let remote_id = std::str::from_utf8(&bytes[1 + 8 + peer_id_bytes_len..])
+            .map_err(InvalidActorRegistration::InvalidRemoteIDUtf8)?;
+
+        Ok(ActorRegistration::new(actor_id, Cow::Borrowed(remote_id)))
+    }
+
+    /// Converts a borrowed actor registration into an owned one.
+    ///
+    /// This is useful when you need to store the registration beyond
+    /// the lifetime of the original borrowed data.
+    pub fn into_owned(self) -> ActorRegistration<'static> {
+        ActorRegistration::new(self.actor_id, Cow::Owned(self.remote_id.into_owned()))
+    }
+}
+
+/// Errors that can occur when deserializing an actor registration.
+#[derive(Debug)]
+pub enum InvalidActorRegistration {
+    /// The registration data is empty.
+    EmptyActorRegistration,
+    /// Failed to parse the actor ID from bytes.
+    ActorId(ActorIdFromBytesError),
+    /// The remote ID contains invalid UTF-8.
+    InvalidRemoteIDUtf8(str::Utf8Error),
+}
+
+impl From<ActorIdFromBytesError> for InvalidActorRegistration {
+    fn from(err: ActorIdFromBytesError) -> Self {
+        InvalidActorRegistration::ActorId(err)
+    }
+}
+
+impl fmt::Display for InvalidActorRegistration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InvalidActorRegistration::EmptyActorRegistration => {
+                write!(f, "empty actor registration")
+            }
+            InvalidActorRegistration::ActorId(err) => err.fmt(f),
+            InvalidActorRegistration::InvalidRemoteIDUtf8(err) => err.fmt(f),
+        }
+    }
 }
 
 pub(crate) async fn ask(

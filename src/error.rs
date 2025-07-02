@@ -341,54 +341,8 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
-/// An error that can occur when bootstrapping the actor swarm.
-#[cfg(feature = "remote")]
-pub enum BootstrapError {
-    /// Swarm already bootstrapped.
-    AlreadyBootstrapped(
-        &'static crate::remote::ActorSwarm,
-        Option<Box<libp2p::Swarm<crate::remote::ActorSwarmBehaviour>>>,
-    ),
-    /// Behaviour error.
-    BehaviourError(Box<dyn error::Error + Send + Sync + 'static>),
-    /// An error during listening on a Transport.
-    Transport(libp2p::TransportError<std::io::Error>),
-}
-
-#[cfg(feature = "remote")]
-impl From<libp2p::TransportError<std::io::Error>> for BootstrapError {
-    fn from(err: libp2p::TransportError<std::io::Error>) -> Self {
-        BootstrapError::Transport(err)
-    }
-}
-
-#[cfg(feature = "remote")]
-impl fmt::Debug for BootstrapError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BootstrapError::AlreadyBootstrapped(swarm, _) => swarm.fmt(f),
-            BootstrapError::BehaviourError(err) => err.fmt(f),
-            BootstrapError::Transport(err) => err.fmt(f),
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl fmt::Display for BootstrapError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            BootstrapError::AlreadyBootstrapped(_, _) => write!(f, "swarm already bootstrapped"),
-            BootstrapError::BehaviourError(err) => err.fmt(f),
-            BootstrapError::Transport(err) => err.fmt(f),
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl error::Error for BootstrapError {}
-
 /// An error that can occur when registering & looking up actors by name.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum RegistryError {
     /// The actor swarm has not been bootstrapped.
     #[cfg(feature = "remote")]
@@ -406,12 +360,15 @@ pub enum RegistryError {
     /// Timeout.
     #[cfg(feature = "remote")]
     Timeout,
+    /// Storing the record failed.
+    #[cfg(feature = "remote")]
+    Store(libp2p::kad::store::Error),
+    /// Invalid actor registration.
+    #[cfg(feature = "remote")]
+    InvalidActorRegistration(crate::remote::InvalidActorRegistration),
     /// Get providers error.
     #[cfg(feature = "remote")]
     GetProviders(libp2p::kad::GetProvidersError),
-    /// Get record error.
-    #[cfg(feature = "remote")]
-    GetRecord(libp2p::kad::GetRecordError),
 }
 
 impl fmt::Display for RegistryError {
@@ -428,14 +385,30 @@ impl fmt::Display for RegistryError {
             #[cfg(feature = "remote")]
             RegistryError::Timeout => write!(f, "the request timed out"),
             #[cfg(feature = "remote")]
-            RegistryError::GetProviders(err) => err.fmt(f),
+            RegistryError::Store(err) => err.fmt(f),
             #[cfg(feature = "remote")]
-            RegistryError::GetRecord(err) => err.fmt(f),
+            RegistryError::InvalidActorRegistration(err) => err.fmt(f),
+            #[cfg(feature = "remote")]
+            RegistryError::GetProviders(err) => err.fmt(f),
         }
     }
 }
 
 impl error::Error for RegistryError {}
+
+#[cfg(feature = "remote")]
+impl From<crate::remote::InvalidActorRegistration> for RegistryError {
+    fn from(err: crate::remote::InvalidActorRegistration) -> Self {
+        RegistryError::InvalidActorRegistration(err)
+    }
+}
+
+#[cfg(feature = "remote")]
+impl From<libp2p::kad::store::Error> for RegistryError {
+    fn from(err: libp2p::kad::store::Error) -> Self {
+        RegistryError::Store(err)
+    }
+}
 
 #[cfg(feature = "remote")]
 impl From<libp2p::kad::AddProviderError> for RegistryError {
@@ -447,16 +420,21 @@ impl From<libp2p::kad::AddProviderError> for RegistryError {
 }
 
 #[cfg(feature = "remote")]
-impl From<libp2p::kad::GetProvidersError> for RegistryError {
-    fn from(err: libp2p::kad::GetProvidersError) -> Self {
-        RegistryError::GetProviders(err)
+impl From<libp2p::kad::PutRecordError> for RegistryError {
+    fn from(err: libp2p::kad::PutRecordError) -> Self {
+        match err {
+            libp2p::kad::PutRecordError::QuorumFailed { quorum, .. } => {
+                RegistryError::QuorumFailed { quorum }
+            }
+            libp2p::kad::PutRecordError::Timeout { .. } => RegistryError::Timeout,
+        }
     }
 }
 
 #[cfg(feature = "remote")]
-impl From<libp2p::kad::GetRecordError> for RegistryError {
-    fn from(err: libp2p::kad::GetRecordError) -> Self {
-        RegistryError::GetRecord(err)
+impl From<libp2p::kad::GetProvidersError> for RegistryError {
+    fn from(err: libp2p::kad::GetProvidersError) -> Self {
+        RegistryError::GetProviders(err)
     }
 }
 
@@ -619,6 +597,23 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
             SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
             SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
             SendError::Timeout(_) => RemoteSendError::ReplyTimeout,
+        }
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<E> From<libp2p::request_response::OutboundFailure> for RemoteSendError<E> {
+    fn from(err: libp2p::request_response::OutboundFailure) -> Self {
+        match err {
+            libp2p::request_response::OutboundFailure::DialFailure => RemoteSendError::DialFailure,
+            libp2p::request_response::OutboundFailure::Timeout => RemoteSendError::NetworkTimeout,
+            libp2p::request_response::OutboundFailure::ConnectionClosed => {
+                RemoteSendError::ConnectionClosed
+            }
+            libp2p::request_response::OutboundFailure::UnsupportedProtocols => {
+                RemoteSendError::UnsupportedProtocols
+            }
+            libp2p::request_response::OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
         }
     }
 }
