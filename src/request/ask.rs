@@ -909,6 +909,7 @@ where
     <A::Reply as Reply>::Ok: serde::de::DeserializeOwned,
     <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
 {
+    use remote::*;
     use std::borrow::Cow;
 
     let actor_id = actor_ref.id();
@@ -926,7 +927,7 @@ where
     });
 
     match reply_rx.await.unwrap() {
-        remote::SwarmResponse::Ask(res) => match res {
+        messaging::SwarmResponse::Ask(res) => match res {
             Ok(payload) => Ok(rmp_serde::decode::from_slice(&payload)
                 .map_err(|err| error::RemoteSendError::DeserializeMessage(err.to_string()))?),
             Err(err) => Err(err
@@ -936,7 +937,7 @@ where
                 })
                 .flatten()),
         },
-        remote::SwarmResponse::OutboundFailure(err) => {
+        messaging::SwarmResponse::OutboundFailure(err) => {
             Err(err.map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
         }
         _ => panic!("unexpected response"),

@@ -3,10 +3,14 @@ use std::time::Duration;
 use futures::StreamExt;
 use kameo::{
     actor::ActorId,
-    remote::{ActorRegistration, Behaviour, Event},
+    remote::{
+        messaging,
+        registry::{self, ActorRegistration},
+        Behaviour, Event,
+    },
 };
 use libp2p::{
-    mdns, noise, request_response,
+    mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux,
 };
@@ -34,13 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             yamux::Config::default,
         )?
         .with_behaviour(|key| {
-            let actors = Behaviour::new(
-                key.public().to_peer_id(),
-                request_response::Config::default(),
-            );
+            let local_peer_id = key.public().to_peer_id();
+            let actors = Behaviour::new(local_peer_id, messaging::Config::default());
 
-            let mdns =
-                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
+            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
 
             Ok(MyBehaviour { actors, mdns })
         })?
@@ -55,59 +56,76 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     swarm
         .behaviour_mut()
         .actors
+        .registry
         .register("foobar".to_string(), registration)
         .unwrap();
 
+    let mut interval = tokio::time::interval(Duration::from_secs(3));
+    let mut is_looking_up = false;
+
     loop {
-        let to = tokio::time::timeout(Duration::from_secs(3), swarm.select_next_some()).await;
-        match to {
-            Ok(event) => match event {
-                SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
-                    for (peer_id, multiaddr) in list {
-                        println!("mDNS discovered a new peer: {peer_id}");
-                        swarm
-                            .behaviour_mut()
-                            .actors
-                            .kademlia
-                            .add_address(&peer_id, multiaddr);
+        tokio::select! {
+            event = swarm.select_next_some() => {
+                match event {
+                    SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
+                        for (peer_id, multiaddr) in list {
+                            println!("mDNS discovered a new peer: {peer_id}");
+                            swarm.add_peer_address(peer_id, multiaddr);
+                        }
                     }
-                }
-                SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
-                    for (peer_id, multiaddr) in list {
-                        println!("mDNS discover peer has expired: {peer_id}");
-                        swarm
-                            .behaviour_mut()
-                            .actors
-                            .kademlia
-                            .remove_address(&peer_id, &multiaddr);
+                    SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
+                        for (peer_id, _multiaddr) in list {
+                            println!("mDNS discover peer has expired: {peer_id}");
+                            let _ = swarm.disconnect_peer_id(peer_id);
+                        }
                     }
-                }
-                SwarmEvent::Behaviour(MyBehaviourEvent::Actors(actors_event)) => match actors_event
-                {
-                    Event::LookupProgressed { result, .. } => {
-                        println!("Lookup Progressed: {result:?}");
-                    }
-                    Event::LookupTimeout { .. } => {
-                        println!("Lookup Timedout");
-                    }
-                    Event::LookupCompleted { .. } => {
-                        println!("Lookup Completed");
-                    }
-                    Event::RegistrationFailed { error, .. } => {
-                        println!("Registration Failed: {error}");
-                    }
-                    Event::RegisteredActor { .. } => {
-                        println!("Registered Actor");
+                    SwarmEvent::Behaviour(MyBehaviourEvent::Actors(ev)) => match ev {
+                        Event::Registry(ev) => match ev {
+                            registry::Event::LookupProgressed { result, .. } => match result {
+                                Ok(ActorRegistration {
+                                    actor_id,
+                                    remote_id,
+                                }) => {
+                                    println!("Found actor registration for {actor_id} with remote id {remote_id}");
+                                }
+                                Err(err) => {
+                                    println!("Registry error: {err}");
+                                }
+                            },
+                            registry::Event::LookupTimeout { .. } => {
+                                println!("Lookup Timedout");
+                            }
+                            registry::Event::LookupCompleted { .. } => {
+                                println!("Lookup Completed");
+                                is_looking_up = false;
+                            }
+                            registry::Event::RegistrationFailed { error, .. } => {
+                                println!("Registration Failed: {error}");
+                            }
+                            registry::Event::RegisteredActor { .. } => {
+                                println!("Registered Actor");
+                            }
+                            _ => {}
+                        },
+                        Event::Messaging(_) => {}
+                    },
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        println!("Local node is listening on {address}");
                     }
                     _ => {}
-                },
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    println!("Local node is listening on {address}");
                 }
-                _ => {}
-            },
-            Err(_) => {
-                swarm.behaviour_mut().actors.lookup("foobar".to_string());
+            }
+            _ = interval.tick() => {
+                if !is_looking_up {
+                    is_looking_up = true;
+                    println!("starting lookup...");
+                    swarm
+                        .behaviour_mut()
+                        .actors
+                        .registry
+                        .lookup("foobar".to_string());
+
+                }
             }
         }
     }

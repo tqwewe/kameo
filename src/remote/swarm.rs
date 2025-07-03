@@ -13,8 +13,12 @@ use crate::{
 };
 
 use super::{
-    ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply, RemoteActor,
-    RemoteRegistryActorRef, SwarmResponse, UnregisterReply, REMOTE_REGISTRY,
+    messaging::SwarmResponse,
+    registry::{
+        ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply,
+        UnregisterReply,
+    },
+    RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
 static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();

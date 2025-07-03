@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use futures::{StreamExt, TryStreamExt};
-use kameo::prelude::*;
+use kameo::{prelude::*, remote::messaging};
 use libp2p::{
-    mdns, noise, request_response,
+    mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, PeerId,
 };
@@ -96,7 +96,7 @@ fn spawn_swarm() -> Result<PeerId, Box<dyn std::error::Error>> {
             // Instantiate kameo's behaviour
             let actors = kameo::remote::Behaviour::new(
                 key.public().to_peer_id(),
-                request_response::Config::default(),
+                messaging::Config::default(),
             );
 
             let mdns =
@@ -118,21 +118,13 @@ fn spawn_swarm() -> Result<PeerId, Box<dyn std::error::Error>> {
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, multiaddr) in list {
                         info!("mDNS discovered a new peer: {peer_id}");
-                        swarm
-                            .behaviour_mut()
-                            .actors
-                            .kademlia
-                            .add_address(&peer_id, multiaddr);
+                        swarm.add_peer_address(peer_id, multiaddr);
                     }
                 }
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
-                    for (peer_id, multiaddr) in list {
+                    for (peer_id, _multiaddr) in list {
                         warn!("mDNS discover peer has expired: {peer_id}");
-                        swarm
-                            .behaviour_mut()
-                            .actors
-                            .kademlia
-                            .remove_address(&peer_id, &multiaddr);
+                        let _ = swarm.disconnect_peer_id(peer_id);
                     }
                 }
                 _ => {}

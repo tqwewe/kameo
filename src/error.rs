@@ -365,7 +365,7 @@ pub enum RegistryError {
     Store(libp2p::kad::store::Error),
     /// Invalid actor registration.
     #[cfg(feature = "remote")]
-    InvalidActorRegistration(crate::remote::InvalidActorRegistration),
+    InvalidActorRegistration(crate::remote::registry::InvalidActorRegistration),
     /// Get providers error.
     #[cfg(feature = "remote")]
     GetProviders(libp2p::kad::GetProvidersError),
@@ -397,8 +397,8 @@ impl fmt::Display for RegistryError {
 impl error::Error for RegistryError {}
 
 #[cfg(feature = "remote")]
-impl From<crate::remote::InvalidActorRegistration> for RegistryError {
-    fn from(err: crate::remote::InvalidActorRegistration) -> Self {
+impl From<crate::remote::registry::InvalidActorRegistration> for RegistryError {
+    fn from(err: crate::remote::registry::InvalidActorRegistration) -> Self {
         RegistryError::InvalidActorRegistration(err)
     }
 }
