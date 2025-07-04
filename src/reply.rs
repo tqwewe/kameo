@@ -60,7 +60,6 @@ use crate::{
     error::{ActorStopReason, BoxSendError, Infallible, PanicError, SendError},
     mailbox::{MailboxReceiver, MailboxSender},
     message::{BoxReply, Context},
-    remote::ActorSwarm,
     Actor,
 };
 
@@ -509,7 +508,7 @@ impl_infallible_reply!([
 impl_infallible_reply!([
     {A: Actor + crate::remote::RemoteActor} crate::actor::RemoteActorRef<A>,
     {E: 'static + Send} crate::error::RemoteSendError<E>,
-    ActorSwarm,
+    crate::remote::ActorSwarm,
 ]);
 
 #[cfg(target_has_atomic = "8")]
