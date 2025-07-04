@@ -241,7 +241,10 @@ where
     /// before it shuts down. Any new messages sent after the stop signal will be ignored.
     #[inline]
     pub async fn stop_gracefully(&self) -> Result<(), SendError> {
-        Ok(self.mailbox_sender.send(Signal::Stop).await?)
+        self.mailbox_sender
+            .send(Signal::Stop)
+            .await
+            .map_err(|_| SendError::ActorNotRunning(()))
     }
 
     /// Kills the actor immediately.
