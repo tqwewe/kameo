@@ -194,7 +194,7 @@ struct Queue {
 #[derive(Debug)]
 struct Registration {
     /// ID of consuming actor
-    actor_id: ActorID,
+    actor_id: ActorId,
     /// Typed recipient for messages
     recipient: Box<dyn Any + Send + Sync>,
     /// Key-value tags associated with this consumer that can be used for filtered message delivery

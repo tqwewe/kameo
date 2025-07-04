@@ -46,8 +46,8 @@ impl ToTokens for DeriveRemoteActor {
                     ::kameo::remote::_internal::RemoteActorFns {
                         link: (
                             |
-                              actor_id: ::kameo::actor::ActorID,
-                              sibbling_id: ::kameo::actor::ActorID,
+                              actor_id: ::kameo::actor::ActorId,
+                              sibbling_id: ::kameo::actor::ActorId,
                               sibbling_remote_id: ::std::borrow::Cow<'static, str>,
                             | {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::link::<
@@ -60,8 +60,8 @@ impl ToTokens for DeriveRemoteActor {
                             }) as ::kameo::remote::_internal::RemoteLinkFn,
                         unlink: (
                             |
-                              actor_id: ::kameo::actor::ActorID,
-                              sibbling_id: ::kameo::actor::ActorID,
+                              actor_id: ::kameo::actor::ActorId,
+                              sibbling_id: ::kameo::actor::ActorId,
                             | {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::unlink::<
                                     #ident #ty_generics,
@@ -72,8 +72,8 @@ impl ToTokens for DeriveRemoteActor {
                             }) as ::kameo::remote::_internal::RemoteUnlinkFn,
                         signal_link_died: (
                             |
-                              dead_actor_id: ::kameo::actor::ActorID,
-                              notified_actor_id: ::kameo::actor::ActorID,
+                              dead_actor_id: ::kameo::actor::ActorId,
+                              notified_actor_id: ::kameo::actor::ActorId,
                               stop_reason: kameo::error::ActorStopReason,
                             | {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::signal_link_died::<

@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    actor::{ActorID, ActorRef, RemoteActorRef},
+    actor::{ActorId, ActorRef, RemoteActorRef},
     error::{ActorStopReason, BootstrapError, Infallible, RegistryError, RemoteSendError},
     remote, Actor,
 };
@@ -450,8 +450,8 @@ impl ActorSwarm {
 
     pub(crate) fn link<A: Actor + RemoteActor, B: Actor + RemoteActor>(
         &self,
-        actor_id: ActorID,
-        sibbling_id: ActorID,
+        actor_id: ActorId,
+        sibbling_id: ActorId,
     ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
         let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Link {
             actor_id,
@@ -472,8 +472,8 @@ impl ActorSwarm {
 
     pub(crate) fn unlink<B: Actor + RemoteActor>(
         &self,
-        actor_id: ActorID,
-        sibbling_id: ActorID,
+        actor_id: ActorId,
+        sibbling_id: ActorId,
     ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
         let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Unlink {
             actor_id,
@@ -493,8 +493,8 @@ impl ActorSwarm {
 
     pub(crate) fn signal_link_died(
         &self,
-        dead_actor_id: ActorID,
-        notified_actor_id: ActorID,
+        dead_actor_id: ActorId,
+        notified_actor_id: ActorId,
         notified_actor_remote_id: Cow<'static, str>,
         stop_reason: ActorStopReason,
     ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
@@ -1315,7 +1315,7 @@ pub enum SwarmCommand {
         /// Peer ID.
         peer_id: PeerId,
         /// Actor ID.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
         /// Message remote ID.
@@ -1336,7 +1336,7 @@ pub enum SwarmCommand {
         /// Peer ID.
         peer_id: PeerId,
         /// Actor ID.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
         /// Message remote ID.
@@ -1367,11 +1367,11 @@ pub enum SwarmCommand {
     /// An actor link request.
     Link {
         /// Actor A ID.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Actor A remote ID.
         actor_remote_id: Cow<'static, str>,
         /// Actor B ID.
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
         /// Actor B remote ID.
         sibbling_remote_id: Cow<'static, str>,
         /// Reply sender.
@@ -1387,9 +1387,9 @@ pub enum SwarmCommand {
     /// An actor unlink request.
     Unlink {
         /// Actor A ID.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Actor B ID.
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
         /// Actor B remote ID.
         sibbling_remote_id: Cow<'static, str>,
         /// Reply sender.
@@ -1405,9 +1405,9 @@ pub enum SwarmCommand {
     /// Notifies a linked actor has died.
     SignalLinkDied {
         /// The actor which died.
-        dead_actor_id: ActorID,
+        dead_actor_id: ActorId,
         /// The actor to notify.
-        notified_actor_id: ActorID,
+        notified_actor_id: ActorId,
         /// Actor remote iD
         notified_actor_remote_id: Cow<'static, str>,
         /// The reason the actor died.
@@ -1427,12 +1427,12 @@ pub enum SwarmCommand {
 /// An actor registration record.
 #[derive(Debug)]
 pub struct ActorRegistration<'a> {
-    actor_id: ActorID,
+    actor_id: ActorId,
     remote_id: Cow<'a, str>,
 }
 
 impl<'a> ActorRegistration<'a> {
-    fn new(actor_id: ActorID, remote_id: Cow<'a, str>) -> Self {
+    fn new(actor_id: ActorId, remote_id: Cow<'a, str>) -> Self {
         ActorRegistration {
             actor_id,
             remote_id,
@@ -1451,7 +1451,7 @@ impl<'a> ActorRegistration<'a> {
 
     fn from_bytes(bytes: &'a [u8]) -> Self {
         let peer_id_bytes_len = u8::from_le_bytes(bytes[..1].try_into().unwrap()) as usize;
-        let actor_id = ActorID::from_bytes(&bytes[1..1 + 8 + peer_id_bytes_len]).unwrap();
+        let actor_id = ActorId::from_bytes(&bytes[1..1 + 8 + peer_id_bytes_len]).unwrap();
         let remote_id = std::str::from_utf8(&bytes[1 + 8 + peer_id_bytes_len..]).unwrap();
         ActorRegistration::new(actor_id, Cow::Borrowed(remote_id))
     }
@@ -1469,7 +1469,7 @@ pub enum SwarmRequest {
     /// This variant includes information about the actor, the message, payload, and timeout settings.
     Ask {
         /// Identifier of the actor initiating the request.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Remote identifier of the actor as a static string.
         actor_remote_id: Cow<'static, str>,
         /// Remote identifier of the message as a static string.
@@ -1488,7 +1488,7 @@ pub enum SwarmRequest {
     /// This variant includes information about the actor, the message, payload, and timeout settings.
     Tell {
         /// Identifier of the actor initiating the message.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Remote identifier of the actor as a static string.
         actor_remote_id: Cow<'static, str>,
         /// Remote identifier of the message as a static string.
@@ -1503,29 +1503,29 @@ pub enum SwarmRequest {
     /// A request to link two actors together.
     Link {
         /// Actor ID.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
         /// Sibbling ID.
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
         /// Sibbling remote ID.
         sibbling_remote_id: Cow<'static, str>,
     },
     /// A request to unlink two actors.
     Unlink {
         /// Actor ID.
-        actor_id: ActorID,
+        actor_id: ActorId,
         /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
         /// Sibbling ID.
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
     },
     /// A signal notifying a linked actor has died.
     SignalLinkDied {
         /// The actor which died.
-        dead_actor_id: ActorID,
+        dead_actor_id: ActorId,
         /// The actor to notify.
-        notified_actor_id: ActorID,
+        notified_actor_id: ActorId,
         /// The actor to notify.
         notified_actor_remote_id: Cow<'static, str>,
         /// The reason the actor died.
@@ -1570,7 +1570,7 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     fn ask(
         &mut self,
         peer: &PeerId,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
         message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
@@ -1586,7 +1586,7 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     fn tell(
         &mut self,
         peer: &PeerId,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
         message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
@@ -1597,25 +1597,25 @@ pub trait SwarmBehaviour: NetworkBehaviour {
     /// Sends a link request.
     fn link(
         &mut self,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
         sibbling_remote_id: Cow<'static, str>,
     ) -> OutboundRequestId;
 
     /// Sends a unlink request.
     fn unlink(
         &mut self,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
     ) -> OutboundRequestId;
 
     /// Sends a signal notifying that a linked actor has died.
     fn signal_link_died(
         &mut self,
-        dead_actor_id: ActorID,
-        notified_actor_id: ActorID,
+        dead_actor_id: ActorId,
+        notified_actor_id: ActorId,
         notified_actor_remote_id: Cow<'static, str>,
         stop_reason: ActorStopReason,
     ) -> OutboundRequestId;
@@ -1786,7 +1786,7 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
     fn ask(
         &mut self,
         peer: &PeerId,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
         message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
@@ -1811,7 +1811,7 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
     fn tell(
         &mut self,
         peer: &PeerId,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
         message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
@@ -1833,9 +1833,9 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
 
     fn link(
         &mut self,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
         sibbling_remote_id: Cow<'static, str>,
     ) -> OutboundRequestId {
         self.request_response.send_request(
@@ -1851,9 +1851,9 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
 
     fn unlink(
         &mut self,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
     ) -> OutboundRequestId {
         self.request_response.send_request(
             actor_id.peer_id().unwrap(),
@@ -1867,8 +1867,8 @@ impl SwarmBehaviour for ActorSwarmBehaviour {
 
     fn signal_link_died(
         &mut self,
-        dead_actor_id: ActorID,
-        notified_actor_id: ActorID,
+        dead_actor_id: ActorId,
+        notified_actor_id: ActorId,
         notified_actor_remote_id: Cow<'static, str>,
         stop_reason: ActorStopReason,
     ) -> OutboundRequestId {

@@ -89,7 +89,7 @@ impl MessageBus {
         }
     }
 
-    fn unsubscribe<M: 'static>(&mut self, actor_id: &ActorID) {
+    fn unsubscribe<M: 'static>(&mut self, actor_id: &ActorId) {
         let type_id = TypeId::of::<M>();
         if let Some(recipients) = self.subscriptions.get_mut(&type_id) {
             recipients.retain(|reg| &reg.actor_id != actor_id);
@@ -128,7 +128,7 @@ impl<M: Send + 'static> Message<Register<M>> for MessageBus {
 /// specified type from the message bus.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Unregister<M> {
-    actor_id: ActorID,
+    actor_id: ActorId,
     phantom: PhantomData<M>,
 }
 
@@ -142,7 +142,7 @@ impl<M> Unregister<M> {
     /// # Returns
     ///
     /// A new `Unregister` message that can be sent to the message bus
-    pub fn new(actor_id: ActorID) -> Self {
+    pub fn new(actor_id: ActorId) -> Self {
         Unregister {
             actor_id,
             phantom: PhantomData,
@@ -248,7 +248,7 @@ impl<M: Clone + Send + 'static> Message<Publish<M>> for MessageBus {
 
 #[derive(Debug)]
 struct Registration {
-    actor_id: ActorID,
+    actor_id: ActorId,
     recipient: Box<dyn Any + Send + Sync>,
 }
 

@@ -1,3 +1,4 @@
+use std::error;
 use std::hash::Hash;
 #[cfg(feature = "remote")]
 use std::hash::Hasher;
@@ -6,25 +7,28 @@ use std::{fmt, sync::atomic::AtomicUsize};
 
 use serde::{Deserialize, Serialize};
 
-use crate::error::ActorIDFromBytesError;
 #[cfg(feature = "remote")]
 use crate::remote::ActorSwarm;
 
 static ACTOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
+/// Backwards compatible type alias for [`ActorId`].
+#[deprecated(since = "0.18.0", note = "Use `ActorId` instead")]
+pub type ActorID = ActorId;
+
 /// A globally unique identifier for an actor within a distributed system.
 ///
-/// `ActorID` combines a locally sequential `sequence_id` with an optional `peer_id`
+/// `ActorId` combines a locally sequential `sequence_id` with an optional `peer_id`
 /// to uniquely identify actors across a distributed network.#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ActorID {
+pub struct ActorId {
     sequence_id: u64,
     #[cfg(feature = "remote")]
     peer_id: PeerIdKind,
 }
 
-impl ActorID {
-    /// Creates a new `ActorID` with the given `sequence_id`, using the local actor swarm.
+impl ActorId {
+    /// Creates a new `ActorId` with the given `sequence_id`, using the local actor swarm.
     ///
     /// If the local actor swarm hasn't been bootstrapped, no `peer_id` will be associated,
     /// but the actor is still considered to be running locally.
@@ -35,16 +39,16 @@ impl ActorID {
     ///
     /// # Returns
     ///
-    /// A new `ActorID` instance.
+    /// A new `ActorId` instance.
     pub fn new(sequence_id: u64) -> Self {
-        ActorID {
+        ActorId {
             sequence_id,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
         }
     }
 
-    /// Creates a new `ActorID` with a specific `sequence_id` and `peer_id`.
+    /// Creates a new `ActorId` with a specific `sequence_id` and `peer_id`.
     ///
     /// # Arguments
     ///
@@ -53,24 +57,24 @@ impl ActorID {
     ///
     /// # Returns
     ///
-    /// A new `ActorID` instance.
+    /// A new `ActorId` instance.
     #[cfg(feature = "remote")]
     pub fn new_with_peer_id(sequence_id: u64, peer_id: libp2p::PeerId) -> Self {
-        ActorID {
+        ActorId {
             sequence_id,
             peer_id: PeerIdKind::PeerId(peer_id),
         }
     }
 
-    /// Generates a new `ActorID` with an automatically incremented `sequence_id`.
+    /// Generates a new `ActorId` with an automatically incremented `sequence_id`.
     ///
     /// Uses an atomic counter to ensure unique `sequence_id` values across threads.
     ///
     /// # Returns
     ///
-    /// A new `ActorID` instance with the next available `sequence_id`.
+    /// A new `ActorId` instance with the next available `sequence_id`.
     pub fn generate() -> Self {
-        ActorID::new(
+        ActorId::new(
             ACTOR_COUNTER
                 .fetch_add(1, Ordering::Relaxed)
                 .try_into()
@@ -90,7 +94,7 @@ impl ActorID {
         self.sequence_id
     }
 
-    /// Returns the `PeerId` associated with the `ActorID`, if any.
+    /// Returns the `PeerId` associated with the `ActorId`, if any.
     ///
     /// # Returns
     ///
@@ -100,13 +104,13 @@ impl ActorID {
         self.peer_id.peer_id()
     }
 
-    /// Serializes the `ActorID` into a byte vector.
+    /// Serializes the `ActorId` into a byte vector.
     ///
     /// The resulting vector contains the `sequence_id` followed by the `peer_id` (if present).
     ///
     /// # Returns
     ///
-    /// A `Vec<u8>` containing the serialized `ActorID`.
+    /// A `Vec<u8>` containing the serialized `ActorId`.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 + 42);
         bytes.extend(&self.sequence_id.to_le_bytes());
@@ -125,21 +129,21 @@ impl ActorID {
         bytes
     }
 
-    /// Deserializes an `ActorID` from a byte slice.
+    /// Deserializes an `ActorId` from a byte slice.
     ///
     /// # Arguments
     ///
-    /// * `bytes` - A byte slice containing a serialized `ActorID`.
+    /// * `bytes` - A byte slice containing a serialized `ActorId`.
     ///
     /// # Returns
     ///
-    /// A `Result` containing either the deserialized `ActorID` or an `ActorIDFromBytesError`.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ActorIDFromBytesError> {
+    /// A `Result` containing either the deserialized `ActorId` or an `ActorIdFromBytesError`.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ActorIdFromBytesError> {
         // Extract the ID
         let sequence_id = u64::from_le_bytes(
             bytes[0..8]
                 .try_into()
-                .map_err(|_| ActorIDFromBytesError::MissingSequenceID)?,
+                .map_err(|_| ActorIdFromBytesError::MissingSequenceID)?,
         );
 
         // Extract the peer id
@@ -150,7 +154,7 @@ impl ActorID {
             PeerIdKind::Local
         };
 
-        Ok(ActorID {
+        Ok(ActorId {
             sequence_id,
             #[cfg(feature = "remote")]
             peer_id,
@@ -158,35 +162,35 @@ impl ActorID {
     }
 }
 
-impl fmt::Display for ActorID {
+impl fmt::Display for ActorId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[cfg(not(feature = "remote"))]
-        return write!(f, "ActorID({})", self.sequence_id);
+        return write!(f, "ActorId({})", self.sequence_id);
 
         #[cfg(feature = "remote")]
         match self.peer_id.peer_id() {
-            Some(peer_id) => write!(f, "ActorID({}, {peer_id})", self.sequence_id),
-            None => write!(f, "ActorID({}, local)", self.sequence_id),
+            Some(peer_id) => write!(f, "ActorId({}, {peer_id})", self.sequence_id),
+            None => write!(f, "ActorId({}, local)", self.sequence_id),
         }
     }
 }
 
-impl fmt::Debug for ActorID {
+impl fmt::Debug for ActorId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[cfg(feature = "remote")]
         return write!(
             f,
-            "ActorID({:?}, {:?})",
+            "ActorId({:?}, {:?})",
             self.sequence_id,
             self.peer_id.peer_id()
         );
 
         #[cfg(not(feature = "remote"))]
-        return write!(f, "ActorID({:?})", self.sequence_id);
+        return write!(f, "ActorId({:?})", self.sequence_id);
     }
 }
 
-impl Serialize for ActorID {
+impl Serialize for ActorId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -195,22 +199,51 @@ impl Serialize for ActorID {
     }
 }
 
-impl<'de> Deserialize<'de> for ActorID {
+impl<'de> Deserialize<'de> for ActorId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let bytes = <&[u8]>::deserialize(deserializer)?;
         let bytes_len = bytes.len();
-        ActorID::from_bytes(bytes).map_err(|err| match err {
-            ActorIDFromBytesError::MissingSequenceID => {
+        ActorId::from_bytes(bytes).map_err(|err| match err {
+            ActorIdFromBytesError::MissingSequenceID => {
                 serde::de::Error::invalid_length(bytes_len, &"sequence ID")
             }
             #[cfg(feature = "remote")]
-            err @ ActorIDFromBytesError::ParsePeerID(_) => serde::de::Error::custom(err),
+            err @ ActorIdFromBytesError::ParsePeerID(_) => serde::de::Error::custom(err),
         })
     }
 }
+
+/// Errors that can occur when deserializing an `ActorId` from bytes.
+#[derive(Debug)]
+pub enum ActorIdFromBytesError {
+    /// The byte slice doesn't contain enough data for the `sequence_id`.
+    MissingSequenceID,
+    /// An error occurred while parsing the `PeerId`.
+    #[cfg(feature = "remote")]
+    ParsePeerID(libp2p_identity::ParseError),
+}
+
+#[cfg(feature = "remote")]
+impl From<libp2p_identity::ParseError> for ActorIdFromBytesError {
+    fn from(err: libp2p_identity::ParseError) -> Self {
+        ActorIdFromBytesError::ParsePeerID(err)
+    }
+}
+
+impl fmt::Display for ActorIdFromBytesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorIdFromBytesError::MissingSequenceID => write!(f, "missing instance ID"),
+            #[cfg(feature = "remote")]
+            ActorIdFromBytesError::ParsePeerID(err) => err.fmt(f),
+        }
+    }
+}
+
+impl error::Error for ActorIdFromBytesError {}
 
 #[cfg(feature = "remote")]
 #[derive(Clone, Copy)]
@@ -271,24 +304,24 @@ mod tests {
 
     #[test]
     fn test_actor_id_partial_eq_local() {
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
         };
         assert_eq!(id1, id2);
 
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 1,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
@@ -300,11 +333,11 @@ mod tests {
     #[cfg(feature = "remote")]
     fn test_actor_id_partial_eq_remote() {
         // Unbootstrapped
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
         };
@@ -323,40 +356,40 @@ mod tests {
         assert_eq!(id1, id2);
 
         // Bootstrapped local and remote id pointing to local peer id should equal
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
         assert_eq!(id1, id2);
 
         // Peer IDs should equal
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
         assert_eq!(id1, id2);
 
         // Different peer IDs should not equal
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(PeerId::random()),
         };
         assert_ne!(id1, id2);
     }
 
-    fn hashes_eq(id1: &ActorID, id2: &ActorID) -> bool {
+    fn hashes_eq(id1: &ActorId, id2: &ActorId) -> bool {
         let mut hasher = DefaultHasher::new();
         id1.hash(&mut hasher);
         let id1_hash = hasher.finish();
@@ -370,12 +403,12 @@ mod tests {
 
     #[test]
     fn test_actor_id_hash_local() {
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
@@ -383,12 +416,12 @@ mod tests {
 
         assert!(hashes_eq(&id1, &id2));
 
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 1,
             #[cfg(feature = "remote")]
             peer_id: PeerIdKind::Local,
@@ -401,11 +434,11 @@ mod tests {
     #[cfg(feature = "remote")]
     fn test_actor_id_hash_remote() {
         // Unbootstrapped
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
         };
@@ -424,11 +457,11 @@ mod tests {
         assert_eq!(id1, id2);
 
         // Bootstrapped local and remote id pointing to local peer id should equal
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
@@ -436,11 +469,11 @@ mod tests {
         assert!(hashes_eq(&id1, &id2));
 
         // Peer IDs should equal
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
@@ -448,11 +481,11 @@ mod tests {
         assert!(hashes_eq(&id1, &id2));
 
         // Different peer IDs should not equal
-        let id1 = ActorID {
+        let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(local_peer_id),
         };
-        let id2 = ActorID {
+        let id2 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::PeerId(PeerId::random()),
         };

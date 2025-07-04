@@ -6,7 +6,7 @@ pub use linkme;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::actor::{ActorID, ActorRef, Link};
+use crate::actor::{ActorId, ActorRef, Link};
 use crate::error::{ActorStopReason, Infallible, RemoteSendError};
 use crate::message::Message;
 use crate::{Actor, Reply};
@@ -35,41 +35,41 @@ pub struct RemoteMessageFns {
 }
 
 pub type RemoteAskFn = fn(
-    actor_id: ActorID,
+    actor_id: ActorId,
     msg: Vec<u8>,
     mailbox_timeout: Option<Duration>,
     reply_timeout: Option<Duration>,
 ) -> BoxFuture<'static, Result<Vec<u8>, RemoteSendError<Vec<u8>>>>;
 
 pub type RemoteTryAskFn = fn(
-    actor_id: ActorID,
+    actor_id: ActorId,
     msg: Vec<u8>,
     reply_timeout: Option<Duration>,
 ) -> BoxFuture<'static, Result<Vec<u8>, RemoteSendError<Vec<u8>>>>;
 
 pub type RemoteTellFn = fn(
-    actor_id: ActorID,
+    actor_id: ActorId,
     msg: Vec<u8>,
     mailbox_timeout: Option<Duration>,
 ) -> BoxFuture<'static, Result<(), RemoteSendError>>;
 
 pub type RemoteTryTellFn =
-    fn(actor_id: ActorID, msg: Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError>>;
+    fn(actor_id: ActorId, msg: Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError>>;
 
 pub type RemoteLinkFn = fn(
-    actor_id: ActorID,
-    sibbling_id: ActorID,
+    actor_id: ActorId,
+    sibbling_id: ActorId,
     sibbling_remote_id: Cow<'static, str>,
 ) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
 
 pub type RemoteUnlinkFn = fn(
-    actor_id: ActorID,
-    sibbling_id: ActorID,
+    actor_id: ActorId,
+    sibbling_id: ActorId,
 ) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
 
 pub type RemoteSignalLinkDiedFn = fn(
-    dead_actor_id: ActorID,
-    notified_actor_id: ActorID,
+    dead_actor_id: ActorId,
+    notified_actor_id: ActorId,
     stop_reason: ActorStopReason,
 )
     -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
@@ -81,7 +81,7 @@ pub struct RemoteMessageRegistrationID<'a> {
 }
 
 pub async fn ask<A, M>(
-    actor_id: ActorID,
+    actor_id: ActorId,
     msg: Vec<u8>,
     mailbox_timeout: Option<Duration>,
     reply_timeout: Option<Duration>,
@@ -124,7 +124,7 @@ where
 }
 
 pub async fn try_ask<A, M>(
-    actor_id: ActorID,
+    actor_id: ActorId,
     msg: Vec<u8>,
     reply_timeout: Option<Duration>,
 ) -> Result<Vec<u8>, RemoteSendError<Vec<u8>>>
@@ -165,7 +165,7 @@ where
 }
 
 pub async fn tell<A, M>(
-    actor_id: ActorID,
+    actor_id: ActorId,
     msg: Vec<u8>,
     mailbox_timeout: Option<Duration>,
 ) -> Result<(), RemoteSendError>
@@ -197,7 +197,7 @@ where
     }
 }
 
-pub async fn try_tell<A, M>(actor_id: ActorID, msg: Vec<u8>) -> Result<(), RemoteSendError>
+pub async fn try_tell<A, M>(actor_id: ActorId, msg: Vec<u8>) -> Result<(), RemoteSendError>
 where
     A: Actor + Message<M>,
     M: DeserializeOwned + Send + 'static,
@@ -223,8 +223,8 @@ where
 }
 
 pub async fn link<A>(
-    actor_id: ActorID,
-    sibbling_id: ActorID,
+    actor_id: ActorId,
+    sibbling_id: ActorId,
     sibbling_remote_id: Cow<'static, str>,
 ) -> Result<(), RemoteSendError<Infallible>>
 where
@@ -251,8 +251,8 @@ where
 }
 
 pub async fn unlink<A>(
-    actor_id: ActorID,
-    sibbling_id: ActorID,
+    actor_id: ActorId,
+    sibbling_id: ActorId,
 ) -> Result<(), RemoteSendError<Infallible>>
 where
     A: Actor,
@@ -274,8 +274,8 @@ where
 }
 
 pub async fn signal_link_died<A>(
-    dead_actor_id: ActorID,
-    notified_actor_id: ActorID,
+    dead_actor_id: ActorId,
+    notified_actor_id: ActorId,
     stop_reason: ActorStopReason,
 ) -> Result<(), RemoteSendError<Infallible>>
 where

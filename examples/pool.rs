@@ -6,14 +6,14 @@ use kameo_actors::pool::{ActorPool, Broadcast, Dispatch};
 #[derive(Actor, Default)]
 struct MyActor;
 
-struct PrintActorID;
+struct PrintActorId;
 
-impl Message<PrintActorID> for MyActor {
+impl Message<PrintActorId> for MyActor {
     type Reply = ();
 
     async fn handle(
         &mut self,
-        _: PrintActorID,
+        _: PrintActorId,
         ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         println!("Hello from {}", ctx.actor_ref().id());
@@ -38,7 +38,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Print IDs 0, 2, 4, 6, 8
     for _ in 0..5 {
-        pool.tell(Dispatch(PrintActorID)).await?;
+        pool.tell(Dispatch(PrintActorId)).await?;
     }
 
     // Force all workers to stop, causing them to be restarted
@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // New IDs 11, 13, 15, 17, 19 will be printed
     for _ in 0..5 {
-        pool.tell(Dispatch(PrintActorID)).await?;
+        pool.tell(Dispatch(PrintActorId)).await?;
     }
 
     tokio::time::sleep(Duration::from_millis(200)).await;

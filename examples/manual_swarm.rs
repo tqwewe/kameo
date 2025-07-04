@@ -169,7 +169,7 @@ impl SwarmBehaviour for CustomBehaviour {
     fn ask(
         &mut self,
         peer: &PeerId,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
         message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
@@ -194,7 +194,7 @@ impl SwarmBehaviour for CustomBehaviour {
     fn tell(
         &mut self,
         peer: &PeerId,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
         message_remote_id: Cow<'static, str>,
         payload: Vec<u8>,
@@ -216,9 +216,9 @@ impl SwarmBehaviour for CustomBehaviour {
 
     fn link(
         &mut self,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
         sibbling_remote_id: Cow<'static, str>,
     ) -> OutboundRequestId {
         self.actor_request_response.send_request(
@@ -234,9 +234,9 @@ impl SwarmBehaviour for CustomBehaviour {
 
     fn unlink(
         &mut self,
-        actor_id: ActorID,
+        actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorID,
+        sibbling_id: ActorId,
     ) -> OutboundRequestId {
         self.actor_request_response.send_request(
             actor_id.peer_id().unwrap(),
@@ -250,8 +250,8 @@ impl SwarmBehaviour for CustomBehaviour {
 
     fn signal_link_died(
         &mut self,
-        dead_actor_id: ActorID,
-        notified_actor_id: ActorID,
+        dead_actor_id: ActorId,
+        notified_actor_id: ActorId,
         notified_actor_remote_id: Cow<'static, str>,
         stop_reason: kameo::error::ActorStopReason,
     ) -> OutboundRequestId {

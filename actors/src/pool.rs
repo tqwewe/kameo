@@ -184,7 +184,7 @@ where
     async fn on_link_died(
         &mut self,
         actor_ref: WeakActorRef<Self>,
-        id: ActorID,
+        id: ActorId,
         _reason: ActorStopReason,
     ) -> Result<ControlFlow<ActorStopReason>, Self::Error> {
         let Some(actor_ref) = actor_ref.upgrade() else {
