@@ -53,9 +53,14 @@ use futures::Future;
 use tokio::sync::oneshot;
 
 use crate::{
-    actor::ActorRef,
-    error::{BoxSendError, SendError},
-    message::BoxReply,
+    actor::{
+        ActorID, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef, WeakRecipient,
+        WeakReplyRecipient,
+    },
+    error::{ActorStopReason, BoxSendError, Infallible, PanicError, SendError},
+    mailbox::{MailboxReceiver, MailboxSender},
+    message::{BoxReply, Context},
+    remote::ActorSwarm,
     Actor,
 };
 
@@ -379,7 +384,22 @@ macro_rules! impl_infallible_reply {
 }
 
 impl_infallible_reply!([
+    ActorID,
     {A: Actor} ActorRef<A>,
+    {A: Actor} PreparedActor<A>,
+    {M: Send} Recipient<M>,
+    {M: Send, Ok: Send, Err: ReplyError} ReplyRecipient<M, Ok, Err>,
+    {A: Actor} WeakActorRef<A>,
+    {M: Send} WeakRecipient<M>,
+    {M: Send, Ok: Send, Err: ReplyError} WeakReplyRecipient<M, Ok, Err>,
+    ActorStopReason,
+    PanicError,
+    SendError,
+    {A: Actor} MailboxReceiver<A>,
+    {A: Actor} MailboxSender<A>,
+    {A: Actor, R: Reply} Context<A, R>,
+    {R: Reply} ReplySender<R>,
+    Infallible,
     (),
     usize,
     u8,
@@ -488,6 +508,8 @@ impl_infallible_reply!([
 #[cfg(feature = "remote")]
 impl_infallible_reply!([
     {A: Actor + crate::remote::RemoteActor} crate::actor::RemoteActorRef<A>,
+    {E: 'static + Send} crate::error::RemoteSendError<E>,
+    ActorSwarm,
 ]);
 
 #[cfg(target_has_atomic = "8")]
