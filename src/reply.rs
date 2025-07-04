@@ -54,7 +54,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     actor::{
-        ActorID, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef, WeakRecipient,
+        ActorId, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef, WeakRecipient,
         WeakReplyRecipient,
     },
     error::{ActorStopReason, BoxSendError, Infallible, PanicError, SendError},
@@ -383,7 +383,7 @@ macro_rules! impl_infallible_reply {
 }
 
 impl_infallible_reply!([
-    ActorID,
+    ActorId,
     {A: Actor} ActorRef<A>,
     {A: Actor} PreparedActor<A>,
     {M: Send} Recipient<M>,

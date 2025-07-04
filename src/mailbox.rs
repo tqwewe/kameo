@@ -12,7 +12,7 @@ use futures::{future::BoxFuture, FutureExt};
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::{
-    actor::{ActorID, ActorRef},
+    actor::{ActorId, ActorRef},
     error::{ActorStopReason, SendError},
     message::BoxMessage,
     reply::BoxReplySender,
@@ -455,7 +455,7 @@ pub enum Signal<A: Actor> {
     /// A linked actor has died.
     LinkDied {
         /// The dead actor's ID.
-        id: ActorID,
+        id: ActorId,
         /// The reason the actor stopped.
         reason: ActorStopReason,
     },
@@ -480,7 +480,7 @@ pub trait SignalMailbox: DynClone + Send + Sync {
     fn signal_startup_finished(&self) -> Result<(), SendError>;
     fn signal_link_died(
         &self,
-        id: ActorID,
+        id: ActorId,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
@@ -507,7 +507,7 @@ where
 
     fn signal_link_died(
         &self,
-        id: ActorID,
+        id: ActorId,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         match self {
@@ -555,7 +555,7 @@ where
 
     fn signal_link_died(
         &self,
-        id: ActorID,
+        id: ActorId,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {

@@ -20,7 +20,7 @@ use tokio::{
     time::error::Elapsed,
 };
 
-use crate::{actor::ActorID, mailbox::Signal, reply::ReplyError, Actor};
+use crate::{actor::ActorId, mailbox::Signal, reply::ReplyError, Actor};
 
 type ErrorHookFn = fn(&PanicError);
 
@@ -687,7 +687,7 @@ pub enum ActorStopReason {
     /// Link died.
     LinkDied {
         /// Actor ID.
-        id: ActorID,
+        id: ActorId,
         /// Actor died reason.
         reason: Box<ActorStopReason>,
     },
@@ -843,35 +843,6 @@ impl<'de> Deserialize<'de> for PanicError {
         Ok(PanicError::new(Box::new(s)))
     }
 }
-
-/// Errors that can occur when deserializing an `ActorID` from bytes.
-#[derive(Debug)]
-pub enum ActorIDFromBytesError {
-    /// The byte slice doesn't contain enough data for the `sequence_id`.
-    MissingSequenceID,
-    /// An error occurred while parsing the `PeerId`.
-    #[cfg(feature = "remote")]
-    ParsePeerID(libp2p_identity::ParseError),
-}
-
-#[cfg(feature = "remote")]
-impl From<libp2p_identity::ParseError> for ActorIDFromBytesError {
-    fn from(err: libp2p_identity::ParseError) -> Self {
-        ActorIDFromBytesError::ParsePeerID(err)
-    }
-}
-
-impl fmt::Display for ActorIDFromBytesError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ActorIDFromBytesError::MissingSequenceID => write!(f, "missing instance ID"),
-            #[cfg(feature = "remote")]
-            ActorIDFromBytesError::ParsePeerID(err) => err.fmt(f),
-        }
-    }
-}
-
-impl error::Error for ActorIDFromBytesError {}
 
 /// An infallible error type, similar to [std::convert::Infallible].
 ///

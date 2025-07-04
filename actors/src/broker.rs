@@ -95,7 +95,7 @@ impl<M: Send + 'static> Broker<M> {
         }
     }
 
-    fn unsubscribe(&mut self, pattern: &Pattern, actor_id: ActorID) {
+    fn unsubscribe(&mut self, pattern: &Pattern, actor_id: ActorId) {
         if let Some(recipients) = self.subscriptions.get_mut(pattern) {
             recipients.retain(|recipient| recipient.id() != actor_id);
             if recipients.is_empty() {
@@ -138,7 +138,7 @@ pub struct Unsubscribe {
     /// If None, unsubscribe from all topic patterns.
     pub topic: Option<Pattern>,
     /// The ID of the actor to unsubscribe.
-    pub actor_id: ActorID,
+    pub actor_id: ActorId,
 }
 
 impl<M: Send + 'static> Message<Unsubscribe> for Broker<M> {

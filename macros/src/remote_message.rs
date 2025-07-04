@@ -67,7 +67,7 @@ impl RemoteMessage {
                         message_remote_id: <#actor_ty #ty_generics as ::kameo::remote::RemoteMessage<#message_generics>>::REMOTE_ID,
                     },
                     ::kameo::remote::_internal::RemoteMessageFns {
-                        ask: (|actor_id: ::kameo::actor::ActorID,
+                        ask: (|actor_id: ::kameo::actor::ActorId,
                               msg: ::std::vec::Vec<u8>,
                               mailbox_timeout: ::std::option::Option<::std::time::Duration>,
                               reply_timeout: ::std::option::Option<::std::time::Duration>| {
@@ -81,7 +81,7 @@ impl RemoteMessage {
                                     reply_timeout,
                                 ))
                             }) as ::kameo::remote::_internal::RemoteAskFn,
-                        try_ask: (|actor_id: ::kameo::actor::ActorID,
+                        try_ask: (|actor_id: ::kameo::actor::ActorId,
                               msg: ::std::vec::Vec<u8>,
                               reply_timeout: ::std::option::Option<::std::time::Duration>| {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::try_ask::<
@@ -93,7 +93,7 @@ impl RemoteMessage {
                                     reply_timeout,
                                 ))
                             }) as ::kameo::remote::_internal::RemoteTryAskFn,
-                        tell: (|actor_id: ::kameo::actor::ActorID,
+                        tell: (|actor_id: ::kameo::actor::ActorId,
                               msg: ::std::vec::Vec<u8>,
                               mailbox_timeout: ::std::option::Option<::std::time::Duration>| {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::tell::<
@@ -105,7 +105,7 @@ impl RemoteMessage {
                                     mailbox_timeout,
                                 ))
                             }) as ::kameo::remote::_internal::RemoteTellFn,
-                        try_tell: (|actor_id: ::kameo::actor::ActorID,
+                        try_tell: (|actor_id: ::kameo::actor::ActorId,
                               msg: ::std::vec::Vec<u8>| {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::try_tell::<
                                     #actor_ty,

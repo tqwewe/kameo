@@ -62,7 +62,7 @@ use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
-    actor::{ActorID, Links},
+    actor::{ActorId, Links},
     error::{ActorStopReason, Infallible, RemoteSendError},
     mailbox::SignalMailbox,
 };
@@ -73,7 +73,7 @@ mod swarm;
 
 pub use swarm::*;
 
-pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorID, RemoteRegistryActorRef>>> =
+pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) struct RemoteRegistryActorRef {
@@ -148,7 +148,7 @@ pub trait RemoteMessage<M> {
 }
 
 pub(crate) async fn ask(
-    actor_id: ActorID,
+    actor_id: ActorId,
     actor_remote_id: Cow<'static, str>,
     message_remote_id: Cow<'static, str>,
     payload: Vec<u8>,
@@ -173,7 +173,7 @@ pub(crate) async fn ask(
 }
 
 pub(crate) async fn tell(
-    actor_id: ActorID,
+    actor_id: ActorId,
     actor_remote_id: Cow<'static, str>,
     message_remote_id: Cow<'static, str>,
     payload: Vec<u8>,
@@ -197,9 +197,9 @@ pub(crate) async fn tell(
 }
 
 pub(crate) async fn link(
-    actor_id: ActorID,
+    actor_id: ActorId,
     actor_remote_id: Cow<'static, str>,
-    sibbling_id: ActorID,
+    sibbling_id: ActorId,
     sibbling_remote_id: Cow<'static, str>,
 ) -> Result<(), RemoteSendError<Infallible>> {
     let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
@@ -210,9 +210,9 @@ pub(crate) async fn link(
 }
 
 pub(crate) async fn unlink(
-    actor_id: ActorID,
+    actor_id: ActorId,
     actor_remote_id: Cow<'static, str>,
-    sibbling_id: ActorID,
+    sibbling_id: ActorId,
 ) -> Result<(), RemoteSendError<Infallible>> {
     let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
         return Err(RemoteSendError::UnknownActor { actor_remote_id });
@@ -222,8 +222,8 @@ pub(crate) async fn unlink(
 }
 
 pub(crate) async fn signal_link_died(
-    dead_actor_id: ActorID,
-    notified_actor_id: ActorID,
+    dead_actor_id: ActorId,
+    notified_actor_id: ActorId,
     notified_actor_remote_id: Cow<'static, str>,
     stop_reason: ActorStopReason,
 ) -> Result<(), RemoteSendError<Infallible>> {

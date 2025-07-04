@@ -36,13 +36,13 @@ use crate::{
     Actor, Reply,
 };
 
-use super::id::ActorID;
+use super::id::ActorId;
 
 task_local! {
-    pub(crate) static CURRENT_ACTOR_ID: ActorID;
+    pub(crate) static CURRENT_ACTOR_ID: ActorId;
 }
 thread_local! {
-    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorID>> = const { Cell::new(None) };
+    pub(crate) static CURRENT_THREAD_ACTOR_ID: Cell<Option<ActorId>> = const { Cell::new(None) };
 }
 
 /// A reference to an actor, used for sending messages and managing its lifecycle.
@@ -51,7 +51,7 @@ thread_local! {
 /// and telling (without waiting for a reply). It also provides utilities for managing the actor's state,
 /// such as checking if the actor is alive, registering the actor under a name, and stopping the actor gracefully.
 pub struct ActorRef<A: Actor> {
-    id: ActorID,
+    id: ActorId,
     mailbox_sender: MailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
@@ -74,7 +74,7 @@ where
         shutdown_error: Arc<OnceLock<Option<PanicError>>>,
     ) -> Self {
         ActorRef {
-            id: ActorID::generate(),
+            id: ActorId::generate(),
             mailbox_sender: mailbox,
             abort_handle,
             links,
@@ -86,7 +86,7 @@ where
 
     /// Returns the unique identifier of the actor.
     #[inline]
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.id
     }
 
@@ -963,7 +963,7 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> ReplyRecipient<M, O
 
     /// Returns the unique identifier of the actor.
     #[inline]
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.handler.id()
     }
 
@@ -1115,7 +1115,7 @@ impl<M: Send + 'static> Recipient<M> {
 
     /// Returns the unique identifier of the actor.
     #[inline]
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.handler.id()
     }
 
@@ -1237,7 +1237,7 @@ impl<M: Send + 'static> Hash for Recipient<M> {
 /// It supports the same messaging patterns as `ActorRef` for local actors, including `ask` and `tell` messaging.
 #[cfg(feature = "remote")]
 pub struct RemoteActorRef<A: Actor> {
-    id: ActorID,
+    id: ActorId,
     swarm_tx: remote::SwarmSender,
     phantom: PhantomData<fn(&mut A)>,
 }
@@ -1247,7 +1247,7 @@ impl<A> RemoteActorRef<A>
 where
     A: Actor + remote::RemoteActor,
 {
-    pub(crate) fn new(id: ActorID, swarm_tx: remote::SwarmSender) -> Self {
+    pub(crate) fn new(id: ActorId, swarm_tx: remote::SwarmSender) -> Self {
         RemoteActorRef {
             id,
             swarm_tx,
@@ -1256,7 +1256,7 @@ where
     }
 
     /// Returns the unique identifier of the remote actor.
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.id
     }
 
@@ -1534,7 +1534,7 @@ impl<A: Actor> Hash for RemoteActorRef<A> {
 /// [`WeakActorRef::upgrade`], which returns `Option<ActorRef>`. It returns `None`
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
 pub struct WeakActorRef<A: Actor> {
-    id: ActorID,
+    id: ActorId,
     mailbox: WeakMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
@@ -1545,7 +1545,7 @@ pub struct WeakActorRef<A: Actor> {
 
 impl<A: Actor> WeakActorRef<A> {
     /// Returns the actor identifier.
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.id
     }
 
@@ -1634,7 +1634,7 @@ impl<M: Send + 'static> WeakRecipient<M> {
     }
 
     /// Returns the actor identifier.
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.handler.id()
     }
 
@@ -1702,7 +1702,7 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> WeakReplyRecipient<
     }
 
     /// Returns the actor identifier.
-    pub fn id(&self) -> ActorID {
+    pub fn id(&self) -> ActorId {
         self.handler.id()
     }
 
@@ -1758,10 +1758,10 @@ impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Hash for WeakReplyRecipient<
 /// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
 #[derive(Clone, Default)]
 #[allow(missing_debug_implementations)]
-pub(crate) struct Links(Arc<Mutex<HashMap<ActorID, Link>>>);
+pub(crate) struct Links(Arc<Mutex<HashMap<ActorId, Link>>>);
 
 impl ops::Deref for Links {
-    type Target = Mutex<HashMap<ActorID, Link>>;
+    type Target = Mutex<HashMap<ActorId, Link>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -1778,7 +1778,7 @@ pub(crate) enum Link {
 pub(crate) trait MessageHandler<M: Send + 'static>:
     DynClone + Send + Sync + 'static
 {
-    fn id(&self) -> ActorID;
+    fn id(&self) -> ActorId;
     fn is_alive(&self) -> bool;
     fn downgrade(&self) -> WeakRecipient<M>;
     fn strong_count(&self) -> usize;
@@ -1805,7 +1805,7 @@ where
     M: Send + 'static,
 {
     #[inline]
-    fn id(&self) -> ActorID {
+    fn id(&self) -> ActorId {
         self.id
     }
 
@@ -1934,7 +1934,7 @@ where
 }
 
 trait WeakMessageHandler<M: Send + 'static>: DynClone + Send + Sync + 'static {
-    fn id(&self) -> ActorID;
+    fn id(&self) -> ActorId;
     fn upgrade(&self) -> Option<Recipient<M>>;
     fn strong_count(&self) -> usize;
     fn weak_count(&self) -> usize;
@@ -1946,7 +1946,7 @@ where
     M: Send + 'static,
 {
     #[inline]
-    fn id(&self) -> ActorID {
+    fn id(&self) -> ActorId {
         self.id
     }
 

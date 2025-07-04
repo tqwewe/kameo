@@ -10,7 +10,7 @@ use crate::{
     reply::BoxReplySender,
 };
 
-use super::ActorID;
+use super::ActorId;
 
 pub(crate) trait ActorState<A: Actor>: Sized {
     fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
@@ -34,7 +34,7 @@ pub(crate) trait ActorState<A: Actor>: Sized {
 
     fn handle_link_died(
         &mut self,
-        id: ActorID,
+        id: ActorId,
         reason: ActorStopReason,
     ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
 
@@ -127,7 +127,7 @@ where
     #[inline]
     async fn handle_link_died(
         &mut self,
-        id: ActorID,
+        id: ActorId,
         reason: ActorStopReason,
     ) -> ControlFlow<ActorStopReason> {
         let res = AssertUnwindSafe(self.state.on_link_died(

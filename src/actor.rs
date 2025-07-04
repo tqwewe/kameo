@@ -242,7 +242,7 @@ pub trait Actor: Sized + Send + 'static {
     fn on_link_died(
         &mut self,
         actor_ref: WeakActorRef<Self>,
-        id: ActorID,
+        id: ActorId,
         reason: ActorStopReason,
     ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
         async move {

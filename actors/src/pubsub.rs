@@ -61,7 +61,7 @@ type FilterFn<M> = Box<dyn FnMut(&M) -> bool + Send>;
 /// to manage it directly or interact with it via messages.
 #[allow(missing_debug_implementations)]
 pub struct PubSub<M> {
-    subscribers: HashMap<ActorID, (Subscriber<M>, FilterFn<M>)>,
+    subscribers: HashMap<ActorId, (Subscriber<M>, FilterFn<M>)>,
 }
 
 impl<M> PubSub<M> {

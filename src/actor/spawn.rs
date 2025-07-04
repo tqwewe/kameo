@@ -30,7 +30,7 @@ use crate::{
     mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
-use super::ActorID;
+use super::ActorId;
 
 /// A `PreparedActor` represents an actor that has been initialized and is ready to be either run
 /// in the current task or spawned into a new task.
@@ -393,7 +393,7 @@ where
 
 #[inline]
 #[cfg(feature = "tracing")]
-fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
+fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ ActorStopReason::Normal
         | reason @ ActorStopReason::Killed
@@ -411,4 +411,4 @@ fn log_actor_stop_reason(id: ActorID, name: &str, reason: &ActorStopReason) {
 }
 
 #[cfg(not(feature = "tracing"))]
-fn log_actor_stop_reason(_id: ActorID, _name: &str, _reason: &ActorStopReason) {}
+fn log_actor_stop_reason(_id: ActorId, _name: &str, _reason: &ActorStopReason) {}
