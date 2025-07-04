@@ -19,55 +19,33 @@ use super::{
     messaging, registry, ActorSwarm, RemoteRegistryActorRef, SwarmCommand, REMOTE_REGISTRY,
 };
 
-/// The main network behavior for Kameo's distributed actor system.
+/// A network behaviour that combines messaging and registry capabilities for remote actor communication.
 ///
-/// `Behaviour` implements libp2p's `NetworkBehaviour` trait and combines two core protocols:
-/// - **Kademlia DHT**: For distributed actor discovery and registration
-/// - **Request-Response**: For direct actor-to-actor messaging across the network
-///
-/// This behavior handles all network-level operations for remote actors, including:
-/// - Registering actors in the distributed registry so they can be discovered by other peers
-/// - Looking up actors by name across the network
-/// - Sending ask/tell messages between actors on different peers
-/// - Managing actor links and supervision across network boundaries
-/// - Handling connection events and peer failures
-///
-/// The behavior operates at a low level and emits events for all operations. Higher-level
-/// Kameo APIs like `ActorRef::register()` and `RemoteActorRef::lookup()` use this behavior
-/// internally but provide a more ergonomic interface without event emission.
-///
-/// # Architecture
-///
-/// The behavior maintains several internal components:
-/// - A Kademlia DHT for distributed storage of actor registrations
-/// - A request-response protocol handler for direct peer communication  
-/// - Command channels for receiving requests from other parts of Kameo
-/// - Query tracking for ongoing lookups and registrations
-/// - A task pool for handling concurrent operations
-///
-/// # Event-Driven Operation
-///
-/// All operations are asynchronous and progress is reported through events:
-/// - `LookupProgressed` events report actors found during discovery
-/// - `RegisteredActor` events confirm successful registrations
-/// - `AskResult`/`TellResult` events report message delivery outcomes
-/// - Error events for timeouts, failures, and network issues
+/// This behaviour integrates Kameo's remote actor functionality with libp2p, providing:
+/// - Actor registration and discovery through a Kademlia-based registry
+/// - Remote message passing between actors across the network
+/// - Automatic lifecycle management for remote connections
 ///
 /// # Example
 ///
-/// ```rust,no_run
-/// use libp2p::{PeerId, request_response};
-/// use kameo::remote::Behaviour;
+/// ```rust
+/// use kameo::remote;
+/// use libp2p::{swarm::NetworkBehaviour, PeerId};
+///
+/// #[derive(NetworkBehaviour)]
+/// struct MyBehaviour {
+///     kameo: remote::Behaviour,
+///     // other behaviours...
+/// }
 ///
 /// let peer_id = PeerId::random();
-/// let config = request_response::Config::default();
-/// let behaviour = Behaviour::new(peer_id, config);
+/// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
 /// ```
 #[allow(missing_debug_implementations)]
 pub struct Behaviour {
-    /// Messaging behaviour.
+    /// Messaging behaviour for sending and receiving actor messages.
     pub messaging: messaging::Behaviour,
-    /// Registry behaviour.
+    /// Registry behaviour for actor registration and discovery.
     pub registry: registry::Behaviour,
     local_peer_id: PeerId,
     cmd_tx: mpsc::UnboundedSender<SwarmCommand>,
@@ -75,16 +53,23 @@ pub struct Behaviour {
 }
 
 impl Behaviour {
-    /// Creates a new swarm behavior for Kameo actor communication.
-    ///
-    /// This initializes the libp2p network behavior with Kademlia DHT for actor
-    /// discovery and request-response protocol for actor messaging.
+    /// Creates a new remote behaviour with the specified peer ID and messaging configuration.
     ///
     /// # Arguments
     ///
-    /// * `local_peer_id` - The peer ID for this node
-    /// * `messaging` - Messaging behaviour
-    /// * `registry` - Registry behaviour
+    /// * `local_peer_id` - The peer ID of the local node
+    /// * `messaging_config` - Configuration for the messaging subsystem
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kameo::remote;
+    /// use libp2p::PeerId;
+    ///
+    /// let peer_id = PeerId::random();
+    /// let config = remote::messaging::Config::default();
+    /// let behaviour = remote::Behaviour::new(peer_id, config);
+    /// ```
     pub fn new(local_peer_id: PeerId, messaging_config: messaging::Config) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
@@ -100,7 +85,34 @@ impl Behaviour {
         }
     }
 
-    /// Initialize this behavior as the global remote handler.
+    /// Initializes the global actor swarm for this behaviour.
+    ///
+    /// This method sets up the global communication channel that allows local actors
+    /// to interact with the remote system. It must be called before any remote actor
+    /// operations can be performed.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if initialization succeeds, or `Err(ActorSwarm)` if the global
+    /// swarm has already been initialized by another behaviour instance.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kameo::remote;
+    /// use libp2p::PeerId;
+    ///
+    /// let peer_id = PeerId::random();
+    /// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
+    ///
+    /// // Initialize the global swarm
+    /// behaviour.init_global().expect("Failed to initialize global swarm");
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This method will return an error if `init_global()` has already been called
+    /// on another `Behaviour` instance in the same process.
     pub fn init_global(&self) -> Result<(), ActorSwarm> {
         ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id)
     }
@@ -227,15 +239,43 @@ impl Behaviour {
     }
 }
 
-/// Events emitted by the Kameo swarm behavior.
+/// Events emitted by the remote behaviour.
 ///
-/// These events represent the results of network operations, actor lookups,
-/// registrations, and message passing between remote actors.
+/// These events are generated by the underlying messaging and registry behaviours
+/// and provide information about remote actor operations, network changes, and
+/// communication status.
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::remote;
+/// use libp2p::swarm::SwarmEvent;
+/// #
+/// # let swarm_event: SwarmEvent<remote::Event> = todo!();
+///
+/// // In your swarm event loop:
+/// match swarm_event {
+///     SwarmEvent::Behaviour(remote::Event::Registry(registry_event)) => {
+///         // Handle registry events (actor registration, lookup, etc.)
+///     }
+///     SwarmEvent::Behaviour(remote::Event::Messaging(messaging_event)) => {
+///         // Handle messaging events (message delivery, timeouts, etc.)
+///     }
+///     _ => {}
+/// }
+/// ```
 #[derive(Debug)]
 pub enum Event {
-    /// Messaging event.
+    /// An event from the messaging subsystem.
+    ///
+    /// These events relate to sending and receiving messages between remote actors,
+    /// including delivery confirmations, timeouts, and connection status updates.
     Messaging(messaging::Event),
-    /// Registry event.
+
+    /// An event from the registry subsystem.
+    ///
+    /// These events relate to actor registration and discovery operations,
+    /// including successful registrations, lookup results, and network topology changes.
     Registry(registry::Event),
 }
 

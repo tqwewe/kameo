@@ -1,3 +1,35 @@
+//! Actor registration and discovery system for distributed actor networks.
+//!
+//! This module implements a distributed registry that allows actors to register themselves
+//! under human-readable names and be discovered by other actors across the network. It uses
+//! Kademlia DHT (Distributed Hash Table) for decentralized storage and lookup of actor
+//! registrations, ensuring high availability and fault tolerance.
+//!
+//! # Key Responsibilities
+//!
+//! - **Actor Registration**: Enables actors to register themselves under string-based names,
+//!   making them discoverable by other actors across the network
+//! - **Distributed Discovery**: Provides lookup capabilities to find all actors registered
+//!   under a given name, regardless of which peer they're running on
+//! - **Metadata Storage**: Stores actor metadata including unique identifiers, peer locations,
+//!   and other registration details in a distributed manner
+//! - **Network Resilience**: Uses Kademlia's distributed nature to ensure actor registrations
+//!   remain available even if some network nodes go offline
+//! - **Local Caching**: Maintains local caches of discovered actors to reduce lookup latency
+//!   and network overhead for frequently accessed actors
+//!
+//! # Architecture
+//!
+//! The registry leverages libp2p's Kademlia implementation to create a distributed hash table
+//! where actor names serve as keys and actor metadata serves as values. Each actor registration
+//! involves two operations: advertising the actor name as a "provider" and storing the actor's
+//! detailed metadata as a record in the DHT.
+//!
+//! This dual approach enables efficient discovery where clients first find all peers providing
+//! a given actor name, then retrieve the specific metadata for each instance. This supports
+//! scenarios where multiple actors may be registered under the same logical name across
+//! different peers for load balancing or redundancy.
+
 use std::{
     borrow::Cow,
     collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
@@ -11,8 +43,9 @@ use std::{
 use libp2p::{
     kad::{self, store::RecordStore, StoreInserts},
     swarm::{
-        ConnectionDenied, ConnectionId, DialError, DialFailure, FromSwarm, NetworkBehaviour,
-        NewExternalAddrOfPeer, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::ConnectionEstablished, ConnectionDenied, ConnectionId, DialError, DialFailure,
+        FromSwarm, NetworkBehaviour, NewExternalAddrOfPeer, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
     },
     Multiaddr, PeerId, StreamProtocol,
 };
@@ -152,6 +185,7 @@ pub enum Event {
 pub struct Behaviour {
     kademlia: kad::Behaviour<kad::store::MemoryStore>,
     local_peer_id: PeerId,
+    pending_peers: HashMap<(PeerId, Multiaddr), Instant>,
     pending_events: VecDeque<Event>,
     registration_queries: HashMap<kad::QueryId, RegistrationQuery>,
     lookup_queries: HashMap<kad::QueryId, LookupQuery>,
@@ -189,6 +223,7 @@ impl Behaviour {
         Behaviour {
             kademlia,
             local_peer_id,
+            pending_peers: HashMap::new(),
             pending_events: VecDeque::new(),
             registration_queries: HashMap::new(),
             lookup_queries: HashMap::new(),
@@ -370,8 +405,6 @@ impl Behaviour {
                                 #[cfg(feature = "tracing")]
                                 tracing::warn!("failed to store provider: {err}");
                             }
-                        } else {
-                            println!("ignoring provider registration");
                         }
 
                         (false, None)
@@ -386,8 +419,6 @@ impl Behaviour {
                                 #[cfg(feature = "tracing")]
                                 tracing::warn!("failed to store metadata record: {err}");
                             }
-                        } else {
-                            println!("ignoring record");
                         }
 
                         (false, None)
@@ -795,7 +826,7 @@ impl Behaviour {
             }
         };
 
-        let parts: Vec<&str> = key_str.splitn(2, ":meta:").collect();
+        let parts: Vec<_> = key_str.splitn(2, ":meta:").collect();
         if parts.len() != 2 {
             #[cfg(feature = "tracing")]
             tracing::warn!("invalid metadata key format from {source}: {key_str}");
@@ -837,24 +868,25 @@ impl Behaviour {
             return false;
         }
 
+        // Disabled for now: what if the record gets received before the start providing message
         // Verify the source peer is actually providing this actor
-        let actor_key = kad::RecordKey::new(&actor_name);
-        let providers = self.kademlia.store_mut().providers(&actor_key);
+        // let actor_key = kad::RecordKey::new(&actor_name);
+        // let providers = self.kademlia.store_mut().providers(&actor_key);
 
-        let is_provider = providers
-            .iter()
-            .any(|provider_record| provider_record.provider == *source);
+        // let is_provider = providers
+        //     .iter()
+        //     .any(|provider_record| provider_record.provider == *source);
 
-        if !is_provider {
-            #[cfg(feature = "tracing")]
-            tracing::warn!(
-                "peer {source} trying to register metadata for {actor_name} without being a provider"
-            );
-            return false;
-        }
+        // if !is_provider {
+        //     #[cfg(feature = "tracing")]
+        //     tracing::warn!(
+        //         "peer {source} trying to register metadata for {actor_name} without being a provider"
+        //     );
+        //     return false;
+        // }
 
         #[cfg(feature = "tracing")]
-        tracing::debug!("Validated metadata record for {actor_name} from {source}");
+        tracing::debug!("validated metadata record for {actor_name} from {source}");
 
         true
     }
@@ -914,6 +946,18 @@ impl NetworkBehaviour for Behaviour {
         // We need to manually add the address, because kademlia doesn't do this by default (yet)
         // https://github.com/libp2p/rust-libp2p/issues/5313
         match event {
+            FromSwarm::ConnectionEstablished(ConnectionEstablished {
+                peer_id,
+                failed_addresses,
+                ..
+            }) => {
+                self.pending_peers.retain(|(pending_peer_id, addr), _| {
+                    // Keep all entries for different peers
+                    pending_peer_id != &peer_id
+                    // OR keep same-peer entries that failed
+                    || failed_addresses.iter().any(|failed_addr| failed_addr == addr)
+                });
+            }
             FromSwarm::NewExternalAddrOfPeer(NewExternalAddrOfPeer { peer_id, addr }) => {
                 self.kademlia.add_address(&peer_id, addr.clone());
             }
@@ -922,8 +966,11 @@ impl NetworkBehaviour for Behaviour {
                 error: DialError::Transport(errors),
                 ..
             }) => {
-                for (addr, _err) in errors {
-                    self.kademlia.remove_address(&peer_id, addr);
+                let now = Instant::now();
+                for (addr, _) in errors {
+                    self.pending_peers
+                        .entry((peer_id, addr.clone()))
+                        .or_insert(now);
                 }
             }
             _ => {}
@@ -946,6 +993,13 @@ impl NetworkBehaviour for Behaviour {
         &mut self,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
+        let failed_peers = self
+            .pending_peers
+            .extract_if(|_, failed_at| failed_at.elapsed() > Duration::from_secs(5));
+        for ((peer_id, addr), _) in failed_peers {
+            self.kademlia.remove_address(&peer_id, &addr);
+        }
+
         loop {
             // First priority: return any pending events
             if let Some(ev) = self.pending_events.pop_front() {

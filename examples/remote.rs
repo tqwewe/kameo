@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures::{StreamExt, TryStreamExt};
-use kameo::{prelude::*, remote::messaging};
+use kameo::prelude::*;
 use libp2p::{
     mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
@@ -38,7 +38,7 @@ impl Message<Inc> for MyActor {
 
 #[derive(NetworkBehaviour)]
 struct MyBehaviour {
-    actors: kameo::remote::Behaviour,
+    kameo: remote::Behaviour,
     mdns: mdns::tokio::Behaviour,
 }
 
@@ -93,19 +93,19 @@ fn spawn_swarm() -> Result<PeerId, Box<dyn std::error::Error>> {
             yamux::Config::default,
         )?
         .with_behaviour(|key| {
-            // Instantiate kameo's behaviour
-            let actors = kameo::remote::Behaviour::new(
-                key.public().to_peer_id(),
-                messaging::Config::default(),
-            );
+            let local_peer_id = key.public().to_peer_id();
 
-            let mdns =
-                mdns::tokio::Behaviour::new(mdns::Config::default(), key.public().to_peer_id())?;
+            let kameo = remote::Behaviour::new(local_peer_id, remote::messaging::Config::default());
 
-            Ok(MyBehaviour { actors, mdns })
+            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
+
+            Ok(MyBehaviour { kameo, mdns })
         })?
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
+
+    // Set this behaviour as the global behaviour
+    swarm.behaviour().kameo.init_global().unwrap();
 
     // Listen on OS assigned IP and port
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;

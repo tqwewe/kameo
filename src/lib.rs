@@ -48,6 +48,6 @@ pub mod prelude {
     pub use crate::mailbox::{self, MailboxReceiver, MailboxSender};
     pub use crate::message::{Context, Message};
     #[cfg(feature = "remote")]
-    pub use crate::remote::{ActorSwarm, RemoteActor, RemoteMessage};
+    pub use crate::remote::{self, ActorSwarm, RemoteActor, RemoteMessage};
     pub use crate::reply::{DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender};
 }

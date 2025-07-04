@@ -349,8 +349,7 @@ mod tests {
 
         // Bootstrapped
         let local_peer_id = local_peer_id();
-        dbg!(local_peer_id.to_bytes());
-        ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id).unwrap();
+        let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
         assert_eq!(id1.peer_id(), Some(&local_peer_id));
         assert_eq!(id2.peer_id(), Some(&local_peer_id));
 
@@ -453,7 +452,7 @@ mod tests {
 
         // Bootstrapped
         let local_peer_id = local_peer_id();
-        ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id).unwrap();
+        let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
         assert_eq!(id1.peer_id(), Some(&local_peer_id));
         assert_eq!(id2.peer_id(), Some(&local_peer_id));
 

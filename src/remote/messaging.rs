@@ -1,4 +1,41 @@
-use std::{borrow::Cow, collections::HashMap, fmt, future::Future, task, time::Duration};
+//! Remote message passing infrastructure for actors across the network.
+//!
+//! This module provides the core messaging capabilities that enable actors running on different
+//! nodes to communicate with each other seamlessly. It handles the serialization, routing, and
+//! delivery of messages between remote actors while maintaining the same ergonomics as local
+//! actor communication.
+//!
+//! # Key Responsibilities
+//!
+//! - **Message Serialization**: Automatically serializes and deserializes actor messages for
+//!   network transmission using efficient binary protocols
+//! - **Request-Response Communication**: Implements reliable ask/tell patterns for remote actors
+//!   with configurable timeouts and delivery guarantees  
+//! - **Connection Management**: Manages libp2p connections and handles connection failures,
+//!   retries, and peer disconnections gracefully
+//! - **Actor Lifecycle Integration**: Supports remote actor linking, unlinking, and death
+//!   notifications across network boundaries
+//! - **Backpressure Handling**: Provides mailbox timeout controls to prevent overwhelming
+//!   remote actors with too many concurrent messages
+//!
+//! # Architecture
+//!
+//! The messaging system is built on top of libp2p's request-response protocol, providing
+//! reliable delivery semantics while maintaining the actor model's message-passing paradigm.
+//! Messages are automatically routed to the appropriate peer based on the target actor's
+//! peer ID, with transparent handling of network-level concerns.
+//!
+//! The module integrates closely with Kameo's local actor system, allowing remote actors
+//! to be used interchangeably with local actors through the same `ActorRef` interface.
+
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    fmt,
+    future::Future,
+    task,
+    time::Duration,
+};
 
 use futures::FutureExt;
 use libp2p::{
@@ -9,16 +46,44 @@ use libp2p::{
     },
     PeerId, StreamProtocol,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{
     actor::ActorId,
-    error::{ActorStopReason, RemoteSendError},
-    remote,
+    error::{ActorStopReason, Infallible, RemoteSendError},
+};
+
+use super::_internal::{
+    RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_ACTORS, REMOTE_MESSAGES,
 };
 
 const PROTO_NAME: StreamProtocol = StreamProtocol::new("/kameo/messaging/1.0.0");
+
+static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteActorFns>> = Lazy::new(|| {
+    let mut existing_ids = HashSet::new();
+    for (id, _) in REMOTE_ACTORS {
+        if !existing_ids.insert(id) {
+            panic!("duplicate remote actor detected for actor '{id}'");
+        }
+    }
+    REMOTE_ACTORS.iter().copied().collect()
+});
+
+static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>> =
+    Lazy::new(|| {
+        let mut existing_ids = HashSet::new();
+        for (id, _) in REMOTE_MESSAGES {
+            if !existing_ids.insert(id) {
+                panic!(
+                    "duplicate remote message detected for actor '{}' and message '{}'",
+                    id.actor_remote_id, id.message_remote_id
+                );
+            }
+        }
+        REMOTE_MESSAGES.iter().copied().collect()
+    });
 
 type AskResult = Result<Vec<u8>, RemoteSendError<Vec<u8>>>;
 type TellResult = Result<(), RemoteSendError>;
@@ -580,7 +645,7 @@ impl Behaviour {
                 reply_timeout,
                 immediate,
             )| {
-                remote::ask(
+                ask(
                     actor_id,
                     actor_remote_id,
                     message_remote_id,
@@ -642,7 +707,7 @@ impl Behaviour {
                 mailbox_timeout,
                 immediate,
             )| {
-                remote::tell(
+                tell(
                     actor_id,
                     actor_remote_id,
                     message_remote_id,
@@ -684,7 +749,7 @@ impl Behaviour {
             reply,
             (actor_id, actor_remote_id, sibbling_id, sibbling_remote_id),
             |(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)| {
-                remote::link(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)
+                link(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)
                     .map(SwarmResponse::Link)
             },
             move |(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)| {
@@ -711,7 +776,7 @@ impl Behaviour {
             reply,
             (actor_id, actor_remote_id, sibbling_id),
             |(actor_id, actor_remote_id, sibbling_id)| {
-                remote::unlink(actor_id, actor_remote_id, sibbling_id).map(SwarmResponse::Unlink)
+                unlink(actor_id, actor_remote_id, sibbling_id).map(SwarmResponse::Unlink)
             },
             move |(actor_id, actor_remote_id, sibbling_id)| SwarmRequest::Unlink {
                 actor_id,
@@ -742,7 +807,7 @@ impl Behaviour {
                 stop_reason,
             ),
             |(dead_actor_id, notified_actor_id, notified_actor_remote_id, stop_reason)| {
-                remote::signal_link_died(
+                signal_link_died(
                     dead_actor_id,
                     notified_actor_id,
                     notified_actor_remote_id,
@@ -896,7 +961,7 @@ impl Behaviour {
                 immediate,
             } => {
                 self.join_set.spawn(
-                    remote::ask(
+                    ask(
                         actor_id,
                         actor_remote_id,
                         message_remote_id,
@@ -917,7 +982,7 @@ impl Behaviour {
                 immediate,
             } => {
                 self.join_set.spawn(
-                    remote::tell(
+                    tell(
                         actor_id,
                         actor_remote_id,
                         message_remote_id,
@@ -935,7 +1000,7 @@ impl Behaviour {
                 sibbling_remote_id,
             } => {
                 self.join_set.spawn(
-                    remote::link(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)
+                    link(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)
                         .map(|res| (channel, SwarmResponse::Link(res))),
                 );
             }
@@ -945,7 +1010,7 @@ impl Behaviour {
                 sibbling_id,
             } => {
                 self.join_set.spawn(
-                    remote::unlink(actor_id, actor_remote_id, sibbling_id)
+                    unlink(actor_id, actor_remote_id, sibbling_id)
                         .map(|res| (channel, SwarmResponse::Unlink(res))),
                 );
             }
@@ -956,7 +1021,7 @@ impl Behaviour {
                 stop_reason,
             } => {
                 self.join_set.spawn(
-                    remote::signal_link_died(
+                    signal_link_died(
                         dead_actor_id,
                         notified_actor_id,
                         notified_actor_remote_id,
@@ -1220,4 +1285,93 @@ impl Event {
             },
         }
     }
+}
+
+async fn ask(
+    actor_id: ActorId,
+    actor_remote_id: Cow<'static, str>,
+    message_remote_id: Cow<'static, str>,
+    payload: Vec<u8>,
+    mailbox_timeout: Option<Duration>,
+    reply_timeout: Option<Duration>,
+    immediate: bool,
+) -> Result<Vec<u8>, RemoteSendError<Vec<u8>>> {
+    let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
+        actor_remote_id: &actor_remote_id,
+        message_remote_id: &message_remote_id,
+    }) else {
+        return Err(RemoteSendError::UnknownMessage {
+            actor_remote_id,
+            message_remote_id,
+        });
+    };
+    if immediate {
+        (fns.try_ask)(actor_id, payload, reply_timeout).await
+    } else {
+        (fns.ask)(actor_id, payload, mailbox_timeout, reply_timeout).await
+    }
+}
+
+async fn tell(
+    actor_id: ActorId,
+    actor_remote_id: Cow<'static, str>,
+    message_remote_id: Cow<'static, str>,
+    payload: Vec<u8>,
+    mailbox_timeout: Option<Duration>,
+    immediate: bool,
+) -> Result<(), RemoteSendError> {
+    let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
+        actor_remote_id: &actor_remote_id,
+        message_remote_id: &message_remote_id,
+    }) else {
+        return Err(RemoteSendError::UnknownMessage {
+            actor_remote_id,
+            message_remote_id,
+        });
+    };
+    if immediate {
+        (fns.try_tell)(actor_id, payload).await
+    } else {
+        (fns.tell)(actor_id, payload, mailbox_timeout).await
+    }
+}
+
+async fn link(
+    actor_id: ActorId,
+    actor_remote_id: Cow<'static, str>,
+    sibbling_id: ActorId,
+    sibbling_remote_id: Cow<'static, str>,
+) -> Result<(), RemoteSendError<Infallible>> {
+    let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
+        return Err(RemoteSendError::UnknownActor { actor_remote_id });
+    };
+
+    (fns.link)(actor_id, sibbling_id, sibbling_remote_id).await
+}
+
+async fn unlink(
+    actor_id: ActorId,
+    actor_remote_id: Cow<'static, str>,
+    sibbling_id: ActorId,
+) -> Result<(), RemoteSendError<Infallible>> {
+    let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
+        return Err(RemoteSendError::UnknownActor { actor_remote_id });
+    };
+
+    (fns.unlink)(actor_id, sibbling_id).await
+}
+
+async fn signal_link_died(
+    dead_actor_id: ActorId,
+    notified_actor_id: ActorId,
+    notified_actor_remote_id: Cow<'static, str>,
+    stop_reason: ActorStopReason,
+) -> Result<(), RemoteSendError<Infallible>> {
+    let Some(fns) = REMOTE_ACTORS_MAP.get(&*notified_actor_remote_id) else {
+        return Err(RemoteSendError::UnknownActor {
+            actor_remote_id: notified_actor_remote_id,
+        });
+    };
+
+    (fns.signal_link_died)(dead_actor_id, notified_actor_id, stop_reason).await
 }
