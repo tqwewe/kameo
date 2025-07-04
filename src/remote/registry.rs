@@ -401,6 +401,7 @@ impl Behaviour {
 
                         if self.validate_provider_registration(&record) {
                             // Accept the provider registration
+                            #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                             if let Err(err) = self.kademlia.store_mut().add_provider(record) {
                                 #[cfg(feature = "tracing")]
                                 tracing::warn!("failed to store provider: {err}");
@@ -415,6 +416,7 @@ impl Behaviour {
 
                         if self.validate_metadata_record(&source, &record) {
                             // Store the metadata record
+                            #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                             if let Err(err) = self.kademlia.store_mut().put(record) {
                                 #[cfg(feature = "tracing")]
                                 tracing::warn!("failed to store metadata record: {err}");
@@ -432,6 +434,7 @@ impl Behaviour {
                 stats: _,
                 step,
             } => match result {
+                #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                 kad::QueryResult::Bootstrap(res) => {
                     #[cfg(feature = "tracing")]
                     if let Err(err) = res {
@@ -774,12 +777,14 @@ impl Behaviour {
     }
 
     fn validate_provider_registration(&mut self, provider: &kad::ProviderRecord) -> bool {
+        #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
         let source = &provider.provider;
 
         // Should be valid UTF8
         let key_str = match std::str::from_utf8(provider.key.as_ref()) {
             Ok(s) => s,
             Err(_) => {
+                #[cfg(feature = "tracing")]
                 tracing::warn!("invalid UTF-8 in provider key from {source}");
                 return false;
             }
