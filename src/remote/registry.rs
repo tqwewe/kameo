@@ -441,6 +441,15 @@ impl Behaviour {
                         tracing::warn!("bootstrap failed: {err}");
                     }
 
+                    let failed_peers = self
+                        .pending_peers
+                        .extract_if(|_, failed_at| failed_at.elapsed() > Duration::from_secs(5));
+                    for ((peer_id, addr), _) in failed_peers {
+                        #[cfg(feature = "tracing")]
+                        tracing::debug!(%peer_id, %addr, "removing address for peer");
+                        self.kademlia.remove_address(&peer_id, &addr);
+                    }
+
                     (false, None)
                 }
                 kad::QueryResult::GetClosestPeers(_) => (false, None),
@@ -998,13 +1007,6 @@ impl NetworkBehaviour for Behaviour {
         &mut self,
         cx: &mut task::Context<'_>,
     ) -> task::Poll<ToSwarm<Self::ToSwarm, THandlerInEvent<Self>>> {
-        let failed_peers = self
-            .pending_peers
-            .extract_if(|_, failed_at| failed_at.elapsed() > Duration::from_secs(5));
-        for ((peer_id, addr), _) in failed_peers {
-            self.kademlia.remove_address(&peer_id, &addr);
-        }
-
         loop {
             // First priority: return any pending events
             if let Some(ev) = self.pending_events.pop_front() {
