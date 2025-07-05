@@ -68,17 +68,7 @@ tracing = { version = "0.1", optional = true }
 [dev-dependencies]
 criterion = { version = "0.6", features = ["async_tokio"] }
 kameo_actors = { path = "actors" }
-libp2p = { version = "0.56.0", features = [
-  "cbor",
-  "kad",
-  "mdns",
-  "noise",
-  "request-response",
-  "serde",
-  "tcp",
-  "tokio",
-  "yamux",
-] }
+libp2p = { version = "0.56.0", features = ["serde"] }
 tokio = { version = "1", features = [
   "macros",
   "rt",
@@ -92,6 +82,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
 name = "remote"
+required-features = ["remote"]
+
+[[example]]
+name = "custom_swarm"
 required-features = ["remote"]
 
 [[bench]]

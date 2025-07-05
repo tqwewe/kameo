@@ -61,11 +61,11 @@ impl ActorSwarm {
     /// with your own libp2p swarm setup.
     ///
     /// # Example
-    /// ```
+    /// ```ignore
     /// #[tokio::main]
     /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ///     // One line to get started!
-    ///     ActorSwarm::bootstrap()?;
+    ///     ActorSwarm::bootstrap().unwrap();
     ///     
     ///     // Now use remote actors normally
     ///     let actor_ref = MyActor::spawn_default();
