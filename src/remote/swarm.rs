@@ -143,8 +143,8 @@ impl ActorSwarm {
                             let _ = swarm.disconnect_peer_id(peer_id);
                         }
                     }
+                    #[cfg(feature = "tracing")]
                     SwarmEvent::NewListenAddr { address, .. } => {
-                        #[cfg(feature = "tracing")]
                         tracing::info!("ActorSwarm listening on {address}");
                     }
                     _ => {}
