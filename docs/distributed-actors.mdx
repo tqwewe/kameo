@@ -2,42 +2,69 @@
 title: Distributed Actors
 ---
 
-Kameo’s distributed actor system enables actors to communicate seamlessly across different nodes in a decentralized network. This architecture provides a powerful foundation for building fault-tolerant, scalable, and resilient distributed systems. At its core, Kameo leverages [libp2p](https://libp2p.io) for peer-to-peer communication and a decentralized actor registry.
+Kameo's distributed actor system enables actors to communicate seamlessly across different nodes in a decentralized network. This architecture provides a powerful foundation for building fault-tolerant, scalable, and resilient distributed systems. At its core, Kameo leverages [libp2p](https://libp2p.io) for peer-to-peer communication and integrates as a composable `NetworkBehaviour` that you can combine with other libp2p protocols.
 
 ## Key Components
 
-- **ActorSwarm**: The central structure responsible for managing peer-to-peer communication between nodes. It initializes the libp2p swarm, manages connections, and coordinates actor registration and message routing.
+- **kameo::remote::Behaviour**: A libp2p `NetworkBehaviour` that provides distributed actor capabilities. This behavior can be composed with other libp2p behaviors (mDNS, Gossipsub, custom protocols, etc.) in your own swarm configuration.
 - **RemoteActorRef**: A reference to an actor that resides on a remote node. This reference abstracts away the networking details and allows you to interact with remote actors using familiar APIs.
-- **Multiaddress**: libp2p uses multiaddresses to specify how nodes can be reached using different network protocols like TCP, WebSockets, or QUIC. Multiaddresses are essential for routing messages between nodes.
-- **Kademlia DHT**: Kameo uses Kademlia DHT to store and retrieve actor registration details. When an actor is registered, its name is stored as a key in the DHT, and the value contains information about how to reach the actor, making it discoverable by other nodes.
+- **Registry System**: Built on Kademlia DHT, this system stores and retrieves actor registration details. When an actor is registered, its name and metadata are distributed across the network, making it discoverable by other nodes.
+- **Messaging System**: Handles reliable message passing between remote actors using libp2p's request-response protocol, supporting both ask/tell patterns with configurable timeouts.
+
+## Architecture Approaches
+
+Kameo offers two approaches for setting up distributed actors:
+
+### Bootstrap Approach (Quick Start)
+Perfect for development, testing, and simple applications:
+```rust
+// One line to get started
+let peer_id = kameo::remote::bootstrap()?;
+```
+
+### Custom Swarm Approach (Production)
+Provides full control over transport configuration, protocols, and behavior composition:
+```rust
+#[derive(NetworkBehaviour)]
+struct MyBehaviour {
+    kameo: kameo::remote::Behaviour,
+    mdns: mdns::tokio::Behaviour,
+    // Add other protocols as needed
+}
+```
 
 ## How Distributed Actors Work
 
-1. **Bootstrapping the Actor Swarm**: Each node in the network must initialize an `ActorSwarm` to participate in the distributed system. The swarm manages the libp2p connections and allows the node to register actors and send/receive messages.
+1. **Network Setup**: Initialize either using `kameo::remote::bootstrap()` for quick setup, or create a custom libp2p swarm with `kameo::remote::Behaviour` for full control over transport protocols, discovery mechanisms, and network configuration.
 
-2. **Actor Registration**: After bootstrapping the swarm, actors can be registered under unique names. Once registered, the actor’s address is propagated through the Kademlia DHT, making it discoverable by other nodes.
+2. **Actor Registration**: After network initialization, actors can be registered under unique names. The registration is distributed through the Kademlia DHT, making actors discoverable across the entire network.
 
-3. **Remote Messaging**: Once an actor is registered, other nodes can look it up and send messages to it. The `RemoteActorRef` allows you to send and receive messages across the network without worrying about the underlying networking.
+3. **Remote Discovery & Messaging**: Nodes can discover and communicate with actors anywhere in the network using `RemoteActorRef`. The messaging system handles serialization, routing, and delivery transparently.
 
 ## Why Use Distributed Actors?
 
-Distributed actors are ideal for building systems that need to scale horizontally across multiple machines or geographic locations. They enable fault-tolerant systems, as nodes can fail or be added without disrupting the overall network. Some common use cases for distributed actors include:
+Distributed actors are ideal for building systems that need to scale horizontally across multiple machines or geographic locations. They enable fault-tolerant systems, as nodes can fail or be added without disrupting the overall network. Some common use cases include:
 
 - **Real-Time Systems**: Chat systems, multiplayer games, and real-time data monitoring where actors need to communicate with low latency.
 - **Microservices Architecture**: Building independent services that communicate via message passing, while maintaining resilience to failures.
 - **IoT Systems**: Distributed control systems where devices communicate with each other using lightweight actors.
+- **Edge Computing**: Deploying actors across edge nodes for distributed processing and coordination.
 
 ## Key Benefits
 
-- **Decentralized Architecture**: No single point of failure. Actors can be registered, discovered, and messaged from any node in the network.
-- **Fault Tolerance**: The system continues to operate even if nodes fail or become unreachable. Actor registration via Kademlia DHT ensures nodes can find each other.
-- **Scalability**: Add more nodes to the swarm to handle more actors and distribute load across the network.
-- **Flexible Networking**: By using libp2p, Kameo supports various network protocols, allowing it to adapt to different environments and infrastructure.
+- **Composable Architecture**: Integrate seamlessly with existing libp2p applications and protocols. Mix and match networking behaviors as needed.
+- **Decentralized Discovery**: No single point of failure for actor discovery. The Kademlia DHT ensures actors can be found even as nodes join and leave the network.
+- **Fault Tolerance**: The system continues to operate even if nodes fail or become unreachable. Automatic connection management and recovery.
+- **Flexible Deployment**: Start simple with bootstrap mode, then graduate to full custom configuration as your needs grow.
+- **Protocol Agnostic**: Support for multiple transport protocols (TCP, QUIC, WebSockets) and discovery mechanisms (mDNS, manual addressing, DHT).
 
 ---
 
-#### What’s Next?
+#### What's Next?
 
-Now that you have an understanding of how distributed actors work, you’re ready to dive deeper into the specifics of setting up the actor swarm, registering actors, and messaging across nodes.
+Now that you understand how distributed actors work, you're ready to dive deeper into setting up your distributed actor system. Choose your approach based on your needs:
 
-Explore the next section on [Bootstrapping the Actor Swarm](/distributed-actors/bootstrapping-actor-swarm) to get started with setting up your distributed actor system.
+- For **quick prototyping and development**: Start with [Bootstrapping the Actor Swarm](/distributed-actors/bootstrapping-actor-swarm)
+- For **production deployments**: Learn about [Custom Swarm Configuration](/distributed-actors/custom-swarm-configuration)
+
+Then explore [Registering and Lookup](/distributed-actors/registering-looking-up-actors) to understand how actors discover each other across the network.
