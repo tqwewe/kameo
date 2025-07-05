@@ -7,70 +7,77 @@
 //!
 //! ## Key Features
 //!
-//! - **Swarm Management**: The `ActorSwarm` struct handles a distributed swarm of nodes,
-//!   managing peer discovery and communication.
-//! - **Actor Registration**: Actors can be registered under a unique name and looked up across
-//!   the network using the `RemoteActorRef`.
-//! - **Message Routing**: Ensures reliable message delivery between nodes using a combination
-//!   of Kademlia DHT and libp2p's networking capabilities.
+//! - **Composable Architecture**: The [`Behaviour`] struct implements libp2p's `NetworkBehaviour`,
+//!   allowing seamless integration with existing libp2p applications and other protocols.
+//! - **Quick Bootstrap**: The [`bootstrap()`] and [`bootstrap_on()`] functions provide one-line
+//!   setup for development and simple deployments.
+//! - **Actor Registration & Discovery**: Actors can be registered under unique names and looked up
+//!   across the network using [`RemoteActorRef`](crate::actor::RemoteActorRef).
+//! - **Reliable Messaging**: Ensures reliable message delivery between nodes using a combination
+//!   of Kademlia DHT for discovery and request-response protocols for communication.
+//! - **Modular Design**: Separate [`messaging`] and [`registry`] modules handle different aspects
+//!   of distributed actor communication.
 //!
 //! ## Getting Started
 //!
-//! To use remote actors, you must first initialize an `ActorSwarm`, which will set up the necessary
-//! networking components to allow remote actors to communicate across nodes.
+//! For quick prototyping and development:
 //!
 //! ```
-//! use kameo::remote::ActorSwarm;
+//! use kameo::remote;
 //!
-//! # tokio_test::block_on(async {
-//! // Initialize the actor swarm
-//! ActorSwarm::bootstrap()?
-//!     .listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
-//! # Ok::<(), Box<dyn std::error::Error>>(())
-//! # });
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // One line to bootstrap a distributed actor system
+//!     let peer_id = remote::bootstrap()?;
+//!     
+//!     // Now use actors normally
+//!     // actor_ref.register("my_actor").await?;
+//!     
+//!     Ok(())
+//! }
 //! ```
 //!
-//! ## Example Use Case
+//! For production deployments with custom configuration:
 //!
-//! - A distributed chat system where actors represent individual users, and messages are sent between them across multiple nodes.
+//! ```no_run
+//! use kameo::remote;
+//! use libp2p::swarm::NetworkBehaviour;
 //!
-//! ## Types in the Module
+//! #[derive(NetworkBehaviour)]
+//! struct MyBehaviour {
+//!     kameo: remote::Behaviour,
+//!     // Add other libp2p behaviors as needed
+//! }
 //!
-//! - [`ActorSwarm`]: The core struct for managing the distributed swarm of nodes and coordinating actor registration and messaging.
-//! - [`SwarmFuture`]: A future that holds the response from the actor swarm.
-//! - [`RemoteActor`]: A trait for identifying remote actors via a unique ID.
-//! - [`RemoteMessage`]: A trait for identifying remote messages via a unique ID.
-//!
-//! ### Re-exports
-//!
-//! - `Keypair`, `PeerId`, `dial_opts`: Re-exported from the libp2p library to assist with handling peer identities and dialing options.
+//! // Create custom libp2p swarm with full control over
+//! // transports, discovery, and protocol composition
+//! ```
 
-use std::{
-    any,
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    time::Duration,
-};
+use std::{any, collections::HashMap, error, str};
 
-use _internal::{
-    RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_ACTORS, REMOTE_MESSAGES,
+use futures::StreamExt;
+use libp2p::{
+    mdns, noise,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux, PeerId, SwarmBuilder,
 };
-pub use libp2p::swarm::dial_opts;
-pub use libp2p::PeerId;
-pub use libp2p_identity::Keypair;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
     actor::{ActorId, Links},
-    error::{ActorStopReason, Infallible, RemoteSendError},
+    error::RegistryError,
     mailbox::SignalMailbox,
 };
 
 #[doc(hidden)]
 pub mod _internal;
+mod behaviour;
+pub mod messaging;
+pub mod registry;
 mod swarm;
 
+pub use behaviour::*;
 pub use swarm::*;
 
 pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
@@ -81,30 +88,6 @@ pub(crate) struct RemoteRegistryActorRef {
     pub(crate) signal_mailbox: Box<dyn SignalMailbox>,
     pub(crate) links: Links,
 }
-
-static REMOTE_ACTORS_MAP: Lazy<HashMap<&'static str, RemoteActorFns>> = Lazy::new(|| {
-    let mut existing_ids = HashSet::new();
-    for (id, _) in REMOTE_ACTORS {
-        if !existing_ids.insert(id) {
-            panic!("duplicate remote actor detected for actor '{id}'");
-        }
-    }
-    REMOTE_ACTORS.iter().copied().collect()
-});
-
-static REMOTE_MESSAGES_MAP: Lazy<HashMap<RemoteMessageRegistrationID<'static>, RemoteMessageFns>> =
-    Lazy::new(|| {
-        let mut existing_ids = HashSet::new();
-        for (id, _) in REMOTE_MESSAGES {
-            if !existing_ids.insert(id) {
-                panic!(
-                    "duplicate remote message detected for actor '{}' and message '{}'",
-                    id.actor_remote_id, id.message_remote_id
-                );
-            }
-        }
-        REMOTE_MESSAGES.iter().copied().collect()
-    });
 
 /// `RemoteActor` is a trait for identifying actors remotely.
 ///
@@ -147,91 +130,104 @@ pub trait RemoteMessage<M> {
     const REMOTE_ID: &'static str;
 }
 
-pub(crate) async fn ask(
-    actor_id: ActorId,
-    actor_remote_id: Cow<'static, str>,
-    message_remote_id: Cow<'static, str>,
-    payload: Vec<u8>,
-    mailbox_timeout: Option<Duration>,
-    reply_timeout: Option<Duration>,
-    immediate: bool,
-) -> Result<Vec<u8>, RemoteSendError<Vec<u8>>> {
-    let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
-        actor_remote_id: &actor_remote_id,
-        message_remote_id: &message_remote_id,
-    }) else {
-        return Err(RemoteSendError::UnknownMessage {
-            actor_remote_id,
-            message_remote_id,
-        });
-    };
-    if immediate {
-        (fns.try_ask)(actor_id, payload, reply_timeout).await
-    } else {
-        (fns.ask)(actor_id, payload, mailbox_timeout, reply_timeout).await
+/// Bootstrap a simple actor swarm with mDNS discovery for local development.
+///
+/// This convenience function creates and runs a libp2p swarm with:
+/// - TCP and QUIC transports  
+/// - mDNS peer discovery (local network only)
+/// - Automatic listening on an OS-assigned port
+///
+/// For production use or custom configuration, use `kameo::remote::Behaviour`
+/// with your own libp2p swarm setup.
+///
+/// # Example
+/// ```ignore
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     // One line to get started!
+///     remote::bootstrap()?;
+///     
+///     // Now use remote actors normally
+///     let actor_ref = MyActor::spawn_default();
+///     actor_ref.register("my_actor").await?;
+///     Ok(())
+/// }
+/// ```
+pub fn bootstrap() -> Result<PeerId, Box<dyn error::Error>> {
+    bootstrap_on("/ip4/0.0.0.0/tcp/0")
+}
+
+/// Bootstrap with a specific listen address.
+pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
+    #[derive(NetworkBehaviour)]
+    struct BootstrapBehaviour {
+        kameo: Behaviour,
+        mdns: mdns::tokio::Behaviour,
     }
+
+    let mut swarm = SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_quic()
+        .with_behaviour(|key| {
+            let local_peer_id = key.public().to_peer_id();
+            let kameo = Behaviour::new(local_peer_id, messaging::Config::default());
+            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
+
+            Ok(BootstrapBehaviour { kameo, mdns })
+        })?
+        .build();
+
+    swarm.behaviour().kameo.try_init_global()?;
+
+    swarm.listen_on(addr.parse()?)?;
+
+    let local_peer_id = *swarm.local_peer_id();
+
+    tokio::spawn(async move {
+        loop {
+            match swarm.select_next_some().await {
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Discovered(
+                    list,
+                ))) => {
+                    for (peer_id, multiaddr) in list {
+                        #[cfg(feature = "tracing")]
+                        tracing::info!("mDNS discovered a new peer: {peer_id}");
+                        swarm.add_peer_address(peer_id, multiaddr);
+                    }
+                }
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Expired(
+                    list,
+                ))) => {
+                    for (peer_id, _multiaddr) in list {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("mDNS discover peer has expired: {peer_id}");
+                        let _ = swarm.disconnect_peer_id(peer_id);
+                    }
+                }
+                #[cfg(feature = "tracing")]
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    tracing::info!("ActorSwarm listening on {address}");
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(local_peer_id)
 }
 
-pub(crate) async fn tell(
-    actor_id: ActorId,
-    actor_remote_id: Cow<'static, str>,
-    message_remote_id: Cow<'static, str>,
-    payload: Vec<u8>,
-    mailbox_timeout: Option<Duration>,
-    immediate: bool,
-) -> Result<(), RemoteSendError> {
-    let Some(fns) = REMOTE_MESSAGES_MAP.get(&RemoteMessageRegistrationID {
-        actor_remote_id: &actor_remote_id,
-        message_remote_id: &message_remote_id,
-    }) else {
-        return Err(RemoteSendError::UnknownMessage {
-            actor_remote_id,
-            message_remote_id,
-        });
-    };
-    if immediate {
-        (fns.try_tell)(actor_id, payload).await
-    } else {
-        (fns.tell)(actor_id, payload, mailbox_timeout).await
-    }
-}
-
-pub(crate) async fn link(
-    actor_id: ActorId,
-    actor_remote_id: Cow<'static, str>,
-    sibbling_id: ActorId,
-    sibbling_remote_id: Cow<'static, str>,
-) -> Result<(), RemoteSendError<Infallible>> {
-    let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
-        return Err(RemoteSendError::UnknownActor { actor_remote_id });
-    };
-
-    (fns.link)(actor_id, sibbling_id, sibbling_remote_id).await
-}
-
-pub(crate) async fn unlink(
-    actor_id: ActorId,
-    actor_remote_id: Cow<'static, str>,
-    sibbling_id: ActorId,
-) -> Result<(), RemoteSendError<Infallible>> {
-    let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
-        return Err(RemoteSendError::UnknownActor { actor_remote_id });
-    };
-
-    (fns.unlink)(actor_id, sibbling_id).await
-}
-
-pub(crate) async fn signal_link_died(
-    dead_actor_id: ActorId,
-    notified_actor_id: ActorId,
-    notified_actor_remote_id: Cow<'static, str>,
-    stop_reason: ActorStopReason,
-) -> Result<(), RemoteSendError<Infallible>> {
-    let Some(fns) = REMOTE_ACTORS_MAP.get(&*notified_actor_remote_id) else {
-        return Err(RemoteSendError::UnknownActor {
-            actor_remote_id: notified_actor_remote_id,
-        });
-    };
-
-    (fns.signal_link_died)(dead_actor_id, notified_actor_id, stop_reason).await
+/// Unregisters an actor within the swarm.
+///
+/// This will only unregister an actor previously registered by the current node.
+pub async fn unregister(name: impl Into<String>) -> Result<(), RegistryError> {
+    ActorSwarm::get()
+        .ok_or(RegistryError::SwarmNotBootstrapped)?
+        .unregister(name.into())
+        .await;
+    Ok(())
 }

@@ -37,6 +37,27 @@ if let Some(actor) = remote_actor_ref {
 
 In this example, the node attempts to look up an actor registered with the name `"my_actor"`. If the actor is found on a remote node, a `RemoteActorRef` is returned, allowing the local node to send messages to the remote actor. A `RemoteActorRef` may in fact be a reference to an actor running on the current node.
 
+### Looking up Multiple Actors
+
+Since multiple nodes can register actors under the same name, Kameo provides `lookup_all` to discover all instances of an actor across the network:
+
+```rust
+// Lookup all actors registered under the same name
+let mut actors = RemoteActorRef::<MyActor>::lookup_all("my_actor");
+while let Some(actor) = actors.try_next().await? {
+    // Send message to each instance
+    let result = actor.ask(&Inc { amount: 5 }).await?;
+    println!("Actor on {:?} returned: {result}", actor.id().peer_id());
+}
+```
+
+The `lookup_all` method returns a stream that yields `RemoteActorRef` instances as they're discovered across the network. This is useful for:
+- **Load balancing**: Distribute work across multiple actor instances
+- **Redundancy**: Send the same message to multiple replicas
+- **Monitoring**: Discover all instances of a service
+
+The original `lookup` method returns the first actor found and is equivalent to taking the first item from `lookup_all`.
+
 ## Kademlia DHT: Decentralized Actor Lookup
 
 Kameo’s actor registration and lookup system is powered by **Kademlia DHT**, a distributed hash table used to store and retrieve actor registration details across nodes. When an actor is registered, its name is stored as a key in the DHT, and the value is a reference to the actor on the node where it was registered.
@@ -54,14 +75,12 @@ Here’s a full example showing how to register an actor on one node and look it
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Node 1: Bootstrap & register an actor
-    let actor_swarm = ActorSwarm::bootstrap()?;
-    // Listen so we can handle requests from other nodes
-    actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
+    let peer_id = kameo::remote::bootstrap()?;
     let actor_ref = MyActor::spawn(MyActor::default());
     actor_ref.register("my_actor").await?;
     
     // Node 2: Bootstrap, and lookup the actor and send a message
-    let actor_swarm = ActorSwarm::bootstrap()?;
+    let peer_id = kameo::remote::bootstrap()?;
     let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
     if let Some(actor) = remote_actor_ref {
         let result = actor.ask(&Inc { amount: 10 }).await?;

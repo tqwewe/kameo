@@ -1,0 +1,314 @@
+---
+title: Custom Swarm Configuration
+---
+
+For production deployments and advanced use cases, you'll often need more control over your libp2p swarm configuration than the bootstrap approach provides. Kameo's `remote::Behaviour` is designed as a standard libp2p `NetworkBehaviour` that integrates seamlessly with custom swarm setups, giving you complete control over transports, discovery mechanisms, and protocol composition.
+
+## When You Need Custom Configuration
+
+Consider custom swarm configuration when you need:
+
+- **Specific transport protocols** (WebSocket for browsers, memory for testing)
+- **Custom discovery mechanisms** (bootstrap nodes, relay servers, no mDNS)
+- **Integration with existing libp2p services** (Gossipsub, custom protocols)
+- **Production networking requirements** (specific addresses, firewalls, NAT traversal)
+- **Security customization** (custom authentication, certificate management)
+- **Performance tuning** (connection limits, timeouts, bandwidth management)
+
+## Basic Custom Swarm Setup
+
+Here's the minimal setup for a custom swarm with Kameo:
+
+```rust
+use kameo::{prelude::*, remote};
+use libp2p::{noise, tcp, yamux, swarm::NetworkBehaviour};
+
+#[derive(NetworkBehaviour)]
+struct MyBehaviour {
+    kameo: remote::Behaviour,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default())?
+        .with_behaviour(|key| {
+            let kameo = remote::Behaviour::new(
+                key.public().to_peer_id(),
+                remote::messaging::Config::default(),
+            );
+            Ok(MyBehaviour { kameo })
+        })?
+        .build();
+
+    // Initialize Kameo's global registry
+    swarm.behaviour().kameo.init_global();
+
+    // Listen on a specific address
+    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+
+    // Run the swarm (see event handling section below)
+    // ... event loop code
+
+    Ok(())
+}
+```
+
+## Composing with Other Behaviors
+
+One of the key advantages of custom configuration is the ability to compose Kameo with other libp2p protocols:
+
+```rust
+use libp2p::{gossipsub, mdns, kad, noise, tcp, yamux, swarm::NetworkBehaviour};
+use kameo::remote;
+
+#[derive(NetworkBehaviour)]
+struct MyBehaviour {
+    kameo: remote::Behaviour,
+    gossipsub: gossipsub::Behaviour,
+    mdns: mdns::tokio::Behaviour,
+    kademlia: kad::Behaviour<kad::store::MemoryStore>,
+}
+
+// In your swarm builder:
+.with_behaviour(|key| {
+    let peer_id = key.public().to_peer_id();
+    
+    let kameo = remote::Behaviour::new(
+        peer_id,
+        remote::messaging::Config::default(),
+    );
+    
+    let gossipsub = gossipsub::Behaviour::new(
+        gossipsub::MessageAuthenticity::Signed(key.clone()),
+        gossipsub::Config::default(),
+    )?;
+    
+    let mdns = mdns::tokio::Behaviour::new(
+        mdns::Config::default(),
+        peer_id,
+    )?;
+    
+    let kademlia = kad::Behaviour::new(
+        peer_id,
+        kad::store::MemoryStore::new(peer_id),
+    );
+
+    Ok(MyBehaviour { kameo, gossipsub, mdns, kademlia })
+})?
+```
+
+## Messaging Configuration
+
+Customize Kameo's messaging behavior through the `messaging::Config`:
+
+```rust
+let messaging_config = remote::messaging::Config::default()
+    .with_request_timeout(Duration::from_secs(30))
+    .with_max_concurrent_requests(1000)
+    .with_max_request_size(1024 * 1024)  // 1MB
+    .with_max_response_size(10 * 1024 * 1024); // 10MB
+
+let kameo = remote::Behaviour::new(peer_id, messaging_config);
+```
+
+Available configuration options:
+- **Request timeout**: How long to wait for remote message responses
+- **Max concurrent streams**: Limit concurrent outbound streams per peer
+- **Max request size**: Limits the size in bytes of a single request
+- **Max response size**: Limits the size in bytes of a single response
+
+## Transport Configuration
+
+Configure exactly which transports your application supports:
+
+```rust
+use libp2p::{quic, websocket, relay};
+
+let swarm = SwarmBuilder::with_new_identity()
+    .with_tokio()
+    // TCP with custom configuration
+    .with_tcp(
+        tcp::Config::default()
+            .port_reuse(true)
+            .nodelay(true),
+        noise::Config::new,
+        yamux::Config::default(),
+    )?
+    // QUIC for low-latency communication
+    .with_quic()
+    // WebSocket for browser connectivity
+    .with_websocket(
+        (websocket::Config::default(), tcp::Config::default()),
+        noise::Config::new,
+        yamux::Config::default(),
+    ).await?
+    // Relay for NAT traversal
+    .with_relay_client(noise::Config::new, yamux::Config::default())?
+    // Your behavior configuration
+    .with_behaviour(|key| { /* ... */ })?
+    .build();
+```
+
+## Event Handling
+
+Handle both Kameo events and other protocol events in your swarm loop:
+
+```rust
+use libp2p::swarm::SwarmEvent;
+use futures::StreamExt;
+
+tokio::spawn(async move {
+    loop {
+        match swarm.select_next_some().await {
+            // Handle Kameo events
+            SwarmEvent::Behaviour(MyBehaviourEvent::Kameo(remote::Event::Registry(event))) => {
+                match event {
+                    remote::registry::Event::LookupCompleted { .. } => {
+                        println!("Actor lookup completed");
+                    }
+                    remote::registry::Event::RegisteredActor { .. } => {
+                        println!("Actor registered successfully");
+                    }
+                    _ => {}
+                }
+            }
+            
+            // Handle other protocol events
+            SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(peers))) => {
+                for (peer_id, multiaddr) in peers {
+                    println!("Discovered peer: {} at {}", peer_id, multiaddr);
+                    swarm.add_peer_address(peer_id, multiaddr);
+                }
+            }
+            
+            SwarmEvent::Behaviour(MyBehaviourEvent::Gossipsub(gossipsub::Event::Message { 
+                message, .. 
+            })) => {
+                println!("Received gossipsub message: {:?}", message.data);
+            }
+            
+            // Handle connection events
+            SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                println!("Connected to {}", peer_id);
+            }
+            
+            SwarmEvent::NewListenAddr { address, .. } => {
+                println!("Listening on {}", address);
+            }
+            
+            _ => {}
+        }
+    }
+});
+```
+
+## Production Example
+
+Here's a complete example suitable for production deployment:
+
+```rust
+use kameo::{prelude::*, remote};
+use libp2p::{
+    multiaddr::Protocol,
+    noise, quic, tcp, yamux,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    Multiaddr, PeerId,
+};
+use std::time::Duration;
+use tracing::{info, warn};
+
+#[derive(NetworkBehaviour)]
+struct ProductionBehaviour {
+    kameo: remote::Behaviour,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create swarm with production-ready configuration
+    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default()
+                .port_reuse(true)
+                .nodelay(true),
+            noise::Config::new,
+            yamux::Config::default(),
+        )?
+        .with_quic()
+        .with_behaviour(|key| {
+            let peer_id = key.public().to_peer_id();
+            
+            let messaging_config = remote::messaging::Config::default()
+                .with_request_timeout(Duration::from_secs(60))
+                .with_max_concurrent_requests(500);
+                
+            let kameo = remote::Behaviour::new(peer_id, messaging_config);
+            
+            Ok(ProductionBehaviour { kameo })
+        })?
+        .with_swarm_config(|c| {
+            c.with_idle_connection_timeout(Duration::from_secs(300))
+                .with_max_negotiating_inbound_streams(1024)
+        })
+        .build();
+
+    // Initialize Kameo
+    swarm.behaviour().kameo.init_global();
+
+    // Listen on multiple addresses for redundancy
+    swarm.listen_on("/ip4/0.0.0.0/tcp/8020".parse()?)?;
+    swarm.listen_on("/ip4/0.0.0.0/udp/8021/quic-v1".parse()?)?;
+
+    // Connect to known bootstrap peers
+    let bootstrap_peers = vec![
+        "/ip4/203.0.113.1/tcp/8020/p2p/12D3KooWBootstrapPeer1".parse()?,
+        "/ip4/203.0.113.2/tcp/8020/p2p/12D3KooWBootstrapPeer2".parse()?,
+    ];
+    
+    for addr in bootstrap_peers {
+        swarm.dial(addr)?;
+    }
+
+    // Production event loop with error handling
+    loop {
+        match swarm.select_next_some().await {
+            SwarmEvent::Behaviour(ProductionBehaviourEvent::Kameo(event)) => {
+                info!("Kameo event: {:?}", event);
+            }
+            SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                info!("Connected to {} via {}", peer_id, endpoint.get_remote_address());
+            }
+            SwarmEvent::ConnectionClosed { peer_id, cause, .. } => {
+                warn!("Connection to {} closed: {:?}", peer_id, cause);
+            }
+            SwarmEvent::NewListenAddr { address, .. } => {
+                info!("Listening on {}", address);
+            }
+            SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                warn!("Failed to connect to {:?}: {}", peer_id, error);
+            }
+            _ => {}
+        }
+    }
+}
+```
+
+## Migration from Bootstrap
+
+If you start with bootstrap and later need custom configuration, the migration is straightforward:
+
+1. Replace `remote::bootstrap()` with a custom swarm setup
+2. Add any additional protocols you need
+3. Configure transports and addressing for your deployment
+
+The actor registration and messaging APIs remain exactly the same.
+
+---
+
+#### What's Next?
+
+Now that you have your swarm configured, you're ready to register actors and enable peer discovery. The next step is understanding how actors register themselves and discover each other across the network.
+
+Continue to [Registering and Lookup](/distributed-actors/registering-looking-up-actors) to learn how to make your actors discoverable and find remote actors.

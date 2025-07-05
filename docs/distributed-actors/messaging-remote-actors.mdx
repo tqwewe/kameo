@@ -12,13 +12,23 @@ After looking up a remote actor using `RemoteActorRef`, you can send messages to
 - **tell**: Used when you do not expect a reply, a "fire-and-forget" style message.
 
 ```rust
-// Lookup the remote actor
-let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Bootstrap the distributed actor system
+    let peer_id = kameo::remote::bootstrap()?;
 
-// Send a message and await the reply
-if let Some(actor) = remote_actor_ref {
-    let result = actor.ask(&Inc { amount: 10 }).await?;
-    println!("Incremented count: {result}");
+    // Lookup a registered remote actor
+    let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+
+    if let Some(actor) = remote_actor_ref {
+        // Send a message and await the reply
+        let result = actor.ask(&Inc { amount: 10 }).await?;
+        println!("Incremented count: {result}");
+    } else {
+        println!("Actor not found");
+    }
+
+    Ok(())
 }
 ```
 
@@ -97,9 +107,8 @@ Here’s a full example of how to message a remote actor and handle its reply:
 ```rust
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap the swarm and listen on an address
-    let actor_swarm = ActorSwarm::bootstrap()?;
-    actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
+    // Bootstrap the distributed actor system
+    let peer_id = kameo::remote::bootstrap()?;
 
     // Lookup a registered remote actor
     let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;

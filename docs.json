@@ -74,9 +74,9 @@
           "icon": "play-circle"
         },
         {
-          "title": "Dialing and Connecting to Other Nodes",
-          "href": "/distributed-actors/dialing-connecting-nodes",
-          "icon": "link"
+          "title": "Custom Swarm Configuration",
+          "href": "/distributed-actors/custom-swarm-configuration",
+          "icon": "cogs"
         },
         {
           "title": "Registering and Looking up Actors",

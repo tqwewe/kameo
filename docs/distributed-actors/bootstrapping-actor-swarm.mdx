@@ -2,73 +2,135 @@
 title: Bootstrapping Actor Swarm
 ---
 
-Before actors can communicate across nodes in a distributed system, you need to initialize the `ActorSwarm`. The `ActorSwarm` is responsible for managing peer-to-peer connections, actor registration, and message routing across nodes. This section explains how to bootstrap the swarm, set up network listening, and prepare your system for distributed communication.
+For quick development and simple distributed actor setups, Kameo provides convenient bootstrap functions that automatically configure and start a libp2p swarm with sensible defaults. This approach gets you up and running with distributed actors in just one line of code.
 
-## Initializing the Actor Swarm
+## Quick Bootstrap
 
-The first step in setting up distributed actors is bootstrapping the `ActorSwarm`. This initializes the swarm, allowing the node to participate in the network and accept incoming connections.
-
-```rust
-let actor_swarm = ActorSwarm::bootstrap()?;
-```
-
-This will initialize the swarm with default settings, preparing the node to listen for connections from other nodes. Once bootstrapped, you can register actors and send messages.
-
-## Bootstrapping with Identity
-
-In some cases, you may want to bootstrap the swarm with a specific identity (keypair). This allows nodes to be uniquely identified in the network, which can be useful for secure communication or when interacting with known peers.
+The simplest way to get started with distributed actors is using the `bootstrap()` function:
 
 ```rust
-let keypair = Keypair::generate();
-let actor_swarm = ActorSwarm::bootstrap_with_identity(keypair)?;
-```
+use kameo::remote;
 
-The `Keypair` generates a cryptographic identity for the node. This is useful for secure, verifiable communication between peers. The node will now be identified by its `PeerId`, derived from the keypair.
-
-## Bootstrapping with Custom Behaviour
-
-For more advanced use cases such as custom swarm configurations, or entirely custom behaviour, the actor swarm can be bootstrapped with the more flexible methods:
-
-- `ActorSwarm::bootstrap_with_behaviour` for providing a custom behaviour.
-- `ActorSwarm::bootstrap_with_swarm` for providing a custom swarm.
-- `ActorSwarm::bootstrap_manual` for extremely manual processing of the actor swarm. (see [`examples/manual_swarm.rs`])
-
-[`examples/manual_swarm.rs`]: https://github.com/tqwewe/kameo/blob/main/examples/manual_swarm.rs
-
-## Listening on a Multiaddress
-
-After bootstrapping the swarm, you need to instruct the node to listen on a specific network address. Kameo uses libp2p’s **multiaddress** format, which allows nodes to specify how they can be reached over the network. Multiaddresses define the protocol (e.g., TCP or QUIC) and the IP address/port combination.
-
-```rust
-actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
-```
-
-In this example, the node is listening on the IP address `0.0.0.0` (which represents all available network interfaces) on UDP port `8020`, using the QUIC protocol. You can customize this address based on your network environment or use different protocols as needed.
-
-## Example: Bootstrapping and Listening
-
-Here’s a full example that combines bootstrapping the swarm and setting up a listener:
-
-```rust
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap the swarm with a default identity
-    let actor_swarm = ActorSwarm::bootstrap()?;
-
-    // Start listening on a multiaddress
-    actor_swarm.listen_on("/ip4/0.0.0.0/udp/8020/quic-v1".parse()?).await?;
-
-    // The node is now ready to register actors and communicate with other nodes
+    // Bootstrap with automatic configuration
+    let peer_id = remote::bootstrap()?;
+    
+    println!("Node started with peer ID: {}", peer_id);
+    
+    // Your actors can now be registered and discovered across the network
     Ok(())
 }
 ```
 
-Once the swarm is bootstrapped and listening, the node can register actors, dial other peers, and send messages. This setup ensures the node is part of the network and ready to accept and route messages.
+This automatically:
+- Creates a libp2p swarm with TCP and QUIC transports
+- Enables mDNS for local peer discovery
+- Starts listening on an OS-assigned port (`0.0.0.0:0`)
+- Initializes the global actor registry
+- Returns your node's `PeerId` for reference
+
+## Bootstrap on Specific Address
+
+If you need to listen on a specific address (useful for known deployments or port requirements), use `bootstrap_on()`:
+
+```rust
+use kameo::remote;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Bootstrap listening on a specific port
+    let peer_id = remote::bootstrap_on("/ip4/0.0.0.0/tcp/8020")?;
+    
+    println!("Node listening on port 8020 with peer ID: {}", peer_id);
+    Ok(())
+}
+```
+
+You can use various multiaddress formats:
+- `/ip4/0.0.0.0/tcp/8020` - TCP on port 8020
+- `/ip4/127.0.0.1/tcp/8020` - TCP on localhost only
+- `/ip4/0.0.0.0/udp/8020/quic-v1` - QUIC on port 8020
+
+## Complete Example
+
+Here's a full example showing how to bootstrap and immediately start using distributed actors:
+
+```rust
+use kameo::prelude::*;
+use kameo::remote;
+
+#[derive(Actor, RemoteActor)]
+struct GreeterActor;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Bootstrap the distributed actor system
+    let peer_id = remote::bootstrap()?;
+    println!("Node started: {}", peer_id);
+    
+    // Spawn and register a local actor
+    let greeter = GreeterActor::spawn_default();
+    greeter.register("greeter").await?;
+    println!("Greeter actor registered");
+    
+    // Look up all greeter actors in the network
+    let mut greeters = RemoteActorRef::<GreeterActor>::lookup_all("greeter");
+    while let Some(remote_greeter) = greeters.try_next().await? {
+        println!("Found greeter on peer: {:?}", remote_greeter.id().peer_id());
+    }
+    
+    // Keep the application running
+    tokio::signal::ctrl_c().await?;
+    Ok(())
+}
+```
+
+## What Bootstrap Includes
+
+The bootstrap functions automatically configure:
+
+- **Transports**: Both TCP and QUIC for maximum compatibility
+- **Security**: Noise protocol for encrypted connections  
+- **Multiplexing**: Yamux for efficient connection usage
+- **Discovery**: mDNS for automatic local peer discovery
+- **Timeouts**: 60-second idle connection timeout
+- **Actor System**: Full Kameo remote actor capabilities
+
+## When to Use Bootstrap
+
+Bootstrap is perfect for:
+- **Development and testing** - Get started quickly without configuration
+- **Simple deployments** - When default settings meet your needs
+- **Prototyping** - Rapid iteration on distributed actor logic
+- **Local networks** - Leverages mDNS for automatic peer discovery
+
+## When You Need Custom Configuration
+
+For production deployments or specific requirements, you may need a custom swarm setup instead of bootstrap:
+
+- **Custom transports** (WebSocket, memory, etc.)
+- **Different discovery mechanisms** (no mDNS, custom bootstrap peers)
+- **Integration with existing libp2p applications**
+- **Custom security or authentication**
+- **Specific connection management policies**
+
+In these cases, see [Custom Swarm Configuration](/distributed-actors/custom-swarm-configuration) for full control over your network setup.
+
+## Bootstrap Limitations
+
+Keep in mind that bootstrap:
+- Uses mDNS (local network discovery only)
+- Has fixed transport and security configuration
+- Cannot be combined with other libp2p behaviors
+- May not be suitable for production deployments
+
+For more advanced networking needs, the custom swarm approach provides complete flexibility.
 
 ---
 
-#### What’s Next?
+#### What's Next?
 
-Now that your node is part of the distributed system, it’s time to explore how to connect to other nodes and establish communication. In the next section, we’ll cover how to dial and connect to peers using multiaddresses.
+Now that your node is part of the distributed network, you can start registering actors and discovering peers. The bootstrap approach automatically handles peer discovery through mDNS, so nodes on the same local network will find each other automatically.
 
-Explore the next section on [Dialing and Connecting to Other Nodes](/distributed-actors/dialing-connecting-nodes) for more details.
+Continue to [Registering and Lookup](/distributed-actors/registering-looking-up-actors) to learn how to make your actors discoverable across the network.
