@@ -7,12 +7,51 @@
 //!
 //! ## Key Features
 //!
-//! - **Swarm Management**: The [`ActorSwarm`] struct handles a distributed swarm of nodes,
-//!   managing peer discovery and communication.
-//! - **Actor Registration**: Actors can be registered under a unique name and looked up across
-//!   the network using the [`RemoteActorRef`](crate::actor::RemoteActorRef).
-//! - **Message Routing**: Ensures reliable message delivery between nodes using a combination
-//!   of Kademlia DHT and libp2p's networking capabilities.
+//! - **Composable Architecture**: The [`Behaviour`] struct implements libp2p's `NetworkBehaviour`,
+//!   allowing seamless integration with existing libp2p applications and other protocols.
+//! - **Quick Bootstrap**: The [`bootstrap()`] and [`bootstrap_on()`] functions provide one-line
+//!   setup for development and simple deployments.
+//! - **Actor Registration & Discovery**: Actors can be registered under unique names and looked up
+//!   across the network using [`RemoteActorRef`](crate::actor::RemoteActorRef).
+//! - **Reliable Messaging**: Ensures reliable message delivery between nodes using a combination
+//!   of Kademlia DHT for discovery and request-response protocols for communication.
+//! - **Modular Design**: Separate [`messaging`] and [`registry`] modules handle different aspects
+//!   of distributed actor communication.
+//!
+//! ## Getting Started
+//!
+//! For quick prototyping and development:
+//!
+//! ```
+//! use kameo::remote;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // One line to bootstrap a distributed actor system
+//!     let peer_id = remote::bootstrap()?;
+//!     
+//!     // Now use actors normally
+//!     // actor_ref.register("my_actor").await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! For production deployments with custom configuration:
+//!
+//! ```no_run
+//! use kameo::remote;
+//! use libp2p::swarm::NetworkBehaviour;
+//!
+//! #[derive(NetworkBehaviour)]
+//! struct MyBehaviour {
+//!     kameo: remote::Behaviour,
+//!     // Add other libp2p behaviors as needed
+//! }
+//!
+//! // Create custom libp2p swarm with full control over
+//! // transports, discovery, and protocol composition
+//! ```
 
 use std::{any, collections::HashMap, error, str};
 

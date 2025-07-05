@@ -134,25 +134,13 @@ pub enum Event {
     },
 
     /// A peer has connected for whom no listen address is known.
-    ///
-    /// If the peer is to be added to the routing table, a known
-    /// listen address for the peer must be provided via [`Behaviour::add_address`].
     UnroutablePeer {
         /// Peer ID.
         peer: PeerId,
     },
 
     /// A connection to a peer has been established for whom a listen address
-    /// is known but the peer has not been added to the routing table either
-    /// because [`BucketInserts::Manual`] is configured or because
-    /// the corresponding bucket is full.
-    ///
-    /// If the peer is to be included in the routing table, it must
-    /// must be explicitly added via [`Behaviour::add_address`], possibly after
-    /// removing another peer.
-    ///
-    /// See [`Behaviour::kbucket`] for insight into the contents of
-    /// the k-bucket of `peer`.
+    /// is known but the peer has not been added to the routing table.
     RoutablePeer {
         /// Peer ID.
         peer: PeerId,
@@ -164,13 +152,6 @@ pub enum Event {
     /// is known but the peer is only pending insertion into the routing table
     /// if the least-recently disconnected peer is unresponsive, i.e. the peer
     /// may not make it into the routing table.
-    ///
-    /// If the peer is to be unconditionally included in the routing table,
-    /// it should be explicitly added via [`Behaviour::add_address`] after
-    /// removing another peer.
-    ///
-    /// See [`Behaviour::kbucket`] for insight into the contents of
-    /// the k-bucket of `peer`.
     PendingRoutablePeer {
         /// Peer ID.
         peer: PeerId,

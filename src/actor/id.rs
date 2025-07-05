@@ -98,7 +98,7 @@ impl ActorId {
     ///
     /// # Returns
     ///
-    /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no [`ActorSwarm`] has been bootstrapped.
+    /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no actor swarm has been bootstrapped.
     #[cfg(feature = "remote")]
     pub fn peer_id(&self) -> Option<&libp2p::PeerId> {
         self.peer_id.peer_id()
