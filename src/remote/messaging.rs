@@ -348,11 +348,13 @@ pub enum Event {
     },
 }
 
-/// The configuration for a `Behaviour` protocol.
-#[derive(Debug, Clone)]
+/// The configuration for a `messaging::Behaviour` protocol.
+#[derive(Debug, Clone, Copy)]
 pub struct Config {
     request_timeout: Duration,
     max_concurrent_streams: usize,
+    request_size_maximum: u64,
+    response_size_maximum: u64,
 }
 
 impl Default for Config {
@@ -360,6 +362,8 @@ impl Default for Config {
         Self {
             request_timeout: Duration::from_secs(10),
             max_concurrent_streams: 100,
+            request_size_maximum: 1024 * 1024,
+            response_size_maximum: 10 * 1024 * 1024,
         }
     }
 }
@@ -376,6 +380,18 @@ impl Config {
         self.max_concurrent_streams = num_streams;
         self
     }
+
+    /// Sets the limit for request size in bytes.
+    pub fn with_request_size_maximum(mut self, bytes: u64) -> Self {
+        self.request_size_maximum = bytes;
+        self
+    }
+
+    /// Sets the limit for response size in bytes.
+    pub fn with_response_size_maximum(mut self, bytes: u64) -> Self {
+        self.response_size_maximum = bytes;
+        self
+    }
 }
 
 impl From<Config> for request_response::Config {
@@ -383,6 +399,14 @@ impl From<Config> for request_response::Config {
         request_response::Config::default()
             .with_request_timeout(config.request_timeout)
             .with_max_concurrent_streams(config.max_concurrent_streams)
+    }
+}
+
+impl<Req, Resp> From<Config> for request_response::cbor::codec::Codec<Req, Resp> {
+    fn from(config: Config) -> Self {
+        request_response::cbor::codec::Codec::default()
+            .set_request_size_maximum(config.request_size_maximum)
+            .set_response_size_maximum(config.response_size_maximum)
     }
 }
 
@@ -400,7 +424,8 @@ pub struct Behaviour {
 impl Behaviour {
     /// Creates a new messaging behaviour.
     pub fn new(local_peer_id: PeerId, config: Config) -> Self {
-        let request_response = request_response::cbor::Behaviour::new(
+        let request_response = request_response::cbor::Behaviour::with_codec(
+            config.into(),
             [(PROTO_NAME, request_response::ProtocolSupport::Full)],
             config.into(),
         );

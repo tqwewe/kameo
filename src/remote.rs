@@ -14,7 +14,7 @@
 //! - **Message Routing**: Ensures reliable message delivery between nodes using a combination
 //!   of Kademlia DHT and libp2p's networking capabilities.
 
-use std::{any, collections::HashMap, error, fmt, str};
+use std::{any, collections::HashMap, error, str};
 
 use futures::StreamExt;
 use libp2p::{
