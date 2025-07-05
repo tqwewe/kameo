@@ -116,14 +116,15 @@ impl ActorId {
         bytes.extend(&self.sequence_id.to_le_bytes());
 
         #[cfg(feature = "remote")]
-        let peer_id_bytes = self
-            .peer_id
-            .peer_id()
-            .map(|peer_id| peer_id.to_bytes())
-            .or_else(|| ActorSwarm::get().map(|swarm| swarm.local_peer_id().to_bytes()));
-        #[cfg(feature = "remote")]
-        if let Some(peer_id_bytes) = peer_id_bytes {
-            bytes.extend(peer_id_bytes);
+        {
+            let peer_id_bytes = self
+                .peer_id()
+                .map(|peer_id| peer_id.to_bytes())
+                .or_else(|| ActorSwarm::get().map(|swarm| swarm.local_peer_id().to_bytes()));
+
+            if let Some(peer_id_bytes) = peer_id_bytes {
+                bytes.extend(peer_id_bytes);
+            }
         }
 
         bytes
