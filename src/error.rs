@@ -341,6 +341,233 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
+/// Reason for an actor being stopped.
+#[derive(Clone, Serialize, Deserialize)]
+pub enum ActorStopReason {
+    /// Actor stopped normally.
+    Normal,
+    /// Actor was killed.
+    Killed,
+    /// Actor panicked.
+    Panicked(PanicError),
+    /// Link died.
+    LinkDied {
+        /// Actor ID.
+        id: ActorId,
+        /// Actor died reason.
+        reason: Box<ActorStopReason>,
+    },
+    /// The peer was disconnected.
+    #[cfg(feature = "remote")]
+    PeerDisconnected,
+}
+
+impl fmt::Debug for ActorStopReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorStopReason::Normal => write!(f, "Normal"),
+            ActorStopReason::Killed => write!(f, "Killed"),
+            ActorStopReason::Panicked(_) => write!(f, "Panicked"),
+            ActorStopReason::LinkDied { id, reason } => f
+                .debug_struct("LinkDied")
+                .field("id", id)
+                .field("reason", &reason)
+                .finish(),
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => write!(f, "PeerDisconnected"),
+        }
+    }
+}
+
+impl fmt::Display for ActorStopReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorStopReason::Normal => write!(f, "actor stopped normally"),
+            ActorStopReason::Killed => write!(f, "actor was killed"),
+            ActorStopReason::Panicked(err) => err.fmt(f),
+            ActorStopReason::LinkDied { id, reason: _ } => {
+                write!(f, "link {id} died")
+            }
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => write!(f, "peer disconnected"),
+        }
+    }
+}
+
+/// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
+#[derive(Clone)]
+pub struct PanicError(Arc<Mutex<Box<dyn ReplyError>>>);
+
+impl PanicError {
+    /// Creates a new PanicError from a generic boxed reply error.
+    pub fn new(err: Box<dyn ReplyError>) -> Self {
+        PanicError(Arc::new(Mutex::new(err)))
+    }
+
+    pub(crate) fn new_from_panic_any(err: Box<dyn any::Any + Send>) -> Self {
+        err.downcast::<&'static str>()
+            .map(|s| PanicError::new(Box::new(*s)))
+            .or_else(|err| {
+                err.downcast::<String>()
+                    .map(|s| PanicError::new(Box::new(*s)))
+            })
+            .unwrap_or_else(|err| PanicError::new(Box::new(err)))
+    }
+
+    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a string,
+    /// or `None` if it's not a string type.
+    pub fn with_str<F, R>(&self, f: F) -> Option<R>
+    where
+        F: FnOnce(&str) -> R,
+    {
+        self.with(|any| {
+            any.downcast_ref::<&str>()
+                .copied()
+                .or_else(|| any.downcast_ref::<String>().map(String::as_str))
+                .map(f)
+        })
+    }
+
+    /// Downcasts and clones the inner error, returning `Some` if the panic error matches the type `T`.
+    pub fn downcast<T>(&self) -> Option<T>
+    where
+        T: ReplyError + Clone,
+    {
+        self.with_downcast_ref(|err: &T| err.clone())
+    }
+
+    /// Calls the passed closure `f` with the inner type downcast into `T`, otherwise returns `None`.
+    pub fn with_downcast_ref<T, F, R>(&self, f: F) -> Option<R>
+    where
+        T: ReplyError,
+        F: FnOnce(&T) -> R,
+    {
+        match self.0.lock() {
+            Ok(lock) => lock.downcast_ref().map(f),
+            Err(err) => err.get_ref().downcast_ref().map(f),
+        }
+    }
+
+    /// Returns a reference to the error as a `&Box<dyn ReplyError>`.
+    pub fn with<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&Box<dyn ReplyError>) -> R,
+    {
+        match self.0.lock() {
+            Ok(lock) => f(&lock),
+            Err(err) => f(err.get_ref()),
+        }
+    }
+}
+
+impl fmt::Display for PanicError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.with_str(|s| write!(f, "panicked: {s}"))
+            .unwrap_or_else(|| write!(f, "panicked"))
+    }
+}
+
+impl fmt::Debug for PanicError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut dbg_struct = f.debug_struct("PanicError");
+
+        self.with(|any| {
+            // Types are strings if panicked with the `std::panic!` macro
+            let s = any
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| any.downcast_ref::<String>().map(String::as_str));
+            if let Some(s) = s {
+                dbg_struct.field("err", &s);
+                return;
+            }
+
+            dbg_struct.field("err", any);
+        });
+
+        dbg_struct.finish()
+    }
+}
+
+impl error::Error for PanicError {}
+
+impl Serialize for PanicError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for PanicError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Ok(PanicError::new(Box::new(s)))
+    }
+}
+
+/// An infallible error type, similar to [std::convert::Infallible].
+///
+/// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.
+#[derive(Copy, Serialize, Deserialize)]
+pub enum Infallible {}
+
+impl Clone for Infallible {
+    #[allow(clippy::non_canonical_clone_impl)]
+    fn clone(&self) -> Infallible {
+        match *self {}
+    }
+}
+
+impl fmt::Debug for Infallible {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
+}
+
+impl fmt::Display for Infallible {
+    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {}
+    }
+}
+
+impl error::Error for Infallible {
+    fn description(&self) -> &str {
+        match *self {}
+    }
+}
+
+impl PartialEq for Infallible {
+    fn eq(&self, _: &Infallible) -> bool {
+        match *self {}
+    }
+}
+
+impl Eq for Infallible {}
+
+impl PartialOrd for Infallible {
+    #[allow(clippy::non_canonical_partial_ord_impl)]
+    fn partial_cmp(&self, _other: &Self) -> Option<cmp::Ordering> {
+        match *self {}
+    }
+}
+
+impl Ord for Infallible {
+    fn cmp(&self, _other: &Self) -> cmp::Ordering {
+        match *self {}
+    }
+}
+
+impl Hash for Infallible {
+    fn hash<H: Hasher>(&self, _: &mut H) {
+        match *self {}
+    }
+}
+
 /// An error that can occur when registering & looking up actors by name.
 #[derive(Debug)]
 pub enum RegistryError {
@@ -670,229 +897,17 @@ where
 #[cfg(feature = "remote")]
 impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {}
 
-/// Reason for an actor being stopped.
-#[derive(Clone, Serialize, Deserialize)]
-pub enum ActorStopReason {
-    /// Actor stopped normally.
-    Normal,
-    /// Actor was killed.
-    Killed,
-    /// Actor panicked.
-    Panicked(PanicError),
-    /// Link died.
-    LinkDied {
-        /// Actor ID.
-        id: ActorId,
-        /// Actor died reason.
-        reason: Box<ActorStopReason>,
-    },
-    /// The peer was disconnected.
-    #[cfg(feature = "remote")]
-    PeerDisconnected,
-}
+/// An error returned when the remote system has already been bootstrapped.
+#[cfg(feature = "remote")]
+#[derive(Clone, Copy, Debug)]
+pub struct SwarmAlreadyBootstrappedError;
 
-impl fmt::Debug for ActorStopReason {
+#[cfg(feature = "remote")]
+impl fmt::Display for SwarmAlreadyBootstrappedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ActorStopReason::Normal => write!(f, "Normal"),
-            ActorStopReason::Killed => write!(f, "Killed"),
-            ActorStopReason::Panicked(_) => write!(f, "Panicked"),
-            ActorStopReason::LinkDied { id, reason } => f
-                .debug_struct("LinkDied")
-                .field("id", id)
-                .field("reason", &reason)
-                .finish(),
-            #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => write!(f, "PeerDisconnected"),
-        }
+        write!(f, "swarm already bootstrapped")
     }
 }
 
-impl fmt::Display for ActorStopReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ActorStopReason::Normal => write!(f, "actor stopped normally"),
-            ActorStopReason::Killed => write!(f, "actor was killed"),
-            ActorStopReason::Panicked(err) => err.fmt(f),
-            ActorStopReason::LinkDied { id, reason: _ } => {
-                write!(f, "link {id} died")
-            }
-            #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => write!(f, "peer disconnected"),
-        }
-    }
-}
-
-/// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
-#[derive(Clone)]
-pub struct PanicError(Arc<Mutex<Box<dyn ReplyError>>>);
-
-impl PanicError {
-    /// Creates a new PanicError from a generic boxed reply error.
-    pub fn new(err: Box<dyn ReplyError>) -> Self {
-        PanicError(Arc::new(Mutex::new(err)))
-    }
-
-    pub(crate) fn new_from_panic_any(err: Box<dyn any::Any + Send>) -> Self {
-        err.downcast::<&'static str>()
-            .map(|s| PanicError::new(Box::new(*s)))
-            .or_else(|err| {
-                err.downcast::<String>()
-                    .map(|s| PanicError::new(Box::new(*s)))
-            })
-            .unwrap_or_else(|err| PanicError::new(Box::new(err)))
-    }
-
-    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a string,
-    /// or `None` if it's not a string type.
-    pub fn with_str<F, R>(&self, f: F) -> Option<R>
-    where
-        F: FnOnce(&str) -> R,
-    {
-        self.with(|any| {
-            any.downcast_ref::<&str>()
-                .copied()
-                .or_else(|| any.downcast_ref::<String>().map(String::as_str))
-                .map(f)
-        })
-    }
-
-    /// Downcasts and clones the inner error, returning `Some` if the panic error matches the type `T`.
-    pub fn downcast<T>(&self) -> Option<T>
-    where
-        T: ReplyError + Clone,
-    {
-        self.with_downcast_ref(|err: &T| err.clone())
-    }
-
-    /// Calls the passed closure `f` with the inner type downcast into `T`, otherwise returns `None`.
-    pub fn with_downcast_ref<T, F, R>(&self, f: F) -> Option<R>
-    where
-        T: ReplyError,
-        F: FnOnce(&T) -> R,
-    {
-        match self.0.lock() {
-            Ok(lock) => lock.downcast_ref().map(f),
-            Err(err) => err.get_ref().downcast_ref().map(f),
-        }
-    }
-
-    /// Returns a reference to the error as a `&Box<dyn ReplyError>`.
-    pub fn with<F, R>(&self, f: F) -> R
-    where
-        F: FnOnce(&Box<dyn ReplyError>) -> R,
-    {
-        match self.0.lock() {
-            Ok(lock) => f(&lock),
-            Err(err) => f(err.get_ref()),
-        }
-    }
-}
-
-impl fmt::Display for PanicError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.with_str(|s| write!(f, "panicked: {s}"))
-            .unwrap_or_else(|| write!(f, "panicked"))
-    }
-}
-
-impl fmt::Debug for PanicError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut dbg_struct = f.debug_struct("PanicError");
-
-        self.with(|any| {
-            // Types are strings if panicked with the `std::panic!` macro
-            let s = any
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| any.downcast_ref::<String>().map(String::as_str));
-            if let Some(s) = s {
-                dbg_struct.field("err", &s);
-                return;
-            }
-
-            dbg_struct.field("err", any);
-        });
-
-        dbg_struct.finish()
-    }
-}
-
-impl error::Error for PanicError {}
-
-impl Serialize for PanicError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for PanicError {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(PanicError::new(Box::new(s)))
-    }
-}
-
-/// An infallible error type, similar to [std::convert::Infallible].
-///
-/// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.
-#[derive(Copy, Serialize, Deserialize)]
-pub enum Infallible {}
-
-impl Clone for Infallible {
-    #[allow(clippy::non_canonical_clone_impl)]
-    fn clone(&self) -> Infallible {
-        match *self {}
-    }
-}
-
-impl fmt::Debug for Infallible {
-    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {}
-    }
-}
-
-impl fmt::Display for Infallible {
-    fn fmt(&self, _: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match *self {}
-    }
-}
-
-impl error::Error for Infallible {
-    fn description(&self) -> &str {
-        match *self {}
-    }
-}
-
-impl PartialEq for Infallible {
-    fn eq(&self, _: &Infallible) -> bool {
-        match *self {}
-    }
-}
-
-impl Eq for Infallible {}
-
-impl PartialOrd for Infallible {
-    #[allow(clippy::non_canonical_partial_ord_impl)]
-    fn partial_cmp(&self, _other: &Self) -> Option<cmp::Ordering> {
-        match *self {}
-    }
-}
-
-impl Ord for Infallible {
-    fn cmp(&self, _other: &Self) -> cmp::Ordering {
-        match *self {}
-    }
-}
-
-impl Hash for Infallible {
-    fn hash<H: Hasher>(&self, _: &mut H) {
-        match *self {}
-    }
-}
+#[cfg(feature = "remote")]
+impl error::Error for SwarmAlreadyBootstrappedError {}

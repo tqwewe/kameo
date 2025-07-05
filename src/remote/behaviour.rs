@@ -13,7 +13,7 @@ use libp2p::{
 };
 use tokio::sync::mpsc;
 
-use crate::error::ActorStopReason;
+use crate::error::{ActorStopReason, SwarmAlreadyBootstrappedError};
 
 use super::{
     messaging, registry, ActorSwarm, RemoteRegistryActorRef, SwarmCommand, REMOTE_REGISTRY,
@@ -85,16 +85,11 @@ impl Behaviour {
         }
     }
 
-    /// Initializes the global actor swarm for this behaviour.
+    /// Initializes the global actor swarm for this behaviour, panicking if its already been initialized.
     ///
     /// This method sets up the global communication channel that allows local actors
     /// to interact with the remote system. It must be called before any remote actor
     /// operations can be performed.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if initialization succeeds, or `Err(ActorSwarm)` if the global
-    /// swarm has already been initialized by another behaviour instance.
     ///
     /// # Example
     ///
@@ -106,15 +101,31 @@ impl Behaviour {
     /// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
     ///
     /// // Initialize the global swarm
-    /// behaviour.init_global().expect("Failed to initialize global swarm");
+    /// behaviour.init_global();
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// This method panics if another behaviour has already been initialized.
+    pub fn init_global(&self) {
+        self.try_init_global().unwrap()
+    }
+
+    /// Initializes the global actor swarm for this behaviour, returning an error if its already been initialized.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok` if initialization succeeds, or `Err` if the global
+    /// swarm has already been initialized by another behaviour instance.
     ///
     /// # Errors
     ///
     /// This method will return an error if `init_global()` has already been called
     /// on another `Behaviour` instance in the same process.
-    pub fn init_global(&self) -> Result<&'static ActorSwarm, &'static ActorSwarm> {
-        ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id).map_err(|(swarm_ref, _)| swarm_ref)
+    pub fn try_init_global(&self) -> Result<(), SwarmAlreadyBootstrappedError> {
+        ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id)
+            .map_err(|_| SwarmAlreadyBootstrappedError)?;
+        Ok(())
     }
 
     fn handle_command(&mut self, cmd: SwarmCommand) -> bool {

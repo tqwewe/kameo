@@ -14,13 +14,20 @@
 //! - **Message Routing**: Ensures reliable message delivery between nodes using a combination
 //!   of Kademlia DHT and libp2p's networking capabilities.
 
-use std::{any, collections::HashMap, str};
+use std::{any, collections::HashMap, error, fmt, str};
 
+use futures::StreamExt;
+use libp2p::{
+    mdns, noise,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux, PeerId, SwarmBuilder,
+};
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
     actor::{ActorId, Links},
+    error::RegistryError,
     mailbox::SignalMailbox,
 };
 
@@ -82,4 +89,106 @@ pub trait RemoteActor {
 pub trait RemoteMessage<M> {
     /// The remote identifier string.
     const REMOTE_ID: &'static str;
+}
+
+/// Bootstrap a simple actor swarm with mDNS discovery for local development.
+///
+/// This convenience function creates and runs a libp2p swarm with:
+/// - TCP and QUIC transports  
+/// - mDNS peer discovery (local network only)
+/// - Automatic listening on an OS-assigned port
+///
+/// For production use or custom configuration, use `kameo::remote::Behaviour`
+/// with your own libp2p swarm setup.
+///
+/// # Example
+/// ```ignore
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     // One line to get started!
+///     remote::bootstrap()?;
+///     
+///     // Now use remote actors normally
+///     let actor_ref = MyActor::spawn_default();
+///     actor_ref.register("my_actor").await?;
+///     Ok(())
+/// }
+/// ```
+pub fn bootstrap() -> Result<PeerId, Box<dyn error::Error>> {
+    bootstrap_on("/ip4/0.0.0.0/tcp/0")
+}
+
+/// Bootstrap with a specific listen address.
+pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
+    #[derive(NetworkBehaviour)]
+    struct BootstrapBehaviour {
+        kameo: Behaviour,
+        mdns: mdns::tokio::Behaviour,
+    }
+
+    let mut swarm = SwarmBuilder::with_new_identity()
+        .with_tokio()
+        .with_tcp(
+            tcp::Config::default(),
+            noise::Config::new,
+            yamux::Config::default,
+        )?
+        .with_quic()
+        .with_behaviour(|key| {
+            let local_peer_id = key.public().to_peer_id();
+            let kameo = Behaviour::new(local_peer_id, messaging::Config::default());
+            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
+
+            Ok(BootstrapBehaviour { kameo, mdns })
+        })?
+        .build();
+
+    swarm.behaviour().kameo.try_init_global()?;
+
+    swarm.listen_on(addr.parse()?)?;
+
+    let local_peer_id = *swarm.local_peer_id();
+
+    tokio::spawn(async move {
+        loop {
+            match swarm.select_next_some().await {
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Discovered(
+                    list,
+                ))) => {
+                    for (peer_id, multiaddr) in list {
+                        #[cfg(feature = "tracing")]
+                        tracing::info!("mDNS discovered a new peer: {peer_id}");
+                        swarm.add_peer_address(peer_id, multiaddr);
+                    }
+                }
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Expired(
+                    list,
+                ))) => {
+                    for (peer_id, _multiaddr) in list {
+                        #[cfg(feature = "tracing")]
+                        tracing::warn!("mDNS discover peer has expired: {peer_id}");
+                        let _ = swarm.disconnect_peer_id(peer_id);
+                    }
+                }
+                #[cfg(feature = "tracing")]
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    tracing::info!("ActorSwarm listening on {address}");
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(local_peer_id)
+}
+
+/// Unregisters an actor within the swarm.
+///
+/// This will only unregister an actor previously registered by the current node.
+pub async fn unregister(name: impl Into<String>) -> Result<(), RegistryError> {
+    ActorSwarm::get()
+        .ok_or(RegistryError::SwarmNotBootstrapped)?
+        .unregister(name.into())
+        .await;
+    Ok(())
 }

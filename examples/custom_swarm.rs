@@ -89,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     // Initialize the global Kameo swarm
-    swarm.behaviour().kameo.init_global().unwrap();
+    swarm.behaviour().kameo.init_global();
 
     // Listen on specific addresses - you have full control
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;

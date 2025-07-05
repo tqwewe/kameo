@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Starts the swarm, and listens on an OS assigned IP and port.
-    let local_peer_id = ActorSwarm::bootstrap()?.local_peer_id();
+    let local_peer_id = remote::bootstrap()?;
 
     // Register a local actor as "incrementor"
     let actor_ref = MyActor::spawn(MyActor { count: 0 });
@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
         while let Some(incrementor) = incrementors.try_next().await? {
             // Skip our local actor
-            if incrementor.id().peer_id() == Some(local_peer_id) {
+            if incrementor.id().peer_id() == Some(&local_peer_id) {
                 continue;
             }
 
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match incrementor
                 .ask(&Inc {
                     amount: 10,
-                    from: *local_peer_id,
+                    from: local_peer_id,
                 })
                 .await
             {

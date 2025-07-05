@@ -196,8 +196,6 @@ impl Behaviour {
     pub fn new(local_peer_id: PeerId) -> Self {
         let mut config = kad::Config::new(PROTO_NAME);
 
-        config.set_periodic_bootstrap_interval(Some(Duration::from_secs(15)));
-
         // Faster lookups for responsive actor discovery
         config.set_query_timeout(Duration::from_secs(10)); // Default: 60s
 
