@@ -113,8 +113,8 @@ impl Behaviour {
     ///
     /// This method will return an error if `init_global()` has already been called
     /// on another `Behaviour` instance in the same process.
-    pub fn init_global(&self) -> Result<(), ActorSwarm> {
-        ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id)
+    pub fn init_global(&self) -> Result<&'static ActorSwarm, &'static ActorSwarm> {
+        ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id).map_err(|(swarm_ref, _)| swarm_ref)
     }
 
     fn handle_command(&mut self, cmd: SwarmCommand) -> bool {

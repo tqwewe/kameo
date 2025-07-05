@@ -1,14 +1,10 @@
 use std::time::Duration;
 
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use kameo::prelude::*;
-use libp2p::{
-    mdns, noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, PeerId,
-};
+use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Actor, RemoteActor)]
@@ -36,12 +32,6 @@ impl Message<Inc> for MyActor {
     }
 }
 
-#[derive(NetworkBehaviour)]
-struct MyBehaviour {
-    kameo: remote::Behaviour,
-    mdns: mdns::tokio::Behaviour,
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -50,7 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    let local_peer_id = spawn_swarm()?;
+    // Starts the swarm, and listens on an OS assigned IP and port.
+    let local_peer_id = ActorSwarm::bootstrap()?.local_peer_id();
 
     // Register a local actor as "incrementor"
     let actor_ref = MyActor::spawn(MyActor { count: 0 });
@@ -62,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
         while let Some(incrementor) = incrementors.try_next().await? {
             // Skip our local actor
-            if incrementor.id().peer_id() == Some(&local_peer_id) {
+            if incrementor.id().peer_id() == Some(local_peer_id) {
                 continue;
             }
 
@@ -70,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match incrementor
                 .ask(&Inc {
                     amount: 10,
-                    from: local_peer_id,
+                    from: *local_peer_id,
                 })
                 .await
             {
@@ -81,56 +72,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
-}
-
-fn spawn_swarm() -> Result<PeerId, Box<dyn std::error::Error>> {
-    // Create libp2p swarm
-    let mut swarm = libp2p::SwarmBuilder::with_new_identity()
-        .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default,
-        )?
-        .with_behaviour(|key| {
-            let local_peer_id = key.public().to_peer_id();
-
-            let kameo = remote::Behaviour::new(local_peer_id, remote::messaging::Config::default());
-
-            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
-
-            Ok(MyBehaviour { kameo, mdns })
-        })?
-        .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
-        .build();
-
-    // Set this behaviour as the global behaviour
-    swarm.behaviour().kameo.init_global().unwrap();
-
-    // Listen on OS assigned IP and port
-    swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
-
-    let local_peer_id = *swarm.local_peer_id();
-    tokio::spawn(async move {
-        // Run the swarm by progressing the stream
-        loop {
-            match swarm.select_next_some().await {
-                SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
-                    for (peer_id, multiaddr) in list {
-                        info!("mDNS discovered a new peer: {peer_id}");
-                        swarm.add_peer_address(peer_id, multiaddr);
-                    }
-                }
-                SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
-                    for (peer_id, _multiaddr) in list {
-                        warn!("mDNS discover peer has expired: {peer_id}");
-                        let _ = swarm.disconnect_peer_id(peer_id);
-                    }
-                }
-                _ => {}
-            }
-        }
-    });
-
-    Ok(local_peer_id)
 }

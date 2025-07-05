@@ -1,14 +1,19 @@
 use core::task;
-use std::{borrow::Cow, marker::PhantomData, pin, str, task::Poll, time::Duration};
+use std::{borrow::Cow, error, fmt, marker::PhantomData, pin, str, task::Poll, time::Duration};
 
 use futures::{ready, Future, FutureExt, Stream, StreamExt};
-use libp2p::PeerId;
+use libp2p::{
+    mdns, noise,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux, PeerId, SwarmBuilder,
+};
 use once_cell::sync::OnceCell;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
     actor::{ActorId, ActorRef, RemoteActorRef},
     error::{ActorStopReason, Infallible, RegistryError, RemoteSendError},
+    remote::messaging,
     Actor,
 };
 
@@ -45,6 +50,111 @@ pub struct ActorSwarm {
 }
 
 impl ActorSwarm {
+    /// Bootstrap a simple actor swarm with mDNS discovery for local development.
+    ///
+    /// This convenience function creates and runs a libp2p swarm with:
+    /// - TCP and QUIC transports  
+    /// - mDNS peer discovery (local network only)
+    /// - Automatic listening on an OS-assigned port
+    ///
+    /// For production use or custom configuration, use `kameo::remote::Behaviour`
+    /// with your own libp2p swarm setup.
+    ///
+    /// # Example
+    /// ```
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     // One line to get started!
+    ///     ActorSwarm::bootstrap()?;
+    ///     
+    ///     // Now use remote actors normally
+    ///     let actor_ref = MyActor::spawn_default();
+    ///     actor_ref.register("my_actor").await?;
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn bootstrap() -> Result<&'static Self, Box<dyn error::Error>> {
+        Self::bootstrap_on("/ip4/0.0.0.0/tcp/0")
+    }
+
+    /// Bootstrap with a specific listen address.
+    pub fn bootstrap_on(addr: &str) -> Result<&'static Self, Box<dyn error::Error>> {
+        #[derive(NetworkBehaviour)]
+        struct BootstrapBehaviour {
+            kameo: super::Behaviour,
+            mdns: mdns::tokio::Behaviour,
+        }
+
+        let mut swarm = SwarmBuilder::with_new_identity()
+            .with_tokio()
+            .with_tcp(
+                tcp::Config::default(),
+                noise::Config::new,
+                yamux::Config::default,
+            )?
+            .with_quic()
+            .with_behaviour(|key| {
+                let local_peer_id = key.public().to_peer_id();
+                let kameo = super::Behaviour::new(local_peer_id, messaging::Config::default());
+                let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
+
+                Ok(BootstrapBehaviour { kameo, mdns })
+            })?
+            .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
+            .build();
+
+        #[derive(Debug)]
+        struct SwarmAlreadyBootstrappedError;
+
+        impl fmt::Display for SwarmAlreadyBootstrappedError {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "swarm already bootstrapped")
+            }
+        }
+
+        impl error::Error for SwarmAlreadyBootstrappedError {}
+
+        let swarm_ref = swarm
+            .behaviour()
+            .kameo
+            .init_global()
+            .map_err(|_| SwarmAlreadyBootstrappedError)?;
+
+        swarm.listen_on(addr.parse()?)?;
+
+        tokio::spawn(async move {
+            loop {
+                match swarm.select_next_some().await {
+                    SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(
+                        mdns::Event::Discovered(list),
+                    )) => {
+                        for (peer_id, multiaddr) in list {
+                            #[cfg(feature = "tracing")]
+                            tracing::info!("mDNS discovered a new peer: {peer_id}");
+                            swarm.add_peer_address(peer_id, multiaddr);
+                        }
+                    }
+                    SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Expired(
+                        list,
+                    ))) => {
+                        for (peer_id, _multiaddr) in list {
+                            #[cfg(feature = "tracing")]
+                            tracing::warn!("mDNS discover peer has expired: {peer_id}");
+                            let _ = swarm.disconnect_peer_id(peer_id);
+                        }
+                    }
+                    SwarmEvent::NewListenAddr { address, .. } => {
+                        #[cfg(feature = "tracing")]
+                        tracing::info!("ActorSwarm listening on {address}");
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        Ok(swarm_ref)
+    }
+
     /// Retrieves a reference to the current `ActorSwarm` if it has been bootstrapped.
     ///
     /// This function is useful for getting access to the swarm after initialization without
@@ -59,8 +169,8 @@ impl ActorSwarm {
     pub(crate) fn set(
         swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
         local_peer_id: PeerId,
-    ) -> Result<(), ActorSwarm> {
-        ACTOR_SWARM.set(ActorSwarm {
+    ) -> Result<&'static Self, (&'static Self, Self)> {
+        ACTOR_SWARM.try_insert(ActorSwarm {
             swarm_tx: SwarmSender(swarm_tx),
             local_peer_id,
         })
