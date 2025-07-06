@@ -18,7 +18,7 @@
 //!
 //! ```
 //! use kameo::Actor;
-//! use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
+//! use kameo_actors::{DeliveryStrategy, pubsub::{PubSub, Publish, Subscribe}};
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -30,7 +30,7 @@
 //! # }
 //!
 //! # tokio_test::block_on(async {
-//! let mut pubsub = PubSub::new();
+//! let mut pubsub = PubSub::new(DeliveryStrategy::Guaranteed);
 //! let actor_ref = MyActor::spawn(MyActor);
 //!
 //! // Use PubSub as a standalone object
@@ -38,7 +38,7 @@
 //! pubsub.publish("Hello, World!").await;
 //!
 //! // Or spawn PubSub as an actor and use messages
-//! let pubsub_actor_ref = PubSub::spawn(PubSub::new());
+//! let pubsub_actor_ref = PubSub::spawn(PubSub::new(DeliveryStrategy::Guaranteed));
 //! pubsub_actor_ref.tell(Subscribe(actor_ref)).await?;
 //! pubsub_actor_ref.tell(Publish("Hello, spawned world!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -86,13 +86,13 @@ impl<M> PubSub<M> {
     /// # Example
     ///
     /// ```
-    /// use kameo_actors::pubsub::PubSub;
+    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
     ///
     /// #[derive(Clone)]
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub = PubSub::new();
+    /// let mut pubsub = PubSub::new(DeliveryStrategy::Guaranteed);
     /// pubsub.publish(Msg("Hello!".to_string())).await;
     /// # })
     /// ```
@@ -154,7 +154,7 @@ impl<M> PubSub<M> {
     ///
     /// ```
     /// # use kameo::Actor;
-    /// use kameo_actors::pubsub::PubSub;
+    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -169,7 +169,7 @@ impl<M> PubSub<M> {
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub: PubSub<Msg> = PubSub::new();
+    /// let mut pubsub: PubSub<Msg> = PubSub::new(DeliveryStrategy::Guaranteed);
     ///
     /// let actor_ref = MyActor::spawn(MyActor);
     /// pubsub.subscribe(actor_ref);
@@ -196,7 +196,7 @@ impl<M> PubSub<M> {
     ///
     /// ```
     /// # use kameo::Actor;
-    /// use kameo_actors::pubsub::PubSub;
+    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -211,7 +211,7 @@ impl<M> PubSub<M> {
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub = PubSub::new();
+    /// let mut pubsub = PubSub::new(DeliveryStrategy::Guaranteed);
     ///
     /// let actor_ref = MyActor::spawn(MyActor);
     /// pubsub.subscribe_filter(actor_ref, |Msg(msg)| msg.starts_with("my-topic:"));
