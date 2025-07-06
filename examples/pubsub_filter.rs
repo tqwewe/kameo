@@ -1,5 +1,8 @@
 use kameo::prelude::*;
-use kameo_actors::pubsub::{PubSub, Publish, Subscribe, SubscribeFilter};
+use kameo_actors::{
+    pubsub::{PubSub, Publish, Subscribe, SubscribeFilter},
+    DeliveryStrategy,
+};
 
 #[derive(Clone)]
 struct PrintActorId(String);
@@ -51,7 +54,7 @@ impl Message<PrintActorId> for ActorC {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pubsub = PubSub::spawn(PubSub::<PrintActorId>::new());
+    let pubsub = PubSub::spawn(PubSub::<PrintActorId>::new(DeliveryStrategy::Guaranteed));
 
     let actor_a = ActorA::spawn(ActorA);
     let actor_b = ActorB::spawn(ActorB);

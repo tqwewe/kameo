@@ -18,7 +18,7 @@
 //!
 //! ```
 //! use kameo::Actor;
-//! use kameo_actors::pubsub::{PubSub, Publish, Subscribe};
+//! use kameo_actors::{DeliveryStrategy, pubsub::{PubSub, Publish, Subscribe}};
 //! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
@@ -30,7 +30,7 @@
 //! # }
 //!
 //! # tokio_test::block_on(async {
-//! let mut pubsub = PubSub::new();
+//! let mut pubsub = PubSub::new(DeliveryStrategy::Guaranteed);
 //! let actor_ref = MyActor::spawn(MyActor);
 //!
 //! // Use PubSub as a standalone object
@@ -38,17 +38,19 @@
 //! pubsub.publish("Hello, World!").await;
 //!
 //! // Or spawn PubSub as an actor and use messages
-//! let pubsub_actor_ref = PubSub::spawn(PubSub::new());
+//! let pubsub_actor_ref = PubSub::spawn(PubSub::new(DeliveryStrategy::Guaranteed));
 //! pubsub_actor_ref.tell(Subscribe(actor_ref)).await?;
 //! pubsub_actor_ref.tell(Publish("Hello, spawned world!")).await?;
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! # });
 //! ```
 
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
-use futures::future::{BoxFuture, join_all};
+use futures::future::BoxFuture;
 use kameo::{error::Infallible, prelude::*};
+
+use crate::DeliveryStrategy;
 
 type Subscriber<M> = Box<dyn MessageSubscriber<M> + Send>;
 type FilterFn<M> = Box<dyn FnMut(&M) -> bool + Send>;
@@ -61,6 +63,7 @@ type FilterFn<M> = Box<dyn FnMut(&M) -> bool + Send>;
 /// to manage it directly or interact with it via messages.
 #[allow(missing_debug_implementations)]
 pub struct PubSub<M> {
+    delivery_strategy: DeliveryStrategy,
     subscribers: HashMap<ActorId, (Subscriber<M>, FilterFn<M>)>,
 }
 
@@ -68,8 +71,9 @@ impl<M> PubSub<M> {
     /// Creates a new pubsub instance.
     ///
     /// This initializes the pubsub actor with an empty list of subscribers.
-    pub fn new() -> Self {
+    pub fn new(delivery_strategy: DeliveryStrategy) -> Self {
         PubSub {
+            delivery_strategy,
             subscribers: HashMap::new(),
         }
     }
@@ -82,13 +86,13 @@ impl<M> PubSub<M> {
     /// # Example
     ///
     /// ```
-    /// use kameo_actors::pubsub::PubSub;
+    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
     ///
     /// #[derive(Clone)]
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub = PubSub::new();
+    /// let mut pubsub = PubSub::new(DeliveryStrategy::Guaranteed);
     /// pubsub.publish(Msg("Hello!".to_string())).await;
     /// # })
     /// ```
@@ -99,15 +103,35 @@ impl<M> PubSub<M> {
     where
         M: Clone + Send + 'static,
     {
-        let results = join_all(self.subscribers.iter_mut().filter_map(
-            |(id, (subscriber, filter))| {
-                filter(&msg).then_some({
-                    let msg = msg.clone();
-                    async move { (*id, subscriber.tell(msg).await) }
-                })
-            },
-        ))
-        .await;
+        let mut results = Vec::new();
+        for (id, (subscriber, filter)) in self.subscribers.iter_mut() {
+            if filter(&msg) {
+                let msg = msg.clone();
+                match self.delivery_strategy {
+                    DeliveryStrategy::Guaranteed => {
+                        let result = subscriber.tell(msg).await;
+                        results.push((*id, result));
+                    }
+                    DeliveryStrategy::BestEffort => {
+                        let result = subscriber.try_tell(msg);
+                        results.push((*id, result));
+                    }
+                    DeliveryStrategy::TimedDelivery(timeout) => {
+                        let result = subscriber.tell_timeout(msg, timeout).await;
+                        results.push((*id, result));
+                    }
+                    DeliveryStrategy::Spawned => {
+                        let subscriber = subscriber.clone_as_message_subscriber();
+                        tokio::spawn(async move { subscriber.tell(msg).await });
+                    }
+                    DeliveryStrategy::SpawnedWithTimeout(timeout) => {
+                        let subscriber = subscriber.clone_as_message_subscriber();
+                        tokio::spawn(async move { subscriber.tell_timeout(msg, timeout).await });
+                    }
+                }
+            }
+        }
+
         for (id, result) in results.into_iter() {
             match result {
                 Ok(_) => {}
@@ -130,7 +154,7 @@ impl<M> PubSub<M> {
     ///
     /// ```
     /// # use kameo::Actor;
-    /// use kameo_actors::pubsub::PubSub;
+    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -145,7 +169,7 @@ impl<M> PubSub<M> {
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub: PubSub<Msg> = PubSub::new();
+    /// let mut pubsub: PubSub<Msg> = PubSub::new(DeliveryStrategy::Guaranteed);
     ///
     /// let actor_ref = MyActor::spawn(MyActor);
     /// pubsub.subscribe(actor_ref);
@@ -172,7 +196,7 @@ impl<M> PubSub<M> {
     ///
     /// ```
     /// # use kameo::Actor;
-    /// use kameo_actors::pubsub::PubSub;
+    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -187,7 +211,7 @@ impl<M> PubSub<M> {
     /// struct Msg(String);
     ///
     /// # tokio_test::block_on(async {
-    /// let mut pubsub = PubSub::new();
+    /// let mut pubsub = PubSub::new(DeliveryStrategy::Guaranteed);
     ///
     /// let actor_ref = MyActor::spawn(MyActor);
     /// pubsub.subscribe_filter(actor_ref, |Msg(msg)| msg.starts_with("my-topic:"));
@@ -218,7 +242,7 @@ impl<M: 'static> Actor for PubSub<M> {
 
 impl<M> Default for PubSub<M> {
     fn default() -> Self {
-        PubSub::new()
+        PubSub::new(DeliveryStrategy::default())
     }
 }
 
@@ -292,8 +316,14 @@ where
     }
 }
 
-trait MessageSubscriber<M> {
+trait MessageSubscriber<M>: CloneAsMessageSubscriber<M> + Send {
     fn tell(&self, msg: M) -> BoxFuture<'_, Result<(), SendError<M, ()>>>;
+    fn try_tell(&self, msg: M) -> Result<(), SendError<M, ()>>;
+    fn tell_timeout(
+        &self,
+        msg: M,
+        timeout: Duration,
+    ) -> BoxFuture<'_, Result<(), SendError<M, ()>>>;
 }
 
 impl<A, M> MessageSubscriber<M> for ActorRef<A>
@@ -308,5 +338,33 @@ where
                 .await
                 .map_err(|err| err.map_err(|_| ()))
         })
+    }
+
+    fn try_tell(&self, msg: M) -> Result<(), SendError<M, ()>> {
+        self.tell(msg).try_send().map_err(|err| err.map_err(|_| ()))
+    }
+
+    fn tell_timeout(
+        &self,
+        msg: M,
+        timeout: Duration,
+    ) -> BoxFuture<'_, Result<(), SendError<M, ()>>> {
+        Box::pin(async move {
+            self.tell(msg)
+                .mailbox_timeout(timeout)
+                .send()
+                .await
+                .map_err(|err| err.map_err(|_| ()))
+        })
+    }
+}
+
+trait CloneAsMessageSubscriber<M> {
+    fn clone_as_message_subscriber(&self) -> Box<dyn MessageSubscriber<M>>;
+}
+
+impl<T: MessageSubscriber<M> + Clone + 'static, M> CloneAsMessageSubscriber<M> for T {
+    fn clone_as_message_subscriber(&self) -> Box<dyn MessageSubscriber<M>> {
+        Box::new(self.clone())
     }
 }
