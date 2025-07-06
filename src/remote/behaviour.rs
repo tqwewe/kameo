@@ -196,7 +196,7 @@ impl Behaviour {
                     payload,
                     mailbox_timeout,
                     immediate,
-                    Some(reply),
+                    reply,
                 );
                 true
             }

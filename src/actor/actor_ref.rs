@@ -1370,7 +1370,7 @@ where
     /// # tokio_test::block_on(async {
     /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
     /// # let msg = Msg;
-    /// remote_actor_ref.tell(&msg).await?;
+    /// remote_actor_ref.tell(&msg).send()?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
