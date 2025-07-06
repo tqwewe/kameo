@@ -20,9 +20,6 @@ To streamline the creation of actors and reduce repetitive boilerplate, Kameo of
 When using the derive macro, you can customize your actor with the following attributes:
 
 - `#[actor(name = "...")]`: This attribute allows you to assign a custom name to your actor. By default, Kameo uses the actor's identifier (ident) as its name. Specifying a custom name can be useful for logging.
-- `#[actor(mailbox = ...)]`: Through this attribute, you can define the type of mailbox your actor should use. Kameo supports two mailbox types: `bounded` and `unbounded`.
-    - **Bounded Mailbox**: For a `bounded` mailbox, you have the option to specify its capacity using the syntax `bounded(<size>)`, where `<size>` represents the maximum number of messages the mailbox can hold. If not specified, a default size of 1,000 is used.
-    - **Unbounded Mailbox**: An `unbounded` mailbox does not have a size limit, meaning it can grow indefinitely as more messages are received. While this ensures that no message is ever rejected due to mailbox capacity, it could potentially lead to increased memory usage under high load or if the actor is unable to process messages quickly enough.
 
 **Example**
 
@@ -30,7 +27,7 @@ When using the derive macro, you can customize your actor with the following att
 use kameo::Actor;
 
 #[derive(Actor)]
-#[actor(name = "MyAmazingActor", mailbox = bounded(64))]
+#[actor(name = "MyAmazingActor")]
 struct MyActor { }
 ```
 
@@ -45,17 +42,24 @@ struct MyActor { }
 
 Creating an actor involves implementing the `Actor` trait and then spawning the actor using `Actor::spawn`. Upon spawning, an `ActorRef<T>` is returned, which is used to send messages to the actor. The actor processes messages using the `handle` method from the `Message` trait, optionally returning a reply.
 
+### Configuring the Mailbox
+
+Actors by default spawn with a bounded mailbox with a capacity of 64. This can be configured when spawning the actor by using one of the `_with_mailbox` spawn methods on the `Actor`.
+
+Available mailboxes are `bounded` and `unbounded`, which can be imported from the `kameo::mailbox` module.
+
 ### Example Usage
 
 ```rust
 struct MyActor;
 
 impl Actor for MyActor {
-    type Mailbox = BoundedMailbox<Self>;
+    type Args = Self;
+    type Error = Infallible;
 
-    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), BoxError> {
+    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         println!("Actor started");
-        Ok(())
+        Ok(MyActor)
     }
 
     // Implement other lifecycle hooks as needed...
@@ -63,6 +67,9 @@ impl Actor for MyActor {
 
 // Spawning the actor
 let actor_ref = MyActor::spawn(MyActor);
+
+// Spawn with an unbounded mailbox
+let actor_ref = MyActor::spawn_with_mailbox(mailbox::unbounded());
 ```
 
 The above example demonstrates defining a simple actor and spawning it. The actor prints a message upon starting, showcasing the use of the `on_start` lifecycle hook.
