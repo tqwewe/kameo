@@ -459,7 +459,7 @@ pub(crate) enum SwarmCommand {
         /// Fail if mailbox is full.
         immediate: bool,
         /// Reply sender.
-        reply: oneshot::Sender<SwarmResponse>,
+        reply: Option<oneshot::Sender<SwarmResponse>>,
     },
     /// An actor link request.
     Link {
