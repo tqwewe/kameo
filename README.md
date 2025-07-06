@@ -43,11 +43,6 @@ Kameo is not just for distributed applications; it's equally powerful for local 
 
 ## Getting Started
 
-### Prerequisites
-
-- Rust installed (use [rustup](https://rustup.rs) for installation)
-- Familiarity with asynchronous programming in Rust (recommended but not required)
-
 ### Installation
 
 Add Kameo as a dependency in your `Cargo.toml` file:
