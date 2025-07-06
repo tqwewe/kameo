@@ -16,7 +16,7 @@
 //! - Importantly, when messages are sent asynchronously with [`tell`](crate::actor::ActorRef::tell) and an error is returned by the actor
 //!   without a direct means for the caller to handle it (due to the absence of a reply expectation), the error is treated
 //!   as a panic within the actor. This behavior will trigger the actor's [`on_panic`](crate::actor::Actor::on_panic) hook, which may result in the actor
-//!   being restarted or stopped based on the [Actor](crate::Actor) implementation (which stops the actor by default).
+//!   being restarted or stopped based on the [Actor] implementation (which stops the actor by default).
 //!
 //! The `Reply` trait, by encompassing a broad range of types and defining specific behaviors for error handling,
 //! ensures that actors can manage their communication responsibilities efficiently and effectively.

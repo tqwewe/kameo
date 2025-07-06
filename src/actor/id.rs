@@ -98,7 +98,7 @@ impl ActorId {
     ///
     /// # Returns
     ///
-    /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no [`ActorSwarm`] has been bootstrapped.
+    /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no actor swarm has been bootstrapped.
     #[cfg(feature = "remote")]
     pub fn peer_id(&self) -> Option<&libp2p::PeerId> {
         self.peer_id.peer_id()
@@ -334,6 +334,8 @@ mod tests {
     #[cfg(feature = "remote")]
     fn test_actor_id_partial_eq_remote() {
         // Unbootstrapped
+        use tokio::sync::mpsc;
+
         let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
@@ -348,8 +350,7 @@ mod tests {
 
         // Bootstrapped
         let local_peer_id = local_peer_id();
-        dbg!(local_peer_id.to_bytes());
-        ActorSwarm::bootstrap_manual(local_peer_id);
+        let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
         assert_eq!(id1.peer_id(), Some(&local_peer_id));
         assert_eq!(id2.peer_id(), Some(&local_peer_id));
 
@@ -435,6 +436,8 @@ mod tests {
     #[cfg(feature = "remote")]
     fn test_actor_id_hash_remote() {
         // Unbootstrapped
+        use tokio::sync::mpsc;
+
         let id1 = ActorId {
             sequence_id: 0,
             peer_id: PeerIdKind::Local,
@@ -450,7 +453,7 @@ mod tests {
 
         // Bootstrapped
         let local_peer_id = local_peer_id();
-        ActorSwarm::bootstrap_manual(local_peer_id);
+        let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
         assert_eq!(id1.peer_id(), Some(&local_peer_id));
         assert_eq!(id2.peer_id(), Some(&local_peer_id));
 
