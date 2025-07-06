@@ -1135,6 +1135,7 @@ impl NetworkBehaviour for Behaviour {
         }) = event
         {
             // Remove requests for this peer id
+            #[cfg_attr(feature = "remote", allow(clippy::incompatible_msrv))]
             let dead_requests = self
                 .requests
                 .extract_if(|_, (req_peer_id, _)| req_peer_id == &peer_id);
