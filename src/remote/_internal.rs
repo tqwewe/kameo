@@ -6,7 +6,7 @@ pub use linkme;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
-use crate::actor::{ActorId, ActorRef, Link};
+use crate::actor::{ActorId, Link};
 use crate::error::{ActorStopReason, Infallible, RemoteSendError};
 use crate::message::Message;
 use crate::{Actor, Reply};
@@ -97,10 +97,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
     let msg: M = rmp_serde::decode::from_slice(&msg)
         .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
@@ -139,10 +136,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
     let msg: M = rmp_serde::decode::from_slice(&msg)
         .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
@@ -178,10 +172,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
     let msg: M = rmp_serde::decode::from_slice(&msg)
         .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
@@ -207,10 +198,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
     let msg: M = rmp_serde::decode::from_slice(&msg)
         .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
@@ -235,10 +223,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
 
     actor_ref
@@ -262,10 +247,7 @@ where
         remote_actors
             .get(&actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
 
     actor_ref.links.lock().await.remove(&sibbling_id);
@@ -286,10 +268,7 @@ where
         remote_actors
             .get(&notified_actor_id)
             .ok_or(RemoteSendError::ActorNotRunning)?
-            .actor_ref
-            .downcast_ref::<ActorRef<A>>()
-            .ok_or(RemoteSendError::BadActorType)?
-            .clone()
+            .downcast::<A>()?
     };
 
     actor_ref

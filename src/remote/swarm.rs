@@ -18,7 +18,7 @@ use super::{
         ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply,
         UnregisterReply,
     },
-    RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
+    DowncastRegsiteredActorRefError, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
 static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
@@ -99,13 +99,13 @@ impl ActorSwarm {
             let Some(actor_ref_any) = registry.get(&actor_id) else {
                 return Ok(None);
             };
-            let actor_ref = actor_ref_any
-                .actor_ref
-                .downcast_ref::<ActorRef<A>>()
-                .ok_or(RegistryError::BadActorType)?
-                .clone();
-
-            Ok(Some(actor_ref))
+            match actor_ref_any.downcast() {
+                Ok(actor_ref) => Ok(Some(actor_ref)),
+                Err(DowncastRegsiteredActorRefError::BadActorType) => {
+                    Err(RegistryError::BadActorType)
+                }
+                Err(DowncastRegsiteredActorRefError::ActorNotRunning) => Ok(None),
+            }
         }
     }
 
@@ -168,16 +168,10 @@ impl ActorSwarm {
             let res = reply_rx.await;
             match res {
                 Ok(()) | Err(RegistryError::QuorumFailed { .. }) => {
-                    let signal_mailbox = actor_ref.weak_signal_mailbox();
-                    let links = actor_ref.links.clone();
-                    REMOTE_REGISTRY.lock().await.insert(
-                        actor_ref.id(),
-                        RemoteRegistryActorRef {
-                            actor_ref: Box::new(actor_ref),
-                            signal_mailbox,
-                            links,
-                        },
-                    );
+                    REMOTE_REGISTRY
+                        .lock()
+                        .await
+                        .insert(actor_ref.id(), RemoteRegistryActorRef::new(actor_ref));
 
                     Ok(())
                 }
@@ -267,6 +261,10 @@ impl ActorSwarm {
                 _ => panic!("got an unexpected swarm response"),
             }
         }
+    }
+
+    pub(crate) fn sender(&self) -> &SwarmSender {
+        &self.swarm_tx
     }
 }
 
