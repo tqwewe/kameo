@@ -5,14 +5,14 @@ use std::{
     borrow::{Borrow, Cow},
     collections::{hash_map::Keys, HashMap},
     hash::Hash,
-    sync::{Arc, LazyLock, Mutex},
+    sync::{LazyLock, Mutex},
 };
 
 use crate::{actor::ActorRef, error::RegistryError, Actor};
 
 /// Global actor registry for local actors.
-pub static ACTOR_REGISTRY: LazyLock<Arc<Mutex<ActorRegistry>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(ActorRegistry::new())));
+pub static ACTOR_REGISTRY: LazyLock<Mutex<ActorRegistry>> =
+    LazyLock::new(|| Mutex::new(ActorRegistry::new()));
 
 type AnyActorRef = Box<dyn Any + Send>;
 
