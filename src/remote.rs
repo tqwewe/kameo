@@ -53,7 +53,7 @@
 //! // transports, discovery, and protocol composition
 //! ```
 
-use std::{any, collections::HashMap, error, str};
+use std::{any, collections::HashMap, error, str, sync::LazyLock};
 
 use futures::StreamExt;
 use libp2p::{
@@ -61,7 +61,6 @@ use libp2p::{
     swarm::{NetworkBehaviour, SwarmEvent},
     tcp, yamux, PeerId, SwarmBuilder,
 };
-use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
@@ -81,8 +80,8 @@ mod swarm;
 pub use behaviour::*;
 pub use swarm::*;
 
-pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) struct RemoteRegistryActorRef {
     actor_ref: BoxRegisteredActorRef,

@@ -1,9 +1,8 @@
 use core::task;
-use std::{borrow::Cow, marker::PhantomData, pin, str, task::Poll, time::Duration};
+use std::{borrow::Cow, marker::PhantomData, pin, str, sync::OnceLock, task::Poll, time::Duration};
 
 use futures::{ready, Future, FutureExt, Stream, StreamExt};
 use libp2p::PeerId;
-use once_cell::sync::OnceCell;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
@@ -21,7 +20,7 @@ use super::{
     DowncastRegsiteredActorRefError, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
-static ACTOR_SWARM: OnceCell<ActorSwarm> = OnceCell::new();
+static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
 
 /// `ActorSwarm` is the core component for remote actors within Kameo.
 ///
@@ -59,8 +58,8 @@ impl ActorSwarm {
     pub(crate) fn set(
         swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
         local_peer_id: PeerId,
-    ) -> Result<&'static Self, (&'static Self, Self)> {
-        ACTOR_SWARM.try_insert(ActorSwarm {
+    ) -> Result<(), Self> {
+        ACTOR_SWARM.set(ActorSwarm {
             swarm_tx: SwarmSender(swarm_tx),
             local_peer_id,
         })
