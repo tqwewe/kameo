@@ -655,14 +655,10 @@ where
             return Ok(());
         }
 
-        remote::REMOTE_REGISTRY.lock().await.insert(
-            self.id,
-            remote::RemoteRegistryActorRef {
-                actor_ref: Box::new(self.clone()),
-                signal_mailbox: self.weak_signal_mailbox(),
-                links: self.links.clone(),
-            },
-        );
+        remote::REMOTE_REGISTRY
+            .lock()
+            .await
+            .insert(self.id, remote::RemoteRegistryActorRef::new(self.clone()));
 
         self.links.lock().await.insert(
             sibbling_ref.id,
@@ -876,6 +872,50 @@ where
     /// Returns a reference to the mailbox sender.
     pub fn mailbox_sender(&self) -> &MailboxSender<A> {
         &self.mailbox_sender
+    }
+
+    /// Converts this ActorRef to a RemoteActorRef, registering it in the actor registry.
+    ///
+    /// This method is async because it needs to acquire a lock on the shared registry.
+    #[cfg(feature = "remote")]
+    pub async fn into_remote_ref(&self) -> RemoteActorRef<A>
+    where
+        A: remote::RemoteActor,
+    {
+        let remote_ref = RemoteActorRef::new(
+            self.id(),
+            remote::ActorSwarm::get().unwrap().sender().clone(),
+        );
+
+        remote::REMOTE_REGISTRY.lock().await.insert(
+            self.id(),
+            remote::RemoteRegistryActorRef::new_weak(self.downgrade()),
+        );
+
+        remote_ref
+    }
+
+    /// Blocking version of `into_remote_ref` for use in synchronous contexts.
+    ///
+    /// # Panics
+    ///
+    /// This function panics if called within an asynchronous execution context.
+    #[cfg(feature = "remote")]
+    pub fn into_remote_ref_blocking(&self) -> RemoteActorRef<A>
+    where
+        A: remote::RemoteActor,
+    {
+        let remote_ref = RemoteActorRef::new(
+            self.id(),
+            remote::ActorSwarm::get().unwrap().sender().clone(),
+        );
+
+        remote::REMOTE_REGISTRY.blocking_lock().insert(
+            self.id(),
+            remote::RemoteRegistryActorRef::new_weak(self.downgrade()),
+        );
+
+        remote_ref
     }
 
     #[inline]
@@ -1525,6 +1565,70 @@ impl<A: Actor> Hash for RemoteActorRef<A> {
     }
 }
 
+#[cfg(feature = "remote")]
+impl<A: Actor> serde::Serialize for RemoteActorRef<A> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut ser = serializer.serialize_struct("RemoteActorRef", 1)?;
+        ser.serialize_field("id", &self.id)?;
+        ser.end()
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct IdVisitor<A>(std::marker::PhantomData<A>);
+
+        impl<'de, A: Actor> serde::de::Visitor<'de> for IdVisitor<A> {
+            type Value = RemoteActorRef<A>;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct RemoteActorRef")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut id = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        "id" => {
+                            if id.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id = Some(map.next_value()?);
+                        }
+                        _ => {
+                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
+                let swarm = remote::ActorSwarm::get()
+                    .ok_or_else(|| serde::de::Error::custom("actor swarm not bootstrapped"))?;
+
+                Ok(RemoteActorRef {
+                    id,
+                    swarm_tx: swarm.sender().clone(),
+                    phantom: PhantomData,
+                })
+            }
+        }
+
+        let visitor = IdVisitor(std::marker::PhantomData);
+        deserializer.deserialize_struct("RemoteActorRef", &["id"], visitor)
+    }
+}
+
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
@@ -1571,6 +1675,12 @@ impl<A: Actor> WeakActorRef<A> {
     /// Returns the number of [`WeakActorRef`] handles.
     pub fn weak_count(&self) -> usize {
         self.mailbox.weak_count()
+    }
+
+    #[cfg(feature = "remote")]
+    #[inline]
+    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
+        Box::new(self.mailbox.clone())
     }
 }
 

@@ -65,9 +65,10 @@ use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
 use crate::{
-    actor::{ActorId, Links},
-    error::RegistryError,
+    actor::{ActorId, ActorRef, Links, WeakActorRef},
+    error::{RegistryError, RemoteSendError},
     mailbox::SignalMailbox,
+    Actor,
 };
 
 #[doc(hidden)]
@@ -84,9 +85,66 @@ pub(crate) static REMOTE_REGISTRY: Lazy<Mutex<HashMap<ActorId, RemoteRegistryAct
     Lazy::new(|| Mutex::new(HashMap::new()));
 
 pub(crate) struct RemoteRegistryActorRef {
-    pub(crate) actor_ref: Box<dyn any::Any + Send + Sync>,
+    actor_ref: BoxRegisteredActorRef,
     pub(crate) signal_mailbox: Box<dyn SignalMailbox>,
     pub(crate) links: Links,
+}
+
+impl RemoteRegistryActorRef {
+    pub(crate) fn new<A: Actor>(actor_ref: ActorRef<A>) -> Self {
+        let signal_mailbox = actor_ref.weak_signal_mailbox();
+        let links = actor_ref.links.clone();
+        RemoteRegistryActorRef {
+            actor_ref: BoxRegisteredActorRef::Strong(Box::new(actor_ref)),
+            signal_mailbox,
+            links,
+        }
+    }
+
+    pub(crate) fn new_weak<A: Actor>(actor_ref: WeakActorRef<A>) -> Self {
+        let signal_mailbox = actor_ref.weak_signal_mailbox();
+        let links = actor_ref.links.clone();
+        RemoteRegistryActorRef {
+            actor_ref: BoxRegisteredActorRef::Weak(Box::new(actor_ref)),
+            signal_mailbox,
+            links,
+        }
+    }
+
+    pub(crate) fn downcast<A: Actor>(
+        &self,
+    ) -> Result<ActorRef<A>, DowncastRegsiteredActorRefError> {
+        match &self.actor_ref {
+            BoxRegisteredActorRef::Strong(any) => any
+                .downcast_ref::<ActorRef<A>>()
+                .ok_or(DowncastRegsiteredActorRefError::BadActorType)
+                .cloned(),
+            BoxRegisteredActorRef::Weak(any) => any
+                .downcast_ref::<WeakActorRef<A>>()
+                .ok_or(DowncastRegsiteredActorRefError::BadActorType)?
+                .upgrade()
+                .ok_or(DowncastRegsiteredActorRefError::ActorNotRunning),
+        }
+    }
+}
+
+pub(crate) enum DowncastRegsiteredActorRefError {
+    BadActorType,
+    ActorNotRunning,
+}
+
+impl<E> From<DowncastRegsiteredActorRefError> for RemoteSendError<E> {
+    fn from(err: DowncastRegsiteredActorRefError) -> Self {
+        match err {
+            DowncastRegsiteredActorRefError::BadActorType => RemoteSendError::BadActorType,
+            DowncastRegsiteredActorRefError::ActorNotRunning => RemoteSendError::ActorNotRunning,
+        }
+    }
+}
+
+pub(crate) enum BoxRegisteredActorRef {
+    Strong(Box<dyn any::Any + Send + Sync>),
+    Weak(Box<dyn any::Any + Send + Sync>),
 }
 
 /// `RemoteActor` is a trait for identifying actors remotely.
