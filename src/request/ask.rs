@@ -185,10 +185,10 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn enqueue(self) -> Result<PendingReply<'a, M, A::Reply>, SendError>
+    pub async fn enqueue(self) -> Result<PendingReply<M, A::Reply>, SendError>
     where
-        Tm: Into<Option<Duration>> + Send + 'a,
-        Tr: Into<Option<Duration>> + Send + 'a,
+        Tm: Into<Option<Duration>> + Send + 'static,
+        Tr: Into<Option<Duration>> + Send + 'static,
     {
         let (reply, rx) = oneshot::channel();
         let signal = Signal::Message {
@@ -398,9 +398,9 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub fn try_enqueue(self) -> Result<PendingReply<'a, M, A::Reply>, SendError>
+    pub fn try_enqueue(self) -> Result<PendingReply<M, A::Reply>, SendError>
     where
-        Tr: Into<Option<Duration>> + Send + 'a,
+        Tr: Into<Option<Duration>> + Send + 'static,
     {
         let (reply, rx) = oneshot::channel();
         let signal = Signal::Message {
@@ -602,15 +602,15 @@ where
 /// This is returned by [`AskRequest::enqueue`] and [`AskRequest::try_enqueue`].
 #[allow(missing_debug_implementations)]
 #[must_use = "reply wont be received without awaiting"]
-pub struct PendingReply<'a, M, R>
+pub struct PendingReply<M, R>
 where
     R: Reply,
 {
     #[allow(clippy::type_complexity)]
-    fut: BoxFuture<'a, Result<R::Ok, SendError<M, R::Error>>>,
+    fut: BoxFuture<'static, Result<R::Ok, SendError<M, R::Error>>>,
 }
 
-impl<M, R> Future for PendingReply<'_, M, R>
+impl<M, R> Future for PendingReply<M, R>
 where
     R: Reply,
 {
