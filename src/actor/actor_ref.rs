@@ -1677,6 +1677,7 @@ impl<A: Actor> WeakActorRef<A> {
         self.mailbox.weak_count()
     }
 
+    #[cfg(feature = "remote")]
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
         Box::new(self.mailbox.clone())
