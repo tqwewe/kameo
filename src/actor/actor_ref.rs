@@ -1622,6 +1622,23 @@ impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
                     phantom: PhantomData,
                 })
             }
+
+            fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
+            where
+                S: serde::de::SeqAccess<'de>,
+            {
+                let id: Option<ActorId> = seq.next_element()?;
+                let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
+
+                let swarm = remote::ActorSwarm::get()
+                    .ok_or_else(|| serde::de::Error::custom("actor swarm not bootstrapped"))?;
+
+                Ok(RemoteActorRef {
+                    id,
+                    swarm_tx: swarm.sender().clone(),
+                    phantom: PhantomData,
+                })
+            }
         }
 
         let visitor = IdVisitor(std::marker::PhantomData);
