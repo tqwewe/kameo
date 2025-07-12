@@ -29,7 +29,7 @@ static PANIC_HOOK: AtomicPtr<()> = AtomicPtr::new(default_panic_hook as *mut ())
 #[allow(unused_variables)]
 fn default_panic_hook(err: &PanicError) {
     #[cfg(feature = "tracing")]
-    tracing::error!("actor panicked: {err}");
+    tracing::error!("actor panicked: {err:?}");
 }
 
 /// Sets a custom error hook function that's called when an actor's lifecycle hooks return an error.
@@ -367,7 +367,13 @@ impl fmt::Debug for ActorStopReason {
         match self {
             ActorStopReason::Normal => write!(f, "Normal"),
             ActorStopReason::Killed => write!(f, "Killed"),
-            ActorStopReason::Panicked(_) => write!(f, "Panicked"),
+            ActorStopReason::Panicked(err) => {
+                let mut dbg_struct = f.debug_struct("Panicked");
+                err.with_debug_inner(|err| {
+                    dbg_struct.field("err", err);
+                });
+                dbg_struct.finish()
+            }
             ActorStopReason::LinkDied { id, reason } => f
                 .debug_struct("LinkDied")
                 .field("id", id)
@@ -458,6 +464,15 @@ impl PanicError {
             Err(err) => f(err.get_ref()),
         }
     }
+
+    fn with_debug_inner<F>(&self, mut f: F)
+    where
+        F: FnMut(&dyn fmt::Debug),
+    {
+        self.with_str(|s| f(&s))
+            .or_else(|| self.with_downcast_ref::<Box<dyn ReplyError>, _, _>(|err| f(err)))
+            .unwrap_or_else(|| self.with(|any| f(any)))
+    }
 }
 
 impl fmt::Display for PanicError {
@@ -471,18 +486,8 @@ impl fmt::Debug for PanicError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut dbg_struct = f.debug_struct("PanicError");
 
-        self.with(|any| {
-            // Types are strings if panicked with the `std::panic!` macro
-            let s = any
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| any.downcast_ref::<String>().map(String::as_str));
-            if let Some(s) = s {
-                dbg_struct.field("err", &s);
-                return;
-            }
-
-            dbg_struct.field("err", any);
+        self.with_debug_inner(|err| {
+            dbg_struct.field("err", err);
         });
 
         dbg_struct.finish()

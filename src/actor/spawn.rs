@@ -398,14 +398,14 @@ fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
         reason @ ActorStopReason::Normal
         | reason @ ActorStopReason::Killed
         | reason @ ActorStopReason::LinkDied { .. } => {
-            trace!(%id, %name, %reason, "actor stopped");
+            trace!(%id, %name, ?reason, "actor stopped");
         }
         reason @ ActorStopReason::Panicked(_) => {
-            error!(%id, %name, %reason, "actor stopped")
+            error!(%id, %name, ?reason, "actor stopped")
         }
         #[cfg(feature = "remote")]
         reason @ ActorStopReason::PeerDisconnected => {
-            trace!(%id, %name, %reason, "actor stopped");
+            trace!(%id, %name, ?reason, "actor stopped");
         }
     }
 }
