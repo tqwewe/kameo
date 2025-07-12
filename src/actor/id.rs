@@ -205,15 +205,38 @@ impl<'de> Deserialize<'de> for ActorId {
     where
         D: serde::Deserializer<'de>,
     {
-        let bytes = <&[u8]>::deserialize(deserializer)?;
-        let bytes_len = bytes.len();
-        ActorId::from_bytes(bytes).map_err(|err| match err {
-            ActorIdFromBytesError::MissingSequenceID => {
-                serde::de::Error::invalid_length(bytes_len, &"sequence ID")
+        struct ActorIdVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for ActorIdVisitor {
+            type Value = ActorId;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("bytes representing an ActorId")
             }
-            #[cfg(feature = "remote")]
-            err @ ActorIdFromBytesError::ParsePeerID(_) => serde::de::Error::custom(err),
-        })
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                let bytes_len = bytes.len();
+                ActorId::from_bytes(bytes).map_err(|err| match err {
+                    ActorIdFromBytesError::MissingSequenceID => {
+                        E::invalid_length(bytes_len, &"sequence ID")
+                    }
+                    #[cfg(feature = "remote")]
+                    err @ ActorIdFromBytesError::ParsePeerID(_) => E::custom(err),
+                })
+            }
+
+            fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                self.visit_bytes(&bytes)
+            }
+        }
+
+        deserializer.deserialize_bytes(ActorIdVisitor)
     }
 }
 
