@@ -14,7 +14,7 @@
 //! (Command Query Responsibility Segregation) principle and enhancing the clarity and maintainability of actor
 //! interactions. It also provides some performance benefits in that sequential queries can be processed concurrently.
 
-use std::any;
+use std::{any, fmt};
 
 use futures::{future::BoxFuture, Future, FutureExt};
 
@@ -67,7 +67,6 @@ pub enum StreamMessage<T, S, F> {
 
 /// A context provided to message handlers providing access
 /// to the current actor ref, and reply channel.
-#[derive(Debug)]
 pub struct Context<A, R>
 where
     A: Actor,
@@ -254,6 +253,19 @@ where
                 ForwardedReply::new(res)
             }
         }
+    }
+}
+
+impl<A, R> fmt::Debug for Context<A, R>
+where
+    A: Actor,
+    R: Reply + ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Context")
+            .field("actor_ref", &self.actor_ref)
+            .field("reply", &self.reply)
+            .finish()
     }
 }
 
