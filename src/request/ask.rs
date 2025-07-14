@@ -646,6 +646,32 @@ where
     }
 }
 
+/// A pending reply from a previously enqueued remote ask request.
+///
+/// This is returned by [`RemoteAskRequest::enqueue`] and [`RemoteAskRequest::try_enqueue`].
+#[cfg(feature = "remote")]
+#[allow(missing_debug_implementations)]
+#[must_use = "reply wont be received without awaiting"]
+pub struct RemotePendingReply<R>
+where
+    R: Reply,
+{
+    #[allow(clippy::type_complexity)]
+    fut: BoxFuture<'static, Result<R::Ok, error::RemoteSendError<R::Error>>>,
+}
+
+#[cfg(feature = "remote")]
+impl<R> Future for RemotePendingReply<R>
+where
+    R: Reply,
+{
+    type Output = Result<R::Ok, error::RemoteSendError<R::Error>>;
+
+    fn poll(mut self: pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<Self::Output> {
+        self.fut.poll_unpin(cx)
+    }
+}
+
 /// A request to send a message to a typed actor with reply.
 #[allow(missing_debug_implementations)]
 #[must_use = "request won't be sent without awaiting, or calling a send method"]
@@ -848,6 +874,24 @@ where
         )
         .await
     }
+
+    /// Enqueues the message into the remote actors mailbox, returning a pending reply which needs to be awaited.
+    pub fn enqueue(self) -> Result<RemotePendingReply<A::Reply>, rmp_serde::encode::Error>
+    where
+        M: serde::Serialize,
+        Tm: Into<Option<Duration>>,
+        Tr: Into<Option<Duration>>,
+        <A::Reply as Reply>::Ok: serde::de::DeserializeOwned,
+        <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+    {
+        remote_ask_enqueue(
+            self.actor_ref,
+            self.msg,
+            self.mailbox_timeout.into(),
+            self.reply_timeout.into(),
+            false,
+        )
+    }
 }
 
 #[cfg(feature = "remote")]
@@ -874,6 +918,24 @@ where
         )
         .await
     }
+
+    /// Tries to enqueue the message into the actors mailbox without waiting for mailbox capacity,
+    /// returning a pending reply which needs to be awaited.
+    pub fn try_enqueue(self) -> Result<RemotePendingReply<A::Reply>, rmp_serde::encode::Error>
+    where
+        M: serde::Serialize,
+        Tr: Into<Option<Duration>>,
+        <A::Reply as Reply>::Ok: serde::de::DeserializeOwned,
+        <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+    {
+        remote_ask_enqueue(
+            self.actor_ref,
+            self.msg,
+            None,
+            self.reply_timeout.into(),
+            true,
+        )
+    }
 }
 
 #[cfg(feature = "remote")]
@@ -893,6 +955,61 @@ where
     fn into_future(self) -> Self::IntoFuture {
         self.send().boxed()
     }
+}
+
+#[cfg(feature = "remote")]
+fn remote_ask_enqueue<'a, A, M>(
+    actor_ref: &'a actor::RemoteActorRef<A>,
+    msg: &'a M,
+    mailbox_timeout: Option<Duration>,
+    reply_timeout: Option<Duration>,
+    immediate: bool,
+) -> Result<RemotePendingReply<A::Reply>, rmp_serde::encode::Error>
+where
+    A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
+    M: serde::Serialize + Send + 'static,
+    <A::Reply as Reply>::Ok: serde::de::DeserializeOwned,
+    <A::Reply as Reply>::Error: serde::de::DeserializeOwned,
+{
+    use remote::*;
+    use std::borrow::Cow;
+
+    let actor_id = actor_ref.id();
+    let (reply_tx, reply_rx) = oneshot::channel();
+    actor_ref.send_to_swarm(remote::SwarmCommand::Ask {
+        actor_id,
+        actor_remote_id: Cow::Borrowed(<A as remote::RemoteActor>::REMOTE_ID),
+        message_remote_id: Cow::Borrowed(<A as remote::RemoteMessage<M>>::REMOTE_ID),
+        payload: rmp_serde::to_vec_named(msg)?,
+        mailbox_timeout,
+        reply_timeout,
+        immediate,
+        reply: reply_tx,
+    });
+
+    let fut = async move {
+        match reply_rx.await.unwrap() {
+            messaging::SwarmResponse::Ask(res) => match res {
+                Ok(payload) => Ok(rmp_serde::decode::from_slice(&payload)
+                    .map_err(|err| error::RemoteSendError::DeserializeMessage(err.to_string()))?),
+                Err(err) => Err(err
+                    .map_err(|err| match rmp_serde::decode::from_slice(&err) {
+                        Ok(err) => error::RemoteSendError::HandlerError(err),
+                        Err(err) => {
+                            error::RemoteSendError::DeserializeHandlerError(err.to_string())
+                        }
+                    })
+                    .flatten()),
+            },
+            messaging::SwarmResponse::OutboundFailure(err) => {
+                Err(err
+                    .map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
+            }
+            _ => panic!("unexpected response"),
+        }
+    };
+
+    Ok(RemotePendingReply { fut: Box::pin(fut) })
 }
 
 #[cfg(feature = "remote")]
