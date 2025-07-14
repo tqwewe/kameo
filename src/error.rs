@@ -85,7 +85,7 @@ pub(crate) fn invoke_actor_error_hook(err: &PanicError) {
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
 
 /// Error that can occur when sending a message to an actor.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SendError<M = (), E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning(M),
