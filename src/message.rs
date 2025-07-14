@@ -20,7 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 
 use crate::{
     actor::ActorRef,
-    error::SendError,
+    error::{self, PanicError, SendError},
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
     Actor,
 };
@@ -149,6 +149,80 @@ where
             reply_sender.send(reply);
         }
         DelegatedReply::new()
+    }
+
+    /// Spawns a detached task to handle the current message asynchronously.
+    ///
+    /// This method allows an actor to delegate message processing to a separate task,
+    /// returning immediately with a [`DelegatedReply`]. The spawned task will complete
+    /// independently of the actor's lifecycle and send the result back to the original
+    /// message sender.
+    ///
+    /// # Error Handling
+    ///
+    /// - **Ask requests** (with reply expected): Errors are sent back to the caller
+    /// - **Tell requests** (no reply expected): Errors are handled by the global error hook.
+    ///
+    /// The actor's [`on_panic`] hook is NOT called since the task is detached from the actor's message processing loop.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kameo::prelude::*;
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor;
+    ///
+    /// struct ProcessData {
+    ///     data: Vec<u8>,
+    /// }
+    ///
+    /// impl Message<ProcessData> for MyActor {
+    ///     type Reply = DelegatedReply<Result<String, std::io::Error>>;
+    ///
+    ///     async fn handle(&mut self, msg: ProcessData, ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    ///         // Spawn intensive processing in a separate task
+    ///         ctx.spawn(async move {
+    ///             // This runs independently of the actor
+    ///             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    ///             
+    ///             // Process the data...
+    ///             if msg.data.is_empty() {
+    ///                 Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Empty data"))
+    ///             } else {
+    ///                 Ok(String::from_utf8_lossy(&msg.data).to_string())
+    ///             }
+    ///         })
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Important Notes
+    ///
+    /// - The spawned task continues running even if the actor stops
+    /// - The task runs on the Tokio runtime's thread pool, not the actor's task
+    ///
+    /// [`on_panic`]: Actor::on_panic
+    pub fn spawn<F>(&mut self, future: F) -> DelegatedReply<R::Value>
+    where
+        F: Future<Output = R::Value> + Send + 'static,
+    {
+        let (delegated_reply, reply_sender) = self.reply_sender();
+        tokio::spawn(async move {
+            let reply = future.await;
+            match reply_sender {
+                Some(tx) => {
+                    tx.send(reply);
+                }
+                None => {
+                    if let Some(err) = reply.into_any_err() {
+                        error::invoke_actor_error_hook(&PanicError::new(err));
+                    }
+                }
+            }
+        });
+
+        delegated_reply
     }
 
     /// Forwards the message to another actor, returning a [ForwardedReply].
