@@ -1,5 +1,6 @@
 use std::{
     cell::Cell,
+    cmp,
     collections::HashMap,
     fmt,
     hash::{Hash, Hasher},
@@ -962,6 +963,18 @@ impl<A: Actor> PartialEq for ActorRef<A> {
 
 impl<A: Actor> Eq for ActorRef<A> {}
 
+impl<A: Actor> PartialOrd for ActorRef<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<A: Actor> Ord for ActorRef<A> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
 impl<A: Actor> Hash for ActorRef<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
@@ -1130,6 +1143,20 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> PartialEq
 
 impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Eq for ReplyRecipient<M, Ok, Err> {}
 
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> PartialOrd
+    for ReplyRecipient<M, Ok, Err>
+{
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Ord for ReplyRecipient<M, Ok, Err> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.handler.id().cmp(&other.handler.id())
+    }
+}
+
 impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Hash for ReplyRecipient<M, Ok, Err> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.handler.id().hash(state);
@@ -1264,6 +1291,18 @@ impl<M: Send + 'static> PartialEq for Recipient<M> {
 }
 
 impl<M: Send + 'static> Eq for Recipient<M> {}
+
+impl<M: Send + 'static> PartialOrd for Recipient<M> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M: Send + 'static> Ord for Recipient<M> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.handler.id().cmp(&other.handler.id())
+    }
+}
 
 impl<M: Send + 'static> Hash for Recipient<M> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -1559,6 +1598,20 @@ impl<A: Actor> PartialEq for RemoteActorRef<A> {
 impl<A: Actor> Eq for RemoteActorRef<A> {}
 
 #[cfg(feature = "remote")]
+impl<A: Actor> PartialOrd for RemoteActorRef<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(feature = "remote")]
+impl<A: Actor> Ord for RemoteActorRef<A> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
+#[cfg(feature = "remote")]
 impl<A: Actor> Hash for RemoteActorRef<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
@@ -1739,6 +1792,18 @@ impl<A: Actor> PartialEq for WeakActorRef<A> {
 
 impl<A: Actor> Eq for WeakActorRef<A> {}
 
+impl<A: Actor> PartialOrd for WeakActorRef<A> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<A: Actor> Ord for WeakActorRef<A> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.id.cmp(&other.id)
+    }
+}
+
 impl<A: Actor> Hash for WeakActorRef<A> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
@@ -1782,7 +1847,7 @@ impl<M: Send + 'static> WeakRecipient<M> {
     }
 }
 
-impl<A: Actor> Clone for WeakRecipient<A> {
+impl<M: Send + 'static> Clone for WeakRecipient<M> {
     fn clone(&self) -> Self {
         WeakRecipient {
             handler: dyn_clone::clone_box(&*self.handler),
@@ -1790,7 +1855,7 @@ impl<A: Actor> Clone for WeakRecipient<A> {
     }
 }
 
-impl<A: Actor> fmt::Debug for WeakRecipient<A> {
+impl<M: Send + 'static> fmt::Debug for WeakRecipient<M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("WeakRecipient");
         d.field("id", &self.handler.id());
@@ -1798,15 +1863,27 @@ impl<A: Actor> fmt::Debug for WeakRecipient<A> {
     }
 }
 
-impl<A: Actor> PartialEq for WeakRecipient<A> {
+impl<M: Send + 'static> PartialEq for WeakRecipient<M> {
     fn eq(&self, other: &Self) -> bool {
         self.handler.id() == other.handler.id()
     }
 }
 
-impl<A: Actor> Eq for WeakRecipient<A> {}
+impl<M: Send + 'static> Eq for WeakRecipient<M> {}
 
-impl<A: Actor> Hash for WeakRecipient<A> {
+impl<M: Send + 'static> PartialOrd for WeakRecipient<M> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M: Send + 'static> Ord for WeakRecipient<M> {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.handler.id().cmp(&other.handler.id())
+    }
+}
+
+impl<M: Send + 'static> Hash for WeakRecipient<M> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.handler.id().hash(state);
     }
@@ -1850,7 +1927,9 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> WeakReplyRecipient<
     }
 }
 
-impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Clone for WeakReplyRecipient<A, Ok, Err> {
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Clone
+    for WeakReplyRecipient<M, Ok, Err>
+{
     fn clone(&self) -> Self {
         WeakReplyRecipient {
             handler: dyn_clone::clone_box(&*self.handler),
@@ -1858,7 +1937,9 @@ impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Clone for WeakReplyRecipient
     }
 }
 
-impl<A: Actor, Ok: Send + 'static, Err: ReplyError> fmt::Debug for WeakReplyRecipient<A, Ok, Err> {
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> fmt::Debug
+    for WeakReplyRecipient<M, Ok, Err>
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut d = f.debug_struct("WeakReplyRecipient");
         d.field("id", &self.handler.id());
@@ -1866,15 +1947,35 @@ impl<A: Actor, Ok: Send + 'static, Err: ReplyError> fmt::Debug for WeakReplyReci
     }
 }
 
-impl<A: Actor, Ok: Send + 'static, Err: ReplyError> PartialEq for WeakReplyRecipient<A, Ok, Err> {
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> PartialEq
+    for WeakReplyRecipient<M, Ok, Err>
+{
     fn eq(&self, other: &Self) -> bool {
         self.handler.id() == other.handler.id()
     }
 }
 
-impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Eq for WeakReplyRecipient<A, Ok, Err> {}
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Eq for WeakReplyRecipient<M, Ok, Err> {}
 
-impl<A: Actor, Ok: Send + 'static, Err: ReplyError> Hash for WeakReplyRecipient<A, Ok, Err> {
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> PartialOrd
+    for WeakReplyRecipient<M, Ok, Err>
+{
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Ord
+    for WeakReplyRecipient<M, Ok, Err>
+{
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.handler.id().cmp(&other.handler.id())
+    }
+}
+
+impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Hash
+    for WeakReplyRecipient<M, Ok, Err>
+{
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.handler.id().hash(state);
     }
