@@ -20,11 +20,11 @@ pub type ActorID = ActorId;
 ///
 /// `ActorId` combines a locally sequential `sequence_id` with an optional `peer_id`
 /// to uniquely identify actors across a distributed network.#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ActorId {
-    sequence_id: u64,
     #[cfg(feature = "remote")]
     peer_id: PeerIdKind,
+    sequence_id: u64,
 }
 
 impl ActorId {
@@ -295,6 +295,20 @@ impl PartialEq for PeerIdKind {
 
 #[cfg(feature = "remote")]
 impl Eq for PeerIdKind {}
+
+#[cfg(feature = "remote")]
+impl PartialOrd for PeerIdKind {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(feature = "remote")]
+impl Ord for PeerIdKind {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.peer_id().cmp(&other.peer_id())
+    }
+}
 
 #[cfg(feature = "remote")]
 impl Hash for PeerIdKind {
