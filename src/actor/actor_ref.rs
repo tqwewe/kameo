@@ -571,13 +571,25 @@ where
             return;
         }
 
-        let (mut this_links, mut sibbling_links) =
-            tokio::join!(self.links.lock(), sibbling_ref.links.lock());
-        this_links.insert(
-            sibbling_ref.id,
-            Link::Local(sibbling_ref.weak_signal_mailbox()),
-        );
-        sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        if self.id < sibbling_ref.id {
+            let mut this_links = self.links.lock().await;
+            let mut sibbling_links = sibbling_ref.links.lock().await;
+
+            this_links.insert(
+                sibbling_ref.id,
+                Link::Local(sibbling_ref.weak_signal_mailbox()),
+            );
+            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        } else {
+            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut this_links = self.links.lock().await;
+
+            this_links.insert(
+                sibbling_ref.id,
+                Link::Local(sibbling_ref.weak_signal_mailbox()),
+            );
+            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        }
     }
 
     /// Blockingly links two actors as siblings, ensuring they notify each other if either one dies.
@@ -612,13 +624,25 @@ where
             return;
         }
 
-        let mut this_links = self.links.blocking_lock();
-        let mut sibbling_links = sibbling_ref.links.blocking_lock();
-        this_links.insert(
-            sibbling_ref.id,
-            Link::Local(sibbling_ref.weak_signal_mailbox()),
-        );
-        sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        if self.id < sibbling_ref.id {
+            let mut this_links = self.links.blocking_lock();
+            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+
+            this_links.insert(
+                sibbling_ref.id,
+                Link::Local(sibbling_ref.weak_signal_mailbox()),
+            );
+            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        } else {
+            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut this_links = self.links.blocking_lock();
+
+            this_links.insert(
+                sibbling_ref.id,
+                Link::Local(sibbling_ref.weak_signal_mailbox()),
+            );
+            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        }
     }
 
     /// Links the local actor with a remote actor, ensuring they notify each other if either one dies.
@@ -695,10 +719,19 @@ where
             return;
         }
 
-        let (mut this_links, mut sibbling_links) =
-            tokio::join!(self.links.lock(), sibbling_ref.links.lock());
-        this_links.remove(&sibbling_ref.id);
-        sibbling_links.remove(&self.id);
+        if self.id < sibbling_ref.id {
+            let mut this_links = self.links.lock().await;
+            let mut sibbling_links = sibbling_ref.links.lock().await;
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        } else {
+            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut this_links = self.links.lock().await;
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        }
     }
 
     /// Blockingly unlinks two previously linked sibling actors.
@@ -735,10 +768,19 @@ where
             return;
         }
 
-        let mut this_links = self.links.blocking_lock();
-        let mut sibbling_links = sibbling_ref.links.blocking_lock();
-        this_links.remove(&sibbling_ref.id);
-        sibbling_links.remove(&self.id);
+        if self.id < sibbling_ref.id {
+            let mut this_links = self.links.blocking_lock();
+            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        } else {
+            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut this_links = self.links.blocking_lock();
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        }
     }
 
     /// Unlinks the local actor with a previously linked remote actor.
