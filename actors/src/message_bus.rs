@@ -212,7 +212,7 @@ impl<M: Clone + Send + 'static> Message<Publish<M>> for MessageBus {
                         let actor_id = *actor_id;
                         let recipient = recipient.clone();
                         let message = message.clone();
-                        let message_bus_ref = ctx.actor_ref();
+                        let message_bus_ref = ctx.actor_ref().clone();
                         tokio::spawn(async move {
                             let res = recipient.tell(message).send().await;
                             if let Err(SendError::ActorNotRunning(_)) = res {
@@ -224,7 +224,7 @@ impl<M: Clone + Send + 'static> Message<Publish<M>> for MessageBus {
                         let actor_id = *actor_id;
                         let recipient = recipient.clone();
                         let message = message.clone();
-                        let message_bus_ref = ctx.actor_ref();
+                        let message_bus_ref = ctx.actor_ref().clone();
                         tokio::spawn(async move {
                             let res = recipient
                                 .tell(message)
