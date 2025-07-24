@@ -257,7 +257,7 @@ where
 ///
 /// # Examples
 ///
-/// ## Basic forwarding (existing behavior)
+/// ## Basic forwarding
 ///
 /// ```
 /// use kameo::{prelude::*, reply::ForwardedReply};
@@ -368,28 +368,28 @@ where
 }
 
 // Manual Debug implementation to avoid requiring Debug on R::Value
-impl<M, R> std::fmt::Debug for ForwardedReply<M, R>
+impl<M, R> fmt::Debug for ForwardedReply<M, R>
 where
-    M: std::fmt::Debug,
+    M: fmt::Debug,
     R: Reply,
-    R::Ok: std::fmt::Debug,
-    R::Error: std::fmt::Debug,
+    R::Ok: fmt::Debug,
+    R::Error: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ForwardedReply")
             .field("inner", &self.inner)
             .finish()
     }
 }
 
-impl<M, R> std::fmt::Debug for ForwardedReplyInner<M, R>
+impl<M, R> fmt::Debug for ForwardedReplyInner<M, R>
 where
-    M: std::fmt::Debug,
+    M: fmt::Debug,
     R: Reply,
-    R::Ok: std::fmt::Debug,
-    R::Error: std::fmt::Debug,
+    R::Ok: fmt::Debug,
+    R::Error: fmt::Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Forwarded(res) => f.debug_tuple("Forwarded").field(res).finish(),
             Self::Direct(res) => f.debug_tuple("Direct").field(res).finish(),
@@ -435,7 +435,7 @@ where
     ///
     /// ```rust
     /// use kameo::reply::ForwardedReply;
-    /// use std::fmt;
+    /// use std::{error, fmt};
     ///
     /// #[derive(Debug)]
     /// enum MyError {
@@ -448,7 +448,7 @@ where
     ///     }
     /// }
     ///
-    /// impl std::error::Error for MyError {}
+    /// impl error::Error for MyError {}
     ///
     /// // Create a direct error response
     /// let reply: ForwardedReply<(), Result<String, MyError>> =
@@ -469,7 +469,7 @@ where
     ///
     /// ```rust
     /// use kameo::reply::ForwardedReply;
-    /// use std::fmt;
+    /// use std::{error, fmt};
     ///
     /// #[derive(Debug)]
     /// enum ComputeError {
@@ -482,7 +482,7 @@ where
     ///     }
     /// }
     ///
-    /// impl std::error::Error for ComputeError {}
+    /// impl error::Error for ComputeError {}
     ///
     /// // Create from a successful result
     /// let success_result = Ok(42);
@@ -773,12 +773,15 @@ impl_infallible_reply!([AtomicI64, AtomicU64]);
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::{error, fmt};
+
     use crate::error::Infallible;
     use crate::{
         actor::Actor,
         message::{Context, Message},
     };
+
+    use super::ForwardedReply;
 
     #[tokio::test]
     async fn test_forwarded_reply_from_ok() {
@@ -843,13 +846,13 @@ mod tests {
             message: String,
         }
 
-        impl std::fmt::Display for TestError {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl fmt::Display for TestError {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}", self.message)
             }
         }
 
-        impl std::error::Error for TestError {}
+        impl error::Error for TestError {}
 
         impl Message<TestMessage> for TestActor {
             type Reply = ForwardedReply<TestMessage, Result<String, TestError>>;
@@ -913,13 +916,13 @@ mod tests {
         #[derive(Debug, Clone, PartialEq)]
         struct TestError;
 
-        impl std::fmt::Display for TestError {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl fmt::Display for TestError {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "Test error")
             }
         }
 
-        impl std::error::Error for TestError {}
+        impl error::Error for TestError {}
 
         impl Message<TestMessage> for TestActor {
             type Reply = ForwardedReply<TestMessage, Result<i32, TestError>>;
