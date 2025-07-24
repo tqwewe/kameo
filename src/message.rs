@@ -86,8 +86,8 @@ where
     }
 
     /// Returns the current actor's ref, allowing messages to be sent to itself.
-    pub fn actor_ref(&self) -> ActorRef<A> {
-        self.actor_ref.clone()
+    pub fn actor_ref(&self) -> &ActorRef<A> {
+        &self.actor_ref
     }
 
     /// Extracts the reply sender, providing a mechanism for delegated responses and an optional reply sender.

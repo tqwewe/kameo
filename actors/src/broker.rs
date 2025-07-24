@@ -220,7 +220,7 @@ impl<M: Clone + Send + 'static> Message<Publish<M>> for Broker<M> {
                             let pattern = pattern.clone();
                             let recipient = recipient.clone();
                             let message = message.clone();
-                            let broker_ref = ctx.actor_ref();
+                            let broker_ref = ctx.actor_ref().clone();
                             tokio::spawn(async move {
                                 let res = recipient.tell(message).send().await;
                                 if let Err(SendError::ActorNotRunning(_)) = res {
@@ -237,7 +237,7 @@ impl<M: Clone + Send + 'static> Message<Publish<M>> for Broker<M> {
                             let pattern = pattern.clone();
                             let recipient = recipient.clone();
                             let message = message.clone();
-                            let broker_ref = ctx.actor_ref();
+                            let broker_ref = ctx.actor_ref().clone();
                             tokio::spawn(async move {
                                 let res = recipient
                                     .tell(message)

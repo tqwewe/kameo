@@ -410,7 +410,7 @@ impl MessageQueue {
         &mut self,
         queue_name: String,
         message: &M,
-        self_ref: ActorRef<Self>,
+        self_ref: &ActorRef<Self>,
         filter: impl Fn(&HashMap<String, String>) -> bool,
     ) where
         M: Clone + Send + 'static,
