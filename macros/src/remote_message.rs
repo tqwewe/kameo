@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{quote, ToTokens};
 use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -7,22 +7,20 @@ use syn::{
     AngleBracketedGenericArguments, GenericArgument, Generics, ItemImpl, LitStr, PathArguments,
     PathSegment, Token, Type,
 };
-use uuid::Uuid;
 
 pub struct RemoteMessageAttrs {
-    id: LitStr,
+    id: Option<LitStr>,
 }
 
 impl Parse for RemoteMessageAttrs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.is_empty() {
-            let random_uuid = Uuid::new_v4();
-            return Err(syn::Error::new(
-                input.span(),
-                format!("expected remote message id\nhere's a random uuid you can use:\n  #[remote_message(\"{random_uuid}\")]"),
-            ));
+            Ok(RemoteMessageAttrs { id: None })
+        } else {
+            Ok(RemoteMessageAttrs {
+                id: Some(input.parse()?),
+            })
         }
-        Ok(RemoteMessageAttrs { id: input.parse()? })
     }
 }
 
@@ -35,13 +33,42 @@ pub struct RemoteMessage {
 
 impl RemoteMessage {
     pub fn into_tokens(self, attrs: RemoteMessageAttrs) -> TokenStream {
-        let RemoteMessageAttrs { id } = attrs;
         let Self {
             item_impl,
             actor_ty,
             actor_generics,
             message_generics,
         } = self;
+
+        let RemoteMessageAttrs { id } = attrs;
+        let id = id.map(|id| id.into_token_stream()).unwrap_or_else(|| {
+            let actor_ty = actor_ty.to_token_stream().to_string().replace(' ', "");
+            let message_generics = message_generics
+                .to_token_stream()
+                .to_string()
+                .replace(' ', "");
+            let actor_generics = actor_generics
+                .to_token_stream()
+                .to_string()
+                .replace(' ', "");
+            quote! {
+                ::kameo::remote::_internal::const_str::format!(
+                    "{:x}",
+                    ::kameo::remote::_internal::const_fnv1a_hash::fnv1a_hash_str_64(concat!(
+                        env!("CARGO_PKG_NAME"),
+                        "::",
+                        env!("CARGO_PKG_VERSION_MAJOR"),
+                        "::",
+                        module_path!(),
+                        "::",
+                        #message_generics,
+                        "::",
+                        #actor_ty,
+                        #actor_generics,
+                    ))
+                )
+            }
+        });
 
         let (impl_generics, ty_generics, where_clause) = actor_generics.split_for_impl();
 

@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
+pub use const_fnv1a_hash;
+pub use const_str;
 use futures::future::BoxFuture;
 pub use linkme;
 use serde::de::DeserializeOwned;

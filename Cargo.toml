@@ -33,6 +33,8 @@ include = ["/src"]
 default = ["macros", "tracing"]
 macros = ["dep:kameo_macros"]
 remote = [
+  "dep:const-fnv1a-hash",
+  "dep:const-str",
   "dep:either",
   "dep:libp2p",
   "dep:libp2p-identity",
@@ -44,6 +46,8 @@ tracing = ["dep:tracing", "tokio/tracing"]
 [dependencies]
 kameo_macros = { version = "0.17.0", path = "./macros", optional = true }
 
+const-fnv1a-hash = { version = "1.1.0", optional = true }
+const-str = { version = "0.6.4", features = ["proc"], optional = true }
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
 either = { version = "1.15.0", optional = true }

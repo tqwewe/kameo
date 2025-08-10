@@ -22,7 +22,7 @@ pub struct Inc {
     from: PeerId,
 }
 
-#[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
+#[remote_message]
 impl Message<Inc> for MyActor {
     type Reply = i64;
 

@@ -155,7 +155,7 @@ pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
 /// struct MyActor { }
 /// struct MyMessage { }
 ///
-/// #[remote_message("c6fa9f76-8818-4000-96f4-50c2ebd52408")]
+/// #[remote_message]
 /// impl Message<MyMessage> for MyActor {
 ///     // implementation here
 /// }
