@@ -432,14 +432,9 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id)
-                .map_err(|e| {
-                    TransportError::SerializationFailed(format!(
-                        "Failed to serialize ActorId: {}",
-                        e
-                    ))
-                })?
-                .to_vec();
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
+                TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
+            })?.to_vec();
 
             // Register with kameo_remote's gossip protocol including ActorId metadata
             let bind_addr = handle.registry.bind_addr;
@@ -543,14 +538,9 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id)
-                .map_err(|e| {
-                    TransportError::SerializationFailed(format!(
-                        "Failed to serialize ActorId: {}",
-                        e
-                    ))
-                })?
-                .to_vec();
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
+                TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
+            })?.to_vec();
 
             // Create location with metadata
             let location = kameo_remote::RemoteActorLocation::new_with_metadata(
