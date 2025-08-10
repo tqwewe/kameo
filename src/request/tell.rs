@@ -191,7 +191,6 @@ where
         self.send().boxed()
     }
 }
-
 /// A request to send a message to a typed actor without any reply.
 #[allow(missing_debug_implementations)]
 #[must_use = "request won't be sent without awaiting send() method"]
