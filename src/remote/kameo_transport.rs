@@ -189,10 +189,6 @@ impl RemoteTransport for KameoTransport {
 
             // Register with kameo_remote's gossip protocol including ActorId metadata
             let bind_addr = handle.registry.bind_addr;
-            tracing::info!(
-                "📝 Registering actor '{}' with ActorId {} at {} (metadata: {} bytes)",
-                name, actor_id, bind_addr, metadata.len()
-            );
             
             // Create location with metadata and immediate priority for instant gossip
             let mut location = kameo_remote::RemoteActorLocation::new_with_metadata(
@@ -208,11 +204,6 @@ impl RemoteTransport for KameoTransport {
                 .await
                 .map_err(|e| TransportError::Other(Box::new(e)))?;
 
-            tracing::info!(
-                "✅ ActorId {} registered for '{}' with IMMEDIATE priority - triggering instant gossip sync",
-                actor_id,
-                name
-            );
 
             // With Immediate priority, the registration will trigger immediate gossip
             // to all connected peers, eliminating the need to wait for the next gossip interval
@@ -249,10 +240,6 @@ impl RemoteTransport for KameoTransport {
                 metadata
             );
             
-            tracing::info!(
-                "📝 Registering actor '{}' SYNCHRONOUSLY with ActorId {} at {} (timeout: {:?})",
-                name, actor_id, handle.registry.bind_addr, timeout
-            );
             
             // Use the new synchronous registration method with timeout
             handle.registry
@@ -260,11 +247,6 @@ impl RemoteTransport for KameoTransport {
                 .await
                 .map_err(|e| TransportError::Other(Box::new(e)))?;
 
-            tracing::info!(
-                "✅ ActorId {} registered SYNCHRONOUSLY for '{}' - peer acknowledgment received",
-                actor_id,
-                name
-            );
 
             Ok(())
         })
@@ -336,7 +318,6 @@ impl RemoteTransport for KameoTransport {
                         .get(&name)
                         .copied()
                         .unwrap_or_else(|| {
-                            tracing::warn!("No ActorId found for '{}', using default", name);
                             ActorId::from_u64(0)
                         })
                 };
@@ -350,10 +331,6 @@ impl RemoteTransport for KameoTransport {
                     metadata: loc.metadata.clone(),
                 };
                 
-                tracing::info!(
-                    "🎯 Returning remote location for '{}': ActorId={}, peer_addr={}, metadata_size={}",
-                    name, remote_location.actor_id, remote_location.peer_addr, remote_location.metadata.len()
-                );
                 
                 Ok(Some(remote_location))
             } else {
@@ -508,11 +485,9 @@ impl RemoteTransport for KameoTransport {
                     Ok(Bytes::from(reply_bytes))
                 }
                 Ok(Err(e)) => {
-                    tracing::error!("Ask message failed: {}", e);
                     Err(TransportError::Other(format!("Failed to send typed ask: {}", e).into()))
                 }
                 Err(_) => {
-                    tracing::error!("Ask message timed out after {:?}", timeout);
                     Err(TransportError::Timeout)
                 }
             }

@@ -208,28 +208,21 @@ where
         
         // Optimized serialization - can be specialized per message type
         let payload = rkyv::to_bytes::<rkyv::rancor::Error>(&self.message).map_err(|e| {
-            tracing::error!("Failed to serialize message: {:?}", e);
             SendError::ActorStopped
         })?;
 
         // Use streaming for large messages automatically
         if payload.len() > STREAM_THRESHOLD {
-            tracing::warn!("🚨 LARGE MESSAGE DETECTED in tell(): {} bytes ({}MB)", payload.len(), payload.len() as f64 / 1_048_576.0);
             if let Some(ref conn) = self.actor_ref.connection {
-                tracing::info!("✅ Connection available, attempting to stream...");
-                tracing::info!("Auto-streaming large message: {} MB", payload.len() as f64 / 1_048_576.0);
                 match conn.stream_large_message(&payload, type_hash, self.actor_ref.actor_id.into_u64()).await {
                     Ok(_) => {
-                        tracing::info!("✅ STREAMING SUCCEEDED!");
                         return Ok(())
                     },
                     Err(e) => {
-                        tracing::error!("❌ Streaming failed: {:?}", e);
                         return Err(SendError::ActorStopped); // Don't fall through to normal path for large messages!
                     }
                 }
             } else {
-                tracing::error!("❌ No connection handle available for streaming large message!");
                 return Err(SendError::ActorStopped); // Don't attempt normal path for large messages
             }
         }
@@ -263,7 +256,6 @@ where
             
             // Use the ConnectionHandle's zero-copy method
             return conn.send_bytes_zero_copy(message_bytes).map_err(|e| {
-                tracing::error!("Zero-copy write failed: {:?}", e);
                 SendError::ActorStopped
             });
         }
@@ -338,7 +330,6 @@ where
         let reply = match rkyv::from_bytes::<R, rkyv::rancor::Error>(&reply_bytes) {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Failed to deserialize reply for {}: {:?}", "message", e);
                 return Err(SendError::ActorStopped);
             }
         };
@@ -355,7 +346,6 @@ where
         
         // Optimized serialization - specialized per message type
         let payload = rkyv::to_bytes::<rkyv::rancor::Error>(&self.message).map_err(|e| {
-            tracing::error!("Failed to serialize message for ask: {:?}", e);
             SendError::ActorStopped
         })?;
 
@@ -391,7 +381,6 @@ where
                             )
                             .await
                             .map_err(|e| {
-                                tracing::error!("ask failed for {}: {:?}", "message", e);
                                 match e {
                                     TransportError::Timeout => {
                                         SendError::Timeout(None)
@@ -417,7 +406,6 @@ where
                     )
                     .await
                     .map_err(|e| {
-                        tracing::error!("ask failed for {}: {:?}", "message", e);
                         match e {
                             TransportError::Timeout => SendError::Timeout(None),
                             _ => SendError::ActorStopped,
@@ -438,7 +426,6 @@ where
                 )
                 .await
                 .map_err(|e| {
-                    tracing::error!("ask failed for {}: {:?}", "message", e);
                     match e {
                         TransportError::Timeout => SendError::Timeout(None),
                         _ => SendError::ActorStopped,

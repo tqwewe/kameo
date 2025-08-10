@@ -37,6 +37,7 @@ remote = [
   "dep:kameo_remote",
   "dep:kameo_type_hash_macros",
   "dep:rkyv",
+  "tracing",
 ]
 tracing = ["dep:tracing", "tokio/tracing"]
 nightly = [] # Feature flag for nightly-only features

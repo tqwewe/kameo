@@ -62,7 +62,6 @@ impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
                     Ok(Some(reply.into()))
                 },
                 Err(e) => {
-                    tracing::error!("❌ Ask handler error: {:?}", e);
                     Err(kameo_remote::GossipError::Network(
                         std::io::Error::new(std::io::ErrorKind::Other, format!("Ask handler error: {:?}", e))
                     ))
@@ -179,18 +178,14 @@ pub async fn bootstrap_with_config(config: TransportConfig) -> Result<Box<KameoT
     if let Some(handle) = transport.handle() {
         let bridge_handler = Arc::new(KameoActorMessageHandler::new(GLOBAL_DISTRIBUTED_HANDLER.clone()));
         handle.registry.set_actor_message_handler(bridge_handler).await;
-        tracing::info!("actor message handler bridge registered with kameo_remote");
     } else {
-        tracing::warn!("failed to register actor message handler - transport handle not available");
     }
     
     // Log the local address
     let local_addr = transport.local_addr();
-    tracing::info!("kameo_remote transport started on {}", local_addr);
     
     // Automatically set the global transport for DistributedActorRef::lookup
     super::DistributedActorRef::set_global_transport(transport.clone());
-    tracing::debug!("global transport set for DistributedActorRef::lookup");
     
     Ok(transport)
 }

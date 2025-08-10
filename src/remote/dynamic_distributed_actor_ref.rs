@@ -162,7 +162,6 @@ where
         // Serialize the message with rkyv
         let message_ref = &self.message;
         let payload = rkyv::to_bytes::<rkyv::rancor::Error>(message_ref).map_err(|e| {
-            tracing::error!("Failed to serialize message: {:?}", e);
             SendError::ActorStopped
         })?;
 
@@ -197,7 +196,6 @@ where
                     return Ok(());
                 }
                 Err(e) => {
-                    tracing::debug!("Cached connection failed: {}, falling back to transport", e);
                     // Fall through to transport method
                 }
             }
@@ -281,7 +279,6 @@ where
         let reply = match rkyv::from_bytes::<R, rkyv::rancor::Error>(&reply_bytes) {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Failed to deserialize reply: {:?}", e);
                 return Err(SendError::ActorStopped);
             }
         };
@@ -294,7 +291,6 @@ where
         // Serialize the message with rkyv
         let message_ref = &self.message;
         let payload = rkyv::to_bytes::<rkyv::rancor::Error>(message_ref).map_err(|e| {
-            tracing::error!("Failed to serialize message: {:?}", e);
             SendError::ActorStopped
         })?;
 
@@ -333,7 +329,6 @@ where
                             )
                             .await
                             .map_err(|e| {
-                                tracing::error!("ask failed: {:?}", e);
                                 match e {
                                     TransportError::Timeout => {
                                         SendError::Timeout(None)
@@ -359,7 +354,6 @@ where
                     )
                     .await
                     .map_err(|e| {
-                        tracing::error!("❌ ask failed: {:?}", e);
                         match e {
                             TransportError::Timeout => SendError::Timeout(None),
                             _ => SendError::ActorStopped,
@@ -380,7 +374,6 @@ where
                 )
                 .await
                 .map_err(|e| {
-                    tracing::error!("❌ ask failed: {:?}", e);
                     match e {
                         TransportError::Timeout => SendError::Timeout(None),
                         _ => SendError::ActorStopped,
