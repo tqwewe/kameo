@@ -138,19 +138,9 @@ pub trait RemoteTransport: Send + Sync + 'static {
         message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Archive
-            + for<'a> RkyvSerialize<
-                rkyv::rancor::Strategy<
-                    rkyv::ser::Serializer<
-                        &'a mut [u8],
-                        rkyv::ser::allocator::ArenaHandle<'a>,
-                        rkyv::ser::sharing::Share,
-                    >,
-                    rkyv::rancor::Error,
-                >,
-            > + Send
-            + 'static;
-
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static;
     /// Send an ask message to a remote actor and wait for reply
     #[allow(clippy::type_complexity)]
     fn send_ask<A, M>(
@@ -162,24 +152,13 @@ pub trait RemoteTransport: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = TransportResult<<A as Message<M>>::Reply>> + Send + '_>>
     where
         A: Actor + Message<M>,
-        M: Archive
-            + for<'a> RkyvSerialize<
-                rkyv::rancor::Strategy<
-                    rkyv::ser::Serializer<
-                        &'a mut [u8],
-                        rkyv::ser::allocator::ArenaHandle<'a>,
-                        rkyv::ser::sharing::Share,
-                    >,
-                    rkyv::rancor::Error,
-                >,
-            > + Send
-            + 'static,
-        <A as Message<M>>::Reply: Archive
-            + for<'a> rkyv::Deserialize<
-                <A as Message<M>>::Reply,
-                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
-            > + Send;
-
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
+        <A as Message<M>>::Reply: Archive + for<'a> rkyv::Deserialize<
+            <A as Message<M>>::Reply,
+            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
+        > + Send;
     /// Send a tell message with explicit type hash (for generic actors)
     fn send_tell_typed(
         &self,
@@ -238,7 +217,6 @@ pub trait RemoteTransport: Send + Sync + 'static {
 
 /// Information about a remote actor's location
 #[derive(Debug, Clone, Archive, RkyvSerialize, rkyv::Deserialize)]
-#[rkyv(derive(Debug))]
 pub struct RemoteActorLocation {
     /// The peer address hosting the actor
     pub peer_addr: SocketAddr,
