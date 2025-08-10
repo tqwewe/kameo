@@ -649,18 +649,9 @@ impl RemoteTransport for KameoTransport {
         _message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Archive
-            + for<'a> RkyvSerialize<
-                rkyv::rancor::Strategy<
-                    rkyv::ser::Serializer<
-                        &'a mut [u8],
-                        rkyv::ser::allocator::ArenaHandle<'a>,
-                        rkyv::ser::sharing::Share,
-                    >,
-                    rkyv::rancor::Error,
-                >,
-            > + Send
-            + 'static,
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
     {
         Box::pin(async move {
             // kameo_remote doesn't have typed message support yet
@@ -687,23 +678,13 @@ impl RemoteTransport for KameoTransport {
     >
     where
         A: crate::actor::Actor + crate::message::Message<M>,
-        M: Archive
-            + for<'a> RkyvSerialize<
-                rkyv::rancor::Strategy<
-                    rkyv::ser::Serializer<
-                        &'a mut [u8],
-                        rkyv::ser::allocator::ArenaHandle<'a>,
-                        rkyv::ser::sharing::Share,
-                    >,
-                    rkyv::rancor::Error,
-                >,
-            > + Send
-            + 'static,
-        <A as crate::message::Message<M>>::Reply: Archive
-            + for<'a> RkyvDeserialize<
-                <A as crate::message::Message<M>>::Reply,
-                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
-            > + Send,
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
+        <A as crate::message::Message<M>>::Reply: Archive + for<'a> RkyvDeserialize<
+            <A as crate::message::Message<M>>::Reply,
+            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
+        > + Send,
     {
         Box::pin(async move {
             // kameo_remote doesn't have typed message support yet

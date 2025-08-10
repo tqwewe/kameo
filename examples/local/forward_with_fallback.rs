@@ -5,7 +5,7 @@ use kameo::{
     reply::ForwardedReply,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ComputeRequest {
     value: i32,
 }
