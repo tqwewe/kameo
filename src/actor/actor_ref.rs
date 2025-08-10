@@ -1116,10 +1116,7 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> ReplyRecipient<M, O
     ///
     /// See [`ActorRef::tell`].
     pub async fn tell(&self, msg: M) -> Result<(), SendError> {
-        self.handler
-            .tell(msg, None)
-            .await
-            .map_err(|_| SendError::ActorStopped)
+        self.handler.tell(msg, None).await.map_err(|_| SendError::ActorStopped)
     }
 
     /// Sends a message to the actor waits for a reply.
