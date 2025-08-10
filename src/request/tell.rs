@@ -3,7 +3,7 @@ use futures::{future::BoxFuture, FutureExt};
 
 use crate::{
     actor::{ActorRef, Recipient, WeakActorRef},
-    error::{self, ActorStopReason, SendError},
+    error::{self, SendError},
     message::Message,
     Actor,
 };
@@ -483,27 +483,14 @@ fn warn_deadlock<A: Actor>(
 }
 
 pub use {
-    pub_tell_request_dyn::*, pub_tell_request_generic::*, pub_tell_request_strong::*,
-    pub_tell_request_weak::*, pub_tell_request_recipient::*,
+    pub_tell_request_dyn::*,
 };
 
 
-mod pub_tell_request_strong {
-    pub use super::TellRequest;
-}
 
-mod pub_tell_request_weak {
-    pub use super::WeakTellRequest;
-}
 
-mod pub_tell_request_generic {
-    pub use super::RecipientRequest;
-}
 
 mod pub_tell_request_dyn {
     pub use super::RecipientRequest as DynTellRequest;
 }
 
-mod pub_tell_request_recipient {
-    pub use super::RecipientTellRequest;
-}

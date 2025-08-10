@@ -20,7 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 
 use crate::{
     actor::ActorRef,
-    error::{self, Infallible, PanicError, SendError},
+    error::{self, PanicError, SendError},
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
     Actor,
 };

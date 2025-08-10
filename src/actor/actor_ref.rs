@@ -10,7 +10,7 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt, TryFutureExt};
+use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt};
 use tokio::{
     sync::{Mutex, SetOnce},
     task::JoinHandle,
@@ -1141,11 +1141,8 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> ReplyRecipient<M, O
     /// Sends a message to the actor without waiting for a reply.
     ///
     /// See [`ActorRef::tell`].
-    #[track_caller]
-    pub fn tell(&self, msg: M) -> impl std::future::Future<Output = Result<(), SendError>> + '_ {
-        async move {
-            self.handler.tell(msg, None).await.map_err(|_| SendError::ActorStopped)
-        }
+    pub async fn tell(&self, msg: M) -> Result<(), SendError> {
+        self.handler.tell(msg, None).await.map_err(|_| SendError::ActorStopped)
     }
 
     /// Sends a message to the actor waits for a reply.
