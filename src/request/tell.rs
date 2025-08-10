@@ -2,8 +2,8 @@ use std::{fmt, future::{Future, IntoFuture}, time::Duration};
 use futures::{future::BoxFuture, FutureExt};
 
 use crate::{
-    actor::{ActorRef, Recipient, WeakActorRef},
-    error::{self, SendError},
+    actor::{ActorRef, Recipient},
+    error::SendError,
     message::Message,
     Actor,
 };
@@ -192,117 +192,6 @@ where
     }
 }
 
-/// A request to send a message to a weak actor reference without any reply.
-///
-/// This can be thought of as "fire and forget".
-#[allow(missing_debug_implementations)]
-#[must_use = "request won't be sent without awaiting send() method"]
-pub struct WeakTellRequest<'a, A, M, Tm = WithoutRequestTimeout>
-where
-    A: Actor + Message<M>,
-    M: Send + 'static,
-{
-    pub(crate) actor_ref: &'a WeakActorRef<A>,
-    pub(crate) msg: M,
-    pub(crate) mailbox_timeout: Tm,
-    #[cfg(all(debug_assertions, feature = "tracing"))]
-    pub(crate) called_at: &'static std::panic::Location<'static>,
-}
-
-impl<'a, A, M, Tm> WeakTellRequest<'a, A, M, Tm>
-where
-    A: Actor + Message<M>,
-    M: Send + 'static,
-    Tm: Default,
-{
-    pub(crate) fn new(
-        actor_ref: &'a WeakActorRef<A>,
-        msg: M,
-        #[cfg(all(debug_assertions, feature = "tracing"))]
-        called_at: &'static std::panic::Location<'static>,
-    ) -> Self {
-        WeakTellRequest {
-            actor_ref,
-            msg,
-            mailbox_timeout: Tm::default(),
-            #[cfg(all(debug_assertions, feature = "tracing"))]
-            called_at,
-        }
-    }
-}
-
-impl<'a, A, M, Tm> WeakTellRequest<'a, A, M, Tm>
-where
-    A: Actor + Message<M>,
-    M: Send + 'static,
-{
-    /// Sets the timeout for waiting for the actors mailbox to have capacity.
-    pub fn mailbox_timeout(
-        self,
-        duration: Duration,
-    ) -> WeakTellRequest<'a, A, M, WithRequestTimeout> {
-        self.mailbox_timeout_opt(Some(duration))
-    }
-
-    pub(crate) fn mailbox_timeout_opt(
-        self,
-        duration: Option<Duration>,
-    ) -> WeakTellRequest<'a, A, M, WithRequestTimeout> {
-        WeakTellRequest {
-            actor_ref: self.actor_ref,
-            msg: self.msg,
-            mailbox_timeout: WithRequestTimeout(duration),
-            #[cfg(all(debug_assertions, feature = "tracing"))]
-            called_at: self.called_at,
-        }
-    }
-}
-
-impl<A, M, Tm> WeakTellRequest<'_, A, M, Tm>
-where
-    A: Actor + Message<M>,
-    M: Send + 'static,
-    Tm: Into<Option<Duration>>,
-{
-    /// Sends the message to the actor, waiting if the actors mailbox is full.
-    ///
-    /// If the actors mailbox is full, this will wait until the actor is ready to receive a new message
-    /// before returning.
-    ///
-    /// See [`WeakTellRequest::try_send`] for sending without waiting.
-    pub async fn send(self) -> Result<(), error::ActorNotRunning> {
-        #[cfg(all(debug_assertions, feature = "tracing"))]
-        {
-            if let Some(actor_ref) = self.actor_ref.upgrade() {
-                warn_deadlock(&actor_ref, "telling an actor risks deadlocking if the actor's mailbox is bounded and is sending a message to the current actor that also uses `send()`.", self.called_at);
-            }
-        }
-
-        let actor_ref = self.actor_ref.upgrade().ok_or(error::ActorNotRunning)?;
-        actor_ref
-            .send_fut(self.msg, self.mailbox_timeout.into())
-            .await
-            .map_err(|_| error::ActorNotRunning)
-    }
-}
-
-impl<A, M> WeakTellRequest<'_, A, M, WithoutRequestTimeout>
-where
-    A: Actor + Message<M>,
-    M: Send + 'static,
-{
-    /// Tries to send the message to the actor, without waiting if the actors mailbox is full.
-    ///
-    /// If the actors mailbox is full, this will return immediately with an error.
-    ///
-    /// See [`WeakTellRequest::send`] for sending with blocking.
-    pub fn try_send(self) -> Result<(), SendError<M>> {
-        let Some(actor_ref) = self.actor_ref.upgrade() else {
-            return Err(SendError::ActorNotRunning(self.msg));
-        };
-        actor_ref.try_send(self.msg)
-    }
-}
 
 /// A request to send a message to a typed actor without any reply.
 #[allow(missing_debug_implementations)]
