@@ -14,7 +14,7 @@ use std::{
     },
 };
 
-use serde::{Deserialize, Serialize};
+// Removed serde - using rkyv for serialization when needed
 use tokio::{
     sync::{mpsc, oneshot},
     time::error::Elapsed,
@@ -85,7 +85,7 @@ pub(crate) fn invoke_actor_error_hook(err: &PanicError) {
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
 
 /// Error that can occur when sending a message to an actor.
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SendError<M = (), E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning(M),
@@ -354,7 +354,7 @@ impl error::Error for ActorNotRunning {}
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub enum ActorStopReason {
     /// Actor stopped normally.
     Normal,
@@ -531,29 +531,12 @@ impl fmt::Debug for PanicError {
 
 impl error::Error for PanicError {}
 
-impl Serialize for PanicError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
-
-impl<'de> Deserialize<'de> for PanicError {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        Ok(PanicError::new(Box::new(s)))
-    }
-}
+// Serde implementations removed - error types no longer serializable for maximum performance
 
 /// An infallible error type, similar to [std::convert::Infallible].
 ///
 /// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.
-#[derive(Copy, Serialize, Deserialize)]
+#[derive(Copy)]
 pub enum Infallible {}
 
 impl Clone for Infallible {
@@ -656,7 +639,7 @@ impl error::Error for RegistryError {}
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum RemoteSendError<E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning,

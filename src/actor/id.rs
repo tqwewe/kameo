@@ -5,7 +5,7 @@ use std::hash::Hasher;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicUsize};
 
-use serde::{Deserialize, Serialize};
+// Removed serde - now using only rkyv for serialization
 
 #[cfg(feature = "remote")]
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
@@ -158,52 +158,7 @@ impl fmt::Debug for ActorId {
     }
 }
 
-impl Serialize for ActorId {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_bytes(&self.to_bytes())
-    }
-}
-
-impl<'de> Deserialize<'de> for ActorId {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct ActorIdVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for ActorIdVisitor {
-            type Value = ActorId;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("bytes representing an ActorId")
-            }
-
-            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                let bytes_len = bytes.len();
-                ActorId::from_bytes(bytes).map_err(|err| match err {
-                    ActorIdFromBytesError::MissingSequenceID => {
-                        E::invalid_length(bytes_len, &"sequence ID")
-                    }
-                })
-            }
-
-            fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Self::Value, E>
-            where
-                E: serde::de::Error,
-            {
-                self.visit_bytes(&bytes)
-            }
-        }
-
-        deserializer.deserialize_bytes(ActorIdVisitor)
-    }
-}
+// Serde implementations removed - using only rkyv for zero-copy serialization
 
 /// Errors that can occur when deserializing an `ActorId` from bytes.
 #[derive(Debug)]
