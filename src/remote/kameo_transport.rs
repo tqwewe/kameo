@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use kameo_remote::{GossipConfig, GossipRegistryHandle};
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
@@ -181,10 +182,10 @@ impl RemoteTransport for KameoTransport {
             // Register in local registry
             registry.write().await.insert(name.clone(), actor_id);
 
-            // Serialize ActorId as metadata
-            let metadata = bincode::serialize(&actor_id).map_err(|e| {
+            // Serialize ActorId as metadata using rkyv for zero-copy
+            let metadata = rkyv::to_bytes::<_, 256>(&actor_id).map_err(|e| {
                 TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
-            })?;
+            })?.to_vec();
 
             // Register with kameo_remote's gossip protocol including ActorId metadata
             let bind_addr = handle.registry.bind_addr;
@@ -236,10 +237,10 @@ impl RemoteTransport for KameoTransport {
             // Register in local registry
             registry.write().await.insert(name.clone(), actor_id);
 
-            // Serialize ActorId as metadata
-            let metadata = bincode::serialize(&actor_id).map_err(|e| {
+            // Serialize ActorId as metadata using rkyv for zero-copy
+            let metadata = rkyv::to_bytes::<_, 256>(&actor_id).map_err(|e| {
                 TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
-            })?;
+            })?.to_vec();
 
             // Create location with metadata
             let location = kameo_remote::RemoteActorLocation::new_with_metadata(
@@ -313,7 +314,7 @@ impl RemoteTransport for KameoTransport {
             if let Some(loc) = location_opt {
                 // Try to deserialize ActorId from metadata first
                 let actor_id = if !loc.metadata.is_empty() {
-                    match bincode::deserialize::<ActorId>(&loc.metadata) {
+                    match rkyv::from_bytes::<ActorId>(&loc.metadata) {
                         Ok(id) => {
                             id
                         },

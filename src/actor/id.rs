@@ -7,14 +7,18 @@ use std::{fmt, sync::atomic::AtomicUsize};
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "remote")]
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+
 
 static ACTOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 /// A globally unique identifier for an actor within a distributed system.
 ///
 /// `ActorId` combines a locally sequential `sequence_id` with an optional `peer_id`
-/// to uniquely identify actors across a distributed network.#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+/// to uniquely identify actors across a distributed network.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "remote", derive(Archive, RkyvSerialize, RkyvDeserialize))]
 pub struct ActorId {
     sequence_id: u64,
 }
