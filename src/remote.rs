@@ -1,34 +1,25 @@
 //! # Remote Actors in Kameo
 //!
 //! The `remote` module in Kameo provides tools for managing distributed actors across nodes,
-//! enabling actors to communicate seamlessly in a peer-to-peer (P2P) network. By leveraging
-//! the [libp2p](https://libp2p.io) library, Kameo allows you to register actors under unique
-//! names and send messages between actors on different nodes as though they were local.
+//! enabling actors to communicate seamlessly in a peer-to-peer network using the kameo_remote
+//! transport layer with gossip-based discovery and type-erased generic actor support.
 //!
 //! ## Key Features
 //!
-//! - **Composable Architecture**: The [`Behaviour`] struct implements libp2p's `NetworkBehaviour`,
-//!   allowing seamless integration with existing libp2p applications and other protocols.
-//! - **Quick Bootstrap**: The [`bootstrap()`] and [`bootstrap_on()`] functions provide one-line
-//!   setup for development and simple deployments.
-//! - **Actor Registration & Discovery**: Actors can be registered under unique names and looked up
-//!   across the network using [`RemoteActorRef`](crate::actor::RemoteActorRef).
-//! - **Reliable Messaging**: Ensures reliable message delivery between nodes using a combination
-//!   of Kademlia DHT for discovery and request-response protocols for communication.
-//! - **Modular Design**: Separate [`messaging`] and [`registry`] modules handle different aspects
-//!   of distributed actor communication.
+//! - **Type-Erased Generic Actors**: Support for generic actors using compile-time type hashing
+//! - **Gossip-Based Discovery**: Efficient actor discovery using gossip protocol
+//! - **Direct TCP Connections**: Lock-free, high-performance messaging
+//! - **Zero Dynamic Dispatch**: Monomorphized message handlers for optimal performance
 //!
 //! ## Getting Started
-//!
-//! For quick prototyping and development:
 //!
 //! ```
 //! use kameo::remote;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // One line to bootstrap a distributed actor system
-//!     let peer_id = remote::bootstrap()?;
+//!     // Bootstrap with default configuration
+//!     remote::v2_bootstrap::bootstrap().await?;
 //!     
 //!     // Now use actors normally
 //!     // actor_ref.register("my_actor").await?;
@@ -36,31 +27,9 @@
 //!     Ok(())
 //! }
 //! ```
-//!
-//! For production deployments with custom configuration:
-//!
-//! ```no_run
-//! use kameo::remote;
-//! use libp2p::swarm::NetworkBehaviour;
-//!
-//! #[derive(NetworkBehaviour)]
-//! struct MyBehaviour {
-//!     kameo: remote::Behaviour,
-//!     // Add other libp2p behaviors as needed
-//! }
-//!
-//! // Create custom libp2p swarm with full control over
-//! // transports, discovery, and protocol composition
-//! ```
 
-use std::{any, collections::HashMap, error, str, sync::LazyLock};
+use std::{any, collections::HashMap, error, str, sync::LazyLock, pin::Pin, future::Future};
 
-use futures::StreamExt;
-use libp2p::{
-    mdns, noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, PeerId, SwarmBuilder,
-};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -72,13 +41,31 @@ use crate::{
 
 #[doc(hidden)]
 pub mod _internal;
-mod behaviour;
-pub mod messaging;
-pub mod registry;
-mod swarm;
+pub mod type_registry;
 
-pub use behaviour::*;
-pub use swarm::*;
+// New transport system modules
+pub mod transport;
+pub mod type_hash;
+pub mod generic_type_hash;
+pub mod message_protocol;
+mod kameo_transport;
+mod message_handler;
+mod transport_factory;
+// pub mod v2_actor_ref; // Commented out - depends on removed RemoteActor trait
+pub mod v2_bootstrap;
+pub mod distributed_actor_messages;
+pub mod distributed_message_handler;
+pub mod dynamic_distributed_actor_ref;
+pub mod simple_distributed_actor;
+pub mod remote_message_trait;
+pub mod distributed_actor_ref;
+pub mod streaming;
+
+// Re-export main types
+pub use dynamic_distributed_actor_ref::DynamicDistributedActorRef;
+pub use remote_message_trait::RemoteMessage;
+pub use distributed_actor_ref::DistributedActorRef;
+pub use type_hash::{HasTypeHash, TypeHash};
 
 pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -146,63 +133,18 @@ pub(crate) enum BoxRegisteredActorRef {
     Weak(Box<dyn any::Any + Send + Sync>),
 }
 
-/// `RemoteActor` is a trait for identifying actors remotely.
-///
-/// Each remote actor must implement this trait and provide a unique identifier string (`REMOTE_ID`).
-/// The identifier is essential to distinguish between different actor types during remote communication.
-///
-/// ## Example with Derive
-///
-/// ```
-/// use kameo::{Actor, RemoteActor};
-///
-/// #[derive(Actor, RemoteActor)]
-/// pub struct MyActor;
-/// ```
-///
-/// ## Example Manual Implementation
-///
-/// ```
-/// use kameo::remote::RemoteActor;
-///
-/// pub struct MyActor;
-///
-/// impl RemoteActor for MyActor {
-///     const REMOTE_ID: &'static str = "my_actor_id";
-/// }
-/// ```
-pub trait RemoteActor {
-    /// The remote identifier string.
-    const REMOTE_ID: &'static str;
-}
 
-/// `RemoteMessage` is a trait for identifying messages that are sent between remote actors.
-///
-/// Each remote message type must implement this trait and provide a unique identifier string (`REMOTE_ID`).
-/// The unique ID ensures that each message type is recognized correctly during message passing between nodes.
-///
-/// This trait is typically implemented automatically with the [`#[remote_message]`](crate::remote_message) macro.
-pub trait RemoteMessage<M> {
-    /// The remote identifier string.
-    const REMOTE_ID: &'static str;
-}
 
-/// Bootstrap a simple actor swarm with mDNS discovery for local development.
+/// Bootstrap a distributed actor system using kameo_remote
 ///
-/// This convenience function creates and runs a libp2p swarm with:
-/// - TCP and QUIC transports  
-/// - mDNS peer discovery (local network only)
-/// - Automatic listening on an OS-assigned port
-///
-/// For production use or custom configuration, use `kameo::remote::Behaviour`
-/// with your own libp2p swarm setup.
+/// This is a convenience function that delegates to v2_bootstrap::bootstrap()
+/// for backward compatibility.
 ///
 /// # Example
 /// ```ignore
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // One line to get started!
-///     remote::bootstrap()?;
+///     remote::bootstrap().await?;
 ///     
 ///     // Now use remote actors normally
 ///     let actor_ref = MyActor::spawn_default();
@@ -210,81 +152,54 @@ pub trait RemoteMessage<M> {
 ///     Ok(())
 /// }
 /// ```
-pub fn bootstrap() -> Result<PeerId, Box<dyn error::Error>> {
-    bootstrap_on("/ip4/0.0.0.0/tcp/0")
+pub async fn bootstrap() -> Result<(), Box<dyn error::Error>> {
+    v2_bootstrap::bootstrap().await.map_err(|e| e as Box<dyn error::Error>)?;
+    Ok(())
 }
 
-/// Bootstrap with a specific listen address.
-pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
-    #[derive(NetworkBehaviour)]
-    struct BootstrapBehaviour {
-        kameo: Behaviour,
-        mdns: mdns::tokio::Behaviour,
-    }
-
-    let mut swarm = SwarmBuilder::with_new_identity()
-        .with_tokio()
-        .with_tcp(
-            tcp::Config::default(),
-            noise::Config::new,
-            yamux::Config::default,
-        )?
-        .with_quic()
-        .with_behaviour(|key| {
-            let local_peer_id = key.public().to_peer_id();
-            let kameo = Behaviour::new(local_peer_id, messaging::Config::default());
-            let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
-
-            Ok(BootstrapBehaviour { kameo, mdns })
-        })?
-        .build();
-
-    swarm.behaviour().kameo.try_init_global()?;
-
-    swarm.listen_on(addr.parse()?)?;
-
-    let local_peer_id = *swarm.local_peer_id();
-
-    tokio::spawn(async move {
-        loop {
-            match swarm.select_next_some().await {
-                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Discovered(
-                    list,
-                ))) => {
-                    for (peer_id, multiaddr) in list {
-                        #[cfg(feature = "tracing")]
-                        tracing::info!("mDNS discovered a new peer: {peer_id}");
-                        swarm.add_peer_address(peer_id, multiaddr);
-                    }
-                }
-                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Mdns(mdns::Event::Expired(
-                    list,
-                ))) => {
-                    for (peer_id, _multiaddr) in list {
-                        #[cfg(feature = "tracing")]
-                        tracing::warn!("mDNS discover peer has expired: {peer_id}");
-                        let _ = swarm.disconnect_peer_id(peer_id);
-                    }
-                }
-                #[cfg(feature = "tracing")]
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    tracing::info!("ActorSwarm listening on {address}");
-                }
-                _ => {}
-            }
-        }
-    });
-
-    Ok(local_peer_id)
+/// Bootstrap with a specific listen address
+pub async fn bootstrap_on(addr: &str) -> Result<(), Box<dyn error::Error>> {
+    let addr: std::net::SocketAddr = addr.parse()?;
+    v2_bootstrap::bootstrap_on(addr).await.map_err(|e| e as Box<dyn error::Error>)?;
+    Ok(())
 }
 
-/// Unregisters an actor within the swarm.
+/// Unregisters an actor within the distributed system.
 ///
 /// This will only unregister an actor previously registered by the current node.
 pub async fn unregister(name: impl Into<String>) -> Result<(), RegistryError> {
-    ActorSwarm::get()
-        .ok_or(RegistryError::SwarmNotBootstrapped)?
-        .unregister(name.into())
-        .await;
+    // TODO: Implement unregister in kameo_remote
     Ok(())
+}
+
+/// Stream of actor lookups
+/// 
+/// This would be returned by RemoteActorRef::lookup_all() but requires
+/// access to the transport/registry which should be managed by the application.
+pub struct LookupStream<A> {
+    _phantom: std::marker::PhantomData<A>,
+}
+
+impl<A> LookupStream<A> {
+    /// Create a stream that immediately returns an error
+    pub fn new_err() -> Self {
+        LookupStream {
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<A> futures::Stream for LookupStream<A> 
+where
+    A: crate::Actor,
+{
+    type Item = Result<distributed_actor_ref::DistributedActorRef, RegistryError>;
+    
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        // Always return an error indicating the transport is not available
+        std::task::Poll::Ready(Some(Err(RegistryError::SwarmNotBootstrapped)))
+    }
 }

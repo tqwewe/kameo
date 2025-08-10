@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::{
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
@@ -7,20 +7,22 @@ use syn::{
     AngleBracketedGenericArguments, GenericArgument, Generics, ItemImpl, LitStr, PathArguments,
     PathSegment, Token, Type,
 };
+use uuid::Uuid;
 
 pub struct RemoteMessageAttrs {
-    id: Option<LitStr>,
+    id: LitStr,
 }
 
 impl Parse for RemoteMessageAttrs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.is_empty() {
-            Ok(RemoteMessageAttrs { id: None })
-        } else {
-            Ok(RemoteMessageAttrs {
-                id: Some(input.parse()?),
-            })
+            let random_uuid = Uuid::new_v4();
+            return Err(syn::Error::new(
+                input.span(),
+                format!("expected remote message id\nhere's a random uuid you can use:\n  #[remote_message(\"{random_uuid}\")]"),
+            ));
         }
+        Ok(RemoteMessageAttrs { id: input.parse()? })
     }
 }
 
@@ -33,42 +35,13 @@ pub struct RemoteMessage {
 
 impl RemoteMessage {
     pub fn into_tokens(self, attrs: RemoteMessageAttrs) -> TokenStream {
+        let RemoteMessageAttrs { id } = attrs;
         let Self {
             item_impl,
             actor_ty,
             actor_generics,
             message_generics,
         } = self;
-
-        let RemoteMessageAttrs { id } = attrs;
-        let id = id.map(|id| id.into_token_stream()).unwrap_or_else(|| {
-            let actor_ty = actor_ty.to_token_stream().to_string().replace(' ', "");
-            let message_generics = message_generics
-                .to_token_stream()
-                .to_string()
-                .replace(' ', "");
-            let actor_generics = actor_generics
-                .to_token_stream()
-                .to_string()
-                .replace(' ', "");
-            quote! {
-                ::kameo::remote::_internal::const_str::format!(
-                    "{:x}",
-                    ::kameo::remote::_internal::const_fnv1a_hash::fnv1a_hash_str_64(concat!(
-                        env!("CARGO_PKG_NAME"),
-                        "::",
-                        env!("CARGO_PKG_VERSION_MAJOR"),
-                        "::",
-                        module_path!(),
-                        "::",
-                        #message_generics,
-                        "::",
-                        #actor_ty,
-                        #actor_generics,
-                    ))
-                )
-            }
-        });
 
         let (impl_generics, ty_generics, where_clause) = actor_generics.split_for_impl();
 
@@ -80,71 +53,8 @@ impl RemoteMessage {
                 const REMOTE_ID: &'static str = #id;
             }
 
-            const _: () = {
-                #[::kameo::remote::_internal::linkme::distributed_slice(
-                    ::kameo::remote::_internal::REMOTE_MESSAGES
-                )]
-                #[linkme(crate = ::kameo::remote::_internal::linkme)]
-                static REG: (
-                    ::kameo::remote::_internal::RemoteMessageRegistrationID<'static>,
-                    ::kameo::remote::_internal::RemoteMessageFns,
-                ) = (
-                    ::kameo::remote::_internal::RemoteMessageRegistrationID {
-                        actor_remote_id: <#actor_ty as ::kameo::remote::RemoteActor>::REMOTE_ID,
-                        message_remote_id: <#actor_ty #ty_generics as ::kameo::remote::RemoteMessage<#message_generics>>::REMOTE_ID,
-                    },
-                    ::kameo::remote::_internal::RemoteMessageFns {
-                        ask: (|actor_id: ::kameo::actor::ActorId,
-                              msg: ::std::vec::Vec<u8>,
-                              mailbox_timeout: ::std::option::Option<::std::time::Duration>,
-                              reply_timeout: ::std::option::Option<::std::time::Duration>| {
-                                ::std::boxed::Box::pin(::kameo::remote::_internal::ask::<
-                                    #actor_ty,
-                                    #message_generics,
-                                >(
-                                    actor_id,
-                                    msg,
-                                    mailbox_timeout,
-                                    reply_timeout,
-                                ))
-                            }) as ::kameo::remote::_internal::RemoteAskFn,
-                        try_ask: (|actor_id: ::kameo::actor::ActorId,
-                              msg: ::std::vec::Vec<u8>,
-                              reply_timeout: ::std::option::Option<::std::time::Duration>| {
-                                ::std::boxed::Box::pin(::kameo::remote::_internal::try_ask::<
-                                    #actor_ty,
-                                    #message_generics,
-                                >(
-                                    actor_id,
-                                    msg,
-                                    reply_timeout,
-                                ))
-                            }) as ::kameo::remote::_internal::RemoteTryAskFn,
-                        tell: (|actor_id: ::kameo::actor::ActorId,
-                              msg: ::std::vec::Vec<u8>,
-                              mailbox_timeout: ::std::option::Option<::std::time::Duration>| {
-                                ::std::boxed::Box::pin(::kameo::remote::_internal::tell::<
-                                    #actor_ty,
-                                    #message_generics,
-                                >(
-                                    actor_id,
-                                    msg,
-                                    mailbox_timeout,
-                                ))
-                            }) as ::kameo::remote::_internal::RemoteTellFn,
-                        try_tell: (|actor_id: ::kameo::actor::ActorId,
-                              msg: ::std::vec::Vec<u8>| {
-                                ::std::boxed::Box::pin(::kameo::remote::_internal::try_tell::<
-                                    #actor_ty,
-                                    #message_generics,
-                                >(
-                                    actor_id,
-                                    msg,
-                                ))
-                            }) as ::kameo::remote::_internal::RemoteTryTellFn,
-                    },
-                );
-            };
+            // Remove linkme registration entirely
+            // The new distributed_actor! macro will handle registration via type hashes
         }
     }
 }

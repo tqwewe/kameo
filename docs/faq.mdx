@@ -4,7 +4,7 @@ title: Frequently Asked Questions (FAQ)
 
 ## How does Kameo handle communication over a network?
 
-Kameo uses [libp2p](https://libp2p.io) for networking, with Kademlia Distributed Hash Table (DHT) under the hood for actor registration and lookup. This allows actors to communicate across nodes without needing a predefined schema, and messages are routed using multiaddresses, supporting a variety of protocols such as TCP/IP and QUIC.
+Kameo uses a modern gossip protocol for networking, with a Distributed Hash Table (DHT) for actor registration and lookup. This allows actors to communicate across nodes without needing a predefined schema, and messages are routed efficiently over TCP connections.
 
 ---
 
@@ -35,7 +35,7 @@ Kameo's async nature allows multiple actors to run on a single thread using Toki
 
 ## Can Kameo be used for distributed systems?
 
-Yes, Kameo is built for distributed systems. Using libp2p and Kademlia DHT, actors can be registered and discovered across nodes, and they can communicate as if they were local. This makes Kameo ideal for distributed microservices or systems where actors are spread across different machines.
+Yes, Kameo is built for distributed systems. Using a gossip protocol and DHT, actors can be registered and discovered across nodes, and they can communicate as if they were local. This makes Kameo ideal for distributed microservices or systems where actors are spread across different machines.
 
 ---
 

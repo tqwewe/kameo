@@ -757,9 +757,7 @@ impl_infallible_reply!([
 
 #[cfg(feature = "remote")]
 impl_infallible_reply!([
-    {A: Actor + crate::remote::RemoteActor} crate::actor::RemoteActorRef<A>,
     {E: 'static + Send} crate::error::RemoteSendError<E>,
-    crate::remote::ActorSwarm,
 ]);
 
 #[cfg(target_has_atomic = "8")]

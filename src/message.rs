@@ -20,7 +20,7 @@ use futures::{future::BoxFuture, Future, FutureExt};
 
 use crate::{
     actor::ActorRef,
-    error::{self, PanicError, SendError},
+    error::{self, Infallible, PanicError, SendError},
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
     Actor,
 };
@@ -247,7 +247,7 @@ where
     ) -> ForwardedReply<M, <B as Message<M>>::Reply>
     where
         B: Message<M>,
-        M: Send + 'static,
+        M: Send + Clone + 'static,
     {
         match self.reply.take() {
             Some(tx) => {
@@ -264,12 +264,18 @@ where
                 ForwardedReply::new(res)
             }
             None => {
+                let msg = message.clone();
                 let res = actor_ref
                     .tell(message)
                     .send()
-                    .await
-                    .map_err(SendError::reset_err_infallible);
-                ForwardedReply::new(res)
+                    .await;
+                match res {
+                    Ok(()) => ForwardedReply::new(Ok(())),
+                    Err(err) => {
+                        let send_err: SendError<M, <B::Reply as Reply>::Error> = err.map_msg(|_| msg.clone()).reset_err_infallible();
+                        ForwardedReply::new(Err(send_err))
+                    }
+                }
             }
         }
     }
@@ -283,7 +289,7 @@ where
     ) -> ForwardedReply<M, <B as Message<M>>::Reply>
     where
         B: Message<M>,
-        M: Send + 'static,
+        M: Send + Clone + 'static,
     {
         match self.reply.take() {
             Some(tx) => {
@@ -299,11 +305,17 @@ where
                 ForwardedReply::new(res)
             }
             None => {
+                let msg = message.clone();
                 let res = actor_ref
                     .tell(message)
-                    .try_send()
-                    .map_err(SendError::reset_err_infallible);
-                ForwardedReply::new(res)
+                    .try_send();
+                match res {
+                    Ok(()) => ForwardedReply::new(Ok(())),
+                    Err(err) => {
+                        let send_err: SendError<M, <B::Reply as Reply>::Error> = err.map_msg(|_| msg.clone()).reset_err_infallible();
+                        ForwardedReply::new(Err(send_err))
+                    }
+                }
             }
         }
     }
@@ -318,7 +330,7 @@ where
     ) -> ForwardedReply<M, <B as Message<M>>::Reply>
     where
         B: Message<M>,
-        M: Send + 'static,
+        M: Send + Clone + 'static,
     {
         match self.reply.take() {
             Some(tx) => {
@@ -334,11 +346,17 @@ where
                 ForwardedReply::new(res)
             }
             None => {
+                let msg = message.clone();
                 let res = actor_ref
                     .tell(message)
-                    .blocking_send()
-                    .map_err(SendError::reset_err_infallible);
-                ForwardedReply::new(res)
+                    .blocking_send();
+                match res {
+                    Ok(()) => ForwardedReply::new(Ok(())),
+                    Err(err) => {
+                        let send_err: SendError<M, <B::Reply as Reply>::Error> = err.map_msg(|_| msg.clone()).reset_err_infallible();
+                        ForwardedReply::new(Err(send_err))
+                    }
+                }
             }
         }
     }

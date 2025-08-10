@@ -5,6 +5,7 @@
 #![warn(missing_debug_implementations)]
 #![deny(unused_must_use)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// #![cfg_attr(feature = "nightly", feature(hash_extract_if))]
 
 pub mod actor;
 pub mod error;
@@ -14,12 +15,16 @@ pub mod message;
 pub mod registry;
 #[cfg(feature = "remote")]
 pub mod remote;
+#[cfg(feature = "remote")]
+pub mod remote_v2;
 pub mod reply;
 pub mod request;
 
 pub use actor::Actor;
 #[cfg(feature = "macros")]
-pub use kameo_macros::{messages, remote_message, Actor, RemoteActor, Reply};
+pub use kameo_macros::{messages, remote_message, remote_message_derive, Actor, Reply, RemoteMessage};
+#[cfg(all(feature = "remote", feature = "macros"))]
+pub use crate::remote::RemoteMessage;
 pub use reply::Reply;
 
 /// Commonly used types and functions that can be imported with a single use statement.
@@ -32,20 +37,24 @@ pub use reply::Reply;
 /// and traits needed for typical actor system usage.
 pub mod prelude {
     #[cfg(feature = "macros")]
-    pub use kameo_macros::{messages, remote_message, Actor, RemoteActor, Reply};
+    pub use kameo_macros::{messages, remote_message, remote_message_derive, Actor, Reply, RemoteMessage};
 
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;
+    #[allow(deprecated)]
+    pub use crate::actor::ActorID;
     pub use crate::actor::{
         Actor, ActorId, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef,
         WeakRecipient, WeakReplyRecipient,
     };
     #[cfg(feature = "remote")]
     pub use crate::error::RemoteSendError;
+    #[cfg(feature = "remote")]
+    pub use crate::remote::{RemoteMessage, DistributedActorRef};
     pub use crate::error::{ActorStopReason, PanicError, SendError};
     pub use crate::mailbox::{self, MailboxReceiver, MailboxSender};
     pub use crate::message::{Context, Message};
     #[cfg(feature = "remote")]
-    pub use crate::remote::{self, RemoteActor, RemoteMessage};
+    pub use crate::remote;
     pub use crate::reply::{DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender};
 }

@@ -59,7 +59,7 @@ pub struct MyActor;
 2. **Message Serialization with `#[remote_message]`**: In Kameo, messages sent between nodes must be serializable. To enable this, message types need to implement `Serialize` and `Deserialize` traits, and the message implementation must be annotated with the `#[remote_message]` macro, which assigns a unique identifier to the actor and message type handler.
 
 ```rust
-#[remote_message]
+#[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
 impl Message<Inc> for MyActor {
     type Reply = i64;
 

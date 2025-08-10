@@ -1,12 +1,12 @@
 mod derive_actor;
-mod derive_remote_actor;
 mod derive_reply;
+mod derive_remote_message;
 mod messages;
 mod remote_message;
 
 use derive_actor::DeriveActor;
-use derive_remote_actor::DeriveRemoteActor;
 use derive_reply::DeriveReply;
+use derive_remote_message::DeriveRemoteMessage;
 use messages::Messages;
 use proc_macro::TokenStream;
 use quote::ToTokens;
@@ -124,26 +124,29 @@ pub fn derive_reply(input: TokenStream) -> TokenStream {
     TokenStream::from(derive_reply.into_token_stream())
 }
 
-/// Derive macro implementing the [RemoteActor](https://docs.rs/kameo/latest/kameo/actor/remote/trait.RemoteActor.html)
-/// trait with a default remote ID being the full path of the type being implemented.
+/// Derive macro implementing type hashes for remote messages.
 ///
-/// The `#[remote_actor(id = "...")]` attribute can be specified to change the default remote actor ID.
+/// This generates the `HasTypeHash` implementation needed for remote messaging
+/// without requiring the full `distributed_actor!` macro on the client side.
 ///
 /// # Example
 ///
 /// ```ignore
-/// use kameo::RemoteActor;
+/// use kameo::RemoteMessage;
+/// use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 ///
-/// #[derive(RemoteActor)]
-/// struct MyActor { }
-///
-/// assert_eq!(MyActor::REMOTE_ID, "my_crate::module::MyActor");
+/// #[derive(RemoteMessage, Archive, RSerialize, RDeserialize)]
+/// struct LogMessage {
+///     level: String,
+///     content: String,
+/// }
 /// ```
-#[proc_macro_derive(RemoteActor, attributes(remote_actor))]
-pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
-    let derive_remote_actor = parse_macro_input!(input as DeriveRemoteActor);
-    TokenStream::from(derive_remote_actor.into_token_stream())
+#[proc_macro_derive(RemoteMessage)]
+pub fn derive_remote_message(input: TokenStream) -> TokenStream {
+    let derive_remote_message = parse_macro_input!(input as DeriveRemoteMessage);
+    TokenStream::from(derive_remote_message.into_token_stream())
 }
+
 
 /// Registers an actor message to be supported with remote messages.
 ///
@@ -155,7 +158,7 @@ pub fn derive_remote_actor(input: TokenStream) -> TokenStream {
 /// struct MyActor { }
 /// struct MyMessage { }
 ///
-/// #[remote_message]
+/// #[remote_message("c6fa9f76-8818-4000-96f4-50c2ebd52408")]
 /// impl Message<MyMessage> for MyActor {
 ///     // implementation here
 /// }
@@ -165,4 +168,75 @@ pub fn remote_message(attrs: TokenStream, input: TokenStream) -> TokenStream {
     let remote_actor_attrs = parse_macro_input!(attrs as RemoteMessageAttrs);
     let remote_actor = parse_macro_input!(input as RemoteMessage);
     TokenStream::from(remote_actor.into_tokens(remote_actor_attrs))
+}
+
+/// Attribute macro that automatically adds the required derives for remote messages.
+///
+/// This macro automatically applies:
+/// - `RemoteMessage` derive for type hashing and remote messaging support  
+/// - `rkyv::Archive`, `rkyv::Serialize`, `rkyv::Deserialize` for binary serialization
+///
+/// # Example
+///
+/// ```ignore
+/// use kameo::remote_message_derive;
+///
+/// #[remote_message_derive]
+/// struct LogMessage {
+///     level: String,
+///     content: String,
+/// }
+/// ```
+///
+/// This is equivalent to:
+/// ```ignore
+/// #[derive(RemoteMessage, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+/// struct LogMessage {
+///     level: String,
+///     content: String,
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn remote_message_derive(_attrs: TokenStream, input: TokenStream) -> TokenStream {
+    let mut input = parse_macro_input!(input as syn::DeriveInput);
+    
+    // Add the required derive attributes
+    let derives = vec![
+        "::kameo_macros::RemoteMessage",
+        "::rkyv::Archive",
+        "::rkyv::Serialize",
+        "::rkyv::Deserialize",
+    ];
+    
+    // Parse the derive paths
+    let derive_paths: Vec<syn::Path> = derives
+        .into_iter()
+        .map(|d| syn::parse_str(d).unwrap())
+        .collect();
+    
+    // Create the derive attribute
+    let derive_attr = syn::Attribute {
+        pound_token: syn::Token![#](proc_macro2::Span::call_site()),
+        style: syn::AttrStyle::Outer,
+        bracket_token: syn::token::Bracket(proc_macro2::Span::call_site()),
+        meta: syn::Meta::List(syn::MetaList {
+            path: syn::parse_str("derive").unwrap(),
+            delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(proc_macro2::Span::call_site())),
+            tokens: {
+                let mut tokens = proc_macro2::TokenStream::new();
+                for (i, path) in derive_paths.iter().enumerate() {
+                    if i > 0 {
+                        tokens.extend(quote::quote! { , });
+                    }
+                    tokens.extend(quote::quote! { #path });
+                }
+                tokens
+            },
+        }),
+    };
+    
+    // Add the derive attribute to the struct
+    input.attrs.push(derive_attr);
+    
+    TokenStream::from(quote::quote! { #input })
 }

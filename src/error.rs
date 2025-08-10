@@ -339,6 +339,18 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
     }
 }
 
+/// Error indicating that an actor is not running.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActorNotRunning;
+
+impl fmt::Display for ActorNotRunning {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "actor not running")
+    }
+}
+
+impl error::Error for ActorNotRunning {}
+
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
@@ -599,7 +611,8 @@ impl Hash for Infallible {
 /// An error that can occur when registering & looking up actors by name.
 #[derive(Debug)]
 pub enum RegistryError {
-    /// The actor swarm has not been bootstrapped.
+    /// Transport not available - actor system no longer manages transport/registry.
+    /// Use external transport/registry provided by the application.
     #[cfg(feature = "remote")]
     SwarmNotBootstrapped,
     /// The remote actor was found given the ID, but was not the correct type.
@@ -615,22 +628,13 @@ pub enum RegistryError {
     /// Timeout.
     #[cfg(feature = "remote")]
     Timeout,
-    /// Storing the record failed.
-    #[cfg(feature = "remote")]
-    Store(libp2p::kad::store::Error),
-    /// Invalid actor registration.
-    #[cfg(feature = "remote")]
-    InvalidActorRegistration(crate::remote::registry::InvalidActorRegistration),
-    /// Get providers error.
-    #[cfg(feature = "remote")]
-    GetProviders(libp2p::kad::GetProvidersError),
 }
 
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(feature = "remote")]
-            RegistryError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
+            RegistryError::SwarmNotBootstrapped => write!(f, "transport not available - use external transport/registry"),
             RegistryError::NameAlreadyRegistered => write!(f, "name already registered"),
             RegistryError::BadActorType => write!(f, "bad actor type"),
             #[cfg(feature = "remote")]
@@ -639,59 +643,16 @@ impl fmt::Display for RegistryError {
             }
             #[cfg(feature = "remote")]
             RegistryError::Timeout => write!(f, "the request timed out"),
-            #[cfg(feature = "remote")]
-            RegistryError::Store(err) => err.fmt(f),
-            #[cfg(feature = "remote")]
-            RegistryError::InvalidActorRegistration(err) => err.fmt(f),
-            #[cfg(feature = "remote")]
-            RegistryError::GetProviders(err) => err.fmt(f),
         }
     }
 }
 
 impl error::Error for RegistryError {}
 
-#[cfg(feature = "remote")]
-impl From<crate::remote::registry::InvalidActorRegistration> for RegistryError {
-    fn from(err: crate::remote::registry::InvalidActorRegistration) -> Self {
-        RegistryError::InvalidActorRegistration(err)
-    }
-}
 
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::store::Error> for RegistryError {
-    fn from(err: libp2p::kad::store::Error) -> Self {
-        RegistryError::Store(err)
-    }
-}
 
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::AddProviderError> for RegistryError {
-    fn from(err: libp2p::kad::AddProviderError) -> Self {
-        match err {
-            libp2p::kad::AddProviderError::Timeout { .. } => RegistryError::Timeout,
-        }
-    }
-}
 
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::PutRecordError> for RegistryError {
-    fn from(err: libp2p::kad::PutRecordError) -> Self {
-        match err {
-            libp2p::kad::PutRecordError::QuorumFailed { quorum, .. } => {
-                RegistryError::QuorumFailed { quorum }
-            }
-            libp2p::kad::PutRecordError::Timeout { .. } => RegistryError::Timeout,
-        }
-    }
-}
 
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::GetProvidersError> for RegistryError {
-    fn from(err: libp2p::kad::GetProvidersError) -> Self {
-        RegistryError::GetProviders(err)
-    }
-}
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]
@@ -732,7 +693,8 @@ pub enum RemoteSendError<E = Infallible> {
     /// Failed to deserialize the handler error.
     DeserializeHandlerError(String),
 
-    /// The actor swarm has not been bootstrapped.
+    /// Transport not available - actor system no longer manages transport/registry.
+    /// Use external transport/registry provided by the application.
     SwarmNotBootstrapped,
     /// The request could not be sent because a dialing attempt failed.
     DialFailure,
@@ -856,22 +818,6 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
     }
 }
 
-#[cfg(feature = "remote")]
-impl<E> From<libp2p::request_response::OutboundFailure> for RemoteSendError<E> {
-    fn from(err: libp2p::request_response::OutboundFailure) -> Self {
-        match err {
-            libp2p::request_response::OutboundFailure::DialFailure => RemoteSendError::DialFailure,
-            libp2p::request_response::OutboundFailure::Timeout => RemoteSendError::NetworkTimeout,
-            libp2p::request_response::OutboundFailure::ConnectionClosed => {
-                RemoteSendError::ConnectionClosed
-            }
-            libp2p::request_response::OutboundFailure::UnsupportedProtocols => {
-                RemoteSendError::UnsupportedProtocols
-            }
-            libp2p::request_response::OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
-        }
-    }
-}
 
 #[cfg(feature = "remote")]
 impl<E> fmt::Display for RemoteSendError<E>
@@ -911,7 +857,7 @@ where
             RemoteSendError::DeserializeHandlerError(err) => {
                 write!(f, "failed to deserialize handler error: {err}")
             }
-            RemoteSendError::SwarmNotBootstrapped => write!(f, "swarm not bootstrapped"),
+            RemoteSendError::SwarmNotBootstrapped => write!(f, "transport not available - use external transport/registry"),
             RemoteSendError::DialFailure => write!(f, "dial failure"),
             RemoteSendError::NetworkTimeout => write!(f, "network timeout"),
             RemoteSendError::ConnectionClosed => write!(f, "connection closed"),

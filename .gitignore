@@ -1,8 +1,6 @@
+*.log
+*.md
 /target
 Cargo.lock
 .direnv
-.DS_Store
-.makemd
-.obsidian
-.space
 .envrc

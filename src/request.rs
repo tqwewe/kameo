@@ -5,14 +5,15 @@ use std::time::Duration;
 mod ask;
 mod tell;
 
-#[cfg(feature = "remote")]
-pub use ask::RemoteAskRequest;
-
-#[cfg(feature = "remote")]
-pub use tell::RemoteTellRequest;
+// TODO: These types need to be updated to use DistributedAskRequest/DistributedTellRequest
+// #[cfg(feature = "remote")]
+// pub use ask::RemoteAskRequest;
+// 
+// #[cfg(feature = "remote")]
+// pub use tell::RemoteTellRequest;
 
 pub use ask::{AskRequest, BlockingPendingReply, PendingReply, ReplyRecipientAskRequest};
-pub use tell::{RecipientTellRequest, ReplyRecipientTellRequest, TellRequest};
+pub use tell::{RecipientRequest, TellRequest, RecipientTellRequest};
 
 /// A type for requests without any timeout set.
 #[derive(Clone, Copy, Debug, Default)]
