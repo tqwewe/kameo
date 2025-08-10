@@ -1677,7 +1677,6 @@ pub(crate) trait MessageHandler<M: Send + 'static>:
         mailbox_timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), SendError<M>>>;
     fn try_tell(&self, msg: M) -> Result<(), SendError<M>>;
-    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M>>;
 }
 
 impl<A, M> MessageHandler<M> for ActorRef<A>
@@ -1749,13 +1748,6 @@ where
         self.try_send(msg)
     }
 
-    fn blocking_tell(&self, msg: M) -> Result<(), SendError<M>> {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                self.send_fut(msg, None).await
-            })
-        })
-    }
 }
 
 pub(crate) trait ReplyMessageHandler<M: Send + 'static, Ok: Send + 'static, Err: ReplyError>:
