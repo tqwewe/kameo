@@ -29,29 +29,21 @@ Whether you're building a microservice, a real-time application, or an embedded 
 
 ## Kameo Remote V2 Enhancements
 
-<<<<<<< HEAD
 This branch includes significant changes to Kameo's distributed actor messaging capabilities:
 
-- **Removal of libp2p**: Replaced with direct TCP connections and built-in gossip protocol
-- **TLS-encrypted node traffic**: Optional TLS 1.3 encryption with Ed25519 authentication for secure distributed actor communication
-- **Removal of linkme crate**: Replaced with compile-time type erasure and automatic registration at distributed actor spawn time
-- **Generic actors without type ambiguity**: Full support for generic distributed actors through compile-time type hashing
-- **Zero-cost de-serialization**: bincode + msgpack replaced with rkyv
-- **High-performance ring buffer**: Lock-free ring buffer for tell/ask operations with future io_uring support for Linux 5.1+
-- **Automatic streaming for large messages**: Automatically switch to streaming API for messages over threshold, bypassing ring buffer for direct socket writes  
-
-=======
-This branch includes significant enhancements to Kameo's distributed actor messaging capabilities:
-
-- **Removal of libp2p**: Replaced with direct TCP connections and built-in gossip protocol for better performance and control
-- **Removal of linkme crate**: Replaced with compile-time type erasure and automatic registration at actor spawn time
-- **Generic actors without type ambiguity**: Full support for generic distributed actors through compile-time type hashing
-- **Zero-cost serialization**: bincode + msgpack replaced with rkyv for zero-copy serialization
-- **Automatic streaming for large messages**: Automatically switches to streaming API for messages over threshold, bypassing ring buffer for direct socket writes  
-- **High-performance ring buffer**: Lock-free ring buffer for tell/ask operations with future io_uring support for Linux 5.1+
+- **Removal of libp2p**: Replaced with direct TCP connections and a built-in gossip protocol for better performance and control.
+- **TLS-encrypted node traffic**: Optional TLS 1.3 encryption with Ed25519 authentication for secure distributed actor communication.
+- **Removal of linkme crate**: Replaced with compile-time type erasure and automatic registration at actor spawn time.
+- **Generic actors without type ambiguity**: Full support for generic distributed actors through compile-time type hashing.
+- **Zero-cost serialization**: bincode + msgpack replaced with rkyv for zero-copy serialization.
+- **High-performance ring buffer**: Lock-free ring buffer for tell/ask operations with future io_uring support for Linux 5.1+.
+- **Automatic streaming for large messages**: Automatically switches to streaming API for messages over threshold, bypassing ring buffer for direct socket writes.
 
 These improvements provide significantly better performance and scalability for distributed actor systems while maintaining type safety and ease of use.
->>>>>>> 523a35a (Add kameo_remote_v2 documentation to README)
+
+### Security Note
+
+**TODO**: The current implementation does not use proper cryptographic PeerId keys for node identification. This is suitable for development and testing but should be addressed before production use in distributed environments where node identity verification is critical.
 
 ## Why Kameo?
 
@@ -214,4 +206,3 @@ You may choose either license to use this software.
 ---
 
 [Introduction](#introduction) | [Key Features](#key-features) | [Why Kameo?](#why-kameo) | [Use Cases](#use-cases) | [Getting Started](#getting-started) | [Basic Example](#basic-example) | [Distributed Actor Communication](#distributed-actor-communication) | [Examples](#examples) | [Documentation](#documentation-and-resources) | [Contributing](#contributing) | [Support](#support) | [License](#license)
-
