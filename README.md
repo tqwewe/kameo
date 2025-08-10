@@ -27,6 +27,19 @@ Whether you're building a microservice, a real-time application, or an embedded 
 - **Type-Safe Interfaces**: Strong typing for messages and replies ensures compile-time correctness.
 - **Easy Integration**: Compatible with existing Rust async code, and can be integrated into larger systems effortlessly.
 
+## Kameo Remote V2 Enhancements
+
+This branch includes significant enhancements to Kameo's distributed actor messaging capabilities:
+
+- **Removal of libp2p**: Replaced with direct TCP connections and built-in gossip protocol for better performance and control
+- **Removal of linkme crate**: Replaced with compile-time type erasure and automatic registration at actor spawn time
+- **Generic actors without type ambiguity**: Full support for generic distributed actors through compile-time type hashing
+- **Zero-cost serialization**: bincode + msgpack replaced with rkyv for zero-copy serialization
+- **Automatic streaming for large messages**: Automatically switches to streaming API for messages over threshold, bypassing ring buffer for direct socket writes  
+- **High-performance ring buffer**: Lock-free ring buffer for tell/ask operations with future io_uring support for Linux 5.1+
+
+These improvements provide significantly better performance and scalability for distributed actor systems while maintaining type safety and ease of use.
+
 ## Why Kameo?
 
 Kameo is designed to make concurrent programming in Rust approachable and efficient. By abstracting the complexities of async and concurrent execution, Kameo lets you focus on writing the business logic of your actors without worrying about the underlying mechanics.
