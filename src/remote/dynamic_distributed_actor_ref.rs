@@ -18,10 +18,9 @@ use super::type_hash::HasTypeHash;
 use kameo_remote::connection_pool::ConnectionHandle;
 
 /// A reference to a remote distributed actor (dynamic version)
-///
+/// 
 /// Unlike DistributedActorRef, this doesn't require A: Message<M> constraints,
 /// allowing clients to send messages without defining the actor locally.
-#[derive(Debug)]
 pub struct DynamicDistributedActorRef<T = Box<super::kameo_transport::KameoTransport>> {
     /// The actor's ID
     pub(crate) actor_id: ActorId,
@@ -48,14 +47,11 @@ where
     }
 
     /// Look up a distributed actor by name (without connection caching)
-    ///
+    /// 
     /// WARNING: This method does not cache the connection, which means every tell/ask
     /// will fall back to the lock-based transport method. For better performance,
     /// use `lookup_with_connection_cache()` instead.
-    #[deprecated(
-        since = "0.17.3",
-        note = "Use lookup_with_connection_cache() for better performance"
-    )]
+    #[deprecated(since = "0.17.3", note = "Use lookup_with_connection_cache() for better performance")]
     pub async fn uncached_lookup(
         name: &str,
         transport: T,
@@ -131,7 +127,6 @@ impl DynamicDistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
 }
 
 /// A pending tell request to a distributed actor (dynamic version)
-#[derive(Debug)]
 pub struct DynamicTellRequest<'a, M, T = Box<super::kameo_transport::KameoTransport>> {
     actor_ref: &'a DynamicDistributedActorRef<T>,
     message: M,
@@ -166,8 +161,9 @@ where
     pub async fn send(self) -> Result<(), SendError> {
         // Serialize the message with rkyv
         let message_ref = &self.message;
-        let payload = rkyv::to_bytes::<rkyv::rancor::Error>(message_ref)
-            .map_err(|_e| SendError::ActorStopped)?;
+        let payload = rkyv::to_bytes::<rkyv::rancor::Error>(message_ref).map_err(|e| {
+            SendError::ActorStopped
+        })?;
 
         // Get the message type hash
         let type_hash = M::TYPE_HASH.as_u32();
@@ -199,7 +195,7 @@ where
                 Ok(_) => {
                     return Ok(());
                 }
-                Err(_e) => {
+                Err(e) => {
                     // Fall through to transport method
                 }
             }
@@ -222,7 +218,6 @@ where
 }
 
 /// A pending ask request to a distributed actor (dynamic version)
-#[derive(Debug)]
 pub struct DynamicAskRequest<'a, M, R, T = Box<super::kameo_transport::KameoTransport>> {
     actor_ref: &'a DynamicDistributedActorRef<T>,
     message: M,
@@ -279,11 +274,11 @@ where
     pub async fn send(self) -> Result<R, SendError> {
         // Get the raw bytes
         let reply_bytes = self.send_raw().await?;
-
+        
         // Deserialize the reply using rkyv
         let reply = match rkyv::from_bytes::<R, rkyv::rancor::Error>(&reply_bytes) {
             Ok(r) => r,
-            Err(_e) => {
+            Err(e) => {
                 return Err(SendError::ActorStopped);
             }
         };
@@ -295,8 +290,9 @@ where
     pub async fn send_raw(self) -> Result<bytes::Bytes, SendError> {
         // Serialize the message with rkyv
         let message_ref = &self.message;
-        let payload = rkyv::to_bytes::<rkyv::rancor::Error>(message_ref)
-            .map_err(|_e| SendError::ActorStopped)?;
+        let payload = rkyv::to_bytes::<rkyv::rancor::Error>(message_ref).map_err(|e| {
+            SendError::ActorStopped
+        })?;
 
         // Get the message type hash
         let type_hash = M::TYPE_HASH.as_u32();
@@ -317,7 +313,9 @@ where
             if let Ok(message_bytes) = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message) {
                 // Try to send using cached connection - direct ring buffer access!
                 match tokio::time::timeout(timeout, conn.ask(&message_bytes)).await {
-                    Ok(Ok(reply)) => Bytes::from(reply),
+                    Ok(Ok(reply)) => {
+                        Bytes::from(reply)
+                    }
                     Ok(Err(_e)) => {
                         // Fall through to transport method
                         self.actor_ref
@@ -330,9 +328,13 @@ where
                                 timeout,
                             )
                             .await
-                            .map_err(|e| match e {
-                                TransportError::Timeout => SendError::Timeout(None),
-                                _ => SendError::ActorStopped,
+                            .map_err(|e| {
+                                match e {
+                                    TransportError::Timeout => {
+                                        SendError::Timeout(None)
+                                    }
+                                    _ => SendError::ActorStopped,
+                                }
                             })?
                     }
                     Err(_) => {
@@ -351,14 +353,17 @@ where
                         timeout,
                     )
                     .await
-                    .map_err(|e| match e {
-                        TransportError::Timeout => SendError::Timeout(None),
-                        _ => SendError::ActorStopped,
+                    .map_err(|e| {
+                        match e {
+                            TransportError::Timeout => SendError::Timeout(None),
+                            _ => SendError::ActorStopped,
+                        }
                     })?
             }
         } else {
             // No cached connection, use transport
-            self.actor_ref
+            self
+                .actor_ref
                 .transport
                 .send_ask_typed(
                     self.actor_ref.actor_id,
@@ -368,9 +373,11 @@ where
                     timeout,
                 )
                 .await
-                .map_err(|e| match e {
-                    TransportError::Timeout => SendError::Timeout(None),
-                    _ => SendError::ActorStopped,
+                .map_err(|e| {
+                    match e {
+                        TransportError::Timeout => SendError::Timeout(None),
+                        _ => SendError::ActorStopped,
+                    }
                 })?
         };
 
