@@ -29,7 +29,7 @@ Whether you're building a microservice, a real-time application, or an embedded 
 
 ## Kameo Remote V2 Enhancements
 
-This branch includes significant enhancements to Kameo's distributed actor messaging capabilities:
+This branch includes significant changes to Kameo's distributed actor messaging capabilities:
 
 - **Removal of libp2p**: Replaced with direct TCP connections and built-in gossip protocol for better performance and control
 - **Removal of linkme crate**: Replaced with compile-time type erasure and automatic registration at actor spawn time
@@ -38,7 +38,9 @@ This branch includes significant enhancements to Kameo's distributed actor messa
 - **Automatic streaming for large messages**: Automatically switches to streaming API for messages over threshold, bypassing ring buffer for direct socket writes  
 - **High-performance ring buffer**: Lock-free ring buffer for tell/ask operations with future io_uring support for Linux 5.1+
 
-These improvements provide significantly better performance and scalability for distributed actor systems while maintaining type safety and ease of use.
+### Security Note
+
+**TODO**: The current implementation does not use proper cryptographic PeerId keys for node identification. This is suitable for development and testing but should be addressed before production use in distributed environments where node identity verification is critical.
 
 ## Why Kameo?
 
