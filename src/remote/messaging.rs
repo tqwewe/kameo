@@ -47,7 +47,7 @@ use libp2p::{
     },
     PeerId, StreamProtocol,
 };
-use serde::{Deserialize, Serialize};
+// Removed serde - using rkyv for zero-copy serialization
 use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{

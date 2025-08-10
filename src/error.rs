@@ -694,7 +694,6 @@ pub enum RemoteSendError<E = Infallible> {
     /// The remote supports none of the requested protocols.
     UnsupportedProtocols,
     /// An IO failure happened on an outbound stream.
-    #[serde(skip)]
     Io(Option<std::io::Error>),
 }
 

@@ -315,7 +315,9 @@ impl<T: RemoteTransport + ?Sized> RemoteTransport for Box<T> {
         message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Serialize + Send + 'static,
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
     {
         (**self).send_tell(actor_id, location, message)
     }
@@ -335,8 +337,13 @@ impl<T: RemoteTransport + ?Sized> RemoteTransport for Box<T> {
     >
     where
         A: crate::actor::Actor + crate::message::Message<M>,
-        M: Serialize + Send + 'static,
-        <A as crate::message::Message<M>>::Reply: for<'de> Deserialize<'de> + Send,
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
+        <A as crate::message::Message<M>>::Reply: Archive + for<'a> rkyv::Deserialize<
+            <A as crate::message::Message<M>>::Reply,
+            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
+        > + Send,
     {
         (**self).send_ask::<A, M>(actor_id, location, message, timeout)
     }

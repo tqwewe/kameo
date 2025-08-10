@@ -9,7 +9,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use kameo_remote::{GossipConfig, GossipRegistryHandle};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use serde::{Deserialize, Serialize};
+// Removed serde - using rkyv for zero-copy serialization
 use tokio::sync::RwLock;
 
 use super::transport::BoxError;
@@ -369,7 +369,9 @@ impl RemoteTransport for KameoTransport {
         _message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Serialize + Send + 'static,
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
     {
         Box::pin(async move {
             // kameo_remote doesn't have typed message support yet
@@ -395,8 +397,13 @@ impl RemoteTransport for KameoTransport {
     >
     where
         A: crate::actor::Actor + crate::message::Message<M>,
-        M: Serialize + Send + 'static,
-        <A as crate::message::Message<M>>::Reply: for<'de> Deserialize<'de> + Send,
+        M: Archive + for<'a> RkyvSerialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + 'static,
+        <A as crate::message::Message<M>>::Reply: Archive + for<'a> RkyvDeserialize<
+            <A as crate::message::Message<M>>::Reply,
+            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
+        > + Send,
     {
         Box::pin(async move {
             // kameo_remote doesn't have typed message support yet

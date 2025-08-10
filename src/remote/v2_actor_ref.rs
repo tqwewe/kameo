@@ -76,8 +76,13 @@ where
     pub async fn ask<M>(&self, msg: M) -> Result<<A as Message<M>>::Reply, Box<dyn std::error::Error>>
     where
         A: Message<M>,
-        M: serde::Serialize + Send + Sync + 'static,
-        <A as Message<M>>::Reply: for<'de> serde::Deserialize<'de> + Send,
+        M: rkyv::Archive + for<'a> rkyv::Serialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + Sync + 'static,
+        <A as Message<M>>::Reply: rkyv::Archive + for<'a> rkyv::Deserialize<
+            <A as Message<M>>::Reply,
+            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
+        > + Send,
     {
         let timeout = std::time::Duration::from_secs(30); // Default timeout
         self.transport
@@ -90,7 +95,9 @@ where
     pub async fn tell<M>(&self, msg: M) -> Result<(), Box<dyn std::error::Error>>
     where
         A: Message<M>,
-        M: serde::Serialize + Send + Sync + 'static,
+        M: rkyv::Archive + for<'a> rkyv::Serialize<
+            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
+        > + Send + Sync + 'static,
     {
         self.transport
             .send_tell(self.id, &self.location, msg)
