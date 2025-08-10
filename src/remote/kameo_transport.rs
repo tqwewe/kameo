@@ -183,7 +183,7 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<_, 256>(&actor_id).map_err(|e| {
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
                 TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
             })?.to_vec();
 
@@ -238,7 +238,7 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<_, 256>(&actor_id).map_err(|e| {
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
                 TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
             })?.to_vec();
 
@@ -314,7 +314,7 @@ impl RemoteTransport for KameoTransport {
             if let Some(loc) = location_opt {
                 // Try to deserialize ActorId from metadata first
                 let actor_id = if !loc.metadata.is_empty() {
-                    match rkyv::from_bytes::<ActorId>(&loc.metadata) {
+                    match rkyv::from_bytes::<ActorId, rkyv::rancor::Error>(&loc.metadata) {
                         Ok(id) => {
                             id
                         },
