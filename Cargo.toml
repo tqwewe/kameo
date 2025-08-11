@@ -52,7 +52,7 @@ downcast-rs = "2.0.1"
 dyn-clone = "1.0"
 either = { version = "1.15.0", optional = true }
 futures.workspace = true
-kameo_remote = { git = "https://github.com/moofone/kameo_remote.git", branch = "feature/gossip-improvements", optional = true }
+kameo_remote = { path = "../kameo_remote", optional = true }
 rkyv = { version = "0.8", features = ["bytecheck", "std"], optional = true }
 thiserror = "2.0"
 tokio = { workspace = true, features = [
