@@ -4,8 +4,6 @@
 //! Run after starting tell_concrete_server:
 //! cargo run --example test_valid_keypair_auth --features remote
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};

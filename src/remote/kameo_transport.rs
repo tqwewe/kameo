@@ -55,6 +55,11 @@ impl KameoTransport {
             .map(|h| h.clone())
     }
     
+    /// Set the handle for the transport (used when creating with custom keypair)
+    pub fn set_handle(&mut self, handle: Arc<GossipRegistryHandle>) {
+        self.handle = Some(handle);
+    }
+    
     /// Register an actor with synchronous peer acknowledgment using default timeout
     /// 
     /// This is a convenience method that calls the trait method with a 2 second timeout.
@@ -127,11 +132,14 @@ impl RemoteTransport for KameoTransport {
             // Parse bind address
             let bind_addr = self.config.bind_addr;
 
-            // Create gossip config from transport config with proper KeyPair like manual examples
+            // Create gossip config - keypair should be provided via bootstrap_with_keypair for TLS
+            // For default bootstrap_on, we use a test keypair (not for production)
             let node_name = format!("kameo_node_{}", bind_addr.port());
+            let keypair = kameo_remote::KeyPair::new_for_testing(&node_name);
+            
             let gossip_config = GossipConfig {
-                key_pair: Some(kameo_remote::KeyPair::new_for_testing(&node_name)),
-                gossip_interval: Duration::from_secs(5), // Leave as 5s
+                key_pair: Some(keypair),
+                gossip_interval: Duration::from_secs(5), 
                 max_gossip_peers: 3,
                 ..Default::default()
             };

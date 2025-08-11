@@ -39,8 +39,6 @@
 //! Run after starting the server:
 //! cargo run --example tell_concrete_client_bad_key --features remote
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
