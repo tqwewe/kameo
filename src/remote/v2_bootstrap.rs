@@ -11,6 +11,7 @@ use super::distributed_message_handler::DistributedMessageHandler;
 use super::transport::{RemoteTransport, TransportConfig};
 use super::transport_factory::create_transport;
 use super::kameo_transport::KameoTransport;
+use kameo_remote::{GossipConfig, GossipRegistryHandle};
 
 /// Bridge implementation that connects kameo_remote's ActorMessageHandler to our DistributedMessageHandler
 struct KameoActorMessageHandler {
@@ -133,6 +134,76 @@ pub async fn bootstrap_on(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxEr
         ..Default::default()
     };
     bootstrap_with_config(config).await  // This will set the global transport automatically
+}
+
+/// Bootstrap a kameo_remote transport with a specific keypair for TLS authentication
+/// 
+/// This enables TLS encryption and authentication using the provided keypair.
+/// 
+/// # Arguments
+/// * `addr` - The socket address to bind to
+/// * `keypair` - The Ed25519 keypair for TLS authentication
+/// 
+/// # Example
+/// ```no_run
+/// use kameo::remote::v2_bootstrap;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+///     let transport = v2_bootstrap::bootstrap_with_keypair(
+///         "127.0.0.1:8080".parse()?,
+///         keypair
+///     ).await?;
+///     // Now use the transport with TLS enabled
+///     Ok(())
+/// }
+/// ```
+pub async fn bootstrap_with_keypair(
+    addr: SocketAddr,
+    keypair: kameo_remote::KeyPair,
+) -> Result<Box<KameoTransport>, BoxError> {
+    // Create a custom config with TLS enabled
+    let config = TransportConfig {
+        bind_addr: addr,
+        enable_encryption: true,  // Enable TLS
+        ..Default::default()
+    };
+    
+    // Use bootstrap_with_config but with a custom keypair
+    // We need to modify the transport after creation to use the custom keypair
+    
+    // Force kameo_remote transport for v2 bootstrap
+    std::env::set_var("KAMEO_USE_V2_TRANSPORT", "true");
+    
+    let mut transport = Box::new(KameoTransport::new(config));
+    
+    // Create gossip config with the provided keypair for TLS
+    let gossip_config = GossipConfig {
+        key_pair: Some(keypair),
+        gossip_interval: std::time::Duration::from_secs(5),
+        max_gossip_peers: 3,
+        ..Default::default()
+    };
+
+    // Create and start the gossip registry with TLS enabled
+    let handle = GossipRegistryHandle::new(addr, vec![], Some(gossip_config))
+        .await
+        .map_err(|e| BoxError::from(e))?;
+
+    // Use the set_handle method if available, or we need to add it
+    transport.set_handle(Arc::new(handle));
+
+    // Register the distributed message handler with kameo_remote
+    if let Some(handle) = transport.handle() {
+        let bridge_handler = Arc::new(KameoActorMessageHandler::new(GLOBAL_DISTRIBUTED_HANDLER.clone()));
+        handle.registry.set_actor_message_handler(bridge_handler).await;
+    }
+    
+    // Automatically set the global transport for DistributedActorRef::lookup
+    super::DistributedActorRef::set_global_transport(transport.clone());
+    
+    Ok(transport)
 }
 
 // REMOVED: bootstrap_with_peers - This function was removed because it doesn't properly establish

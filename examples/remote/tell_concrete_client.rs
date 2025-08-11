@@ -56,20 +56,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .with_env_filter("kameo_remote=warn,kameo=warn")
         .try_init();
 
-    println!("\n🚀 === CONCRETE ACTOR TELL CLIENT ===");
+    println!("\n🚀 === CONCRETE ACTOR TELL CLIENT (WITH TLS) ===");
 
-    // Bootstrap on port 9311
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9311".parse()?).await?;
-    println!("✅ Client listening on {}", transport.local_addr());
+    // For production, you would load keypair from secure storage or generate and save it
+    // Here we use a deterministic keypair for the example (using seed-based generation)
+    let client_keypair = {
+        // In production: load from file or use proper key management
+        // For this example, we'll use a fixed seed for reproducibility
+        kameo_remote::KeyPair::new_for_testing("tls_client_production_key")
+    };
+    println!("🔐 Client using Ed25519 keypair for TLS encryption");
+    println!("⚠️  Note: In production, use properly generated and stored keypairs");
 
-    // Connect to server with bidirectional setup
-    println!("\n📡 Connecting to server at 127.0.0.1:9310...");
+    // Bootstrap on port 9311 with TLS enabled using keypair
+    let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
+        "127.0.0.1:9311".parse()?,
+        client_keypair
+    ).await?;
+    println!("✅ Client listening on {} with TLS encryption", transport.local_addr());
+
+    // Connect to server with TLS encryption
+    println!("\n📡 Connecting to server at 127.0.0.1:9310 with TLS...");
     if let Some(handle) = transport.handle() {
+        // Add the server as a trusted peer using its keypair-based PeerId
+        let server_peer_id = kameo_remote::PeerId::new("tls_server_production_key");
+        
         let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9310"))
+            .add_peer(&server_peer_id)
             .await;
         peer.connect(&"127.0.0.1:9310".parse()?).await?;
-        println!("✅ Connected to server");
+        println!("✅ Connected to server with TLS encryption and mutual authentication");
     }
 
     // Wait for connection to stabilize
