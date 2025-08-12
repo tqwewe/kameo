@@ -3,8 +3,6 @@
 //! Run after starting the server:
 //! cargo run --example ask_concrete_client --features remote
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
@@ -110,10 +108,11 @@ impl Message<Multiply> for CalculatorActor {
     }
 }
 
-use kameo::distributed_actor;
 
-// Register with distributed actor macro to generate type hashes
-distributed_actor! {
+use kameo::distributed_actor_v2;
+
+// Register with distributed actor v2 macro to generate type hashes
+distributed_actor_v2! {
     CalculatorActor {
         Add,
         Multiply,
@@ -132,25 +131,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Use a deterministic keypair for testing (consistent peer ID)
     let client_keypair = kameo_remote::KeyPair::new_for_testing("ask_client_test_key");
     println!("🔐 Client using Ed25519 keypair for TLS encryption");
-
+    
     // Bootstrap on port 9331 with TLS enabled using keypair
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9331".parse()?,
-        client_keypair,
-    )
-    .await?;
-    println!(
-        "✅ Client listening on {} with TLS encryption",
-        transport.local_addr()
-    );
+        client_keypair
+    ).await?;
+    println!("✅ Client listening on {} with TLS encryption", transport.local_addr());
 
     // Connect to server with TLS encryption
     println!("\n📡 Connecting to server at 127.0.0.1:9330 with TLS...");
     if let Some(handle) = transport.handle() {
         // Add the server as a trusted peer using its keypair-based PeerId
         let server_peer_id = kameo_remote::PeerId::new("ask_server_test_key");
-
-        let peer = handle.add_peer(&server_peer_id).await;
+        
+        let peer = handle
+            .add_peer(&server_peer_id)
+            .await;
         peer.connect(&"127.0.0.1:9330".parse()?).await?;
         println!("✅ Connected to server with TLS encryption and mutual authentication");
     }
@@ -162,15 +159,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Look up remote actor (with connection caching)
     println!("\n🔍 Looking up remote CalculatorActor...");
     let calc_ref = match DistributedActorRef::lookup("calculator").await? {
-        Some(ref_) => {
-            println!("✅ Found CalculatorActor on server with cached connection");
-            ref_
-        }
-        None => {
-            println!("❌ CalculatorActor not found on server");
-            return Err("Actor not found".into());
-        }
-    };
+            Some(ref_) => {
+                println!("✅ Found CalculatorActor on server with cached connection");
+                ref_
+            }
+            None => {
+                println!("❌ CalculatorActor not found on server");
+                return Err("Actor not found".into());
+            }
+        };
 
     // Send ask messages and verify responses
     println!("\n📤 Sending ask messages to remote actor...");

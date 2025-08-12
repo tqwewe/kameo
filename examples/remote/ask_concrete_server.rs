@@ -1,14 +1,12 @@
 //! Concrete actor ask server
-//!
+//! 
 //! Run this first:
 //! cargo run --example ask_concrete_server --features remote
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::actor::{Actor, ActorRef};
-use kameo::distributed_actor;
 use kameo::message::{Context, Message};
 use kameo::remote::transport::RemoteTransport;
+use kameo::distributed_actor_v2;
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
@@ -21,8 +19,11 @@ struct CalculatorActor {
 impl Actor for CalculatorActor {
     type Args = ();
     type Error = Box<dyn std::error::Error + Send + Sync>;
-
-    async fn on_start(_args: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    
+    async fn on_start(
+        _args: Self::Args,
+        _actor_ref: ActorRef<Self>,
+    ) -> Result<Self, Self::Error> {
         Ok(Self { operation_count: 0 })
     }
 }
@@ -93,14 +94,15 @@ impl kameo::reply::Reply for MultiplyResult {
 
 impl Message<Add> for CalculatorActor {
     type Reply = AddResult;
-
-    async fn handle(&mut self, msg: Add, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    
+    async fn handle(
+        &mut self,
+        msg: Add,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
         self.operation_count += 1;
         let result = msg.a + msg.b;
-        println!(
-            "➕ Computing {} + {} = {} (operation #{})",
-            msg.a, msg.b, result, self.operation_count
-        );
+        println!("➕ Computing {} + {} = {} (operation #{})", msg.a, msg.b, result, self.operation_count);
         AddResult {
             result,
             operation_count: self.operation_count,
@@ -110,7 +112,7 @@ impl Message<Add> for CalculatorActor {
 
 impl Message<Multiply> for CalculatorActor {
     type Reply = MultiplyResult;
-
+    
     async fn handle(
         &mut self,
         msg: Multiply,
@@ -118,16 +120,14 @@ impl Message<Multiply> for CalculatorActor {
     ) -> Self::Reply {
         self.operation_count += 1;
         let result = msg.a * msg.b;
-        println!(
-            "✖️  Computing {} × {} = {} (operation #{})",
-            msg.a, msg.b, result, self.operation_count
-        );
+        println!("✖️  Computing {} × {} = {} (operation #{})", msg.a, msg.b, result, self.operation_count);
         MultiplyResult {
             result,
             operation_count: self.operation_count,
         }
     }
 }
+
 
 // Tell message - just increments a counter
 #[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
@@ -137,22 +137,20 @@ struct Increment {
 
 impl Message<Increment> for CalculatorActor {
     type Reply = ();
-
+    
     async fn handle(
         &mut self,
         msg: Increment,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         self.operation_count += 1;
-        println!(
-            "📈 Increment by {} (operation #{})",
-            msg.amount, self.operation_count
-        );
+        println!("📈 Increment by {} (operation #{})", msg.amount, self.operation_count);
     }
 }
 
-// Register with distributed actor macro for ask/reply support
-distributed_actor! {
+
+// Register with distributed actor v2 macro for ask/reply support
+distributed_actor_v2! {
     CalculatorActor {
         Add,
         Multiply,
@@ -166,44 +164,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=info,kameo=info")
         .try_init();
-
+    
     println!("\n🚀 === CONCRETE ACTOR ASK SERVER ===");
-
+    
     // Bootstrap on port 9330 with a deterministic test keypair
     let server_keypair = kameo_remote::KeyPair::new_for_testing("ask_server_test_key");
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9330".parse()?,
-        server_keypair,
-    )
-    .await?;
+        server_keypair
+    ).await?;
     println!("✅ Server listening on {}", transport.local_addr());
-
-    // Create actor using regular spawn
-    let actor_ref = CalculatorActor::spawn(());
-
-    // Register with transport - automatically handles distributed ask/reply
-    transport
-        .register_distributed_actor("calculator".to_string(), &actor_ref)
-        .await?;
+    
+    // Create and register CalculatorActor using the v2 macro
+    let actor_ref = CalculatorActor::spawn_v2(());
     let actor_id = actor_ref.id();
-
-    println!(
-        "✅ CalculatorActor registered with ID {:?} with full ask/reply support",
-        actor_id
-    );
-
+    
+    transport.register_actor("calculator".to_string(), actor_id).await?;
+    
+    println!("✅ CalculatorActor registered with ID {:?} with full ask/reply support", actor_id);
+    
     // Add client as peer
     if let Some(handle) = transport.handle() {
-        let _peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9331"))
-            .await;
+        let _peer = handle.add_peer(&kameo_remote::PeerId::new("kameo_node_9331")).await;
         println!("✅ Added client node as peer");
     }
-
+    
     println!("\n📡 Server ready. Run client with:");
     println!("   cargo run --example ask_concrete_client --features remote");
     println!("\n💤 Server will run until you press Ctrl+C...\n");
-
+    
     // Keep server running
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;

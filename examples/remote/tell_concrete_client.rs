@@ -51,6 +51,9 @@ distributed_actor! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Ensure the rustls CryptoProvider is installed (required for TLS)
+    kameo_remote::tls::ensure_crypto_provider();
+    
     // Enable logging
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=warn,kameo=warn")
@@ -107,8 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         client_actor_id
     );
     
-    // No delay needed - when we send messages to the server, it will trigger
-    // immediate gossip sync and the server can discover us instantly
+    // Wait for gossip to propagate the actor registration from server
+    println!("⏳ Waiting for gossip to propagate actor registration...");
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // Look up remote actor (with connection caching) - zero-cost abstraction!
     println!("\n🔍 Looking up remote LoggerActor...");
