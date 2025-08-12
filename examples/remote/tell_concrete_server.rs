@@ -232,6 +232,9 @@ distributed_actor! {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Ensure the rustls CryptoProvider is installed (required for TLS)
+    kameo_remote::tls::ensure_crypto_provider();
+    
     // Enable logging
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=warn,kameo=warn")
@@ -304,14 +307,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let lookup_actor_ref = actor_ref.clone();
 
     // Spawn task to periodically try to lookup client for bidirectional messaging
+    let transport_cloned = transport.clone();
     tokio::spawn(async move {
         // Start looking immediately - the client will register with Immediate priority
         // which triggers instant gossip sync
         
         let mut retry_count = 0;
+        let mut client_connected = false;
         loop {
             retry_count += 1;
             println!("🔍 [SERVER] Attempting to lookup client for bidirectional messaging (attempt #{})...", retry_count);
+
+            // First, try to establish TLS connection to client if we haven't already
+            if !client_connected {
+                if let Some(handle) = transport_cloned.handle() {
+                    // Try to connect to the client's listening port
+                    println!("🔐 [SERVER] Attempting to establish TLS connection to client at 127.0.0.1:9311...");
+                    let client_peer_id = kameo_remote::PeerId::new("tls_client_production_key");
+                    let peer = handle.add_peer(&client_peer_id).await;
+                    match peer.connect(&"127.0.0.1:9311".parse().unwrap()).await {
+                        Ok(_) => {
+                            println!("✅ [SERVER] TLS connection established with client!");
+                            client_connected = true;
+                        }
+                        Err(e) => {
+                            println!("⚠️  [SERVER] Could not connect to client yet: {:?}", e);
+                            // Continue anyway, client might not be up yet
+                        }
+                    }
+                }
+            }
 
             match DistributedActorRef::lookup("client").await {
                 Ok(Some(client_ref)) => {

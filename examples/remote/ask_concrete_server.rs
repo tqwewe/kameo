@@ -6,7 +6,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::message::{Context, Message};
 use kameo::remote::transport::RemoteTransport;
-use kameo::distributed_actor;
+use kameo::distributed_actor_v2;
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
@@ -36,7 +36,7 @@ struct Add {
 }
 
 // Response for addition
-#[derive(Debug, Clone, Serialize, Deserialize, Archive, RSerialize, RDeserialize)]
+#[derive(Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct AddResult {
     result: i32,
     operation_count: u32,
@@ -68,7 +68,7 @@ struct Multiply {
 }
 
 // Response for multiplication
-#[derive(Debug, Clone, Serialize, Deserialize, Archive, RSerialize, RDeserialize)]
+#[derive(Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct MultiplyResult {
     result: i32,
     operation_count: u32,
@@ -128,30 +128,6 @@ impl Message<Multiply> for CalculatorActor {
     }
 }
 
-// Handler methods for distributed actor - now with zero-copy archived types
-impl CalculatorActor {
-    async fn handle_add(&mut self, msg: &rkyv::Archived<Add>) -> AddResult {
-        self.operation_count += 1;
-        // Zero-copy access to fields
-        let result = msg.a + msg.b;
-        println!("➕ Computing {} + {} = {} (operation #{})", msg.a, msg.b, result, self.operation_count);
-        AddResult {
-            result,
-            operation_count: self.operation_count,
-        }
-    }
-    
-    async fn handle_multiply(&mut self, msg: &rkyv::Archived<Multiply>) -> MultiplyResult {
-        self.operation_count += 1;
-        // Zero-copy access to fields
-        let result = msg.a * msg.b;
-        println!("✖️  Computing {} × {} = {} (operation #{})", msg.a, msg.b, result, self.operation_count);
-        MultiplyResult {
-            result,
-            operation_count: self.operation_count,
-        }
-    }
-}
 
 // Tell message - just increments a counter
 #[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
@@ -172,20 +148,13 @@ impl Message<Increment> for CalculatorActor {
     }
 }
 
-// Handler for distributed actor
-impl CalculatorActor {
-    async fn handle_increment(&mut self, msg: &rkyv::Archived<Increment>) {
-        self.operation_count += 1;
-        println!("📈 Increment by {} (operation #{})", msg.amount, self.operation_count);
-    }
-}
 
-// Register with distributed actor macro
-distributed_actor! {
+// Register with distributed actor v2 macro for ask/reply support
+distributed_actor_v2! {
     CalculatorActor {
-        Add => handle_add,
-        Multiply => handle_multiply,
-        Increment => handle_increment,
+        Add,
+        Multiply,
+        Increment,
     }
 }
 
@@ -198,20 +167,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     println!("\n🚀 === CONCRETE ACTOR ASK SERVER ===");
     
-    // Bootstrap on port 9330
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9330".parse()?).await?;
+    // Bootstrap on port 9330 with a deterministic test keypair
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("ask_server_test_key");
+    let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
+        "127.0.0.1:9330".parse()?,
+        server_keypair
+    ).await?;
     println!("✅ Server listening on {}", transport.local_addr());
     
-    // Create and register CalculatorActor
-    let actor_ref = CalculatorActor::spawn(());
+    // Create and register CalculatorActor using the v2 macro
+    let actor_ref = CalculatorActor::spawn_v2(());
     let actor_id = actor_ref.id();
     
     transport.register_actor("calculator".to_string(), actor_id).await?;
     
-    let handler = kameo::remote::v2_bootstrap::get_distributed_handler();
-    handler.registry().register(actor_id, actor_ref.clone());
-    
-    println!("✅ CalculatorActor registered with ID {:?}", actor_id);
+    println!("✅ CalculatorActor registered with ID {:?} with full ask/reply support", actor_id);
     
     // Add client as peer
     if let Some(handle) = transport.handle() {

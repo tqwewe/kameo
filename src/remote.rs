@@ -57,6 +57,7 @@ pub mod distributed_actor_messages;
 pub mod distributed_message_handler;
 pub mod dynamic_distributed_actor_ref;
 pub mod simple_distributed_actor;
+pub mod distributed_actor_v2;
 pub mod remote_message_trait;
 pub mod distributed_actor_ref;
 pub mod streaming;
@@ -153,14 +154,23 @@ pub(crate) enum BoxRegisteredActorRef {
 /// }
 /// ```
 pub async fn bootstrap() -> Result<(), Box<dyn error::Error>> {
-    v2_bootstrap::bootstrap().await.map_err(|e| e as Box<dyn error::Error>)?;
+    // Use TLS-enabled bootstrap with generated keypair and default address
+    let addr: std::net::SocketAddr = "127.0.0.1:0".parse()?;
+    v2_bootstrap::bootstrap_with_keypair(
+        addr,
+        kameo_remote::KeyPair::generate(),
+    ).await.map_err(|e| e as Box<dyn error::Error>)?;
     Ok(())
 }
 
 /// Bootstrap with a specific listen address
 pub async fn bootstrap_on(addr: &str) -> Result<(), Box<dyn error::Error>> {
     let addr: std::net::SocketAddr = addr.parse()?;
-    v2_bootstrap::bootstrap_on(addr).await.map_err(|e| e as Box<dyn error::Error>)?;
+    // Use TLS-enabled bootstrap with generated keypair
+    v2_bootstrap::bootstrap_with_keypair(
+        addr,
+        kameo_remote::KeyPair::generate(),
+    ).await.map_err(|e| e as Box<dyn error::Error>)?;
     Ok(())
 }
 

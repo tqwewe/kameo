@@ -352,67 +352,9 @@ where
         // Default timeout if not specified
         let timeout = self.timeout.unwrap_or(Duration::from_secs(2));
 
-        let reply_bytes = if let Some(ref conn) = self.actor_ref.connection {
-            // Try to use cached connection first - no locks, maximum performance!
-            let actor_message = kameo_remote::registry::RegistryMessage::ActorMessage {
-                actor_id: self.actor_ref.actor_id.into_u64().to_string(),
-                type_hash: type_hash, // Compile-time constant
-                payload: payload.as_slice().into(),
-                correlation_id: None, // conn.ask() will handle correlation ID
-            };
-
-            // Serialize using rkyv - this could also be optimized per message type
-            if let Ok(message_bytes) = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message) {
-                // Try to send using cached connection - direct ring buffer access!
-                match tokio::time::timeout(timeout, conn.ask(&message_bytes)).await {
-                    Ok(Ok(reply)) => {
-                        Bytes::from(reply)
-                    }
-                    Ok(Err(_e)) => {
-                        // Fall through to transport method
-                        self.actor_ref
-                            .transport
-                            .send_ask_typed(
-                                self.actor_ref.actor_id,
-                                &self.actor_ref.location,
-                                type_hash, // Compile-time constant
-                                Bytes::copy_from_slice(payload.as_slice()),
-                                timeout,
-                            )
-                            .await
-                            .map_err(|e| {
-                                match e {
-                                    TransportError::Timeout => {
-                                        SendError::Timeout(None)
-                                    }
-                                    _ => SendError::ActorStopped,
-                                }
-                            })?
-                    }
-                    Err(_) => {
-                        return Err(SendError::Timeout(None));
-                    }
-                }
-            } else {
-                // Serialization failed, use transport
-                self.actor_ref
-                    .transport
-                    .send_ask_typed(
-                        self.actor_ref.actor_id,
-                        &self.actor_ref.location,
-                        type_hash, // Compile-time constant
-                        Bytes::copy_from_slice(payload.as_slice()),
-                        timeout,
-                    )
-                    .await
-                    .map_err(|e| {
-                        match e {
-                            TransportError::Timeout => SendError::Timeout(None),
-                            _ => SendError::ActorStopped,
-                        }
-                    })?
-            }
-        } else {
+        // For ask operations, we need to go through the transport layer
+        // which handles correlation IDs and reply routing
+        let reply_bytes = {
             // No cached connection, use transport - still optimized per message type
             self
                 .actor_ref

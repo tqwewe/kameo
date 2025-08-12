@@ -8,6 +8,15 @@ kameo = { path = ".", version = "0.18.0" }
 futures = "0.3"
 tokio = "1.47"
 
+[profile.dev]
+# Optimize dependencies in dev mode for better performance
+# This is critical for rkyv serialization performance
+opt-level = 2
+
+[profile.dev.package."*"]
+# Optimize all dependencies (including rkyv) even in dev mode
+opt-level = 3
+
 [profile.release]
 lto = true
 opt-level = 3

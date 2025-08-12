@@ -24,15 +24,24 @@ pub use type_hash::{HasTypeHash, TypeHash};
 
 /// Bootstrap a distributed actor system
 /// 
-/// This creates a kameo_remote based distributed actor system.
+/// This creates a kameo_remote based distributed actor system with TLS enabled.
 pub async fn bootstrap() -> Result<(), Box<dyn std::error::Error>> {
-    crate::remote::v2_bootstrap::bootstrap().await.map_err(|e| e as Box<dyn std::error::Error>)?;
+    // Use TLS-enabled bootstrap with generated keypair and default address
+    let addr: std::net::SocketAddr = "127.0.0.1:0".parse()?;
+    crate::remote::v2_bootstrap::bootstrap_with_keypair(
+        addr,
+        kameo_remote::KeyPair::generate(),
+    ).await.map_err(|e| e as Box<dyn std::error::Error>)?;
     Ok(())
 }
 
 /// Bootstrap with a specific listen address
 pub async fn bootstrap_on(addr: &str) -> Result<(), Box<dyn std::error::Error>> {
     let addr: std::net::SocketAddr = addr.parse()?;
-    crate::remote::v2_bootstrap::bootstrap_on(addr).await.map_err(|e| e as Box<dyn std::error::Error>)?;
+    // Use TLS-enabled bootstrap with generated keypair
+    crate::remote::v2_bootstrap::bootstrap_with_keypair(
+        addr,
+        kameo_remote::KeyPair::generate(),
+    ).await.map_err(|e| e as Box<dyn std::error::Error>)?;
     Ok(())
 }

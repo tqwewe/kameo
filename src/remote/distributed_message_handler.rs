@@ -63,10 +63,6 @@ impl MessageHandler for DistributedMessageHandler {
         payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
         Box::pin(async move {
-            tracing::info!(
-                "📨 RECV: Received tell message for actor {} with type_hash {:08x}, payload size: {} bytes",
-                actor_id, type_hash, payload.len()
-            );
             
             // The handler functions are registered in TYPE_HASH_REGISTRY
             // Just forward to the legacy handler which uses that registry
@@ -83,15 +79,26 @@ impl MessageHandler for DistributedMessageHandler {
         let legacy_handler = self.legacy_handler.clone();
         
         Box::pin(async move {
-            tracing::info!(
-                "📨 RECV: Received ask message for actor {} with type_hash {:08x}, payload size: {} bytes",
-                actor_id, type_hash, payload.len()
+            
+            // Add debug logging to track ask flow
+            tracing::debug!(
+                "🔍 ASK DEBUG: Processing ask for actor_id={}, type_hash={:08x}, about to call legacy handler",
+                actor_id, type_hash
             );
             
             // Use legacy handler - most traffic now goes through DistributedActorRef directly
             let message_type = format!("hash:{:08x}", type_hash);
-            legacy_handler.handle_ask(actor_id, &message_type, &payload).await
-                .map(|vec| Bytes::from(vec))
+            let result = legacy_handler.handle_ask(actor_id, &message_type, &payload).await
+                .map(|vec| {
+                    tracing::debug!("✅ ASK DEBUG: Got reply from legacy handler, {} bytes", vec.len());
+                    Bytes::from(vec)
+                });
+            
+            if let Err(ref e) = result {
+                tracing::warn!("❌ ASK DEBUG: Legacy handler returned error: {:?}", e);
+            }
+            
+            result
         })
     }
 }

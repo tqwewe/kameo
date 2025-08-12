@@ -144,6 +144,8 @@ macro_rules! simple_distributed_actor {
                         }),
                         ask: std::sync::Arc::new(|_, _, _, _| {
                             Box::pin(async move {
+                                // The distributed_actor macro is for tell messages
+                                // Ask messages should use the Message trait implementation
                                 Err($crate::error::RemoteSendError::ActorStopped)
                             })
                         }),

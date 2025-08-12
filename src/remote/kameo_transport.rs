@@ -129,6 +129,12 @@ impl KameoTransport {
 impl RemoteTransport for KameoTransport {
     fn start(&mut self) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
         Box::pin(async move {
+            // Check if handle is already set (e.g., from bootstrap_with_keypair)
+            if self.handle.is_some() {
+                // Transport already started/configured, nothing to do
+                return Ok(());
+            }
+
             // Parse bind address
             let bind_addr = self.config.bind_addr;
 
@@ -468,28 +474,38 @@ impl RemoteTransport for KameoTransport {
             // Get connection pool from registry
             let mut pool = handle.registry.connection_pool.lock().await;
 
+
             // Get or create connection to peer
             let conn = pool.get_connection(peer_addr).await
                 .map_err(|e| TransportError::ConnectionFailed(format!("Failed to get connection: {}", e)))?;
+            
 
-            // Create the payload for the ask message
-            // We need to send the actor_id, type_hash, and payload in a format the handler can parse
+            // For ask operations, we need to wrap in RegistryMessage::ActorMessage
+            // The server expects this format for Ask messages
+            
             let actor_message = kameo_remote::registry::RegistryMessage::ActorMessage {
                 actor_id: actor_id.into_u64().to_string(),
                 type_hash,
-                payload: payload.to_vec(),
-                correlation_id: None, // conn.ask() will handle correlation ID
+                payload,
+                correlation_id: None, // This MUST be None - the Ask envelope will set it
             };
             
-            // Serialize the ActorMessage
-            let message_bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message)
-                .map_err(|e| TransportError::SerializationFailed(format!("Failed to serialize ActorMessage: {}", e)))?;
+            // Serialize the RegistryMessage
+            let serialized_msg = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message)
+                .map_err(|e| TransportError::Other(format!("Failed to serialize actor message: {}", e).into()))?;
             
-            // Send the ask message via kameo_remote's ask method which handles correlation
-            match tokio::time::timeout(timeout, conn.ask(&message_bytes)).await {
+            
+            
+            // Send the ask message and wait for reply
+            // conn.ask() will add the proper header with MessageType::Ask (1) and correlation ID
+            // The server will:
+            // 1. Receive MessageType::Ask with correlation_id in envelope
+            // 2. Deserialize our RegistryMessage::ActorMessage
+            // 3. Set the correlation_id from envelope into the ActorMessage
+            // 4. Call the handler with the updated ActorMessage
+            match tokio::time::timeout(timeout, conn.ask(&serialized_msg)).await {
                 Ok(Ok(reply_bytes)) => {
                     // The reply should be the serialized response from the actor
-                    // kameo_remote should have already unwrapped it from RegistryMessage
                     Ok(Bytes::from(reply_bytes))
                 }
                 Ok(Err(e)) => {

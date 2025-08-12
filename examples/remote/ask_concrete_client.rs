@@ -108,24 +108,14 @@ impl Message<Multiply> for CalculatorActor {
     }
 }
 
-// Handler methods for distributed actor (just for type hash generation)
-impl CalculatorActor {
-    async fn handle_add(&mut self, _msg: &rkyv::Archived<Add>) -> AddResult {
-        panic!("Client should not handle messages")
-    }
 
-    async fn handle_multiply(&mut self, _msg: &rkyv::Archived<Multiply>) -> MultiplyResult {
-        panic!("Client should not handle messages")
-    }
-}
+use kameo::distributed_actor_v2;
 
-use kameo::distributed_actor;
-
-// Register with distributed actor macro to generate type hashes
-distributed_actor! {
+// Register with distributed actor v2 macro to generate type hashes
+distributed_actor_v2! {
     CalculatorActor {
-        Add => handle_add,
-        Multiply => handle_multiply,
+        Add,
+        Multiply,
     }
 }
 
@@ -138,27 +128,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("\n🚀 === CONCRETE ACTOR ASK CLIENT ===");
 
-    // Bootstrap on port 9331
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9331".parse()?).await?;
-    println!("✅ Client listening on {}", transport.local_addr());
+    // Use a deterministic keypair for testing (consistent peer ID)
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("ask_client_test_key");
+    println!("🔐 Client using Ed25519 keypair for TLS encryption");
+    
+    // Bootstrap on port 9331 with TLS enabled using keypair
+    let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
+        "127.0.0.1:9331".parse()?,
+        client_keypair
+    ).await?;
+    println!("✅ Client listening on {} with TLS encryption", transport.local_addr());
 
-    // Connect to server
-    println!("\n📡 Connecting to server at 127.0.0.1:9330...");
+    // Connect to server with TLS encryption
+    println!("\n📡 Connecting to server at 127.0.0.1:9330 with TLS...");
     if let Some(handle) = transport.handle() {
+        // Add the server as a trusted peer using its keypair-based PeerId
+        let server_peer_id = kameo_remote::PeerId::new("ask_server_test_key");
+        
         let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9330"))
+            .add_peer(&server_peer_id)
             .await;
         peer.connect(&"127.0.0.1:9330".parse()?).await?;
-        println!("✅ Connected to server");
+        println!("✅ Connected to server with TLS encryption and mutual authentication");
     }
 
-    // Wait for connection to stabilize
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    // Wait for connection to stabilize and gossip to propagate
+    println!("⏳ Waiting for gossip to propagate actor registration...");
+    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
 
     // Look up remote actor (with connection caching)
     println!("\n🔍 Looking up remote CalculatorActor...");
-    let calc_ref =
-        match DistributedActorRef::<CalculatorActor>::lookup("calculator", transport).await? {
+    let calc_ref = match DistributedActorRef::lookup("calculator").await? {
             Some(ref_) => {
                 println!("✅ Found CalculatorActor on server with cached connection");
                 ref_
@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 1: Add operation
     println!("\n🧪 Test 1: Asking to add 10 + 20");
     let start = std::time::Instant::now();
-    let result = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
+    let result: AddResult = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -188,7 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 2: Multiply operation
     println!("\n🧪 Test 2: Asking to multiply 5 × 7");
     let start = std::time::Instant::now();
-    let result = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
+    let result: MultiplyResult = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -200,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 3: Another add operation
     println!("\n🧪 Test 3: Asking to add 100 + 200");
     let start = std::time::Instant::now();
-    let result = calc_ref.ask(Add { a: 100, b: 200 }).send().await?;
+    let result: AddResult = calc_ref.ask(Add { a: 100, b: 200 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -212,7 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 4: With timeout
     println!("\n🧪 Test 4: Asking with explicit timeout");
     let start = std::time::Instant::now();
-    let result = calc_ref
+    let result: MultiplyResult = calc_ref
         .ask(Multiply { a: 12, b: 12 })
         .timeout(std::time::Duration::from_secs(5))
         .send()
@@ -230,7 +230,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let batch_start = std::time::Instant::now();
     for i in 1..=5 {
         let start = std::time::Instant::now();
-        let result = calc_ref.ask(Add { a: i, b: i * 10 }).send().await?;
+        let result: AddResult = calc_ref.ask(Add { a: i, b: i * 10 }).send().await?;
         let duration = start.elapsed();
         println!(
             "   Request {}: {} + {} = {} (operation count: {}) in {:?}",

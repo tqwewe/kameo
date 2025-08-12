@@ -92,49 +92,52 @@ pub fn get_distributed_handler() -> &'static Arc<DistributedMessageHandler> {
     &GLOBAL_DISTRIBUTED_HANDLER
 }
 
-/// Bootstrap a simple kameo_remote transport with default configuration
-/// 
-/// Starts a transport on a random port with sensible defaults for development and testing.
-/// 
-/// # Example
-/// ```no_run
-/// use kameo::remote::v2_bootstrap;
-/// 
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let transport = v2_bootstrap::bootstrap().await?;
-///     // Now use the transport for remote actors
-///     Ok(())
-/// }
-/// ```
-pub async fn bootstrap() -> Result<Box<KameoTransport>, BoxError> {
-    let config = TransportConfig::default();
-    bootstrap_with_config(config).await
-}
+// COMMENTED OUT: Non-TLS bootstrap methods - migrating to TLS-only
+// /// Bootstrap a simple kameo_remote transport with default configuration (LEGACY - NO TLS)
+// /// 
+// /// DEPRECATED: This method does not use TLS. Use bootstrap_with_keypair instead.
+// /// Starts a transport on a random port with sensible defaults for development and testing.
+// /// 
+// /// # Example
+// /// ```no_run
+// /// use kameo::remote::v2_bootstrap;
+// /// 
+// /// #[tokio::main]
+// /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+// ///     let transport = v2_bootstrap::bootstrap_legacy_no_tls().await?;
+// ///     // Now use the transport for remote actors
+// ///     Ok(())
+// /// }
+// /// ```
+// pub async fn bootstrap_legacy_no_tls() -> Result<Box<KameoTransport>, BoxError> {
+//     let config = TransportConfig::default();
+//     bootstrap_with_config(config).await
+// }
 
-/// Bootstrap a kameo_remote transport on a specific address
-/// 
-/// # Arguments
-/// * `addr` - The socket address to bind to
-/// 
-/// # Example
-/// ```no_run
-/// use kameo::remote::v2_bootstrap;
-/// 
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let transport = v2_bootstrap::bootstrap_on("127.0.0.1:8080".parse()?).await?;
-///     // Now use the transport for remote actors
-///     Ok(())
-/// }
-/// ```
-pub async fn bootstrap_on(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxError> {
-    let config = TransportConfig {
-        bind_addr: addr,
-        ..Default::default()
-    };
-    bootstrap_with_config(config).await  // This will set the global transport automatically
-}
+// /// Bootstrap a kameo_remote transport on a specific address (LEGACY - NO TLS)
+// /// 
+// /// DEPRECATED: This method does not use TLS. Use bootstrap_with_keypair instead.
+// /// # Arguments
+// /// * `addr` - The socket address to bind to
+// /// 
+// /// # Example
+// /// ```no_run
+// /// use kameo::remote::v2_bootstrap;
+// /// 
+// /// #[tokio::main]
+// /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+// ///     let transport = v2_bootstrap::bootstrap_on_legacy_no_tls("127.0.0.1:8080".parse()?).await?;
+// ///     // Now use the transport for remote actors
+// ///     Ok(())
+// /// }
+// /// ```
+// pub async fn bootstrap_on_legacy_no_tls(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxError> {
+//     let config = TransportConfig {
+//         bind_addr: addr,
+//         ..Default::default()
+//     };
+//     bootstrap_with_config(config).await  // This will set the global transport automatically
+// }
 
 /// Bootstrap a kameo_remote transport with a specific keypair for TLS authentication
 /// 
@@ -163,6 +166,11 @@ pub async fn bootstrap_with_keypair(
     addr: SocketAddr,
     keypair: kameo_remote::KeyPair,
 ) -> Result<Box<KameoTransport>, BoxError> {
+    // Ensure the rustls CryptoProvider is installed (required for TLS)
+    // This uses the ring provider which is enabled in kameo_remote's Cargo.toml
+    // We need to call this through kameo_remote since it has the rustls dependency
+    kameo_remote::tls::ensure_crypto_provider();
+    
     // Create a custom config with TLS enabled
     let config = TransportConfig {
         bind_addr: addr,
@@ -178,16 +186,20 @@ pub async fn bootstrap_with_keypair(
     
     let mut transport = Box::new(KameoTransport::new(config));
     
-    // Create gossip config with the provided keypair for TLS
+    // Create gossip config without the keypair (we'll use it for TLS separately)
     let gossip_config = GossipConfig {
-        key_pair: Some(keypair),
+        key_pair: Some(keypair.clone()), // Keep for backward compatibility
         gossip_interval: std::time::Duration::from_secs(5),
         max_gossip_peers: 3,
         ..Default::default()
     };
 
-    // Create and start the gossip registry with TLS enabled
-    let handle = GossipRegistryHandle::new(addr, vec![], Some(gossip_config))
+    // Convert the keypair to a secret key for TLS
+    let secret_key = kameo_remote::migration::migrate_keypair_to_secret_key(keypair.clone())
+        .map_err(|e| BoxError::from(format!("Failed to extract secret key: {}", e)))?;
+
+    // Create and start the gossip registry with TLS enabled using new_with_tls
+    let handle = GossipRegistryHandle::new_with_tls(addr, secret_key, Some(gossip_config))
         .await
         .map_err(|e| BoxError::from(e))?;
 
@@ -215,6 +227,26 @@ pub async fn bootstrap_with_keypair(
 //   let handle = transport.get_handle()?;
 //   let peer = handle.add_peer(&PeerId::new("peer_node_name")).await;
 //   peer.connect(peer_addr).await?;
+
+/// Bootstrap on a specific address with TLS enabled
+/// 
+/// # Arguments
+/// * `addr` - The socket address to bind to
+/// 
+/// # Example
+/// ```no_run
+/// use kameo::remote::v2_bootstrap;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let transport = v2_bootstrap::bootstrap_on("127.0.0.1:9330".parse()?).await?;
+///     Ok(())
+/// }
+/// ```
+pub async fn bootstrap_on(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxError> {
+    // Use TLS-enabled bootstrap with generated keypair
+    bootstrap_with_keypair(addr, kameo_remote::KeyPair::generate()).await
+}
 
 /// Bootstrap a kameo_remote transport with custom configuration
 /// 
@@ -290,11 +322,15 @@ pub async fn bootstrap_cluster(
     let mut transports = Vec::with_capacity(count);
     let mut addrs = Vec::with_capacity(count);
     
-    // Create all transports
+    // Create all transports with TLS
     for i in 0..count {
         let addr: SocketAddr = format!("127.0.0.1:{}", base_port + i as u16).parse()?;
         addrs.push(addr);
-        let transport = bootstrap_on(addr).await?;
+        // Use TLS-enabled bootstrap with generated keypair
+        let transport = bootstrap_with_keypair(
+            addr,
+            kameo_remote::KeyPair::generate(),
+        ).await?;
         transports.push(transport);
     }
     
