@@ -39,3 +39,4 @@ pub type RemoteTellFn = dyn Fn(
 
 pub type RemoteTryTellFn =
     dyn Fn(ActorId, Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError>> + Send + Sync;
+

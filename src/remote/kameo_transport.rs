@@ -66,6 +66,23 @@ impl KameoTransport {
     pub async fn register_actor_sync(&self, name: String, actor_id: ActorId) -> TransportResult<()> {
         <Self as RemoteTransport>::register_actor_sync(self, name, actor_id, Duration::from_secs(2)).await
     }
+    
+    /// Register a distributed actor and automatically register its handlers.
+    /// 
+    /// This method registers the actor and automatically calls its distributed handler registration.
+    /// The actor must implement the DistributedActor trait (via the distributed_actor! macro).
+    pub async fn register_distributed_actor<A>(&self, name: String, actor_ref: &crate::actor::ActorRef<A>) -> TransportResult<()> 
+    where
+        A: crate::Actor + crate::remote::DistributedActor + 'static,
+    {
+        // Register the actor normally
+        self.register_actor(name, actor_ref.id()).await?;
+        
+        // Automatically register the distributed handlers
+        A::__register_distributed_handlers(actor_ref);
+        
+        Ok(())
+    }
 }
 
 impl KameoTransport {

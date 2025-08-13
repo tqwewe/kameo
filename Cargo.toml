@@ -76,6 +76,7 @@ tracing = { version = "0.1", optional = true }
 [dev-dependencies]
 criterion = { version = "0.7", features = ["async_tokio"] }
 kameo_actors = { path = "actors" }
+rustc-hash = "2.0"
 tokio = { version = "1", features = [
   "macros",
   "rt",
@@ -147,6 +148,21 @@ path = "examples/remote/ask_concrete_server.rs"
 required-features = ["remote"]
 
 [[example]]
+name = "ask_candle_client"
+path = "examples/remote/ask_candle_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "ask_candle_server"
+path = "examples/remote/ask_candle_server.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "distributed_actor_example"
+path = "examples/remote/distributed_actor_example.rs"
+required-features = ["remote"]
+
+[[example]]
 name = "ask_generic_client"
 path = "examples/remote/ask_generic_client.rs"
 required-features = ["remote"]
@@ -184,6 +200,16 @@ required-features = ["remote"]
 [[example]]
 name = "tell_messages"
 path = "examples/remote/tell_messages.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "tell_candle_client"
+path = "examples/remote/tell_candle_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "tell_candle_server"
+path = "examples/remote/tell_candle_server.rs"
 required-features = ["remote"]
 
 [[example]]
@@ -234,6 +260,31 @@ required-features = ["remote"]
 [[example]]
 name = "test_bidirectional_gossip"
 path = "examples/remote/test_bidirectional_gossip.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "bug_gossip_fail_server"
+path = "examples/remote/bug_gossip_fail_server.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "bug_gossip_fail_client"
+path = "examples/remote/bug_gossip_fail_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "prebacktest_benchmark_client"
+path = "examples/remote/prebacktest_benchmark_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "simple_prebacktest_client"
+path = "examples/remote/simple_prebacktest_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "simple_prebacktest_server"
+path = "examples/remote/simple_prebacktest_server.rs"
 required-features = ["remote"]
 
 [[bench]]

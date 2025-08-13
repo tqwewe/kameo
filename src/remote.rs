@@ -57,7 +57,7 @@ pub mod distributed_actor_messages;
 pub mod distributed_message_handler;
 pub mod dynamic_distributed_actor_ref;
 pub mod simple_distributed_actor;
-pub mod distributed_actor_v2;
+pub mod distributed_actor;
 pub mod remote_message_trait;
 pub mod distributed_actor_ref;
 pub mod streaming;
@@ -67,6 +67,15 @@ pub use dynamic_distributed_actor_ref::DynamicDistributedActorRef;
 pub use remote_message_trait::RemoteMessage;
 pub use distributed_actor_ref::DistributedActorRef;
 pub use type_hash::{HasTypeHash, TypeHash};
+
+/// Trait for actors that support distributed messaging
+/// This is automatically implemented by the `distributed_actor!` macro
+pub trait DistributedActor: Actor {
+    /// Internal method to register type handlers
+    /// This is called automatically by transport.register_actor()
+    #[doc(hidden)]
+    fn __register_distributed_handlers(actor_ref: &ActorRef<Self>);
+}
 
 pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));

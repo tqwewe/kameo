@@ -6,7 +6,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::message::{Context, Message};
 use kameo::remote::transport::RemoteTransport;
-use kameo::distributed_actor_v2;
+use kameo::distributed_actor;
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
@@ -149,8 +149,8 @@ impl Message<Increment> for CalculatorActor {
 }
 
 
-// Register with distributed actor v2 macro for ask/reply support
-distributed_actor_v2! {
+// Register with distributed actor macro for ask/reply support
+distributed_actor! {
     CalculatorActor {
         Add,
         Multiply,
@@ -175,11 +175,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     ).await?;
     println!("✅ Server listening on {}", transport.local_addr());
     
-    // Create and register CalculatorActor using the v2 macro
-    let actor_ref = CalculatorActor::spawn_v2(());
-    let actor_id = actor_ref.id();
+    // Create actor using regular spawn
+    let actor_ref = CalculatorActor::spawn(());
     
-    transport.register_actor("calculator".to_string(), actor_id).await?;
+    // Register with transport - automatically handles distributed ask/reply
+    transport.register_distributed_actor("calculator".to_string(), &actor_ref).await?;
+    let actor_id = actor_ref.id();
     
     println!("✅ CalculatorActor registered with ID {:?} with full ask/reply support", actor_id);
     
