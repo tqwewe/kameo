@@ -238,6 +238,8 @@ where
             
             // Header: [type:1][correlation_id:2][reserved:5]
             message.put_u8(3); // MessageType::ActorTell - compile-time constant
+            eprintln!("[CLIENT SEND] Writing ActorTell header: type=3, size={}, first bytes: {:02x} {:02x} {:02x} {:02x}", 
+                     inner_size, 3u8, 0u8, 0u8, 0u8);
             message.put_u16(0); // No correlation for tell
             message.put_slice(&[0u8; 5]); // Reserved
 
@@ -255,9 +257,14 @@ where
             }
             
             // Use the ConnectionHandle's zero-copy method
-            return conn.send_bytes_zero_copy(message_bytes).map_err(|e| {
+            eprintln!("[TELL DEBUG] Sending {} bytes via send_bytes_zero_copy", message_bytes.len());
+            eprintln!("[TELL DEBUG] Message type hash: {:08x}, Actor ID: {:?}", type_hash, self.actor_ref.actor_id);
+            let result = conn.send_bytes_zero_copy(message_bytes).map_err(|e| {
+                eprintln!("[TELL DEBUG] send_bytes_zero_copy failed: {:?}", e);
                 SendError::ActorStopped
             });
+            eprintln!("[TELL DEBUG] send_bytes_zero_copy returned: {:?}", result);
+            return result;
         }
 
         // Zero-cost abstraction requires cached connection - this should never happen

@@ -32,12 +32,21 @@ impl Actor for ClientActor {
 }
 
 // Handler for ServerResponse messages from server
-impl ClientActor {
-    async fn handle_server_response(&mut self, msg: &rkyv::Archived<ServerResponse>) {
+use kameo::message::{Message, Context};
+
+impl Message<ServerResponse> for ClientActor {
+    type Reply = ();
+    
+    async fn handle(&mut self, _msg: ServerResponse, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         self.responses_received += 1;
         // Silent response handling - only log significant milestones
-        if self.responses_received == 1 || (self.responses_received > 0 && self.responses_received % 50 == 0) {
-            println!("📨 [CLIENT] Received {} responses from server", self.responses_received);
+        if self.responses_received == 1
+            || (self.responses_received > 0 && self.responses_received % 50 == 0)
+        {
+            println!(
+                "📨 [CLIENT] Received {} responses from server",
+                self.responses_received
+            );
         }
     }
 }
@@ -45,7 +54,7 @@ impl ClientActor {
 // Register with distributed actor macro for bidirectional communication
 distributed_actor! {
     ClientActor {
-        ServerResponse => handle_server_response,
+        ServerResponse,
     }
 }
 
@@ -53,7 +62,7 @@ distributed_actor! {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Ensure the rustls CryptoProvider is installed (required for TLS)
     kameo_remote::tls::ensure_crypto_provider();
-    
+
     // Enable logging
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=warn,kameo=warn")
@@ -74,19 +83,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Bootstrap on port 9311 with TLS enabled using keypair
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9311".parse()?,
-        client_keypair
-    ).await?;
-    println!("✅ Client listening on {} with TLS encryption", transport.local_addr());
+        client_keypair,
+    )
+    .await?;
+    println!(
+        "✅ Client listening on {} with TLS encryption",
+        transport.local_addr()
+    );
 
     // Connect to server with TLS encryption
     println!("\n📡 Connecting to server at 127.0.0.1:9310 with TLS...");
     if let Some(handle) = transport.handle() {
         // Add the server as a trusted peer using its keypair-based PeerId
         let server_peer_id = kameo_remote::PeerId::new("tls_server_production_key");
-        
-        let peer = handle
-            .add_peer(&server_peer_id)
-            .await;
+
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9310".parse()?).await?;
         println!("✅ Connected to server with TLS encryption and mutual authentication");
     }
@@ -109,10 +120,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "✅ ClientActor registered as 'client' with ID {:?}",
         client_actor_id
     );
-    
+
     // Wait for gossip to propagate the actor registration from server
     println!("⏳ Waiting for gossip to propagate actor registration...");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Look up remote actor (with connection caching) - zero-cost abstraction!
     println!("\n🔍 Looking up remote LoggerActor...");
@@ -227,8 +238,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         throughput_duration, messages_per_second
     );
 
-    // Wait longer to ensure messages are processed
-    println!("\n⏳ Waiting for messages to be processed...");
+    // CRITICAL: Give background writer time to actually send messages!
+    // The send() method returns immediately but messages are in a queue
+    println!("\n⏳ Waiting for background writer to flush messages...");
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     let all_tests_duration = all_tests_start.elapsed();

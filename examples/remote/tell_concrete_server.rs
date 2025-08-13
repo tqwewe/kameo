@@ -91,7 +91,9 @@ impl LoggerActor {
         let level = &msg.level;
         let content = &msg.content;
 
-        // Silent processing for LogMessages - only log first few and final summary
+        // LOG EVERY MESSAGE TO DEBUG
+        println!("📝 [SERVER] Received LogMessage #{}: {} - {}", 
+                 self.message_count, level, content);
 
         // BIDIRECTIONAL: Send response back to client!
         if let Err(e) = self.send_response_to_client().await {
@@ -221,14 +223,15 @@ struct SupertrendIndicator {
     pub sell_signal: bool,
 }
 
-// Register with distributed actor macro
+// Register with distributed actor macro for LoggerActor
 distributed_actor! {
     LoggerActor {
-        LogMessage => handle_log,
-        TellConcrete => handle_tell_concrete,
-        IndicatorData => handle_indicator,
+        LogMessage,
+        GetCountMessage,
     }
 }
+
+// Note: TellConcrete and IndicatorData are handled by ConcreteActor, not LoggerActor
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

@@ -109,10 +109,10 @@ impl Message<Multiply> for CalculatorActor {
 }
 
 
-use kameo::distributed_actor_v2;
+use kameo::distributed_actor;
 
-// Register with distributed actor v2 macro to generate type hashes
-distributed_actor_v2! {
+// Register with distributed actor macro to generate type hashes
+distributed_actor! {
     CalculatorActor {
         Add,
         Multiply,
