@@ -22,7 +22,7 @@ pub mod request;
 
 pub use actor::Actor;
 #[cfg(feature = "macros")]
-pub use kameo_macros::{messages, remote_message, remote_message_derive, Actor, Reply, RemoteMessage};
+pub use kameo_macros::{messages, remote_message_derive, Actor, Reply, RemoteMessage};
 #[cfg(all(feature = "remote", feature = "macros"))]
 pub use crate::remote::RemoteMessage;
 pub use reply::Reply;
@@ -37,7 +37,7 @@ pub use reply::Reply;
 /// and traits needed for typical actor system usage.
 pub mod prelude {
     #[cfg(feature = "macros")]
-    pub use kameo_macros::{messages, remote_message, remote_message_derive, Actor, Reply, RemoteMessage};
+    pub use kameo_macros::{messages, remote_message_derive, Actor, Reply, RemoteMessage};
 
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;

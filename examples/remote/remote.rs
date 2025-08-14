@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use futures::TryStreamExt;
 use kameo::prelude::*;
+use kameo::distributed_actor;
 use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -12,13 +13,13 @@ pub struct MyActor {
     count: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, RemoteMessage)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Inc {
     amount: u32,
     from: PeerId,
 }
 
-#[remote_message]
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
@@ -29,6 +30,12 @@ impl Message<Inc> for MyActor {
         );
         self.count += msg.amount as i64;
         self.count
+    }
+}
+
+distributed_actor! {
+    MyActor {
+        Inc,
     }
 }
 

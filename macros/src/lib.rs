@@ -2,7 +2,6 @@ mod derive_actor;
 mod derive_reply;
 mod derive_remote_message;
 mod messages;
-mod remote_message;
 
 use derive_actor::DeriveActor;
 use derive_reply::DeriveReply;
@@ -10,7 +9,6 @@ use derive_remote_message::DeriveRemoteMessage;
 use messages::Messages;
 use proc_macro::TokenStream;
 use quote::ToTokens;
-use remote_message::{RemoteMessage, RemoteMessageAttrs};
 use syn::parse_macro_input;
 
 /// Attribute macro placed on `impl` blocks of actors to define messages.
@@ -148,27 +146,6 @@ pub fn derive_remote_message(input: TokenStream) -> TokenStream {
 }
 
 
-/// Registers an actor message to be supported with remote messages.
-///
-/// # Example
-///
-/// ```ignore
-/// use kameo::{remote_message, message::Message};
-///
-/// struct MyActor { }
-/// struct MyMessage { }
-///
-/// #[remote_message("c6fa9f76-8818-4000-96f4-50c2ebd52408")]
-/// impl Message<MyMessage> for MyActor {
-///     // implementation here
-/// }
-/// ```
-#[proc_macro_attribute]
-pub fn remote_message(attrs: TokenStream, input: TokenStream) -> TokenStream {
-    let remote_actor_attrs = parse_macro_input!(attrs as RemoteMessageAttrs);
-    let remote_actor = parse_macro_input!(input as RemoteMessage);
-    TokenStream::from(remote_actor.into_tokens(remote_actor_attrs))
-}
 
 /// Attribute macro that automatically adds the required derives for remote messages.
 ///

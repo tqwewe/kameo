@@ -56,10 +56,15 @@ There are two requirements to enable messaging between nodes:
 pub struct MyActor;
 ```
 
-2. **Message Serialization with `#[remote_message]`**: In Kameo, messages sent between nodes must be serializable. To enable this, message types need to implement `Serialize` and `Deserialize` traits, and the message implementation must be annotated with the `#[remote_message]` macro, which assigns a unique identifier to the actor and message type handler.
+2. **Message Serialization with `distributed_actor!`**: In Kameo, messages sent between nodes must be serializable. Message types need to implement the required serialization traits, and the actor must be registered with the `distributed_actor!` macro.
 
 ```rust
-#[remote_message("3b9128f1-0593-44a0-b83a-f4188baa05bf")]
+#[derive(RemoteMessage)]
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Inc {
+    amount: u32,
+}
+
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
@@ -68,26 +73,23 @@ impl Message<Inc> for MyActor {
         self.count
     }
 }
+
+distributed_actor! {
+    MyActor {
+        Inc,
+    }
+}
 ```
 
-This `#[remote_message]` macro ensures that the message is properly serialized and routed to the correct actor across the network. The UUID string assigned to each message must be unique within the crate to avoid conflicts.
+The `distributed_actor!` macro ensures that the message is properly registered and routed to the correct actor across the network using type hashes.
 
-### Why the `#[remote_message]` Macro is Needed
+### How Distributed Actor Registration Works
 
 Unlike actor systems that use a traditional enum for message types, Kameo allows actors to handle a variety of message types without defining a centralized enum for all possible messages. This flexibility introduces a challenge when deserializing incoming messages—because we don't know the exact message type at the time of deserialization.
 
-To solve this, Kameo leverages the [**linkme**](https://crates.io/crates/linkme) crate, which dynamically builds a `HashMap` of registered message types at link time:
+To solve this, Kameo uses type hashes generated from the message types to create unique identifiers for each message type. The `distributed_actor!` macro registers handlers for each message type, allowing the system to deserialize and route messages correctly.
 
-```rust
-HashMap<RemoteMessageRegistrationID, RemoteMessagesFns>
-```
-
-- **`RemoteMessageRegistrationID`**: A unique identifier combining the actor’s ID and the message’s ID (both provided via the `RemoteActor` and `#[remote_message]` macros).
-- **`RemoteMessagesFns`**: A struct containing function pointers for handling messages (`ask` or `tell`) for the given actor and message type.
-
-When a message is received, Kameo uses this hashmap to look up the appropriate function for deserializing and handling the message, based on the combination of the actor and message IDs.
-
-By using the `#[remote_message]` macro, Kameo registers each message type during link time, ensuring that when a message is received, the system knows how to deserialize it and which function to invoke on the target actor.
+When a message is received, Kameo uses the type hash to look up the appropriate handler for deserializing and processing the message, based on the message type and target actor.
 
 ## Handling Replies
 
