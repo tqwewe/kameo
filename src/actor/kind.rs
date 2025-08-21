@@ -112,11 +112,18 @@ where
             return ControlFlow::Continue(());
         }
 
-        let res = AssertUnwindSafe(self.state.on_message(message, actor_ref, reply))
+        let mut stop = false;
+        let res = AssertUnwindSafe(self.state.on_message(message, actor_ref, reply, &mut stop))
             .catch_unwind()
             .await;
         match res {
-            Ok(Ok(())) => ControlFlow::Continue(()),
+            Ok(Ok(())) => {
+                if stop {
+                    ControlFlow::Break(ActorStopReason::Normal)
+                } else {
+                    ControlFlow::Continue(())
+                }
+            }
             Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
                 PanicError::new_from_panic_any(err),
