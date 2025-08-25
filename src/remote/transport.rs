@@ -97,6 +97,17 @@ pub trait RemoteTransport: Send + Sync + 'static {
         actor_id: ActorId,
         timeout: std::time::Duration,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
+
+    /// Register an actor with specific priority (optional - default to register_actor)
+    fn register_actor_with_priority(
+        &self,
+        name: String,
+        actor_id: ActorId,
+        priority: u8, // Use u8 to avoid import issues for now - 0=Normal, 1=Immediate
+    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
+        // Default implementation just calls register_actor 
+        self.register_actor(name, actor_id)
+    }
     
     /// Unregister an actor
     fn unregister_actor(
@@ -169,6 +180,23 @@ pub trait RemoteTransport: Send + Sync + 'static {
         Box::pin(async move {
             Err(TransportError::Other("Typed messages not supported by this transport".into()))
         })
+    }
+    
+    /// Send an ask message with streaming protocol for large messages (>1MB)
+    /// 
+    /// This method should be used for messages that exceed the streaming threshold
+    /// to ensure optimal performance and avoid memory issues with large payloads.
+    fn send_ask_streaming(
+        &self,
+        actor_id: ActorId,
+        location: &RemoteActorLocation,
+        type_hash: u32,
+        payload: Bytes,
+        timeout: std::time::Duration,
+    ) -> Pin<Box<dyn Future<Output = TransportResult<Bytes>> + Send + '_>> {
+        // Default implementation falls back to regular typed ask
+        // Transports should override for true streaming support
+        self.send_ask_typed(actor_id, location, type_hash, payload, timeout)
     }
     
     /// Handle incoming messages for local actors

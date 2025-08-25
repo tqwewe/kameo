@@ -361,12 +361,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let actor_ref = LoggerActor::spawn(());
     let actor_id = actor_ref.id();
 
-    // Use sync registration to wait for peer confirmation (eliminates need for sleep delays)
-    transport
-        .register_distributed_actor_sync("logger".to_string(), &actor_ref, std::time::Duration::from_secs(2))
-        .await?;
+    // REMOVED FOR LOOKUP FAIL TEST: Do not register the actor to test client lookup failure
+    // transport
+    //     .register_distributed_actor_sync("logger".to_string(), &actor_ref, std::time::Duration::from_secs(2))
+    //     .await?;
 
-    println!("✅ LoggerActor registered with ID {:?}", actor_id);
+    println!("⚠️  LoggerActor NOT registered (testing lookup failure) with ID {:?}", actor_id);
 
     // Debug: Print the type hash being used
     use kameo::remote::type_hash::HasTypeHash;

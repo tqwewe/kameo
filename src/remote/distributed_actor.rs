@@ -79,6 +79,14 @@ macro_rules! distributed_actor {
                 use $crate::remote::type_hash::HasTypeHash;
                 use $crate::remote::_internal::RemoteMessageFns;
                 
+                // Validate that transport is configured before registering handlers
+                {
+                    let global = $crate::remote::distributed_actor_ref::GLOBAL_TRANSPORT.lock().unwrap();
+                    if global.is_none() {
+                        panic!("No transport configured - call bootstrap_on() or bootstrap_with_config() before registering distributed actors");
+                    }
+                }
+                
                 let actor_id = actor_ref.id();
                 let actor_ref_clone = actor_ref.clone();
                 
@@ -260,6 +268,14 @@ macro_rules! distributed_actor {
                 use $crate::remote::_internal::RemoteMessageFns;
                 use $crate::message::Message;
                 use $crate::request::{AskRequest, TellRequest};
+                
+                // Validate that transport is configured before registering handlers
+                {
+                    let global = $crate::remote::distributed_actor_ref::GLOBAL_TRANSPORT.lock().unwrap();
+                    if global.is_none() {
+                        panic!("No transport configured - call bootstrap_on() or bootstrap_with_config() before registering distributed actors");
+                    }
+                }
                 
                 let actor_id = actor_ref.id();
                 let actor_ref = actor_ref.clone();

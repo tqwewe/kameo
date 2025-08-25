@@ -131,7 +131,7 @@ where
 // Global transport cache for lookup without parameters
 use std::sync::{Arc, Mutex, LazyLock};
 
-static GLOBAL_TRANSPORT: LazyLock<Arc<Mutex<Option<Box<super::kameo_transport::KameoTransport>>>>> = 
+pub static GLOBAL_TRANSPORT: LazyLock<Arc<Mutex<Option<Box<super::kameo_transport::KameoTransport>>>>> = 
     LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 // Specialized implementation for KameoTransport to cache connections
@@ -150,9 +150,15 @@ impl DistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
             global.clone().ok_or("No global transport set - did you call bootstrap_on() or bootstrap_with_config()?")?
         };
         if let Some(location) = transport.lookup_actor(name).await? {
-            // MUST get a cached connection for zero-cost abstraction
-            let connection = transport.get_connection_for_location(&location).await
-                .map_err(|e| format!("Zero-cost abstraction requires cached connection but failed to get connection: {}", e))?;
+            // Try to get a cached connection for zero-cost abstraction
+            // If connection fails, gracefully return None (actor found but not reachable)
+            let connection = match transport.get_connection_for_location(&location).await {
+                Ok(conn) => conn,
+                Err(_) => {
+                    // Connection failed - actor exists in gossip but is not reachable
+                    return Ok(None);
+                }
+            };
 
             Ok(Some(Self::new_with_connection(
                 location.actor_id,
@@ -238,8 +244,6 @@ where
             
             // Header: [type:1][correlation_id:2][reserved:5]
             message.put_u8(3); // MessageType::ActorTell - compile-time constant
-            eprintln!("[CLIENT SEND] Writing ActorTell header: type=3, size={}, first bytes: {:02x} {:02x} {:02x} {:02x}", 
-                     inner_size, 3u8, 0u8, 0u8, 0u8);
             message.put_u16(0); // No correlation for tell
             message.put_slice(&[0u8; 5]); // Reserved
 
@@ -252,19 +256,8 @@ where
             // ZERO-COPY: Convert to Bytes and write directly without copy
             let message_bytes = message.freeze();
             
-            if payload.len() > STREAM_THRESHOLD {
-                eprintln!("📤 CLIENT: Sending LARGE message: {} bytes total, {} payload", message_bytes.len(), payload.len());
-            }
-            
             // Use the ConnectionHandle's zero-copy method
-            eprintln!("[TELL DEBUG] Sending {} bytes via send_bytes_zero_copy", message_bytes.len());
-            eprintln!("[TELL DEBUG] Message type hash: {:08x}, Actor ID: {:?}", type_hash, self.actor_ref.actor_id);
-            let result = conn.send_bytes_zero_copy(message_bytes).map_err(|e| {
-                eprintln!("[TELL DEBUG] send_bytes_zero_copy failed: {:?}", e);
-                SendError::ActorStopped
-            });
-            eprintln!("[TELL DEBUG] send_bytes_zero_copy returned: {:?}", result);
-            return result;
+            return conn.send_bytes_zero_copy(message_bytes).map_err(|_| SendError::ActorStopped);
         }
 
         // Zero-cost abstraction requires cached connection - this should never happen
@@ -347,6 +340,7 @@ where
     /// Send the ask message and wait for reply - returns raw bytes for zero-copy access.
     /// 
     /// This method is fully monomorphized and optimized for the specific message type M.
+    /// Large messages (>1MB) automatically use streaming protocol for optimal performance.
     pub async fn send_raw(self) -> Result<bytes::Bytes, SendError> {
         // Compile-time constant - no runtime lookup!
         let type_hash = M::TYPE_HASH.as_u32();
@@ -359,10 +353,33 @@ where
         // Default timeout if not specified
         let timeout = self.timeout.unwrap_or(Duration::from_secs(2));
 
+        // ✅ STREAMING THRESHOLD CHECK - Use streaming for large messages
+        if payload.len() > STREAM_THRESHOLD {
+            // For large ask messages, use streaming protocol
+            let reply_bytes = self
+                .actor_ref
+                .transport
+                .send_ask_streaming(
+                    self.actor_ref.actor_id,
+                    &self.actor_ref.location,
+                    type_hash, // Compile-time constant
+                    Bytes::from(payload.into_vec()), // Zero-copy transfer of ownership
+                    timeout,
+                )
+                .await
+                .map_err(|e| {
+                    match e {
+                        TransportError::Timeout => SendError::Timeout(None),
+                        _ => SendError::ActorStopped,
+                    }
+                })?;
+            return Ok(reply_bytes);
+        }
+
         // For ask operations, we need to go through the transport layer
         // which handles correlation IDs and reply routing
         let reply_bytes = {
-            // No cached connection, use transport - still optimized per message type
+            // Use regular transport for small messages - still optimized per message type
             self
                 .actor_ref
                 .transport
@@ -370,7 +387,7 @@ where
                     self.actor_ref.actor_id,
                     &self.actor_ref.location,
                     type_hash, // Compile-time constant
-                    Bytes::copy_from_slice(payload.as_slice()),
+                    Bytes::from(payload.into_vec()), // Zero-copy transfer of ownership
                     timeout,
                 )
                 .await

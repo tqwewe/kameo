@@ -29,6 +29,18 @@ use crate::error::SendError as CoreSendError;
 use super::type_hash::HasTypeHash;
 use kameo_remote::connection_pool::ConnectionHandle;
 
+/// Information about a stream's current state for monitoring and cleanup
+#[derive(Debug, Clone)]
+pub struct StreamInfo {
+    pub stream_id: u64,
+    pub name: String,
+    pub chunks_received: usize,
+    pub expected_chunks: Option<u32>,
+    pub memory_usage: usize,
+    pub age: std::time::Duration,
+    pub last_activity: std::time::Duration,
+}
+
 /// Errors that can occur during streaming operations
 #[derive(Debug, thiserror::Error)]
 pub enum StreamError {
@@ -443,14 +455,20 @@ pub trait StreamFactory {
         >;
 }
 
-/// Receiver side of a message stream
+/// Receiver side of a message stream with timeout and cleanup support
 pub struct MessageStreamReceiver<M> {
     stream_id: u64,
     name: String,
     /// Buffer for assembling chunked messages
-    chunks: std::collections::BTreeMap<u16, Bytes>,
-    expected_chunks: Option<u16>,
+    chunks: std::collections::BTreeMap<u32, Bytes>,
+    expected_chunks: Option<u32>,
     total_size: Option<usize>,
+    /// Creation timestamp for timeout tracking
+    created_at: std::time::Instant,
+    /// Last activity timestamp for timeout tracking
+    last_activity: std::time::Instant,
+    /// Maximum allowed memory usage for this stream
+    max_memory_bytes: usize,
     _phantom: PhantomData<M>,
 }
 
@@ -468,16 +486,83 @@ where
             >,
         >,
 {
-    /// Create a new stream receiver
+    /// Create a new stream receiver with default timeout and memory limits
     pub fn new(stream_id: u64, name: String) -> Self {
+        let now = std::time::Instant::now();
         Self {
             stream_id,
             name,
             chunks: Default::default(),
             expected_chunks: None,
             total_size: None,
+            created_at: now,
+            last_activity: now,
+            max_memory_bytes: 32 * 1024 * 1024, // 32MB default limit per stream
             _phantom: PhantomData,
         }
+    }
+    
+    /// Create a new stream receiver with custom memory limit
+    pub fn new_with_limits(stream_id: u64, name: String, max_memory_bytes: usize) -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            stream_id,
+            name,
+            chunks: Default::default(),
+            expected_chunks: None,
+            total_size: None,
+            created_at: now,
+            last_activity: now,
+            max_memory_bytes,
+            _phantom: PhantomData,
+        }
+    }
+    
+    /// Check if this stream has timed out
+    pub fn is_timed_out(&self, timeout_duration: std::time::Duration) -> bool {
+        self.last_activity.elapsed() > timeout_duration
+    }
+    
+    /// Check if this stream has exceeded its age limit
+    pub fn is_too_old(&self, max_age: std::time::Duration) -> bool {
+        self.created_at.elapsed() > max_age
+    }
+    
+    /// Get current memory usage of this stream
+    pub fn memory_usage(&self) -> usize {
+        self.chunks.values().map(|chunk| chunk.len()).sum()
+    }
+    
+    /// Check if this stream has exceeded its memory limit
+    pub fn is_over_memory_limit(&self) -> bool {
+        self.memory_usage() > self.max_memory_bytes
+    }
+    
+    /// Get stream information for debugging
+    pub fn stream_info(&self) -> StreamInfo {
+        StreamInfo {
+            stream_id: self.stream_id,
+            name: self.name.clone(),
+            chunks_received: self.chunks.len(),
+            expected_chunks: self.expected_chunks,
+            memory_usage: self.memory_usage(),
+            age: self.created_at.elapsed(),
+            last_activity: self.last_activity.elapsed(),
+        }
+    }
+    
+    /// Force cleanup of this stream (for timeout/memory limit enforcement)
+    pub fn cleanup(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let info = self.stream_info();
+        self.chunks.clear();
+        self.expected_chunks = None;
+        self.total_size = None;
+        
+        Err(format!(
+            "Stream {} ({}) forcibly cleaned up - chunks: {}/{:?}, memory: {} bytes, age: {:?}, inactive: {:?}",
+            info.stream_id, info.name, info.chunks_received, info.expected_chunks, 
+            info.memory_usage, info.age, info.last_activity
+        ).into())
     }
 
     /// Process a single frame
@@ -491,11 +576,14 @@ where
     /// Process a chunked frame
     pub fn process_chunk(
         &mut self,
-        chunk_index: u16,
-        total_chunks: u16,
+        chunk_index: u32,
+        total_chunks: u32,
         total_size: usize,
         chunk_data: Bytes,
     ) -> Result<Option<M>, Box<dyn std::error::Error + Send + Sync>> {
+        // Update activity timestamp
+        self.last_activity = std::time::Instant::now();
+        
         // First chunk - set expectations
         if chunk_index == 0 {
             self.expected_chunks = Some(total_chunks);
@@ -505,28 +593,60 @@ where
 
         // Store chunk
         self.chunks.insert(chunk_index, chunk_data);
-
-        // Check if we have all chunks
-        if self.chunks.len() == self.expected_chunks.unwrap_or(0) as usize {
-            // Assemble complete message
-            let mut complete_data = BytesMut::with_capacity(self.total_size.unwrap_or(0));
+        
+        // Check memory limits after adding chunk
+        if self.is_over_memory_limit() {
+            let error_msg = format!(
+                "Stream {} ({}) exceeded memory limit: {} bytes used, {} bytes max", 
+                self.stream_id, self.name, self.memory_usage(), self.max_memory_bytes
+            );
             
-            for i in 0..total_chunks {
-                if let Some(chunk) = self.chunks.remove(&i) {
-                    complete_data.put_slice(&chunk);
-                }
-            }
-
-            // Deserialize
-            let message = rkyv::from_bytes::<M, rkyv::rancor::Error>(&complete_data)
-                .map_err(|e| format!("Failed to deserialize assembled message: {:?}", e))?;
-
-            // Reset state
+            // Clear chunks to prevent further memory growth
+            self.chunks.clear();
             self.expected_chunks = None;
             self.total_size = None;
-            self.chunks.clear();
+            
+            return Err(error_msg.into());
+        }
 
-            Ok(Some(message))
+        // Check if we have all chunks by verifying all indices 0..N-1 are present
+        let expected_chunks = self.expected_chunks.unwrap_or(0);
+        if expected_chunks > 0 && self.chunks.len() == expected_chunks as usize {
+            // Verify that all chunk indices 0..N-1 are actually present (not just count)
+            let all_chunks_present = (0..expected_chunks).all(|i| self.chunks.contains_key(&i));
+            
+            if all_chunks_present {
+                // Assemble complete message - all chunks guaranteed to be present
+                let mut complete_data = BytesMut::with_capacity(self.total_size.unwrap_or(0));
+                
+                for i in 0..total_chunks {
+                    // Safe to unwrap because we verified all chunks are present
+                    let chunk = self.chunks.remove(&i).expect("Chunk must be present after verification");
+                    complete_data.put_slice(&chunk);
+                }
+
+                // Deserialize
+                let message = rkyv::from_bytes::<M, rkyv::rancor::Error>(&complete_data)
+                    .map_err(|e| format!("Failed to deserialize assembled message: {:?}", e))?;
+
+                // Reset state
+                self.expected_chunks = None;
+                self.total_size = None;
+                self.chunks.clear();
+
+                Ok(Some(message))
+            } else {
+                // We have the right count but missing some indices - this indicates corruption
+                let missing_indices: Vec<u32> = (0..expected_chunks)
+                    .filter(|i| !self.chunks.contains_key(i))
+                    .collect();
+                let present_indices: Vec<u32> = self.chunks.keys().copied().collect();
+                
+                Err(format!(
+                    "Stream corruption detected: expected {} chunks (0..{}), have {} chunks, but missing indices {:?}. Present indices: {:?}",
+                    expected_chunks, expected_chunks - 1, self.chunks.len(), missing_indices, present_indices
+                ).into())
+            }
         } else {
             Ok(None)
         }

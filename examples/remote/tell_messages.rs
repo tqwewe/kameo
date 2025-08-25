@@ -59,6 +59,21 @@ pub struct ServerResponse {
     pub timestamp: String,
 }
 
+/// Completion marker - signals end of client→server phase
+#[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
+pub struct TestComplete {
+    pub total_messages_sent: u32,
+    pub test_duration_ms: u64,
+}
+
+/// Server→Client benchmark message
+#[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
+pub struct ServerBenchmark {
+    pub sequence: u32,
+    pub payload: Vec<u8>,
+    pub timestamp: u64,
+}
+
 /// String event processor actor - shared between client and server
 /// This avoids duplicate struct definitions and ensures type consistency
 #[derive(Debug)]
@@ -96,6 +111,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("  • ProcessEvent - for processing events");
     println!("  • TellConcrete - for testing large messages");
     println!("  • ServerResponse - for server-to-client responses (BIDIRECTIONAL!)");
+    println!("  • TestComplete - completion marker for client→server phase");
+    println!("  • ServerBenchmark - server→client benchmark messages");
     println!("  • EventProcessor - shared actor definition");
     println!();
     println!("All message types use #[derive(RemoteMessage)] for:");
