@@ -6,8 +6,6 @@
 //! Run after starting the server:
 //! cargo run --example tell_concrete_client --features remote
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
@@ -166,11 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Use sync registration to wait for peer confirmation (eliminates need for sleep delays)
     transport
-        .register_distributed_actor_sync(
-            "client".to_string(),
-            &client_actor_ref,
-            std::time::Duration::from_secs(2),
-        )
+        .register_distributed_actor_sync("client".to_string(), &client_actor_ref, std::time::Duration::from_secs(2))
         .await?;
     println!(
         "✅ ClientActor registered as 'client' with ID {:?} and gossip confirmed",
@@ -325,6 +319,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     Ok(())
 }
+
+use std::time::Instant;
 
 // Real indicator output types from trading-ta (simplified for benchmark)
 #[derive(kameo::RemoteMessage, Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]

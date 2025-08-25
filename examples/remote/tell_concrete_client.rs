@@ -17,6 +17,8 @@ use tell_messages::*;
 // Client actor that can receive messages from server
 struct ClientActor {
     responses_received: u32,
+    benchmarks_received: u32,
+    benchmark_start: Option<std::time::Instant>,
 }
 
 impl Actor for ClientActor {
@@ -27,25 +29,74 @@ impl Actor for ClientActor {
         println!("🎬 ClientActor started and ready to receive server responses!");
         Ok(Self {
             responses_received: 0,
+            benchmarks_received: 0,
+            benchmark_start: None,
         })
     }
 }
 
 // Handler for ServerResponse messages from server
-use kameo::message::{Message, Context};
+use kameo::message::{Context, Message};
 
 impl Message<ServerResponse> for ClientActor {
     type Reply = ();
-    
-    async fn handle(&mut self, _msg: ServerResponse, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+
+    async fn handle(
+        &mut self,
+        msg: ServerResponse,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
         self.responses_received += 1;
-        // Silent response handling - only log significant milestones
-        if self.responses_received == 1
-            || (self.responses_received > 0 && self.responses_received % 50 == 0)
-        {
+
+        // ADD VERY VISIBLE DEBUG OUTPUT
+        println!(
+            "🚨🚨🚨 [CLIENT] RECEIVED ServerResponse #{}: {} 🚨🚨🚨",
+            msg.message_id, msg.response_data
+        );
+        println!("🔥 [CLIENT] ServerResponse handler is working! Bidirectional messaging SUCCESS!");
+
+        if self.responses_received % 1 == 0 {
+            // Log every response for debugging
             println!(
-                "📨 [CLIENT] Received {} responses from server",
+                "📨 [CLIENT] Total responses received from server: {}",
                 self.responses_received
+            );
+        }
+    }
+}
+
+// Handler for ServerBenchmark messages from server
+impl Message<ServerBenchmark> for ClientActor {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _msg: ServerBenchmark,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        if self.benchmarks_received == 0 {
+            self.benchmark_start = Some(std::time::Instant::now());
+            println!("📊 [CLIENT] Started receiving server benchmark messages...");
+        }
+        self.benchmarks_received += 1;
+
+        if self.benchmarks_received % 100 == 0 {
+            println!(
+                "📊 [CLIENT] Received {} server benchmarks",
+                self.benchmarks_received
+            );
+        }
+
+        if self.benchmarks_received == 1000 {
+            let duration = self.benchmark_start.unwrap().elapsed();
+            println!("✅ [CLIENT] Received all 1000 benchmarks in {:?}", duration);
+            println!(
+                "   Throughput: {:.2} messages/second",
+                1000.0 / duration.as_secs_f64()
+            );
+            println!(
+                "   Bandwidth: {:.2} MB/s",
+                (1000.0 * 1024.0) / 1_048_576.0 / duration.as_secs_f64()
             );
         }
     }
@@ -55,6 +106,7 @@ impl Message<ServerResponse> for ClientActor {
 distributed_actor! {
     ClientActor {
         ServerResponse,
+        ServerBenchmark,
     }
 }
 
@@ -103,27 +155,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     // Wait for connection to stabilize
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    // tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Create and register ClientActor for bidirectional communication
     println!("\n🎬 Creating ClientActor to receive server responses...");
     let client_actor_ref = ClientActor::spawn(());
     let client_actor_id = client_actor_ref.id();
 
-    // Register the message types this client actor handles
-    // ClientActor::__register_message_types(client_actor_ref.clone());
-
+    // Use sync registration to wait for peer confirmation (eliminates need for sleep delays)
     transport
-        .register_actor("client".to_string(), client_actor_id)
+        .register_distributed_actor_sync("client".to_string(), &client_actor_ref, std::time::Duration::from_secs(2))
         .await?;
     println!(
-        "✅ ClientActor registered as 'client' with ID {:?}",
+        "✅ ClientActor registered as 'client' with ID {:?} and gossip confirmed",
         client_actor_id
     );
-
-    // Wait for gossip to propagate the actor registration from server
-    println!("⏳ Waiting for gossip to propagate actor registration...");
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Look up remote actor (with connection caching) - zero-cost abstraction!
     println!("\n🔍 Looking up remote LoggerActor...");
@@ -139,12 +185,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
 
-    // Send tell messages
-    println!("\n📤 Sending tell messages to remote actor...");
+    // === MINIMAL BIDIRECTIONAL TEST ===
+    println!("\n📤 Testing minimal bidirectional messaging...");
     let all_tests_start = std::time::Instant::now();
 
-    // Test 1: Send INFO message
-    println!("\n🧪 Test 1: Sending INFO log");
+    // Single test: Send one INFO message from client → server
+    println!("\n🧪 Sending single INFO message (client → server)");
 
     // Debug: Print the type hash being used
     use kameo::remote::type_hash::HasTypeHash;
@@ -152,108 +198,124 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "🔍 LogMessage type hash: {:08x}",
         <LogMessage as HasTypeHash>::TYPE_HASH.as_u32()
     );
-    println!(
-        "🔍 TellConcrete type hash: {:08x}",
-        <TellConcrete as HasTypeHash>::TYPE_HASH.as_u32()
-    );
 
     let start = std::time::Instant::now();
     logger_ref
         .tell(LogMessage {
             level: "INFO".to_string(),
-            content: "Application started".to_string(),
+            content: "Minimal bidirectional test started".to_string(),
         })
         .send()
         .await?;
     let duration = start.elapsed();
     println!("✅ Sent INFO message in {:?}", duration);
 
+    // === COMMENTED OUT - Other test messages ===
     // Test 2: Send WARNING message
-    println!("\n🧪 Test 2: Sending WARNING log");
-    let start = std::time::Instant::now();
-    logger_ref
-        .tell(LogMessage {
-            level: "WARNING".to_string(),
-            content: "High memory usage detected".to_string(),
-        })
-        .send()
-        .await?;
-    let duration = start.elapsed();
-    println!("✅ Sent WARNING message in {:?}", duration);
+    // println!("\n🧪 Test 2: Sending WARNING log");
+    // let start = std::time::Instant::now();
+    // logger_ref
+    //     .tell(LogMessage {
+    //         level: "WARNING".to_string(),
+    //         content: "High memory usage detected".to_string(),
+    //     })
+    //     .send()
+    //     .await?;
+    // let duration = start.elapsed();
+    // println!("✅ Sent WARNING message in {:?}", duration);
 
     // Test 3: Send ERROR message
-    println!("\n🧪 Test 3: Sending ERROR log");
-    let start = std::time::Instant::now();
-    logger_ref
-        .tell(LogMessage {
-            level: "ERROR".to_string(),
-            content: "Failed to connect to database".to_string(),
-        })
-        .send()
-        .await?;
-    let duration = start.elapsed();
-    println!("✅ Sent ERROR message in {:?}", duration);
+    // println!("\n🧪 Test 3: Sending ERROR log");
+    // let start = std::time::Instant::now();
+    // logger_ref
+    //     .tell(LogMessage {
+    //         level: "ERROR".to_string(),
+    //         content: "Failed to connect to database".to_string(),
+    //     })
+    //     .send()
+    //     .await?;
+    // let duration = start.elapsed();
+    // println!("✅ Sent ERROR message in {:?}", duration);
 
     // Test 4: Send multiple messages quickly
-    println!("\n🧪 Test 4: Sending 5 messages quickly");
-    let batch_start = std::time::Instant::now();
-    let mut individual_times = Vec::new();
-    for i in 1..=5 {
-        let start = std::time::Instant::now();
-        logger_ref
-            .tell(LogMessage {
-                level: "DEBUG".to_string(),
-                content: format!("Debug message #{}", i),
-            })
-            .send()
-            .await?;
-        let duration = start.elapsed();
-        individual_times.push(duration);
-        println!("   Message {} sent in {:?}", i, duration);
-    }
-    let batch_duration = batch_start.elapsed();
-    let avg_duration =
-        individual_times.iter().sum::<std::time::Duration>() / individual_times.len() as u32;
-    println!(
-        "✅ Sent 5 DEBUG messages in {:?} (avg: {:?}/message)",
-        batch_duration, avg_duration
-    );
+    // println!("\n🧪 Test 4: Sending 5 messages quickly");
+    // let batch_start = std::time::Instant::now();
+    // let mut individual_times = Vec::new();
+    // for i in 1..=5 {
+    //     let start = std::time::Instant::now();
+    //     logger_ref
+    //         .tell(LogMessage {
+    //             level: "DEBUG".to_string(),
+    //             content: format!("Debug message #{}", i),
+    //         })
+    //         .send()
+    //         .await?;
+    //     let duration = start.elapsed();
+    //     individual_times.push(duration);
+    //     println!("   Message {} sent in {:?}", i, duration);
+    // }
+    // let batch_duration = batch_start.elapsed();
+    // let avg_duration =
+    //     individual_times.iter().sum::<std::time::Duration>() / individual_times.len() as u32;
+    // println!(
+    //     "✅ Sent 5 DEBUG messages in {:?} (avg: {:?}/message)",
+    //     batch_duration, avg_duration
+    // );
 
     // Test 5: Send 100 messages to measure throughput
-    println!("\n🧪 Test 5: Sending 100 messages for throughput test");
-    let throughput_start = std::time::Instant::now();
-    for i in 1..=100 {
-        logger_ref
-            .tell(LogMessage {
-                level: "TRACE".to_string(),
-                content: format!("Throughput test message #{}", i),
-            })
-            .send()
-            .await?;
-    }
-    let throughput_duration = throughput_start.elapsed();
-    let messages_per_second = 100.0 / throughput_duration.as_secs_f64();
-    println!(
-        "✅ Sent 100 messages in {:?} ({:.2} messages/second)",
-        throughput_duration, messages_per_second
-    );
+    // println!("\n🧪 Test 5: Sending 100 messages for throughput test");
+    // let throughput_start = std::time::Instant::now();
+    // for i in 1..=100 {
+    //     logger_ref
+    //         .tell(LogMessage {
+    //             level: "TRACE".to_string(),
+    //             content: format!("Throughput test message #{}", i),
+    //         })
+    //         .send()
+    //         .await?;
+    // }
+    // let throughput_duration = throughput_start.elapsed();
+    // let messages_per_second = 100.0 / throughput_duration.as_secs_f64();
+    // println!(
+    //     "✅ Sent 100 messages in {:?} ({:.2} messages/second)",
+    //     throughput_duration, messages_per_second
+    // );
 
-    // CRITICAL: Give background writer time to actually send messages!
-    // The send() method returns immediately but messages are in a queue
+    // Brief wait for background writer to flush messages (reduced from 2s)
     println!("\n⏳ Waiting for background writer to flush messages...");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     let all_tests_duration = all_tests_start.elapsed();
-    println!("\n🎉 All tests passed! Check the server output for the logged messages.");
-    println!("⏱️  Total time for all tests: {:?}", all_tests_duration);
+    println!("\n🎉 Client→Server message sent! Check the server output for the logged message.");
+    println!("⏱️  Total time: {:?}", all_tests_duration);
 
+    // === COMMENTED OUT - Benchmarks ===
     // === REALISTIC INDICATOR MESSAGE BENCHMARK ===
-    println!("\n🚀 === REALISTIC INDICATOR MESSAGE BENCHMARK ===");
-    println!("Testing zero-copy performance with real indicator data from trading-ta\n");
+    // println!("\n🚀 === REALISTIC INDICATOR MESSAGE BENCHMARK ===");
+    // println!("Testing zero-copy performance with real indicator data from trading-ta\n");
+    //
+    // if let Err(e) = run_indicator_benchmark(&logger_ref).await {
+    //     println!("❌ Indicator benchmark failed: {:?}", e);
+    // }
 
-    if let Err(e) = run_indicator_benchmark(&logger_ref).await {
-        println!("❌ Indicator benchmark failed: {:?}", e);
-    }
+    println!("\n🏁 [CLIENT] Sending completion marker to server...");
+
+    // Calculate total messages sent (just 1 for minimal test)
+    let total_messages = 1; // Just the INFO message
+    let test_complete = TestComplete {
+        total_messages_sent: total_messages as u32,
+        test_duration_ms: all_tests_duration.as_millis() as u64,
+    };
+
+    logger_ref.tell(test_complete).send().await?;
+    println!("🏁 [CLIENT] Sent completion marker to server");
+
+    // Wait for server→client response (reduced from 15s since messages are fast)
+    println!("\n⏳ [CLIENT] Waiting for server to send bidirectional response...");
+    println!("   (This tests server → client messaging)");
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    println!("\n🔍 [CLIENT] Check above for any received messages from server");
 
     Ok(())
 }
@@ -294,182 +356,9 @@ struct SupertrendIndicator {
     pub sell_signal: bool,
 }
 
-async fn run_indicator_benchmark(
-    logger_ref: &DistributedActorRef,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let test_configs = vec![
-        (100, 5, "Small indicators (100 candles)"), // ~10KB per message
-        (500, 3, "Medium indicators (500 candles)"), // ~50KB per message
-        (1000, 2, "Large indicators (1000 candles)"), // ~100KB per message
-    ];
-
-    for (num_candles, num_messages, test_name) in test_configs {
-        println!(
-            "\n📊 {} - {} candles/message, {} messages",
-            test_name, num_candles, num_messages
-        );
-
-        // Generate realistic indicator data
-        let mut ema_outputs = Vec::with_capacity(num_candles);
-        let mut delta_vix_outputs = Vec::with_capacity(num_candles);
-        let mut supertrend1_outputs = Vec::with_capacity(num_candles);
-        let mut supertrend2_outputs = Vec::with_capacity(num_candles);
-
-        for i in 0..num_candles {
-            // EMA (typical moving average)
-            ema_outputs.push(EmaIndicator {
-                value: 50000.0 + (i as f64 * 0.1),
-            });
-
-            // Delta VIX (volatility-based signals)
-            delta_vix_outputs.push(DeltaVixIndicator {
-                dvix: 0.001 * (i as f64).sin(),
-                dvixema: 20.0 + (i as f64 * 0.01).cos(),
-                top_signal: i % 30 == 0,
-                bottom_signal: i % 25 == 0,
-            });
-
-            // Supertrend 1 (trend following)
-            supertrend1_outputs.push(SupertrendIndicator {
-                up: 50500.0 + (i as f64 * 0.15),
-                dn: 49500.0 + (i as f64 * 0.15),
-                trend: if i % 20 < 10 { 1 } else { -1 },
-                value: 49500.0 + (i as f64 * 0.15),
-                buy_signal: i % 40 == 0,
-                sell_signal: i % 35 == 0,
-            });
-
-            // Supertrend 2 (different parameters)
-            supertrend2_outputs.push(SupertrendIndicator {
-                up: 51000.0 + (i as f64 * 0.2),
-                dn: 49000.0 + (i as f64 * 0.2),
-                trend: if i % 30 < 15 { 1 } else { -1 },
-                value: 49000.0 + (i as f64 * 0.2),
-                buy_signal: i % 50 == 0,
-                sell_signal: i % 45 == 0,
-            });
-        }
-
-        // Create sample message to measure size
-        let sample_msg = IndicatorData {
-            symbol: "BTCUSDT".to_string(),
-            iteration: 0,
-            ema_outputs: ema_outputs.clone(),
-            delta_vix_outputs: delta_vix_outputs.clone(),
-            supertrend1_outputs: supertrend1_outputs.clone(),
-            supertrend2_outputs: supertrend2_outputs.clone(),
-        };
-
-        let serialized = rkyv::to_bytes::<rkyv::rancor::Error>(&sample_msg)?;
-        println!(
-            "  Message size: {} bytes ({:.2} KB)",
-            serialized.len(),
-            serialized.len() as f64 / 1024.0
-        );
-        println!(
-            "  Total data: {:.2} MB",
-            (serialized.len() * num_messages) as f64 / 1_048_576.0
-        );
-
-        // Benchmark sending
-        println!("  Running benchmark...");
-        let bench_start = Instant::now();
-        let mut send_times = Vec::with_capacity(num_messages);
-
-        for i in 0..num_messages {
-            let msg = IndicatorData {
-                symbol: "BTCUSDT".to_string(),
-                iteration: i as u64,
-                ema_outputs: ema_outputs.clone(),
-                delta_vix_outputs: delta_vix_outputs.clone(),
-                supertrend1_outputs: supertrend1_outputs.clone(),
-                supertrend2_outputs: supertrend2_outputs.clone(),
-            };
-
-            let send_start = Instant::now();
-            logger_ref.tell(msg).send().await?;
-            send_times.push(send_start.elapsed());
-        }
-
-        let total_duration = bench_start.elapsed();
-
-        // Calculate statistics
-        send_times.sort();
-        let avg = send_times.iter().sum::<std::time::Duration>() / send_times.len() as u32;
-        let p95 = send_times[send_times.len() * 95 / 100];
-
-        let messages_per_second = num_messages as f64 / total_duration.as_secs_f64();
-        let mbps =
-            (serialized.len() * num_messages) as f64 / 1_048_576.0 / total_duration.as_secs_f64();
-
-        println!("  ✅ Results:");
-        println!("     Total time: {:?}", total_duration);
-        println!(
-            "     Throughput: {:.2} messages/second",
-            messages_per_second
-        );
-        println!("     Bandwidth: {:.2} MB/s", mbps);
-        println!("     Average latency: {:?}", avg);
-        println!("     P95 latency: {:?}", p95);
-    }
-
-    println!("\n🏁 Indicator benchmark complete!");
-    println!("\nThese results show zero-copy performance with realistic indicator data sizes.");
-
-    // WAIT FOR BIDIRECTIONAL MESSAGING - Server needs time to lookup client and send responses
-    println!("\n⏳ [CLIENT] Waiting for server to find client and send bidirectional responses...");
-    println!("   (Server does lookup every 3 seconds, so we'll wait 15 seconds)");
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-
-    // First test with a small TellConcrete message
-    println!("\n🧪 Testing TellConcrete messages...");
-
-    // Small message first
-    let small_msg = TellConcrete {
-        id: 123,
-        data: vec![1, 2, 3, 4, 5],
-    };
-    println!("   Sending small TellConcrete message (5 bytes)...");
-    logger_ref.tell(small_msg).send().await?;
-    println!("   ✅ Sent small message");
-
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    // Test large message handling (larger than buffer size)
-    println!("\n🧪 Testing large message handling (>4KB buffer)...");
-
-    // Create a message larger than the 4KB buffer
-    let large_data_size = 1024 * 1024 * 5; // 5MB
-    let large_data = vec![42u8; large_data_size];
-    let large_msg = TellConcrete {
-        id: 999999,
-        data: large_data,
-    };
-
-    println!("   Sending 5MB TellConcrete message (id: 999999)...");
-    println!("   Using actor ref: {:?}", logger_ref.id());
-    let send_start = Instant::now();
-    logger_ref.tell(large_msg).send().await?;
-    let send_time = send_start.elapsed();
-    println!("   ✅ Successfully sent 5MB message in {:?}", send_time);
-
-    // Test even larger message (35MB like the PreBacktest)
-    println!("\n   Testing 35MB message (like PreBacktest)...");
-    let huge_data_size = 1024 * 1024 * 35; // 35MB
-    let huge_data = vec![99u8; huge_data_size];
-    let huge_msg = TellConcrete {
-        id: 999998,
-        data: huge_data,
-    };
-
-    println!("   Sending 35MB message...");
-    let send_start = Instant::now();
-    logger_ref.tell(huge_msg).send().await?;
-    let send_time = send_start.elapsed();
-    println!("   ✅ Successfully sent 35MB message in {:?}", send_time);
-
-    // Give server time to process
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
-
-    Ok(())
-}
+// === COMMENTED OUT - Benchmark function ===
+// async fn run_indicator_benchmark(
+//     logger_ref: &DistributedActorRef,
+// ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//     ... (all benchmark code commented out for minimal test)
+// }
