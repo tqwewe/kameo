@@ -69,8 +69,10 @@ impl Message<LogMessage> for LoggerActor {
     ) -> Self::Reply {
         self.message_count += 1;
         // LOG MESSAGE FOR TEST - ADD VERY VISIBLE DEBUG OUTPUT
-        println!("🚨🚨🚨 [SERVER] RECEIVED LogMessage #{}: {} - {} 🚨🚨🚨", 
-                 self.message_count, msg.level, msg.content);
+        println!(
+            "🚨🚨🚨 [SERVER] RECEIVED LogMessage #{}: {} - {} 🚨🚨🚨",
+            self.message_count, msg.level, msg.content
+        );
         println!("🔥 [SERVER] Message handler is working! Sending response back to client...");
 
         // BIDIRECTIONAL: Send single response back to client!
@@ -105,8 +107,10 @@ impl LoggerActor {
         let content = &msg.content;
 
         // LOG MESSAGE FOR MINIMAL TEST
-        println!("📝 [SERVER] Received LogMessage #{}: {} - {}", 
-                 self.message_count, level, content);
+        println!(
+            "📝 [SERVER] Received LogMessage #{}: {} - {}",
+            self.message_count, level, content
+        );
 
         // BIDIRECTIONAL: Send single response back to client!
         if let Err(e) = self.send_single_response_to_client().await {
@@ -166,7 +170,9 @@ impl LoggerActor {
         if self.client_ref.is_none() {
             match DistributedActorRef::lookup("client").await {
                 Ok(Some(client_ref)) => {
-                    println!("✅ [SERVER] Found client on-demand! Setting up bidirectional messaging...");
+                    println!(
+                        "✅ [SERVER] Found client on-demand! Setting up bidirectional messaging..."
+                    );
                     self.client_ref = Some(client_ref);
                 }
                 Ok(None) => {
@@ -180,11 +186,14 @@ impl LoggerActor {
                 }
             }
         }
-        
+
         if let Some(client_ref) = &self.client_ref {
             let response = ServerResponse {
                 message_id: self.message_count,
-                response_data: format!("Server processed message #{} - bidirectional test working!", self.message_count),
+                response_data: format!(
+                    "Server processed message #{} - bidirectional test working!",
+                    self.message_count
+                ),
                 timestamp: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -193,7 +202,10 @@ impl LoggerActor {
             };
 
             client_ref.tell(response).send().await?;
-            println!("📤 [SERVER] Sent response #{} to client (server → client test)", self.message_count);
+            println!(
+                "📤 [SERVER] Sent response #{} to client (server → client test)",
+                self.message_count
+            );
         } else {
             println!("⚠️  [SERVER] Cannot send response - no client reference available");
         }
@@ -201,19 +213,21 @@ impl LoggerActor {
         Ok(())
     }
 
-    // Handle TestComplete message - signals end of client→server phase  
+    // Handle TestComplete message - signals end of client→server phase
     async fn handle_test_complete(&mut self, msg: &rkyv::Archived<TestComplete>) {
-        println!("🏁 [SERVER] Client completed! Sent {} messages in {}ms", 
-                 msg.total_messages_sent, msg.test_duration_ms);
-        
+        println!(
+            "🏁 [SERVER] Client completed! Sent {} messages in {}ms",
+            msg.total_messages_sent, msg.test_duration_ms
+        );
+
         self.test_completed = true;
-        
+
         // === COMMENTED OUT - Server batch ===
         // Trigger server→client batch
         // if let Err(e) = self.send_server_batch().await {
         //     println!("❌ [SERVER] Failed to send server batch: {:?}", e);
         // }
-        
+
         println!("✅ [SERVER] Minimal bidirectional test complete!");
     }
 }
@@ -227,18 +241,20 @@ impl Message<TestComplete> for LoggerActor {
         msg: TestComplete,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("🚨🚨🚨 [SERVER] RECEIVED TestComplete! Client sent {} messages in {}ms 🚨🚨🚨", 
-                 msg.total_messages_sent, msg.test_duration_ms);
+        println!(
+            "🚨🚨🚨 [SERVER] RECEIVED TestComplete! Client sent {} messages in {}ms 🚨🚨🚨",
+            msg.total_messages_sent, msg.test_duration_ms
+        );
         println!("🔥 [SERVER] TestComplete handler is working!");
-        
+
         self.test_completed = true;
-        
+
         // === COMMENTED OUT - Server batch ===
         // Trigger server→client batch
         // if let Err(e) = self.send_server_batch().await {
         //     println!("❌ [SERVER] Failed to send server batch: {:?}", e);
         // }
-        
+
         println!("✅ [SERVER] Minimal bidirectional test complete!");
     }
 }
@@ -253,7 +269,7 @@ impl LoggerActor {
     //
     //     if let Some(client_ref) = &self.client_ref {
     //         println!("📤 [SERVER] Starting server→client batch (1000 benchmark messages)...");
-    //         
+    //
     //         // Send 1000 benchmark messages
     //         for i in 0..1000 {
     //             let msg = ServerBenchmark {
@@ -264,21 +280,21 @@ impl LoggerActor {
     //                     .unwrap()
     //                     .as_millis() as u64,
     //             };
-    //             
+    //
     //             client_ref.tell(msg).send().await?;
-    //             
+    //
     //             // Log progress every 100 messages
     //             if (i + 1) % 100 == 0 {
     //                 println!("📤 [SERVER] Sent {} benchmark messages", i + 1);
     //             }
     //         }
-    //         
+    //
     //         self.server_batch_sent = true;
     //         println!("✅ [SERVER] Sent all 1000 benchmark messages to client");
     //     } else {
     //         println!("⚠️  [SERVER] Cannot send server batch - no client reference");
     //     }
-    //     
+    //
     //     Ok(())
     // }
 }
@@ -332,7 +348,7 @@ distributed_actor! {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Ensure the rustls CryptoProvider is installed (required for TLS)
     kameo_remote::tls::ensure_crypto_provider();
-    
+
     // Enable logging
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=warn,kameo=warn")
@@ -349,13 +365,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     println!("🔐 Server using Ed25519 keypair for TLS encryption");
     println!("⚠️  Note: In production, use properly generated and stored keypairs");
-    
+
     // Bootstrap on port 9310 with TLS enabled using keypair
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9310".parse()?,
-        server_keypair
-    ).await?;
-    println!("✅ Server listening on {} with TLS encryption", transport.local_addr());
+        server_keypair,
+    )
+    .await?;
+    println!(
+        "✅ Server listening on {} with TLS encryption",
+        transport.local_addr()
+    );
 
     // Create and register LoggerActor
     let actor_ref = LoggerActor::spawn(());
@@ -363,7 +383,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Use sync registration to wait for peer confirmation (eliminates need for sleep delays)
     transport
-        .register_distributed_actor_sync("logger".to_string(), &actor_ref, std::time::Duration::from_secs(2))
+        .register_distributed_actor_sync(
+            "logger".to_string(),
+            &actor_ref,
+            std::time::Duration::from_secs(1),
+        )
         .await?;
 
     println!("✅ LoggerActor registered with ID {:?}", actor_id);
@@ -387,12 +411,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(handle) = transport.handle() {
         // The client will use this same keypair name, so we add it as a trusted peer
         let client_peer_id = kameo_remote::PeerId::new("tls_client_production_key");
-        let peer = handle
-            .add_peer(&client_peer_id)
-            .await;
-        println!("✅ Added client as trusted peer for TLS: {}", client_peer_id);
+        let peer = handle.add_peer(&client_peer_id).await;
+        println!(
+            "✅ Added client as trusted peer for TLS: {}",
+            client_peer_id
+        );
     }
-    
+
     println!("📡 Server ready for TLS-encrypted connections from trusted clients");
 
     println!("\n📡 Server ready. Run client with:");
@@ -408,7 +433,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut retry_count = 0;
         loop {
             retry_count += 1;
-            
+
             // Try to connect to client
             if let Some(handle) = transport_cloned.handle() {
                 let client_peer_id = kameo_remote::PeerId::new("tls_client_production_key");
@@ -444,7 +469,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         if retry_count == 1 || retry_count % 30 == 0 {
                             println!("🔍 [SERVER] Attempting to lookup client for bidirectional messaging (attempt #{})...", retry_count);
                             println!("🔐 [SERVER] Attempting to establish TLS connection to client at 127.0.0.1:9311...");
-                            println!("⚠️  [SERVER] Could not connect to client yet: Connection refused");
+                            println!(
+                                "⚠️  [SERVER] Could not connect to client yet: Connection refused"
+                            );
                             println!("⏳ [SERVER] Client not found yet, will retry...");
                         }
                     }

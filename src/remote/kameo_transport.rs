@@ -136,10 +136,28 @@ impl KameoTransport {
         location.priority = kameo_remote::RegistrationPriority::Immediate;
 
         // Use sync registration - this waits for peer confirmation or returns immediately if no peers
-        handle.registry
-            .register_actor_sync(name, location, timeout)
-            .await
-            .map_err(|e| TransportError::Other(Box::new(e)))?;
+        match handle.registry.register_actor_sync(name.clone(), location, timeout).await {
+            Ok(()) => {},
+            Err(e) => {
+                // Check if this is a timeout error and panic with debug info
+                let error_msg = format!("{:?}", e);
+                if error_msg.contains("timed out") || error_msg.contains("timeout") || error_msg.contains("Timeout") {
+                    panic!(
+                        "🚨 CRITICAL: register_distributed_actor_sync timed out after {:?} for actor '{}'\n\
+                         This should NEVER happen in normal operation and indicates a serious distributed system issue:\n\
+                         • Check if peers are connected and responding\n\
+                         • Verify gossip protocol is working correctly\n\
+                         • Check network connectivity between nodes\n\
+                         • Increase timeout if network is slow\n\
+                         Original error: {:?}",
+                        timeout, name, e
+                    );
+                } else {
+                    // Non-timeout error, return normally
+                    return Err(TransportError::Other(Box::new(e)));
+                }
+            }
+        }
 
         Ok(())
     }

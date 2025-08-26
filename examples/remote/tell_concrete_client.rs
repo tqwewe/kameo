@@ -154,9 +154,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         println!("✅ Connected to server with TLS encryption and mutual authentication");
     }
 
-    // Wait for connection to stabilize
-    // tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
     // Create and register ClientActor for bidirectional communication
     println!("\n🎬 Creating ClientActor to receive server responses...");
     let client_actor_ref = ClientActor::spawn(());
@@ -164,7 +161,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Use sync registration to wait for peer confirmation (eliminates need for sleep delays)
     transport
-        .register_distributed_actor_sync("client".to_string(), &client_actor_ref, std::time::Duration::from_secs(2))
+        .register_distributed_actor_sync(
+            "client".to_string(),
+            &client_actor_ref,
+            std::time::Duration::from_secs(2),
+        )
         .await?;
     println!(
         "✅ ClientActor registered as 'client' with ID {:?} and gossip confirmed",
@@ -281,10 +282,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     //     throughput_duration, messages_per_second
     // );
 
-    // Brief wait for background writer to flush messages (reduced from 2s)
-    println!("\n⏳ Waiting for background writer to flush messages...");
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-
     let all_tests_duration = all_tests_start.elapsed();
     println!("\n🎉 Client→Server message sent! Check the server output for the logged message.");
     println!("⏱️  Total time: {:?}", all_tests_duration);
@@ -311,9 +308,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("🏁 [CLIENT] Sent completion marker to server");
 
     // Wait for server→client response (reduced from 15s since messages are fast)
+    // TODO remove this wait, it should be automatically handled via distributed_actor handler??
     println!("\n⏳ [CLIENT] Waiting for server to send bidirectional response...");
     println!("   (This tests server → client messaging)");
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     println!("\n🔍 [CLIENT] Check above for any received messages from server");
 

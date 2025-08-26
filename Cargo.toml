@@ -317,6 +317,16 @@ name = "ask_client_simple_match"
 path = "examples/remote/ask_client_simple_match.rs"
 required-features = ["remote"]
 
+[[example]]
+name = "tell_bugfix_server"
+path = "examples/remote/tell_bugfix_server.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "tell_bugfix_client"
+path = "examples/remote/tell_bugfix_client.rs"
+required-features = ["remote"]
+
 [[bench]]
 name = "overhead"
 harness = false
