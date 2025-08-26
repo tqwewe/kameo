@@ -18,9 +18,6 @@ use super::transport::{RemoteActorLocation, RemoteTransport, TransportError};
 use super::type_hash::HasTypeHash;
 use kameo_remote::connection_pool::ConnectionHandle;
 
-// Constants for streaming - must match kameo_remote
-const STREAM_THRESHOLD: usize = 1024 * 1024 - 1024; // 1MB - 1KB to account for serialization overhead
-
 /// A reference to a remote distributed actor
 /// 
 /// This actor reference uses compile-time monomorphization
@@ -218,8 +215,15 @@ where
         })?;
 
         // Use streaming for large messages automatically
-        if payload.len() > STREAM_THRESHOLD {
-            if let Some(ref conn) = self.actor_ref.connection {
+        if let Some(ref conn) = self.actor_ref.connection {
+            // Get actual threshold from connection
+            let threshold = conn.streaming_threshold();
+            
+            println!("🔬 [STREAMING DECISION] Message size: {} bytes, streaming threshold: {} bytes", payload.len(), threshold);
+            
+            // Use streaming for large messages
+            if payload.len() > threshold {
+                println!("🚀 [STREAMING MODE] Message size {} > threshold {}, using STREAMING path", payload.len(), threshold);
                 match conn.stream_large_message(&payload, type_hash, self.actor_ref.actor_id.into_u64()).await {
                     Ok(_) => {
                         return Ok(())
@@ -229,12 +233,10 @@ where
                     }
                 }
             } else {
-                return Err(SendError::ActorStopped); // Don't attempt normal path for large messages
+                println!("📦 [RING BUFFER MODE] Message size {} <= threshold {}, using RING BUFFER path", payload.len(), threshold);
             }
-        }
-
-        // Try to use cached connection first if available - zero overhead path
-        if let Some(ref conn) = self.actor_ref.connection {
+            
+            // Small message - use ring buffer
             // ZERO-COPY: Use BytesMut for efficient message building
             let inner_size = 8 + 16 + payload.len(); // header + actor fields + payload
             let mut message = bytes::BytesMut::with_capacity(4 + inner_size);
@@ -260,8 +262,39 @@ where
             return conn.send_bytes_zero_copy(message_bytes).map_err(|_| SendError::ActorStopped);
         }
 
-        // Zero-cost abstraction requires cached connection - this should never happen
-        panic!("Zero-cost abstraction failed: no cached connection available. Now this shouldn't happen...");
+        // No cached connection available - fall back to transport layer
+        // Use safe default threshold for streaming decision
+        let threshold = 1024 * 1024 - 1024; // 1MB - 1KB safe fallback
+        
+        println!("🔬 [FALLBACK STREAMING DECISION] Message size: {} bytes, fallback threshold: {} bytes", payload.len(), threshold);
+        
+        if payload.len() > threshold {
+            println!("🚀 [FALLBACK STREAMING MODE] Message size {} > threshold {}, using transport layer STREAMING", payload.len(), threshold);
+            // Use transport layer for streaming large messages
+            return self.actor_ref
+                .transport
+                .send_tell_typed(
+                    self.actor_ref.actor_id,
+                    &self.actor_ref.location,
+                    type_hash,
+                    Bytes::from(payload.into_vec()),
+                )
+                .await
+                .map_err(|_| SendError::ActorStopped);
+        } else {
+            println!("📦 [FALLBACK RING BUFFER MODE] Message size {} <= threshold {}, using transport layer RING BUFFER", payload.len(), threshold);
+            // Use transport layer for normal messages
+            return self.actor_ref
+                .transport
+                .send_tell_typed(
+                    self.actor_ref.actor_id,
+                    &self.actor_ref.location,
+                    type_hash,
+                    Bytes::from(payload.into_vec()),
+                )
+                .await
+                .map_err(|_| SendError::ActorStopped);
+        }
     }
 }
 
@@ -354,7 +387,13 @@ where
         let timeout = self.timeout.unwrap_or(Duration::from_secs(2));
 
         // ✅ STREAMING THRESHOLD CHECK - Use streaming for large messages
-        if payload.len() > STREAM_THRESHOLD {
+        // Get threshold from connection if available, otherwise use safe default
+        let threshold = self.actor_ref.connection
+            .as_ref()
+            .map(|conn| conn.streaming_threshold())
+            .unwrap_or(1024 * 1024 - 1024); // Safe fallback: 1MB - 1KB
+        
+        if payload.len() > threshold {
             // For large ask messages, use streaming protocol
             let reply_bytes = self
                 .actor_ref
