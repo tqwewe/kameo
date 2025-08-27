@@ -39,6 +39,15 @@ use crate::{
 
 use super::id::ActorId;
 
+/// Trait for unified actor registration that can handle both local and distributed registration
+pub trait ActorRegistration: Actor {
+    /// Register the actor under a given name
+    fn register_actor(actor_ref: &ActorRef<Self>, name: &str) -> Result<(), error::RegistryError>;
+}
+
+
+
+
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorId;
 }
@@ -97,8 +106,22 @@ where
     /// Registers the actor under a given name in the actor registry.
     ///
     /// This makes the actor discoverable by parts of the app by name.
-    #[cfg(not(feature = "remote"))]
+    /// For distributed actors, this will also register them in the distributed registry.
     pub fn register(
+        &self,
+        name: impl Into<std::borrow::Cow<'static, str>>,
+    ) -> Result<(), error::RegistryError>
+    where
+        A: ActorRegistration,
+    {
+        let name_str = name.into();
+        A::register_actor(self, &name_str)
+    }
+
+    /// Registers an actor under a given name in the local registry only.
+    ///
+    /// This makes the actor discoverable by parts of the app by name locally.
+    pub fn register_local(
         &self,
         name: impl Into<std::borrow::Cow<'static, str>>,
     ) -> Result<(), error::RegistryError> {
@@ -112,18 +135,12 @@ where
             Ok(())
         }
     }
+}
 
-    /// Registers the actor under a given name.
-    ///
-    /// Registration should be done through the transport/registry, not through the actor system itself.
-    /// This method is removed in favor of external registration.
-    #[cfg(feature = "remote")]
-    #[deprecated(since = "0.18.0", note = "Registration should be done through the transport/registry")]
-    pub async fn register(&self, _name: &str) -> Result<(), error::RegistryError>
-    {
-        Err(error::RegistryError::SwarmNotBootstrapped)
-    }
-
+impl<A> ActorRef<A>
+where
+    A: Actor,
+{
     /// Looks up an actor registered locally by its name.
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.

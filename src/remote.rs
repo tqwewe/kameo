@@ -28,7 +28,7 @@
 //! }
 //! ```
 
-use std::{any, collections::HashMap, error, str, sync::LazyLock, pin::Pin, future::Future};
+use std::{any, collections::HashMap, error, str, sync::LazyLock};
 
 use tokio::sync::Mutex;
 

@@ -72,6 +72,50 @@ macro_rules! distributed_actor {
             }
         }
         
+        // Implement ActorRegistration for distributed actors
+        impl $crate::actor::ActorRegistration for $actor {
+            fn register_actor(actor_ref: &$crate::actor::ActorRef<Self>, name: &str) -> Result<(), $crate::error::RegistryError> {
+                // First do local registration
+                let was_inserted = $crate::registry::ACTOR_REGISTRY
+                    .lock()
+                    .unwrap()
+                    .insert(name.to_string(), actor_ref.clone());
+                if !was_inserted {
+                    return Err($crate::error::RegistryError::NameAlreadyRegistered);
+                }
+                
+                // Then do distributed registration
+                #[cfg(feature = "remote")]
+                {
+                    tracing::info!("🔄 [DISTRIBUTED] Starting distributed registration for actor '{}' of type '{}'", name, stringify!($actor));
+                    
+                    // Get the global transport and attempt distributed registration
+                    if let Some(transport) = {
+                        $crate::remote::distributed_actor_ref::GLOBAL_TRANSPORT.lock().unwrap().clone()
+                    } {
+                        tracing::info!("🌐 [DISTRIBUTED] Global transport available, spawning registration task for '{}'", name);
+                        let actor_ref = actor_ref.clone();
+                        let name_owned = name.to_string();
+                        tokio::spawn(async move {
+                            tracing::info!("🚀 [DISTRIBUTED] Starting async registration for '{}'", name_owned);
+                            match transport.register_distributed_actor(name_owned.clone(), &actor_ref).await {
+                                Ok(_) => {
+                                    tracing::info!("✅ [DISTRIBUTED] Successfully registered distributed actor '{}'", name_owned);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("⚠️ [DISTRIBUTED] Failed to register distributed actor '{}': {:?}", name_owned, e);
+                                }
+                            }
+                        });
+                    } else {
+                        tracing::warn!("❌ [DISTRIBUTED] No global transport available for actor '{}'", name);
+                    }
+                }
+                
+                Ok(())
+            }
+        }
+        
         impl $actor {
             /// Internal handler registration - not for public use
             #[doc(hidden)]
@@ -241,6 +285,7 @@ macro_rules! distributed_actor {
                 Err(format!("Unknown message type hash: {:08x}", type_hash).into())
             }
         }
+        
     };
     
     // List syntax: just message types (uses Message trait or convention)
@@ -257,6 +302,50 @@ macro_rules! distributed_actor {
             #[doc(hidden)]
             fn __register_distributed_handlers(actor_ref: &$crate::actor::ActorRef<Self>) {
                 Self::__internal_register_handlers(actor_ref);
+            }
+        }
+        
+        // Implement ActorRegistration for distributed actors
+        impl $crate::actor::ActorRegistration for $actor {
+            fn register_actor(actor_ref: &$crate::actor::ActorRef<Self>, name: &str) -> Result<(), $crate::error::RegistryError> {
+                // First do local registration
+                let was_inserted = $crate::registry::ACTOR_REGISTRY
+                    .lock()
+                    .unwrap()
+                    .insert(name.to_string(), actor_ref.clone());
+                if !was_inserted {
+                    return Err($crate::error::RegistryError::NameAlreadyRegistered);
+                }
+                
+                // Then do distributed registration
+                #[cfg(feature = "remote")]
+                {
+                    tracing::info!("🔄 [DISTRIBUTED] Starting distributed registration for actor '{}' of type '{}'", name, stringify!($actor));
+                    
+                    // Get the global transport and attempt distributed registration
+                    if let Some(transport) = {
+                        $crate::remote::distributed_actor_ref::GLOBAL_TRANSPORT.lock().unwrap().clone()
+                    } {
+                        tracing::info!("🌐 [DISTRIBUTED] Global transport available, spawning registration task for '{}'", name);
+                        let actor_ref = actor_ref.clone();
+                        let name_owned = name.to_string();
+                        tokio::spawn(async move {
+                            tracing::info!("🚀 [DISTRIBUTED] Starting async registration for '{}'", name_owned);
+                            match transport.register_distributed_actor(name_owned.clone(), &actor_ref).await {
+                                Ok(_) => {
+                                    tracing::info!("✅ [DISTRIBUTED] Successfully registered distributed actor '{}'", name_owned);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("⚠️ [DISTRIBUTED] Failed to register distributed actor '{}': {:?}", name_owned, e);
+                                }
+                            }
+                        });
+                    } else {
+                        tracing::warn!("❌ [DISTRIBUTED] No global transport available for actor '{}'", name);
+                    }
+                }
+                
+                Ok(())
             }
         }
         
@@ -438,5 +527,6 @@ macro_rules! distributed_actor {
                 )*
             }
         }
+        
     };
 }

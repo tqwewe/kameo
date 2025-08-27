@@ -24,6 +24,7 @@
 mod actor_ref;
 mod id;
 mod kind;
+mod maybe_distributed;
 mod spawn;
 
 use std::{any, ops::ControlFlow};
@@ -39,6 +40,7 @@ use crate::{
 
 pub use actor_ref::*;
 pub use id::*;
+pub use maybe_distributed::*;
 pub use spawn::*;
 
 const DEFAULT_MAILBOX_CAPACITY: usize = 64;
