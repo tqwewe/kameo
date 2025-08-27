@@ -33,7 +33,6 @@ pub trait ActorRegistration: Actor {
     /// Register the actor under a given name
     fn register_actor(actor_ref: &ActorRef<Self>, name: &str) -> Result<(), error::RegistryError>;
 }
-
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorId;
 }

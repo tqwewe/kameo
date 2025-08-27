@@ -40,6 +40,7 @@ use crate::{
 
 pub use actor_ref::*;
 pub use id::*;
+pub use maybe_distributed::*;
 pub use spawn::*;
 
 const DEFAULT_MAILBOX_CAPACITY: usize = 64;

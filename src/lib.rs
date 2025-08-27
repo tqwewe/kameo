@@ -11,7 +11,6 @@ pub mod actor;
 pub mod error;
 pub mod mailbox;
 pub mod message;
-#[cfg(not(feature = "remote"))]
 pub mod registry;
 #[cfg(feature = "remote")]
 pub mod remote;
@@ -44,7 +43,7 @@ pub mod prelude {
     #[allow(deprecated)]
     pub use crate::actor::ActorID;
     pub use crate::actor::{
-        Actor, ActorId, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef,
+        Actor, ActorId, ActorRef, ActorRegistration, PreparedActor, Recipient, ReplyRecipient, WeakActorRef,
         WeakRecipient, WeakReplyRecipient,
     };
     #[cfg(feature = "remote")]

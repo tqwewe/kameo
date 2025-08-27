@@ -95,50 +95,66 @@ impl KameoTransport {
     where
         A: crate::Actor + crate::remote::DistributedActor + 'static,
     {
+        tracing::info!("🔄 [TRANSPORT] Starting register_distributed_actor_sync for '{}' (timeout: {:?})", name, timeout);
+        
         // Validate that global transport is properly configured
         {
             use super::distributed_actor_ref::GLOBAL_TRANSPORT;
             let global = GLOBAL_TRANSPORT.lock().unwrap();
             if global.is_none() {
+                tracing::error!("❌ [TRANSPORT] No global transport configured for '{}'", name);
                 return Err(TransportError::Other(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
                     "No global transport configured - call bootstrap_on() or bootstrap_with_config() first"
                 ))));
             }
+            tracing::info!("✅ [TRANSPORT] Global transport validated for '{}'", name);
         }
 
-        // Register in local registry first
-        let registry = self.registry.clone();
+        // REMOVE this line - local registration already done by ctx.register()
+        // registry.write().await.insert(name.clone(), actor_id);
         let actor_id = actor_ref.id();
-        registry.write().await.insert(name.clone(), actor_id);
+        tracing::info!("📋 [TRANSPORT] Actor ID for '{}': {}", name, actor_id);
 
         // Register distributed handlers
+        tracing::info!("📡 [TRANSPORT] Registering distributed handlers for '{}'", name);
         A::__register_distributed_handlers(actor_ref);
+        tracing::info!("✅ [TRANSPORT] Distributed handlers registered for '{}'", name);
 
         // Use sync registration with kameo_remote to wait for peer confirmation
         let handle = self
             .handle
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
+        tracing::info!("🔗 [TRANSPORT] Got transport handle for '{}'", name);
 
         // Serialize ActorId as metadata using rkyv for zero-copy
+        tracing::info!("📦 [TRANSPORT] Serializing ActorId metadata for '{}'", name);
         let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
+            tracing::error!("❌ [TRANSPORT] Failed to serialize ActorId for '{}': {}", name, e);
             TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
         })?.to_vec();
+        tracing::info!("✅ [TRANSPORT] ActorId serialized for '{}', metadata size: {} bytes", name, metadata.len());
 
         // Create location with metadata and immediate priority for sync registration
         let bind_addr = handle.registry.bind_addr;
+        tracing::info!("🏠 [TRANSPORT] Creating RemoteActorLocation for '{}' at bind_addr: {}", name, bind_addr);
         let mut location = kameo_remote::RemoteActorLocation::new_with_metadata(
             bind_addr, 
             handle.registry.peer_id.clone(), 
             metadata
         );
         location.priority = kameo_remote::RegistrationPriority::Immediate;
+        tracing::info!("📍 [TRANSPORT] RemoteActorLocation created for '{}' with Immediate priority", name);
 
         // Use sync registration - this waits for peer confirmation or returns immediately if no peers
+        tracing::info!("⏳ [TRANSPORT] Calling registry.register_actor_sync for '{}' (timeout: {:?})", name, timeout);
         match handle.registry.register_actor_sync(name.clone(), location, timeout).await {
-            Ok(()) => {},
+            Ok(()) => {
+                tracing::info!("✅ [TRANSPORT] Successfully registered '{}' with kameo_remote registry", name);
+            }
             Err(e) => {
+                tracing::error!("❌ [TRANSPORT] Failed to register '{}' with kameo_remote: {:?}", name, e);
                 // Check if this is a timeout error and panic with debug info
                 let error_msg = format!("{:?}", e);
                 if error_msg.contains("timed out") || error_msg.contains("timeout") || error_msg.contains("Timeout") {
@@ -159,6 +175,7 @@ impl KameoTransport {
             }
         }
 
+        tracing::info!("🎉 [TRANSPORT] Completed register_distributed_actor_sync for '{}'", name);
         Ok(())
     }
 
