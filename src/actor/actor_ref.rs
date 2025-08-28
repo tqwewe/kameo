@@ -144,24 +144,9 @@ where
     /// Looks up an actor registered locally by its name.
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
-    #[cfg(not(feature = "remote"))]
-    pub fn lookup<Q>(name: &Q) -> Result<Option<Self>, error::RegistryError>
-    where
-        Q: std::hash::Hash + Eq + ?Sized,
-        std::borrow::Cow<'static, str>: std::borrow::Borrow<Q>,
-    {
-        crate::registry::ACTOR_REGISTRY.lock().unwrap().get(name)
-    }
-
-    /// Looks up an actor registered locally by its name.
-    ///
-    /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
-    #[cfg(feature = "remote")]
     pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
     {
-        // Local lookup should be done through the local registry
-        // TODO: Implement local registry lookup
-        Err(error::RegistryError::SwarmNotBootstrapped)
+        crate::registry::ACTOR_REGISTRY.lock().unwrap().get(name)
     }
 
     /// Creates a message-specific recipient for this actor.
