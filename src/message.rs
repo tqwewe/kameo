@@ -74,6 +74,7 @@ where
 {
     actor_ref: ActorRef<A>,
     reply: Option<ReplySender<R::Value>>,
+    stop: bool,
 }
 
 impl<A, R> Context<A, R>
@@ -81,13 +82,26 @@ where
     A: Actor,
     R: Reply + ?Sized,
 {
-    pub(crate) fn new(actor_ref: ActorRef<A>, reply: Option<ReplySender<R::Value>>) -> Self {
-        Context { actor_ref, reply }
+    pub(crate) fn new(
+        actor_ref: ActorRef<A>,
+        reply: Option<ReplySender<R::Value>>,
+        stop: bool,
+    ) -> Self {
+        Context {
+            actor_ref,
+            reply,
+            stop,
+        }
     }
 
     /// Returns the current actor's ref, allowing messages to be sent to itself.
     pub fn actor_ref(&self) -> &ActorRef<A> {
         &self.actor_ref
+    }
+
+    /// Stops the actor normally after processing the current message.
+    pub fn stop(&mut self) {
+        self.stop = true;
     }
 
     /// Extracts the reply sender, providing a mechanism for delegated responses and an optional reply sender.
@@ -353,12 +367,13 @@ where
     A: Actor,
 {
     /// Handles the dyn message with the provided actor state, ref, and reply sender.
-    fn handle_dyn(
+    fn handle_dyn<'a>(
         self: Box<Self>,
-        state: &mut A,
+        state: &'a mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn ReplyError>>>;
+        stop: &'a mut bool,
+    ) -> BoxFuture<'a, Result<(), Box<dyn ReplyError>>>;
 
     /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
@@ -369,17 +384,19 @@ where
     A: Actor + Message<T>,
     T: Send + 'static,
 {
-    fn handle_dyn(
+    fn handle_dyn<'a>(
         self: Box<Self>,
-        state: &mut A,
+        state: &'a mut A,
         actor_ref: ActorRef<A>,
         tx: Option<BoxReplySender>,
-    ) -> BoxFuture<'_, Result<(), Box<dyn ReplyError>>> {
+        stop: &'a mut bool,
+    ) -> BoxFuture<'a, Result<(), Box<dyn ReplyError>>> {
         async move {
             let reply_sender = tx.map(ReplySender::new);
             let mut ctx: Context<A, <A as Message<T>>::Reply> =
-                Context::new(actor_ref, reply_sender);
+                Context::new(actor_ref, reply_sender, *stop);
             let reply = Message::handle(state, *self, &mut ctx).await;
+            *stop = ctx.stop;
             if let Some(tx) = ctx.reply.take() {
                 tx.send(reply.into_value());
                 Ok(())

@@ -179,6 +179,7 @@ pub trait Actor: Sized + Send + 'static {
     /// - `msg`: The incoming message, wrapped in a `BoxMessage<Self>`.
     /// - `actor_ref`: A reference to the actor itself.
     /// - `tx`: An optional reply sender, used when the message expects a response.
+    /// - `stop`: A mutable bool which can be set to true, stopping the actor immediately after processing this message.
     ///
     /// # Returns
     /// A future that resolves to `Result<(), Box<dyn ReplyError>>`. An `Ok(())` indicates successful processing,
@@ -195,14 +196,16 @@ pub trait Actor: Sized + Send + 'static {
     ///   prevent message loss.
     /// - The `tx` (reply sender) is tied to the specific `BoxMessage` it corresponds to,
     ///   and passing an incorrect or mismatched `tx` can lead to a panic.
+    /// - The `stop` variable can be set to true in a message handler, by calling `Context::stop`.
     #[inline]
     fn on_message(
         &mut self,
         msg: BoxMessage<Self>,
         actor_ref: ActorRef<Self>,
         tx: Option<BoxReplySender>,
+        stop: &mut bool,
     ) -> impl Future<Output = Result<(), Box<dyn ReplyError>>> + Send {
-        async move { msg.handle_dyn(self, actor_ref, tx).await }
+        async move { msg.handle_dyn(self, actor_ref, tx, stop).await }
     }
 
     /// Called when the actor encounters a panic or an error during "tell" message handling.
