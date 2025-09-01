@@ -244,6 +244,8 @@ where
     .await
     .unwrap_or(ActorStopReason::Killed);
 
+    std::mem::drop(mailbox_rx);
+
     let mut actor = state.shutdown().await;
 
     let mut link_notification_futures = FuturesUnordered::new();
