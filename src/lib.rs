@@ -34,8 +34,6 @@ pub mod prelude {
     #[cfg(feature = "macros")]
     pub use kameo_macros::{messages, remote_message, Actor, RemoteActor, Reply};
 
-    #[allow(deprecated)]
-    pub use crate::actor::ActorID;
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;
     pub use crate::actor::{

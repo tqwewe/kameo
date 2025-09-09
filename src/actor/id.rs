@@ -12,10 +12,6 @@ use crate::remote::ActorSwarm;
 
 static ACTOR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// Backwards compatible type alias for [`ActorId`].
-#[deprecated(since = "0.18.0", note = "Use `ActorId` instead")]
-pub type ActorID = ActorId;
-
 /// A globally unique identifier for an actor within a distributed system.
 ///
 /// `ActorId` combines a locally sequential `sequence_id` with an optional `peer_id`

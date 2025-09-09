@@ -400,9 +400,14 @@ impl fmt::Display for ActorStopReason {
     }
 }
 
+pub enum HookError<E> {
+    Panicked(PanicError),
+    Error(E),
+}
+
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
-pub struct PanicError(Arc<Mutex<Box<dyn ReplyError>>>);
+pub struct PanicError(pub(crate) Arc<Mutex<Box<dyn ReplyError>>>);
 
 impl PanicError {
     /// Creates a new PanicError from a generic boxed reply error.
