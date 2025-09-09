@@ -56,8 +56,8 @@ pub struct ActorRef<A: Actor> {
     mailbox_sender: MailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
-    pub(crate) startup_result: SetOnce<Result<(), PanicError>>,
-    pub(crate) shutdown_result: SetOnce<Result<(), PanicError>>,
+    pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
+    pub(crate) shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
 }
 
 impl<A> ActorRef<A>
@@ -69,16 +69,16 @@ where
         mailbox: MailboxSender<A>,
         abort_handle: AbortHandle,
         links: Links,
-        startup_error: SetOnce<Result<(), PanicError>>,
-        shutdown_error: SetOnce<Result<(), PanicError>>,
+        startup_result: Arc<SetOnce<Result<(), PanicError>>>,
+        shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
     ) -> Self {
         ActorRef {
             id: ActorId::generate(),
             mailbox_sender: mailbox,
             abort_handle,
             links,
-            startup_result: startup_error,
-            shutdown_result: shutdown_error,
+            startup_result,
+            shutdown_result,
         }
     }
 
@@ -361,22 +361,22 @@ where
     /// # Example
     ///
     /// ```
-    /// use std::num::ParseIntError;
-    ///
-    /// use anyhow::anyhow;
     /// use kameo::actor::{Actor, ActorRef};
     ///
     /// struct MyActor;
     ///
+    /// #[derive(Debug)]
+    /// struct NonCloneError;
+    ///
     /// impl Actor for MyActor {
     ///     type Args = Self;
-    ///     type Error = anyhow::Error; // anyhow::Error is not clone
+    ///     type Error = NonCloneError;
     ///
     ///     async fn on_start(
     ///         _state: Self::Args,
     ///         _actor_ref: ActorRef<Self>,
     ///     ) -> Result<Self, Self::Error> {
-    ///         Err(anyhow!("something went wrong")) // Will always error
+    ///         Err(NonCloneError) // Will always error
     ///     }
     /// }
     ///
@@ -490,15 +490,17 @@ where
     /// # Example
     ///
     /// ```
-    /// use anyhow::anyhow;
     /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
     /// use kameo::error::ActorStopReason;
     ///
     /// struct MyActor;
     ///
+    /// #[derive(Debug)]
+    /// struct NonCloneError;
+    ///
     /// impl Actor for MyActor {
     ///     type Args = Self;
-    ///     type Error = anyhow::Error; // anyhow::Error is not Clone
+    ///     type Error = NonCloneError;
     ///
     ///     async fn on_start(
     ///         state: Self::Args,
@@ -508,7 +510,7 @@ where
     ///     }
     ///
     ///     async fn on_stop(&mut self, actor_ref: WeakActorRef<Self>, reason: ActorStopReason) -> Result<(), Self::Error> {
-    ///         Err(anyhow!("something went wrong")) // Will always error
+    ///         Err(NonCloneError) // Will always error
     ///     }
     /// }
     ///
@@ -516,7 +518,7 @@ where
     /// let actor_ref = MyActor::spawn(MyActor);
     /// actor_ref.stop_gracefully().await;
     /// actor_ref.wait_for_shutdown_with_result(|res| {
-    ///     assert!(shutdown_result.is_err());
+    ///     assert!(res.is_err());
     /// }).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
@@ -1836,8 +1838,8 @@ pub struct WeakActorRef<A: Actor> {
     mailbox: WeakMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
-    pub(crate) startup_result: SetOnce<Result<(), PanicError>>,
-    pub(crate) shutdown_result: SetOnce<Result<(), PanicError>>,
+    pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
+    pub(crate) shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
 }
 
 impl<A: Actor> WeakActorRef<A> {

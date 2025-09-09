@@ -1,4 +1,4 @@
-use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, thread};
+use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread};
 
 use futures::{
     future::BoxFuture,
@@ -48,8 +48,8 @@ impl<A: Actor> PreparedActor<A> {
     pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
-        let startup_result = SetOnce::new();
-        let shutdown_result = SetOnce::new();
+        let startup_result = Arc::new(SetOnce::new());
+        let shutdown_result = Arc::new(SetOnce::new());
         let actor_ref = ActorRef::new(
             mailbox_tx,
             abort_handle,
