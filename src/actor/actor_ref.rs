@@ -5,14 +5,14 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     ops,
-    sync::{Arc, OnceLock},
+    sync::Arc,
     time::Duration,
 };
 
 use dyn_clone::DynClone;
 use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt, TryFutureExt};
 use tokio::{
-    sync::{Mutex, Semaphore},
+    sync::{Mutex, SetOnce},
     task::JoinHandle,
     task_local,
 };
@@ -26,7 +26,7 @@ use crate::remote;
 use crate::request;
 
 use crate::{
-    error::{self, Infallible, PanicError, SendError},
+    error::{self, HookError, Infallible, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
     reply::ReplyError,
@@ -56,9 +56,8 @@ pub struct ActorRef<A: Actor> {
     mailbox_sender: MailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
-    pub(crate) startup_semaphore: Arc<Semaphore>,
-    pub(crate) startup_error: Arc<OnceLock<Option<PanicError>>>,
-    pub(crate) shutdown_error: Arc<OnceLock<Option<PanicError>>>,
+    pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
+    pub(crate) shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
 }
 
 impl<A> ActorRef<A>
@@ -70,18 +69,16 @@ where
         mailbox: MailboxSender<A>,
         abort_handle: AbortHandle,
         links: Links,
-        startup_semaphore: Arc<Semaphore>,
-        startup_error: Arc<OnceLock<Option<PanicError>>>,
-        shutdown_error: Arc<OnceLock<Option<PanicError>>>,
+        startup_result: Arc<SetOnce<Result<(), PanicError>>>,
+        shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
     ) -> Self {
         ActorRef {
             id: ActorId::generate(),
             mailbox_sender: mailbox,
             abort_handle,
             links,
-            startup_semaphore,
-            startup_error,
-            shutdown_error,
+            startup_result,
+            shutdown_result,
         }
     }
 
@@ -207,9 +204,19 @@ where
             mailbox: self.mailbox_sender.downgrade(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
-            startup_notify: self.startup_semaphore.clone(),
-            startup_error: self.startup_error.clone(),
-            shutdown_error: self.shutdown_error.clone(),
+            startup_result: self.startup_result.clone(),
+            shutdown_result: self.shutdown_result.clone(),
+        }
+    }
+
+    pub(crate) fn into_downgrade(self) -> WeakActorRef<A> {
+        WeakActorRef {
+            id: self.id,
+            mailbox: self.mailbox_sender.downgrade(),
+            abort_handle: self.abort_handle,
+            links: self.links,
+            startup_result: self.startup_result,
+            shutdown_result: self.shutdown_result,
         }
     }
 
@@ -298,16 +305,7 @@ where
     /// ```
     #[inline]
     pub async fn wait_for_startup(&self) {
-        let _ = self.startup_semaphore.acquire().await;
-    }
-
-    /// Waits for the actor to finish startup and become ready to process messages.
-    #[deprecated(
-        since = "0.17.0",
-        note = "wait_startup has been renamed to wait_for_startup"
-    )]
-    pub async fn wait_startup(&self) {
-        self.wait_for_startup().await
+        self.startup_result.wait().await;
     }
 
     /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
@@ -319,7 +317,6 @@ where
     ///
     /// ```
     /// use std::num::ParseIntError;
-    /// use std::time::Duration;
     ///
     /// use kameo::actor::{Actor, ActorRef};
     ///
@@ -344,33 +341,70 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn wait_for_startup_result(&self) -> Result<(), A::Error>
+    pub async fn wait_for_startup_result(&self) -> Result<(), HookError<A::Error>>
     where
         A::Error: Clone,
     {
-        let _ = self.startup_semaphore.acquire().await;
-        match self
-            .startup_error
-            .get()
-            .expect("startup error should be set")
-        {
-            Some(err) => Err(err
-                .with_downcast_ref(|err: &A::Error| err.clone())
-                .expect("panic error type should be the Actor's error type")),
-            None => Ok(()),
+        match self.startup_result.wait().await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err
+                .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
+                .unwrap_or_else(|| HookError::Panicked(err.clone()))),
         }
     }
 
-    /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
-    #[deprecated(
-        since = "0.17.0",
-        note = "wait_startup_result has been renamed to wait_for_startup_result"
-    )]
-    pub async fn wait_startup_result(&self) -> Result<(), A::Error>
+    /// Waits for the actor to finish startup, returning the startup result with a clousre containing the error.
+    ///
+    /// This method ensures the actors on_start lifecycle hook has been fully processed.
+    /// If `wait_for_startup_with_result` is called after the actor has already started up, this will return immediately.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::actor::{Actor, ActorRef};
+    ///
+    /// struct MyActor;
+    ///
+    /// #[derive(Debug)]
+    /// struct NonCloneError;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = NonCloneError;
+    ///
+    ///     async fn on_start(
+    ///         _state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Err(NonCloneError) // Will always error
+    ///     }
+    /// }
+    ///
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// actor_ref.wait_for_startup_with_result(|res| {
+    ///     assert!(res.is_err());
+    /// }).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn wait_for_startup_with_result<F, R>(&self, f: F) -> R
     where
-        A::Error: Clone,
+        F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
     {
-        self.wait_for_startup_result().await
+        match self.startup_result.wait().await {
+            Ok(()) => f(Ok(())),
+            Err(err) => match err.0.lock() {
+                Ok(lock) => match lock.downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+            },
+        }
     }
 
     /// Waits for the actor to finish processing and stop running.
@@ -388,15 +422,6 @@ where
         self.mailbox_sender.closed().await
     }
 
-    /// Waits for the actor to finish processing and stop running.
-    #[deprecated(
-        since = "0.17.0",
-        note = "wait_for_stop has been renamed to wait_for_shutdown"
-    )]
-    pub async fn wait_for_stop(&self) {
-        self.wait_for_shutdown().await
-    }
-
     /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
     ///
     /// This method ensures the actor's on_stop lifecycle hook has been fully processed.
@@ -410,7 +435,6 @@ where
     ///
     /// ```
     /// use std::num::ParseIntError;
-    /// use std::time::Duration;
     ///
     /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
     /// use kameo::error::ActorStopReason;
@@ -441,20 +465,81 @@ where
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn wait_for_shutdown_result(&self) -> Result<(), A::Error>
+    pub async fn wait_for_shutdown_result(&self) -> Result<(), HookError<A::Error>>
     where
         A::Error: Clone,
     {
         self.mailbox_sender.closed().await;
-        match self
-            .shutdown_error
-            .get()
-            .expect("shutdown error should be set")
-        {
-            Some(err) => Err(err
-                .with_downcast_ref(|err: &A::Error| err.clone())
-                .expect("panic error type should be the Actor's error type")),
-            None => Ok(()),
+        match self.shutdown_result.wait().await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err
+                .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
+                .unwrap_or_else(|| HookError::Panicked(err.clone()))),
+        }
+    }
+
+    /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
+    ///
+    /// This method ensures the actor's on_stop lifecycle hook has been fully processed.
+    /// If `wait_for_shutdown_result` is called after the actor has already shut down, this will return immediately.
+    ///
+    /// Note: This method does not initiate the stop process; it only waits for the actor to
+    /// stop and returns the result. You should signal the actor to stop using [`stop_gracefully`](ActorRef::stop_gracefully) or [`kill`](ActorRef::kill)
+    /// before calling this method.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
+    /// use kameo::error::ActorStopReason;
+    ///
+    /// struct MyActor;
+    ///
+    /// #[derive(Debug)]
+    /// struct NonCloneError;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = NonCloneError;
+    ///
+    ///     async fn on_start(
+    ///         state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
+    ///
+    ///     async fn on_stop(&mut self, actor_ref: WeakActorRef<Self>, reason: ActorStopReason) -> Result<(), Self::Error> {
+    ///         Err(NonCloneError) // Will always error
+    ///     }
+    /// }
+    ///
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// actor_ref.stop_gracefully().await;
+    /// actor_ref.wait_for_shutdown_with_result(|res| {
+    ///     assert!(res.is_err());
+    /// }).await;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// # });
+    /// ```
+    pub async fn wait_for_shutdown_with_result<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
+    {
+        self.mailbox_sender.closed().await;
+        match self.shutdown_result.wait().await {
+            Ok(()) => f(Ok(())),
+            Err(err) => match err.0.lock() {
+                Ok(lock) => match lock.downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+            },
         }
     }
 
@@ -974,9 +1059,8 @@ impl<A: Actor> Clone for ActorRef<A> {
             mailbox_sender: self.mailbox_sender.clone(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
-            startup_semaphore: self.startup_semaphore.clone(),
-            startup_error: self.startup_error.clone(),
-            shutdown_error: self.shutdown_error.clone(),
+            startup_result: self.startup_result.clone(),
+            shutdown_result: self.shutdown_result.clone(),
         }
     }
 }
@@ -1754,9 +1838,8 @@ pub struct WeakActorRef<A: Actor> {
     mailbox: WeakMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
-    startup_notify: Arc<Semaphore>,
-    startup_error: Arc<OnceLock<Option<PanicError>>>,
-    shutdown_error: Arc<OnceLock<Option<PanicError>>>,
+    pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
+    pub(crate) shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
 }
 
 impl<A: Actor> WeakActorRef<A> {
@@ -1773,9 +1856,8 @@ impl<A: Actor> WeakActorRef<A> {
             mailbox_sender: mailbox,
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
-            startup_semaphore: self.startup_notify.clone(),
-            startup_error: self.startup_error.clone(),
-            shutdown_error: self.shutdown_error.clone(),
+            startup_result: self.startup_result.clone(),
+            shutdown_result: self.shutdown_result.clone(),
         })
     }
 
@@ -1803,9 +1885,8 @@ impl<A: Actor> Clone for WeakActorRef<A> {
             mailbox: self.mailbox.clone(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
-            startup_notify: self.startup_notify.clone(),
-            startup_error: self.startup_error.clone(),
-            shutdown_error: self.shutdown_error.clone(),
+            startup_result: self.startup_result.clone(),
+            shutdown_result: self.shutdown_result.clone(),
         }
     }
 }

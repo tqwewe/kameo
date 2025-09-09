@@ -400,9 +400,32 @@ impl fmt::Display for ActorStopReason {
     }
 }
 
+/// An error type returned from actor startup/shutdown results.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum HookError<E> {
+    /// The hook panic error.
+    Panicked(PanicError),
+    /// The returned hook error.
+    Error(E),
+}
+
+impl<E> fmt::Display for HookError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HookError::Panicked(err) => err.fmt(f),
+            HookError::Error(err) => err.fmt(f),
+        }
+    }
+}
+
+impl<E> error::Error for HookError<E> where E: error::Error {}
+
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
-pub struct PanicError(Arc<Mutex<Box<dyn ReplyError>>>);
+pub struct PanicError(pub(crate) Arc<Mutex<Box<dyn ReplyError>>>);
 
 impl PanicError {
     /// Creates a new PanicError from a generic boxed reply error.

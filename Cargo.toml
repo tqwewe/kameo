@@ -6,7 +6,7 @@ members = [".", "actors", "macros"]
 kameo = { path = ".", version = "0.17.2" }
 
 futures = "0.3"
-tokio = "1.44"
+tokio = "1.47"
 
 [profile.release]
 lto = true

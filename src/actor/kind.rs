@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, mem, ops::ControlFlow, panic::AssertUnwindSafe};
 
-use futures::{Future, FutureExt};
+use futures::FutureExt;
 
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
@@ -12,42 +12,6 @@ use crate::{
 
 use super::ActorId;
 
-pub(crate) trait ActorState<A: Actor>: Sized {
-    fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self;
-
-    fn next(
-        &mut self,
-        mailbox_rx: &mut MailboxReceiver<A>,
-    ) -> impl Future<Output = Option<Signal<A>>> + Send;
-
-    fn handle_startup_finished(
-        &mut self,
-    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
-
-    fn handle_message(
-        &mut self,
-        message: BoxMessage<A>,
-        actor_ref: ActorRef<A>,
-        reply: Option<BoxReplySender>,
-        sent_within_actor: bool,
-    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
-
-    fn handle_link_died(
-        &mut self,
-        id: ActorId,
-        reason: ActorStopReason,
-    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
-
-    fn handle_stop(&mut self) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
-
-    fn on_shutdown(
-        &mut self,
-        reason: ActorStopReason,
-    ) -> impl Future<Output = ControlFlow<ActorStopReason>> + Send;
-
-    fn shutdown(self) -> impl Future<Output = A> + Send;
-}
-
 pub(crate) struct ActorBehaviour<A: Actor> {
     actor_ref: WeakActorRef<A>,
     state: A,
@@ -55,12 +19,12 @@ pub(crate) struct ActorBehaviour<A: Actor> {
     startup_buffer: VecDeque<Signal<A>>,
 }
 
-impl<A> ActorState<A> for ActorBehaviour<A>
+impl<A> ActorBehaviour<A>
 where
     A: Actor,
 {
     #[inline]
-    fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self {
+    pub(crate) fn new_from_actor(actor: A, actor_ref: WeakActorRef<A>) -> Self {
         ActorBehaviour {
             actor_ref,
             state: actor,
@@ -69,11 +33,11 @@ where
         }
     }
 
-    async fn next(&mut self, mailbox_rx: &mut MailboxReceiver<A>) -> Option<Signal<A>> {
+    pub(crate) async fn next(&mut self, mailbox_rx: &mut MailboxReceiver<A>) -> Option<Signal<A>> {
         self.state.next(self.actor_ref.clone(), mailbox_rx).await
     }
 
-    async fn handle_startup_finished(&mut self) -> ControlFlow<ActorStopReason> {
+    pub(crate) async fn handle_startup_finished(&mut self) -> ControlFlow<ActorStopReason> {
         self.finished_startup = true;
         for signal in mem::take(&mut self.startup_buffer).drain(..) {
             match signal {
@@ -93,8 +57,7 @@ where
         ControlFlow::Continue(())
     }
 
-    #[inline]
-    async fn handle_message(
+    pub(crate) async fn handle_message(
         &mut self,
         message: BoxMessage<A>,
         actor_ref: ActorRef<A>,
@@ -131,8 +94,7 @@ where
         }
     }
 
-    #[inline]
-    async fn handle_link_died(
+    pub(crate) async fn handle_link_died(
         &mut self,
         id: ActorId,
         reason: ActorStopReason,
@@ -156,16 +118,17 @@ where
         }
     }
 
-    #[inline]
-    async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
+    pub(crate) async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
         match self.handle_startup_finished().await {
             ControlFlow::Continue(_) => ControlFlow::Break(ActorStopReason::Normal),
             ControlFlow::Break(reason) => ControlFlow::Break(reason),
         }
     }
 
-    #[inline]
-    async fn on_shutdown(&mut self, reason: ActorStopReason) -> ControlFlow<ActorStopReason> {
+    pub(crate) async fn on_shutdown(
+        &mut self,
+        reason: ActorStopReason,
+    ) -> ControlFlow<ActorStopReason> {
         match reason {
             ActorStopReason::Normal => ControlFlow::Break(ActorStopReason::Normal),
             ActorStopReason::Killed => ControlFlow::Break(ActorStopReason::Killed),
@@ -189,7 +152,7 @@ where
     }
 
     #[inline]
-    async fn shutdown(self) -> A {
+    pub(crate) async fn shutdown(self) -> A {
         self.state
     }
 }
