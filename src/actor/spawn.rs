@@ -292,6 +292,7 @@ where
         match state.next(mailbox_rx).await {
             Some(Signal::StartupFinished) => {
                 if startup_result.set(Ok(())).is_err() {
+                    #[cfg(feature = "tracing")]
                     error!("received startup finished signal after already being started up");
                 }
                 if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
