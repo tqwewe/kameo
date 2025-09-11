@@ -5,6 +5,64 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2025-09-11
+
+* @LVivona made their first contribution in #204
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add a `lookup_all` method to the actor registry using providers (#190)
+- **BREAKING:** Add fire-and-forget option for remote tell requests (#205)
+- **BREAKING:** Add `Context::stop` method for stopping the actor within a message handler (#231)
+- **BREAKING:** Add `wait_for_startup/shudown_with_result` methods for non `Clone` errors (#235)
+- Implement `Reply` for most of kameo's types (#200)
+- Add `ActorRef::into_remote_ref` method and impl `Seralize`/`Deserialize` for `RemoteActorRef` (#211)
+- Use debug printing for panic error logs (#214)
+- Improve `RemoteActorRef` `Deserialize` impl (#215)
+- Remove `Debug` constraint on `A` for `Context` (#216)
+- Add `RemoteAskRequest::enqueue` and `try_enquque` methods (#217)
+- Implement `Serialize` and `Deserialize` for `SendError` [</>](https://github.com/tqwewe/kameo/commit/f144302b6f7eefdb53851bd5da9df5a53f1c0af7)
+- Add `Context::spawn` method (#218)
+- Add `ForwardedReply` `Direct` results (#223)
+- Hash remote_message impls to auto generate ids (#228)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Refactor remote system to use composable `NetworkBehaviour` pattern (#198)
+- **BREAKING:** Use `DeliveryMethod` for PubSub actor (#206)
+- **BREAKING:** Implement `PartialOrd` and `Ord` for actor id and ref types (#219)
+- **BREAKING:** Return reference in `Context::actor_ref` (#222)
+- Improve test and lint coverage for all workspace crates (#191)
+- Rename `ActorID` to `ActorId` (#202)
+- Consolidate remote feature conditional compilation blocks (#204)
+
+### <!-- 2 -->Removed
+
+- **BREAKING:** Remove dependency on `once_cell` (#209)
+- **BREAKING:** Remove `PendingReply` lifetime (#212)
+
+### <!-- 3 -->Fixed
+
+- Resolve test and lint issues uncovered by improved CI (#192)
+- Stop_gracefully panicking when actor is already stopped (#201)
+- Prevent deadlock in ActorRef link/unlink methods (#221)
+- Drop mailbox immediately when actor is stopped (#233)
+
+### <!-- 4 -->Documentation
+
+- Fix version 0.17.2 link in CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/667bef4ced237a28b2abac59b748d280b88c8abe)
+- Update outdated Actor example and FAQ [</>](https://github.com/tqwewe/kameo/commit/dfca7e06fbdbc9162c6bb1a199822b719d6615b5)
+- Remove prerequisites from README.md [</>](https://github.com/tqwewe/kameo/commit/57674f266af46c3483537c276cdb56eb58ebabc2)
+
+### <!-- 5 -->Misc
+
+- Add msrv `rust-version` to and `include` fields to Cargo.toml files [</>](https://github.com/tqwewe/kameo/commit/2148a55b59e0ebb882240d9869ffc7480d9adf2f)
+- Fix clippy lints regarding msrv on remote feature flag [</>](https://github.com/tqwewe/kameo/commit/f607837867b13a42c0bc54a0d46f7bf7bd3ba15d)
+- Update criterion requirement from 0.6 to 0.7 (#225)
+- Add JaniM to README.md sponsors <3 [</>](https://github.com/tqwewe/kameo/commit/2792af801cfe4f6710522310b6d4231b8c457718)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#234)
+- Bump kameo_macros to version 0.18.0 [</>](https://github.com/tqwewe/kameo/commit/43a168f04b51106a7de400627e9dff1a93544824)
+
 ## [0.17.2] - 2025-06-26
 
 * @cwahn made their first contribution in #186
@@ -631,6 +689,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.18.0]: https://github.com/tqwewe/kameo/compare/v0.17.2..v0.18.0
 [0.17.2]: https://github.com/tqwewe/kameo/compare/v0.17.1..v0.17.2
 [0.17.1]: https://github.com/tqwewe/kameo/compare/v0.17.0..v0.17.1
 [0.17.0]: https://github.com/tqwewe/kameo/compare/v0.16.0..v0.17.0
