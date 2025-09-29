@@ -18,6 +18,13 @@ use syn::parse_macro_input;
 /// Methods on the impl block are marked with `#[message]`.
 /// This generates a struct for the message, allowing it to be sent to the actor.
 ///
+/// # Attributes
+///
+/// - `#[message]` - Basic message definition
+/// - `#[message(derive(...))]` - Add derives to the generated message struct
+/// - `#[message(ctx)]` - Include a `ctx` parameter that is excluded from the generated struct
+/// - `#[message(ctx = name)]` - Include a context parameter with a custom name
+///
 /// # Example
 ///
 /// ```ignore
@@ -37,10 +44,26 @@ use syn::parse_macro_input;
 ///     pub fn dec(&self, amount: u32) {
 ///         self.count -= amount as i64;
 ///     }
+///
+///     /// Message with context parameter
+///     #[message(ctx)]
+///     pub async fn inc_with_logging(&mut self, amount: u32, ctx: &mut Context<Self, i64>) -> i64 {
+///         // ctx is available but not part of the message struct
+///         self.count += amount as i64;
+///         self.count
+///     }
+///
+///     /// Message with custom context parameter name
+///     #[message(ctx = my_ctx)]
+///     pub async fn reset(&mut self, my_ctx: &mut Context<Self, ()>) {
+///         self.count = 0;
+///     }
 /// }
 ///
 /// counter_ref.ask(Inc { amount: 5 }).await?;
 /// counter_ref.ask(Dec { amount: 2 }.clone()).await?;
+/// counter_ref.ask(IncWithLogging { amount: 3 }).await?;
+/// counter_ref.ask(Reset).await?;
 /// ```
 ///
 /// <details>
@@ -54,21 +77,44 @@ use syn::parse_macro_input;
 /// impl kameo::message::Message<Inc> for Counter {
 ///     type Reply = i64;
 ///
-///     async fn handle(&mut self, msg: Counter, _ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
+///     async fn handle(&mut self, msg: Inc, _ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
 ///         self.inc(msg.amount)
 ///     }
 /// }
 ///
-/// pub struct Count;
-///
 /// #[derive(Clone, Copy)]
-/// pub struct Dec;
+/// pub struct Dec {
+///     pub amount: u32,
+/// }
 ///
 /// impl kameo::message::Message<Dec> for Counter {
 ///     type Reply = ();
 ///
-///     async fn handle(&mut self, msg: Counter, _ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
+///     async fn handle(&mut self, msg: Dec, _ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
 ///         self.dec(msg.amount)
+///     }
+/// }
+///
+/// pub struct IncWithLogging {
+///     pub amount: u32,
+///     // Note: ctx is NOT included in the struct
+/// }
+///
+/// impl kameo::message::Message<IncWithLogging> for Counter {
+///     type Reply = i64;
+///
+///     async fn handle(&mut self, msg: IncWithLogging, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
+///         self.inc_with_logging(msg.amount, ctx).await
+///     }
+/// }
+///
+/// pub struct Reset;
+///
+/// impl kameo::message::Message<Reset> for Counter {
+///     type Reply = ();
+///
+///     async fn handle(&mut self, msg: Reset, my_ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
+///         self.reset(my_ctx).await
 ///     }
 /// }
 /// ```
