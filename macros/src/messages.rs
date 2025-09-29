@@ -216,7 +216,7 @@ impl Messages {
                                         }
                                     }
                                 }
-                                
+
                                 if let Err(err) = validate_param(&ty.ty) {
                                     errors.push(err);
                                 }
