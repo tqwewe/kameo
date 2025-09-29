@@ -6,8 +6,8 @@ use syn::{
     parse_quote, parse_quote_spanned,
     punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, Field, FnArg, GenericParam, Generics, Ident, ImplItem, ItemImpl, Meta, ReturnType,
-    Signature, Token, Type, Visibility,
+    Attribute, Expr, Field, FnArg, GenericParam, Generics, Ident, ImplItem, ItemImpl, Meta,
+    MetaNameValue, Pat, ReturnType, Signature, Token, Type, Visibility,
 };
 
 pub struct Messages {
@@ -25,6 +25,7 @@ struct Message {
     fields: Punctuated<Field, Token![,]>,
     attrs: Vec<TokenStream>,
     generics: Generics,
+    ctx: Option<(Ident, usize)>,
 }
 
 impl
@@ -34,27 +35,42 @@ impl
         Vec<TokenStream>,
         Vec<Vec<Attribute>>,
         Generics,
+        Option<Ident>,
     )> for Message
 {
     type Error = syn::Error;
 
     fn try_from(
-        (vis, mut sig, attrs, field_doc_attrs, generics): (
+        (vis, mut sig, attrs, field_doc_attrs, generics, ctx): (
             Visibility,
             Signature,
             Vec<TokenStream>,
             Vec<Vec<Attribute>>,
             Generics,
+            Option<Ident>,
         ),
     ) -> Result<Self, Self::Error> {
         let ident = format_ident!("{}", sig.ident.to_string().to_upper_camel_case());
+        let mut ctx_pos = None;
         let fields: Punctuated<Field, Token![,]> = sig
             .inputs
             .iter_mut()
             .zip(field_doc_attrs)
-            .filter_map(|(input, doc_attrs)| match input {
+            .enumerate()
+            .filter_map(|(i, (input, doc_attrs))| match input {
                 FnArg::Receiver(_) => None,
-                FnArg::Typed(pat_type) => Some((doc_attrs, pat_type)),
+                FnArg::Typed(pat_type) => {
+                    if let Some(ctx) = &ctx {
+                        if let Pat::Ident(pat_ident) = &*pat_type.pat {
+                            if &pat_ident.ident == ctx {
+                                ctx_pos = Some(i.saturating_sub(1));
+                                return None;
+                            }
+                        }
+                    }
+
+                    Some((doc_attrs, pat_type))
+                },
             })
             .map::<syn::Result<Field>, _>(|(doc_attrs, pat_type)| {
                 let ident = match pat_type.pat.as_ref() {
@@ -77,6 +93,7 @@ impl
             fields,
             attrs,
             generics,
+            ctx: ctx.zip(ctx_pos),
         })
     }
 }
@@ -101,6 +118,7 @@ impl Messages {
                             .collect();
 
                         let mut is_message = false;
+                        let mut ctx = None;
                         impl_item_fn.attrs.retain(|attr| {
                             if is_message {
                                 return true;
@@ -128,7 +146,37 @@ impl Messages {
                                     let args_res = Punctuated::<Meta, Token![,]>::parse_separated_nonempty.parse2(list.tokens.clone());
                                     match args_res {
                                         Ok(items) => {
-                                            attrs.extend(items.into_iter().map(|attr| quote! { #[ #attr ] }));
+                                            attrs.extend(items.into_iter().filter_map(|attr| {
+                                                if ctx.is_none() {
+                                                    match attr {
+                                                        Meta::Path(path) if path.is_ident("ctx") => {
+                                                            ctx = Some(Ident::new("ctx", Span::call_site()));
+                                                            return None;
+                                                        },
+                                                        Meta::NameValue(MetaNameValue { path, value, .. }) if path.is_ident("ctx") => {
+                                                            match value {
+                                                                Expr::Path(path) => {
+                                                                    match path.path.require_ident() {
+                                                                        Ok(ident) => {
+                                                                            ctx = Some(ident.clone());
+                                                                        },
+                                                                        Err(err) => {
+                                                                            errors.push(err);
+                                                                        },
+                                                                    }
+                                                                },
+                                                                _ => {
+                                                                    errors.push(syn::Error::new(value.span(), "expected ctx attr to be an ident"));
+                                                                },
+                                                            }
+                                                            return None;
+                                                        },
+                                                        _ => {}
+                                                    }
+                                                }
+
+                                                Some(quote! { #[ #attr ] })
+                                            }));
                                         },
                                         Err(err) => {
                                             errors.push(err);
@@ -142,103 +190,112 @@ impl Messages {
                             }
                         });
 
-                        if is_message {
-                            let mut generics = vec![];
-                            let impl_item_generics: Vec<_> = item_impl.generics
-                                .lifetimes()
-                                .filter(|lifetime| !impl_item_fn.sig.generics.lifetimes().any(|lt| lt == *lifetime))
+                        if !is_message {
+                            return None;
+                        }
+
+                        let mut generics = vec![];
+                        let impl_item_generics: Vec<_> = item_impl.generics
+                            .lifetimes()
+                            .filter(|lifetime| !impl_item_fn.sig.generics.lifetimes().any(|lt| lt == *lifetime))
+                            .cloned()
+                            .map(GenericParam::Lifetime)
+                            .chain(
+                                item_impl.generics
+                                    .type_params()
+                                    .filter(|type_param| !impl_item_fn.sig.generics.type_params().any(|tp| tp == *type_param))
+                                    .cloned()
+                                    .map(GenericParam::Type)
+                            ).collect();
+                        for input in &impl_item_fn.sig.inputs {
+                            if let FnArg::Typed(ty) = input {
+                                if let Some(ctx) = &ctx {
+                                    if let Pat::Ident(pat_ident) = &*ty.pat {
+                                        if &pat_ident.ident == ctx {
+                                            continue;
+                                        }
+                                    }
+                                }
+                                
+                                if let Err(err) = validate_param(&ty.ty) {
+                                    errors.push(err);
+                                }
+
+                                generics.extend(contains_generic_in_param(&ty.ty, &impl_item_generics));
+                            }
+                        }
+                        if let ReturnType::Type(_, ty) = &impl_item_fn.sig.output {
+                            generics.extend(contains_generic_in_param(ty, &impl_item_generics));
+                        }
+
+                        generics.dedup();
+                        let generics = if generics.is_empty() {
+                            impl_item_fn.sig.generics.clone()
+                        } else {
+                            let lifetimes = generics
+                                .iter()
+                                .filter(|param| matches!(param, GenericParam::Lifetime(_)))
                                 .cloned()
-                                .map(GenericParam::Lifetime)
                                 .chain(
-                                    item_impl.generics
-                                        .type_params()
-                                        .filter(|type_param| !impl_item_fn.sig.generics.type_params().any(|tp| tp == *type_param))
-                                        .cloned()
-                                        .map(GenericParam::Type)
-                                ).collect();
-                            for input in &impl_item_fn.sig.inputs {
-                                if let FnArg::Typed(ty) = input {
-                                    if let Err(err) = validate_param(&ty.ty) {
-                                        errors.push(err);
+                                    impl_item_fn.sig.generics.lifetimes().cloned().map(GenericParam::Lifetime)
+                                );
+                            let types = generics
+                                .iter()
+                                .filter(|param| matches!(param, GenericParam::Type(_)))
+                                .cloned()
+                                .chain(
+                                    impl_item_fn.sig.generics.type_params().cloned().map(GenericParam::Type)
+                                );
+                            parse_quote! { <#( #lifetimes ),* #( #types, )*> }
+                        };
+
+                        match impl_item_fn.sig.inputs.first() {
+                            Some(FnArg::Typed(_)) | None => {
+                                errors.push(syn::Error::new(
+                                    impl_item_fn.sig.span(),
+                                    "messages must take &mut self or &self",
+                                ));
+                                return None;
+                            }
+                            _ => {}
+                        }
+
+                        let field_doc_attrs: Vec<_> = impl_item_fn.sig.inputs.iter_mut().map(|input| {
+                            match input {
+                                FnArg::Receiver(_) => vec![],
+                                FnArg::Typed(pat_type) => {
+                                    let mut doc_attrs = Vec::new();
+                                    let mut i = 0;
+                                    while i < pat_type.attrs.len() {
+                                        let is_doc_attr = matches!(
+                                            &pat_type.attrs[i].meta,
+                                            Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
+                                        );
+                                        if is_doc_attr {
+                                            doc_attrs.push(pat_type.attrs.remove(i));
+                                        } else {
+                                            i += 1;
+                                        }
                                     }
 
-                                    generics.extend(contains_generic_in_param(&ty.ty, &impl_item_generics));
-                                }
+                                    doc_attrs
+                                },
                             }
-                            if let ReturnType::Type(_, ty) = &impl_item_fn.sig.output {
-                                generics.extend(contains_generic_in_param(ty, &impl_item_generics));
+                        }).collect();
+
+                        match Message::try_from((
+                            impl_item_fn.vis.clone(),
+                            impl_item_fn.sig.clone(),
+                            attrs,
+                            field_doc_attrs,
+                            generics,
+                            ctx,
+                        )) {
+                            Ok(message) => Some(message),
+                            Err(err) => {
+                                errors.push(err);
+                                None
                             }
-
-                            generics.dedup();
-                            let generics = if generics.is_empty() {
-                                impl_item_fn.sig.generics.clone()
-                            } else {
-                                let lifetimes = generics
-                                    .iter()
-                                    .filter(|param| matches!(param, GenericParam::Lifetime(_)))
-                                    .cloned()
-                                    .chain(
-                                        impl_item_fn.sig.generics.lifetimes().cloned().map(GenericParam::Lifetime)
-                                    );
-                                let types = generics
-                                    .iter()
-                                    .filter(|param| matches!(param, GenericParam::Type(_)))
-                                    .cloned()
-                                    .chain(
-                                        impl_item_fn.sig.generics.type_params().cloned().map(GenericParam::Type)
-                                    );
-                                parse_quote! { <#( #lifetimes ),* #( #types, )*> }
-                            };
-
-                            match impl_item_fn.sig.inputs.first() {
-                                Some(FnArg::Typed(_)) | None => {
-                                    errors.push(syn::Error::new(
-                                        impl_item_fn.sig.span(),
-                                        "messages must take &mut self or &self",
-                                    ));
-                                    return None;
-                                }
-                                _ => {}
-                            }
-
-                            let field_doc_attrs: Vec<_> = impl_item_fn.sig.inputs.iter_mut().map(|input| {
-                                match input {
-                                    FnArg::Receiver(_) => vec![],
-                                    FnArg::Typed(pat_type) => {
-                                        let mut doc_attrs = Vec::new();
-                                        let mut i = 0;
-                                        while i < pat_type.attrs.len() {
-                                            let is_doc_attr = matches!(
-                                                &pat_type.attrs[i].meta,
-                                                Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
-                                            );
-                                            if is_doc_attr {
-                                                doc_attrs.push(pat_type.attrs.remove(i));
-                                            } else {
-                                                i += 1;
-                                            }
-                                        }
-
-                                        doc_attrs
-                                    },
-                                }
-                            }).collect();
-
-                            match Message::try_from((
-                                impl_item_fn.vis.clone(),
-                                impl_item_fn.sig.clone(),
-                                attrs,
-                                field_doc_attrs,
-                                generics,
-                            )) {
-                                Ok(message) => Some(message),
-                                Err(err) => {
-                                    errors.push(err);
-                                    None
-                                }
-                            }
-                        } else {
-                            None
                         }
                     }
                     _ => None,
@@ -314,6 +371,7 @@ impl Messages {
                  ident: msg_ident,
                  fields,
                  generics,
+                 ctx,
                  ..
              }| {
                 let mut all_generics = item_impl.generics.clone();
@@ -345,19 +403,29 @@ impl Messages {
                     .await
                 });
 
-                let params = fields.iter().map(|field| {
+                let mut params: Vec<_> = fields.iter().map(|field| {
                     let ident = &field.ident;
                     quote_spanned! {field.span()=>
                         msg.#ident
                     }
-                });
+                }).collect();
+
+                let ctx_ident = match ctx {
+                    Some((ctx, i)) => {
+                        params.insert(*i, quote! { #ctx });
+                        quote_spanned! {ctx.span()=>
+                            #ctx
+                        }
+                    },
+                    None => quote! { _ctx },
+                };
 
                 quote_spanned! {sig.span()=>
                     #[automatically_derived]
                     impl #impl_generics ::kameo::message::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
                         type Reply = #reply;
 
-                        async fn handle(#self_ref, #[allow(unused_variables)] #msg, _ctx: &mut ::kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
+                        async fn handle(#self_ref, #[allow(unused_variables)] #msg, #ctx_ident: &mut ::kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
                             self.#fn_ident(#( #params ),*) #await_tokens
                         }
                     }
