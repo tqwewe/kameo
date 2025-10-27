@@ -57,6 +57,7 @@ You can use various multiaddress formats:
 Here's a full example showing how to bootstrap and immediately start using distributed actors:
 
 ```rust
+use futures::TryStreamExt;
 use kameo::prelude::*;
 use kameo::remote;
 
@@ -68,23 +69,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap the distributed actor system
     let peer_id = remote::bootstrap()?;
     println!("Node started: {}", peer_id);
-    
+
     // Spawn and register a local actor
-    let greeter = GreeterActor::spawn_default();
+    let greeter = GreeterActor::spawn(GreeterActor);
     greeter.register("greeter").await?;
     println!("Greeter actor registered");
-    
+
     // Look up all greeter actors in the network
     let mut greeters = RemoteActorRef::<GreeterActor>::lookup_all("greeter");
     while let Some(remote_greeter) = greeters.try_next().await? {
         println!("Found greeter on peer: {:?}", remote_greeter.id().peer_id());
     }
-    
+
     // Keep the application running
     tokio::signal::ctrl_c().await?;
     Ok(())
 }
 ```
+
+Be sure to enable the `remote` feature flag for kameo.
 
 ## What Bootstrap Includes
 
