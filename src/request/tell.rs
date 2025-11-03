@@ -5,7 +5,7 @@ use futures::{future::BoxFuture, FutureExt};
 use crate::{
     actor::{ActorRef, Recipient, ReplyRecipient},
     error::SendError,
-    mailbox::{MailboxSender, Signal},
+    mailbox::Signal,
     message::Message,
     reply::ReplyError,
     Actor,
@@ -84,16 +84,15 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                #[cfg(all(debug_assertions, feature = "tracing"))]
+        let tx = self.actor_ref.mailbox_sender();
+        if tx.capacity().is_some() {
+            #[cfg(all(debug_assertions, feature = "tracing"))]
                 warn_deadlock(self.actor_ref, "An actor is sending a `tell` request to itself using a bounded mailbox, which may lead to a deadlock. To avoid this, use `.try_send()`.", self.called_at);
-                match self.mailbox_timeout.into() {
-                    Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
-                    None => Ok(tx.send(signal).await?),
-                }
-            }
-            MailboxSender::Unbounded(tx) => Ok(tx.send(signal)?),
+        }
+
+        match self.mailbox_timeout.into() {
+            Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
+            None => Ok(tx.send(signal).await?),
         }
     }
 }
@@ -112,10 +111,7 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => Ok(tx.try_send(signal)?),
-            MailboxSender::Unbounded(tx) => Ok(tx.send(signal)?),
-        }
+        Ok(self.actor_ref.mailbox_sender().try_send(signal)?)
     }
 
     /// Sends the message in a blocking context.
@@ -127,14 +123,13 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                #[cfg(all(debug_assertions, feature = "tracing"))]
+        let tx = self.actor_ref.mailbox_sender();
+        if tx.capacity().is_some() {
+            #[cfg(all(debug_assertions, feature = "tracing"))]
                 warn_deadlock(self.actor_ref, "An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.", self.called_at);
-                Ok(tx.blocking_send(signal)?)
-            }
-            MailboxSender::Unbounded(tx) => Ok(tx.send(signal)?),
         }
+
+        Ok(self.actor_ref.mailbox_sender().blocking_send(signal)?)
     }
 }
 
@@ -548,15 +543,10 @@ fn warn_deadlock<A: Actor>(
 ) {
     use tracing::warn;
 
-    use crate::mailbox::MailboxSender;
-
-    match actor_ref.mailbox_sender() {
-        MailboxSender::Bounded(_) => {
-            if actor_ref.is_current() {
-                warn!("At {called_at}, {msg}");
-            }
+    if let Some(_) = actor_ref.mailbox_sender().capacity() {
+        if actor_ref.is_current() {
+            warn!("At {called_at}, {msg}");
         }
-        MailboxSender::Unbounded(_) => {}
     }
 }
 
