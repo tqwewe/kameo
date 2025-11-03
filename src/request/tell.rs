@@ -543,10 +543,8 @@ fn warn_deadlock<A: Actor>(
 ) {
     use tracing::warn;
 
-    if let Some(_) = actor_ref.mailbox_sender().capacity() {
-        if actor_ref.is_current() {
-            warn!("At {called_at}, {msg}");
-        }
+    if actor_ref.mailbox_sender().capacity().is_some() && actor_ref.is_current() {
+        warn!("At {called_at}, {msg}");
     }
 }
 

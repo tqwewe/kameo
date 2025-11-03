@@ -89,6 +89,7 @@ impl<A: Actor> MailboxSender<A> {
     ///
     /// [`mpsc::Sender::try_send`]: tokio::sync::mpsc::Sender::try_send
     /// [`mpsc::UnboundedSender::send`]: tokio::sync::mpsc::UnboundedSender::send
+    #[allow(clippy::result_large_err)]
     pub fn try_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::TrySendError<Signal<A>>> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => tx.try_send(signal),
@@ -125,6 +126,7 @@ impl<A: Actor> MailboxSender<A> {
     ///
     /// [`mpsc::Sender::blocking_send`]: tokio::sync::mpsc::Sender::blocking_send
     /// [`mpsc::UnboundedSender::send`]: tokio::sync::mpsc::UnboundedSender::send
+    #[allow(clippy::result_large_err)]
     pub fn blocking_send(
         &self,
         signal: Signal<A>,
