@@ -50,7 +50,7 @@ use futures::{
     Future, FutureExt, TryFutureExt,
     future::{BoxFuture, join_all},
 };
-use kameo::{error::Infallible, prelude::*};
+use kameo::{error::Infallible, mailbox::MailboxSender, prelude::*};
 
 enum Factory<A: Actor> {
     Sync(Box<dyn FnMut() -> ActorRef<A> + Send + Sync + 'static>),

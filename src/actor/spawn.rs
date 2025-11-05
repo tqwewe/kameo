@@ -19,7 +19,7 @@ use crate::remote;
 use crate::{
     actor::{kind::ActorBehaviour, Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID},
     error::{invoke_actor_error_hook, ActorStopReason, PanicError, SendError},
-    mailbox::{MailboxReceiver, MailboxSender, Signal},
+    mailbox::{BoxMailboxReceiver, BoxMailboxSender, Signal},
 };
 
 use super::ActorId;
@@ -34,7 +34,7 @@ use super::ActorId;
 #[must_use = "the prepared actor needs to be ran/spawned"]
 pub struct PreparedActor<A: Actor> {
     actor_ref: ActorRef<A>,
-    mailbox_rx: MailboxReceiver<A>,
+    mailbox_rx: BoxMailboxReceiver<A>,
     abort_registration: AbortRegistration,
 }
 
@@ -45,7 +45,7 @@ impl<A: Actor> PreparedActor<A> {
     /// Use this when you need custom mailbox behavior or capacity.
     ///
     /// This is typically created though [`Actor::prepare`] and [`Actor::prepare_with_mailbox`].
-    pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
+    pub fn new((mailbox_tx, mailbox_rx): (BoxMailboxSender<A>, BoxMailboxReceiver<A>)) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
         let startup_result = Arc::new(SetOnce::new());
@@ -157,7 +157,7 @@ impl<A: Actor> PreparedActor<A> {
 async fn run_actor_lifecycle<A>(
     args: A::Args,
     actor_ref: ActorRef<A>,
-    mailbox_rx: MailboxReceiver<A>,
+    mailbox_rx: BoxMailboxReceiver<A>,
     abort_registration: AbortRegistration,
 ) -> Result<(A, ActorStopReason), PanicError>
 where
@@ -260,7 +260,7 @@ where
 
 async fn abortable_actor_loop<A>(
     state: &mut ActorBehaviour<A>,
-    mut mailbox_rx: MailboxReceiver<A>,
+    mut mailbox_rx: BoxMailboxReceiver<A>,
     startup_result: &SetOnce<Result<(), PanicError>>,
     startup_finished: bool,
 ) -> ActorStopReason
@@ -282,7 +282,7 @@ where
 
 async fn recv_mailbox_loop<A>(
     state: &mut ActorBehaviour<A>,
-    mailbox_rx: &mut MailboxReceiver<A>,
+    mailbox_rx: &mut BoxMailboxReceiver<A>,
     startup_result: &SetOnce<Result<(), PanicError>>,
 ) -> ActorStopReason
 where

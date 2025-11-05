@@ -5,7 +5,7 @@ use futures::FutureExt;
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, PanicError},
-    mailbox::{MailboxReceiver, Signal},
+    mailbox::{BoxMailboxReceiver, Signal},
     message::BoxMessage,
     reply::BoxReplySender,
 };
@@ -33,7 +33,7 @@ where
         }
     }
 
-    pub(crate) async fn next(&mut self, mailbox_rx: &mut MailboxReceiver<A>) -> Option<Signal<A>> {
+    pub(crate) async fn next(&mut self, mailbox_rx: &mut BoxMailboxReceiver<A>) -> Option<Signal<A>> {
         self.state.next(self.actor_ref.clone(), mailbox_rx).await
     }
 

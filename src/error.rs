@@ -15,12 +15,14 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::{
-    sync::{mpsc, oneshot},
-    time::error::Elapsed,
-};
+use tokio::{sync::oneshot, time::error::Elapsed};
 
-use crate::{actor::ActorId, mailbox::Signal, reply::ReplyError, Actor};
+use crate::{
+    actor::ActorId,
+    mailbox::{MailboxSendError, MailboxSendTimeoutError, MailboxTrySendError},
+    reply::ReplyError,
+    Actor,
+};
 
 type ErrorHookFn = fn(&PanicError);
 
@@ -283,27 +285,44 @@ where
     }
 }
 
-impl<A, M, E> From<mpsc::error::SendError<Signal<A>>> for SendError<M, E>
+impl<A, M, E> From<MailboxSendError<A>> for SendError<M, E>
 where
     A: Actor,
     M: 'static,
 {
-    fn from(err: mpsc::error::SendError<Signal<A>>) -> Self {
+    fn from(err: MailboxSendError<A>) -> Self {
         SendError::ActorNotRunning(err.0.downcast_message::<M>().unwrap())
     }
 }
 
-impl<A, M, E> From<mpsc::error::TrySendError<Signal<A>>> for SendError<M, E>
+impl<A, M, E> From<MailboxTrySendError<A>> for SendError<M, E>
 where
     A: Actor,
     M: 'static,
 {
-    fn from(err: mpsc::error::TrySendError<Signal<A>>) -> Self {
+    fn from(err: MailboxTrySendError<A>) -> Self {
         match err {
-            mpsc::error::TrySendError::Full(signal) => {
+            MailboxTrySendError::Full(signal) => {
                 SendError::MailboxFull(signal.downcast_message::<M>().unwrap())
             }
-            mpsc::error::TrySendError::Closed(signal) => {
+            MailboxTrySendError::Closed(signal) => {
+                SendError::ActorNotRunning(signal.downcast_message::<M>().unwrap())
+            }
+        }
+    }
+}
+
+impl<A, M, E> From<MailboxSendTimeoutError<A>> for SendError<M, E>
+where
+    A: Actor,
+    M: 'static,
+{
+    fn from(err: MailboxSendTimeoutError<A>) -> Self {
+        match err {
+            MailboxSendTimeoutError::Timeout(signal) => {
+                SendError::Timeout(signal.map(|signal| signal.downcast_message::<M>().unwrap()))
+            }
+            MailboxSendTimeoutError::Closed(signal) => {
                 SendError::ActorNotRunning(signal.downcast_message::<M>().unwrap())
             }
         }
@@ -313,23 +332,6 @@ where
 impl<M, E> From<oneshot::error::RecvError> for SendError<M, E> {
     fn from(_err: oneshot::error::RecvError) -> Self {
         SendError::ActorStopped
-    }
-}
-
-impl<A, M, E> From<mpsc::error::SendTimeoutError<Signal<A>>> for SendError<M, E>
-where
-    A: Actor,
-    M: 'static,
-{
-    fn from(err: mpsc::error::SendTimeoutError<Signal<A>>) -> Self {
-        match err {
-            mpsc::error::SendTimeoutError::Timeout(msg) => {
-                SendError::Timeout(Some(msg.downcast_message::<M>().unwrap()))
-            }
-            mpsc::error::SendTimeoutError::Closed(msg) => {
-                SendError::ActorNotRunning(msg.downcast_message::<M>().unwrap())
-            }
-        }
     }
 }
 

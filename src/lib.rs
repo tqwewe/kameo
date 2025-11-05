@@ -43,7 +43,7 @@ pub mod prelude {
     #[cfg(feature = "remote")]
     pub use crate::error::RemoteSendError;
     pub use crate::error::{ActorStopReason, PanicError, SendError};
-    pub use crate::mailbox::{self, MailboxReceiver, MailboxSender};
+    pub use crate::mailbox::{self, BoxMailboxReceiver, BoxMailboxSender};
     pub use crate::message::{Context, Message};
     #[cfg(feature = "remote")]
     pub use crate::remote::{self, RemoteActor, RemoteMessage};

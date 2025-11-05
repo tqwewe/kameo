@@ -12,7 +12,7 @@ use crate::{actor, remote};
 use crate::{
     actor::{ActorRef, ReplyRecipient},
     error::{self, SendError},
-    mailbox::Signal,
+    mailbox::{MailboxSender, Signal},
     message::Message,
     reply::{ReplyError, ReplySender},
     Actor, Reply,

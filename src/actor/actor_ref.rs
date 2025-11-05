@@ -27,7 +27,10 @@ use crate::request;
 
 use crate::{
     error::{self, HookError, Infallible, PanicError, SendError},
-    mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
+    mailbox::{
+        BoxMailboxSender, BoxWeakMailboxSender, MailboxSender, Signal, SignalMailbox,
+        WeakMailboxSender,
+    },
     message::{Message, StreamMessage},
     reply::ReplyError,
     request::{
@@ -53,7 +56,7 @@ thread_local! {
 /// such as checking if the actor is alive, registering the actor under a name, and stopping the actor gracefully.
 pub struct ActorRef<A: Actor> {
     id: ActorId,
-    mailbox_sender: MailboxSender<A>,
+    mailbox_sender: BoxMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
@@ -66,7 +69,7 @@ where
 {
     #[inline]
     pub(crate) fn new(
-        mailbox: MailboxSender<A>,
+        mailbox: BoxMailboxSender<A>,
         abort_handle: AbortHandle,
         links: Links,
         startup_result: Arc<SetOnce<Result<(), PanicError>>>,
@@ -998,7 +1001,7 @@ where
     }
 
     /// Returns a reference to the mailbox sender.
-    pub fn mailbox_sender(&self) -> &MailboxSender<A> {
+    pub fn mailbox_sender(&self) -> &BoxMailboxSender<A> {
         &self.mailbox_sender
     }
 
@@ -1835,7 +1838,7 @@ impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
 pub struct WeakActorRef<A: Actor> {
     id: ActorId,
-    mailbox: WeakMailboxSender<A>,
+    mailbox: BoxWeakMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,

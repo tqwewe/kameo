@@ -5,7 +5,7 @@ use futures::{future::BoxFuture, FutureExt};
 use crate::{
     actor::{ActorRef, Recipient, ReplyRecipient},
     error::SendError,
-    mailbox::Signal,
+    mailbox::{MailboxSender, Signal},
     message::Message,
     reply::ReplyError,
     Actor,

@@ -32,7 +32,7 @@ use futures::Future;
 
 use crate::{
     error::{ActorStopReason, PanicError},
-    mailbox::{self, MailboxReceiver, MailboxSender, Signal},
+    mailbox::{self, BoxMailboxReceiver, BoxMailboxSender, MailboxReceiver, Signal},
     message::BoxMessage,
     reply::{BoxReplySender, ReplyError},
 };
@@ -292,7 +292,7 @@ pub trait Actor: Sized + Send + 'static {
     fn next(
         &mut self,
         actor_ref: WeakActorRef<Self>,
-        mailbox_rx: &mut MailboxReceiver<Self>,
+        mailbox_rx: &mut BoxMailboxReceiver<Self>,
     ) -> impl Future<Output = Option<Signal<Self>>> + Send {
         async move { mailbox_rx.recv().await }
     }
@@ -349,7 +349,7 @@ pub trait Actor: Sized + Send + 'static {
     /// ```
     fn spawn_with_mailbox(
         args: Self::Args,
-        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+        (mailbox_tx, mailbox_rx): (BoxMailboxSender<Self>, BoxMailboxReceiver<Self>),
     ) -> ActorRef<Self> {
         let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
         let actor_ref = prepared_actor.actor_ref().clone();
@@ -418,7 +418,7 @@ pub trait Actor: Sized + Send + 'static {
     fn spawn_link_with_mailbox<L>(
         link_ref: &ActorRef<L>,
         args: Self::Args,
-        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+        (mailbox_tx, mailbox_rx): (BoxMailboxSender<Self>, BoxMailboxReceiver<Self>),
     ) -> impl Future<Output = ActorRef<Self>> + Send
     where
         L: Actor,
@@ -515,7 +515,7 @@ pub trait Actor: Sized + Send + 'static {
     /// ```
     fn spawn_in_thread_with_mailbox(
         args: Self::Args,
-        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+        (mailbox_tx, mailbox_rx): (BoxMailboxSender<Self>, BoxMailboxReceiver<Self>),
     ) -> ActorRef<Self> {
         let prepared_actor = PreparedActor::new((mailbox_tx, mailbox_rx));
         let actor_ref = prepared_actor.actor_ref().clone();
@@ -568,7 +568,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # });
     /// ```
     fn prepare_with_mailbox(
-        (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
+        (mailbox_tx, mailbox_rx): (BoxMailboxSender<Self>, BoxMailboxReceiver<Self>),
     ) -> PreparedActor<Self> {
         PreparedActor::new((mailbox_tx, mailbox_rx))
     }
