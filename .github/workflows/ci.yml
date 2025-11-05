@@ -16,30 +16,38 @@ jobs:
     strategy:
       matrix:
         toolchain: [stable, beta]
-        include:
-          # kameo crate with different feature combinations
-          - package: "kameo"
-            features: "--no-default-features"
-          - package: "kameo"
-            features: "--no-default-features --features macros"
-          - package: "kameo"
-            features: "--no-default-features --features tracing"
-          - package: "kameo"
-            features: "--no-default-features --features remote"
-          - package: "kameo"
-            features: "--no-default-features --features macros,tracing"
-          - package: "kameo"
-            features: "--no-default-features --features macros,remote"
-          - package: "kameo"
-            features: "--no-default-features --features tracing,remote"
-          - package: "kameo"
-            features: "--all-features"
-          # kameo_actors crate (no additional features)
-          - package: "kameo_actors"
-            features: ""
-          # kameo_macros crate (no additional features)
-          - package: "kameo_macros"
-            features: ""
+        package: [kameo, kameo_actors, kameo_macros]
+        features:
+          - ""
+          # kameo feature combinations
+          - "--no-default-features"
+          - "--no-default-features --features macros"
+          - "--no-default-features --features tracing"
+          - "--no-default-features --features remote"
+          - "--no-default-features --features metrics"
+          - "--no-default-features --features macros,tracing"
+          - "--no-default-features --features macros,remote"
+          - "--no-default-features --features tracing,remote"
+          - "--no-default-features --features metrics,tracing"
+          - "--no-default-features --features metrics,remote"
+          - "--no-default-features --features metrics,macros"
+          - "--no-default-features --features macros,tracing,remote"
+          - "--no-default-features --features macros,tracing,metrics"
+          - "--no-default-features --features macros,remote,metrics"
+          - "--no-default-features --features tracing,remote,metrics"
+          - "--no-default-features --features macros,tracing,remote,metrics"
+          - "--all-features"
+      exclude:
+        # only kameo supports feature combos
+        - package: kameo_actors
+          features: "--no-default-features"
+        - package: kameo_macros
+          features: "--no-default-features"
+        - package: kameo_actors
+          features: "--all-features"
+        - package: kameo_macros
+          features: "--all-features"
+
     steps:
       - uses: actions/checkout@v4
       
@@ -72,30 +80,36 @@ jobs:
     strategy:
       matrix:
         toolchain: [stable, beta]
-        include:
-          # kameo crate with different feature combinations
-          - package: "kameo"
-            features: "--no-default-features"
-          - package: "kameo"
-            features: "--no-default-features --features macros"
-          - package: "kameo"
-            features: "--no-default-features --features tracing"
-          - package: "kameo"
-            features: "--no-default-features --features remote"
-          - package: "kameo"
-            features: "--no-default-features --features macros,tracing"
-          - package: "kameo"
-            features: "--no-default-features --features macros,remote"
-          - package: "kameo"
-            features: "--no-default-features --features tracing,remote"
-          - package: "kameo"
-            features: "--all-features"
-          # kameo_actors crate (no additional features)
-          - package: "kameo_actors"
-            features: ""
-          # kameo_macros crate (no additional features)
-          - package: "kameo_macros"
-            features: ""
+        package: [kameo, kameo_actors, kameo_macros]
+        features:
+          - ""
+          - "--no-default-features"
+          - "--no-default-features --features macros"
+          - "--no-default-features --features tracing"
+          - "--no-default-features --features remote"
+          - "--no-default-features --features metrics"
+          - "--no-default-features --features macros,tracing"
+          - "--no-default-features --features macros,remote"
+          - "--no-default-features --features tracing,remote"
+          - "--no-default-features --features metrics,tracing"
+          - "--no-default-features --features metrics,remote"
+          - "--no-default-features --features metrics,macros"
+          - "--no-default-features --features macros,tracing,remote"
+          - "--no-default-features --features macros,tracing,metrics"
+          - "--no-default-features --features macros,remote,metrics"
+          - "--no-default-features --features tracing,remote,metrics"
+          - "--no-default-features --features macros,tracing,remote,metrics"
+          - "--all-features"
+      exclude:
+        - package: kameo_actors
+          features: "--no-default-features"
+        - package: kameo_macros
+          features: "--no-default-features"
+        - package: kameo_actors
+          features: "--all-features"
+        - package: kameo_macros
+          features: "--all-features"
+
     steps:
       - uses: actions/checkout@v4
       
@@ -123,30 +137,36 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        include:
-          # kameo crate with different feature combinations
-          - package: "kameo"
-            features: "--no-default-features"
-          - package: "kameo"
-            features: "--no-default-features --features macros"
-          - package: "kameo"
-            features: "--no-default-features --features tracing"
-          - package: "kameo"
-            features: "--no-default-features --features remote"
-          - package: "kameo"
-            features: "--no-default-features --features macros,tracing"
-          - package: "kameo"
-            features: "--no-default-features --features macros,remote"
-          - package: "kameo"
-            features: "--no-default-features --features tracing,remote"
-          - package: "kameo"
-            features: "--all-features"
-          # kameo_actors crate (no additional features)
-          - package: "kameo_actors"
-            features: ""
-          # kameo_macros crate (no additional features)
-          - package: "kameo_macros"
-            features: ""
+        package: [kameo, kameo_actors, kameo_macros]
+        features:
+          - ""
+          - "--no-default-features"
+          - "--no-default-features --features macros"
+          - "--no-default-features --features tracing"
+          - "--no-default-features --features remote"
+          - "--no-default-features --features metrics"
+          - "--no-default-features --features macros,tracing"
+          - "--no-default-features --features macros,remote"
+          - "--no-default-features --features tracing,remote"
+          - "--no-default-features --features metrics,tracing"
+          - "--no-default-features --features metrics,remote"
+          - "--no-default-features --features metrics,macros"
+          - "--no-default-features --features macros,tracing,remote"
+          - "--no-default-features --features macros,tracing,metrics"
+          - "--no-default-features --features macros,remote,metrics"
+          - "--no-default-features --features tracing,remote,metrics"
+          - "--no-default-features --features macros,tracing,remote,metrics"
+          - "--all-features"
+      exclude:
+        - package: kameo_actors
+          features: "--no-default-features"
+        - package: kameo_macros
+          features: "--no-default-features"
+        - package: kameo_actors
+          features: "--all-features"
+        - package: kameo_macros
+          features: "--all-features"
+
     steps:
       - uses: actions/checkout@v4
       
@@ -170,7 +190,6 @@ jobs:
       - name: Run clippy
         run: cargo clippy -p ${{ matrix.package }} ${{ matrix.features }}
 
-  # Additional job to run workspace-wide checks
   workspace:
     name: Workspace checks
     runs-on: ubuntu-latest
