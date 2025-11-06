@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
 
-env: 
+env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
   CARGO_TERM_VERBOSE: true
@@ -16,47 +16,55 @@ jobs:
     strategy:
       matrix:
         toolchain: [stable, beta]
-        package: [kameo, kameo_actors, kameo_macros]
-        features:
-          - ""
-          # kameo feature combinations
-          - "--no-default-features"
-          - "--no-default-features --features macros"
-          - "--no-default-features --features tracing"
-          - "--no-default-features --features remote"
-          - "--no-default-features --features metrics"
-          - "--no-default-features --features macros,tracing"
-          - "--no-default-features --features macros,remote"
-          - "--no-default-features --features tracing,remote"
-          - "--no-default-features --features metrics,tracing"
-          - "--no-default-features --features metrics,remote"
-          - "--no-default-features --features metrics,macros"
-          - "--no-default-features --features macros,tracing,remote"
-          - "--no-default-features --features macros,tracing,metrics"
-          - "--no-default-features --features macros,remote,metrics"
-          - "--no-default-features --features tracing,remote,metrics"
-          - "--no-default-features --features macros,tracing,remote,metrics"
-          - "--all-features"
-      exclude:
-        # only kameo supports feature combos
-        - package: kameo_actors
-          features: "--no-default-features"
-        - package: kameo_macros
-          features: "--no-default-features"
-        - package: kameo_actors
-          features: "--all-features"
-        - package: kameo_macros
-          features: "--all-features"
-
+        include:
+          # kameo crate with different feature combinations
+          - package: "kameo"
+            features: "--no-default-features"
+          - package: "kameo"
+            features: "--no-default-features --features macros"
+          - package: "kameo"
+            features: "--no-default-features --features tracing"
+          - package: "kameo"
+            features: "--no-default-features --features remote"
+          - package: "kameo"
+            features: "--no-default-features --features metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote"
+          - package: "kameo"
+            features: "--no-default-features --features macros,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,metrics"
+          - package: "kameo"
+            features: "--all-features"
+          # kameo_actors crate (no additional features)
+          - package: "kameo_actors"
+            features: ""
+          # kameo_macros crate (no additional features)
+          - package: "kameo_macros"
+            features: ""
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
           override: true
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -66,10 +74,10 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
-      
+
       - name: Standard build
         run: cargo build -p ${{ matrix.package }} ${{ matrix.features }}
-        
+
       - name: Tokio unstable build
         if: matrix.package == 'kameo'
         run: RUSTFLAGS="--cfg tokio_unstable" cargo build -p ${{ matrix.package }} ${{ matrix.features }}
@@ -80,45 +88,55 @@ jobs:
     strategy:
       matrix:
         toolchain: [stable, beta]
-        package: [kameo, kameo_actors, kameo_macros]
-        features:
-          - ""
-          - "--no-default-features"
-          - "--no-default-features --features macros"
-          - "--no-default-features --features tracing"
-          - "--no-default-features --features remote"
-          - "--no-default-features --features metrics"
-          - "--no-default-features --features macros,tracing"
-          - "--no-default-features --features macros,remote"
-          - "--no-default-features --features tracing,remote"
-          - "--no-default-features --features metrics,tracing"
-          - "--no-default-features --features metrics,remote"
-          - "--no-default-features --features metrics,macros"
-          - "--no-default-features --features macros,tracing,remote"
-          - "--no-default-features --features macros,tracing,metrics"
-          - "--no-default-features --features macros,remote,metrics"
-          - "--no-default-features --features tracing,remote,metrics"
-          - "--no-default-features --features macros,tracing,remote,metrics"
-          - "--all-features"
-      exclude:
-        - package: kameo_actors
-          features: "--no-default-features"
-        - package: kameo_macros
-          features: "--no-default-features"
-        - package: kameo_actors
-          features: "--all-features"
-        - package: kameo_macros
-          features: "--all-features"
-
+        include:
+          # kameo crate with different feature combinations
+          - package: "kameo"
+            features: "--no-default-features"
+          - package: "kameo"
+            features: "--no-default-features --features macros"
+          - package: "kameo"
+            features: "--no-default-features --features tracing"
+          - package: "kameo"
+            features: "--no-default-features --features remote"
+          - package: "kameo"
+            features: "--no-default-features --features metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote"
+          - package: "kameo"
+            features: "--no-default-features --features macros,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,metrics"
+          - package: "kameo"
+            features: "--all-features"
+          # kameo_actors crate (no additional features)
+          - package: "kameo_actors"
+            features: ""
+          # kameo_macros crate (no additional features)
+          - package: "kameo_macros"
+            features: ""
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
           override: true
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -128,7 +146,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
-      
+
       - name: Run tests
         run: cargo test -p ${{ matrix.package }} ${{ matrix.features }}
 
@@ -137,46 +155,56 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        package: [kameo, kameo_actors, kameo_macros]
-        features:
-          - ""
-          - "--no-default-features"
-          - "--no-default-features --features macros"
-          - "--no-default-features --features tracing"
-          - "--no-default-features --features remote"
-          - "--no-default-features --features metrics"
-          - "--no-default-features --features macros,tracing"
-          - "--no-default-features --features macros,remote"
-          - "--no-default-features --features tracing,remote"
-          - "--no-default-features --features metrics,tracing"
-          - "--no-default-features --features metrics,remote"
-          - "--no-default-features --features metrics,macros"
-          - "--no-default-features --features macros,tracing,remote"
-          - "--no-default-features --features macros,tracing,metrics"
-          - "--no-default-features --features macros,remote,metrics"
-          - "--no-default-features --features tracing,remote,metrics"
-          - "--no-default-features --features macros,tracing,remote,metrics"
-          - "--all-features"
-      exclude:
-        - package: kameo_actors
-          features: "--no-default-features"
-        - package: kameo_macros
-          features: "--no-default-features"
-        - package: kameo_actors
-          features: "--all-features"
-        - package: kameo_macros
-          features: "--all-features"
-
+        include:
+          # kameo crate with different feature combinations
+          - package: "kameo"
+            features: "--no-default-features"
+          - package: "kameo"
+            features: "--no-default-features --features macros"
+          - package: "kameo"
+            features: "--no-default-features --features tracing"
+          - package: "kameo"
+            features: "--no-default-features --features remote"
+          - package: "kameo"
+            features: "--no-default-features --features metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote"
+          - package: "kameo"
+            features: "--no-default-features --features macros,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,metrics"
+          - package: "kameo"
+            features: "--all-features"
+          # kameo_actors crate (no additional features)
+          - package: "kameo_actors"
+            features: ""
+          # kameo_macros crate (no additional features)
+          - package: "kameo_macros"
+            features: ""
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: clippy
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -186,7 +214,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-stable-
-      
+
       - name: Run clippy
         run: cargo clippy -p ${{ matrix.package }} ${{ matrix.features }}
 
@@ -195,14 +223,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: clippy, rustfmt
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -212,13 +240,13 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-stable-
-      
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-      
+
       - name: Run clippy on workspace
         run: cargo clippy --workspace --all-features
-      
+
       - name: Run tests on workspace
         run: cargo test --workspace --all-features
 
