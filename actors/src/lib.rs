@@ -20,6 +20,7 @@ pub mod message_bus;
 pub mod message_queue;
 pub mod pool;
 pub mod pubsub;
+pub mod scheduler;
 
 /// Strategies for delivering messages to subscribers.
 ///
