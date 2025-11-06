@@ -30,9 +30,21 @@ pub fn bounded<A: Actor>(buffer: usize) -> (MailboxSender<A>, MailboxReceiver<A>
     (
         MailboxSender {
             inner: MailboxSenderInner::Bounded(tx),
+            #[cfg(feature = "metrics")]
+            messages_sent: metrics::counter!("kameo.messages.sent", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            lifecycle_signals_sent: metrics::counter!("kameo.lifecycle.sent", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            link_died_signals_sent: metrics::counter!("kameo.link_died.sent", "actor_name" => A::name()),
         },
         MailboxReceiver {
             inner: MailboxReceiverInner::Bounded(rx),
+            #[cfg(feature = "metrics")]
+            messages_received: metrics::counter!("kameo.messages.received", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            lifecycle_signals_received: metrics::counter!("kameo.lifecycle.received", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            link_died_signals_received: metrics::counter!("kameo.link_died.received", "actor_name" => A::name()),
         },
     )
 }
@@ -47,9 +59,21 @@ pub fn unbounded<A: Actor>() -> (MailboxSender<A>, MailboxReceiver<A>) {
     (
         MailboxSender {
             inner: MailboxSenderInner::Unbounded(tx),
+            #[cfg(feature = "metrics")]
+            messages_sent: metrics::counter!("kameo.messages.sent", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            lifecycle_signals_sent: metrics::counter!("kameo.lifecycle.sent", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            link_died_signals_sent: metrics::counter!("kameo.link_died.sent", "actor_name" => A::name()),
         },
         MailboxReceiver {
             inner: MailboxReceiverInner::Unbounded(rx),
+            #[cfg(feature = "metrics")]
+            messages_received: metrics::counter!("kameo.messages.received", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            lifecycle_signals_received: metrics::counter!("kameo.lifecycle.received", "actor_name" => A::name()),
+            #[cfg(feature = "metrics")]
+            link_died_signals_received: metrics::counter!("kameo.link_died.received", "actor_name" => A::name()),
         },
     )
 }
@@ -59,6 +83,12 @@ pub fn unbounded<A: Actor>() -> (MailboxSender<A>, MailboxReceiver<A>) {
 /// Instances are created by the [`bounded`] and [`unbounded`] functions.
 pub struct MailboxSender<A: Actor> {
     inner: MailboxSenderInner<A>,
+    #[cfg(feature = "metrics")]
+    messages_sent: metrics::Counter,
+    #[cfg(feature = "metrics")]
+    lifecycle_signals_sent: metrics::Counter,
+    #[cfg(feature = "metrics")]
+    link_died_signals_sent: metrics::Counter,
 }
 
 enum MailboxSenderInner<A: Actor> {
@@ -66,6 +96,37 @@ enum MailboxSenderInner<A: Actor> {
     Bounded(mpsc::Sender<Signal<A>>),
     /// Unbounded mailbox sender.
     Unbounded(mpsc::UnboundedSender<Signal<A>>),
+}
+
+#[cfg(feature = "metrics")]
+enum SignalKind {
+    Message,
+    Lifecycle,
+    LinkDied,
+}
+
+#[cfg(feature = "metrics")]
+impl SignalKind {
+    #[inline]
+    fn apply_metric<A: Actor>(self, tx: &MailboxSender<A>) {
+        match self {
+            SignalKind::Message => tx.messages_sent.increment(1),
+            SignalKind::Lifecycle => tx.lifecycle_signals_sent.increment(1),
+            SignalKind::LinkDied => tx.link_died_signals_sent.increment(1),
+        }
+    }
+}
+
+#[cfg(feature = "metrics")]
+impl<A: Actor> From<&Signal<A>> for SignalKind {
+    #[inline]
+    fn from(signal: &Signal<A>) -> Self {
+        match signal {
+            Signal::Message { .. } => SignalKind::Message,
+            Signal::StartupFinished | Signal::Stop => SignalKind::Lifecycle,
+            Signal::LinkDied { .. } => SignalKind::LinkDied,
+        }
+    }
 }
 
 impl<A: Actor> MailboxSender<A> {
@@ -76,10 +137,20 @@ impl<A: Actor> MailboxSender<A> {
     /// [`mpsc::Sender::send`]: tokio::sync::mpsc::Sender::send
     /// [`mpsc::UnboundedSender::send`]: tokio::sync::mpsc::UnboundedSender::send
     pub async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
-        match &self.inner {
+        #[cfg(feature = "metrics")]
+        let signal_kind = SignalKind::from(&signal);
+
+        let res = match &self.inner {
             MailboxSenderInner::Bounded(tx) => tx.send(signal).await,
             MailboxSenderInner::Unbounded(tx) => tx.send(signal),
+        };
+
+        #[cfg(feature = "metrics")]
+        if res.is_ok() {
+            signal_kind.apply_metric(self);
         }
+
+        res
     }
 
     /// Attempts to immediately send a message on this `Sender`.
@@ -91,12 +162,22 @@ impl<A: Actor> MailboxSender<A> {
     /// [`mpsc::UnboundedSender::send`]: tokio::sync::mpsc::UnboundedSender::send
     #[allow(clippy::result_large_err)]
     pub fn try_send(&self, signal: Signal<A>) -> Result<(), mpsc::error::TrySendError<Signal<A>>> {
-        match &self.inner {
+        #[cfg(feature = "metrics")]
+        let signal_kind = SignalKind::from(&signal);
+
+        let res = match &self.inner {
             MailboxSenderInner::Bounded(tx) => tx.try_send(signal),
             MailboxSenderInner::Unbounded(tx) => tx
                 .send(signal)
                 .map_err(|err| mpsc::error::TrySendError::Closed(err.0)),
+        };
+
+        #[cfg(feature = "metrics")]
+        if res.is_ok() {
+            signal_kind.apply_metric(self);
         }
+
+        res
     }
 
     /// Sends a value, waiting until there is capacity, but only for a limited time.
@@ -111,12 +192,22 @@ impl<A: Actor> MailboxSender<A> {
         signal: Signal<A>,
         timeout: Duration,
     ) -> Result<(), mpsc::error::SendTimeoutError<Signal<A>>> {
-        match &self.inner {
+        #[cfg(feature = "metrics")]
+        let signal_kind = SignalKind::from(&signal);
+
+        let res = match &self.inner {
             MailboxSenderInner::Bounded(tx) => tx.send_timeout(signal, timeout).await,
             MailboxSenderInner::Unbounded(tx) => tx
                 .send(signal)
                 .map_err(|err| mpsc::error::SendTimeoutError::Closed(err.0)),
+        };
+
+        #[cfg(feature = "metrics")]
+        if res.is_ok() {
+            signal_kind.apply_metric(self);
         }
+
+        res
     }
 
     /// Blocking send to call outside of asynchronous contexts.
@@ -131,10 +222,20 @@ impl<A: Actor> MailboxSender<A> {
         &self,
         signal: Signal<A>,
     ) -> Result<(), mpsc::error::SendError<Signal<A>>> {
-        match &self.inner {
+        #[cfg(feature = "metrics")]
+        let signal_kind = SignalKind::from(&signal);
+
+        let res = match &self.inner {
             MailboxSenderInner::Bounded(tx) => tx.blocking_send(signal),
             MailboxSenderInner::Unbounded(tx) => tx.send(signal),
+        };
+
+        #[cfg(feature = "metrics")]
+        if res.is_ok() {
+            signal_kind.apply_metric(self);
         }
+
+        res
     }
 
     /// Completes when the receiver has dropped.
@@ -208,9 +309,21 @@ impl<A: Actor> MailboxSender<A> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => WeakMailboxSender {
                 inner: WeakMailboxSenderInner::Bounded(tx.downgrade()),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
             MailboxSenderInner::Unbounded(tx) => WeakMailboxSender {
                 inner: WeakMailboxSenderInner::Unbounded(tx.downgrade()),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
         }
     }
@@ -247,9 +360,21 @@ impl<A: Actor> Clone for MailboxSender<A> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => MailboxSender {
                 inner: MailboxSenderInner::Bounded(tx.clone()),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
             MailboxSenderInner::Unbounded(tx) => MailboxSender {
                 inner: MailboxSenderInner::Unbounded(tx.clone()),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
         }
     }
@@ -272,6 +397,12 @@ impl<A: Actor> fmt::Debug for MailboxSender<A> {
 /// [`mpsc::WeakUnboundedSender`]: tokio::sync::mpsc::WeakUnboundedSender
 pub struct WeakMailboxSender<A: Actor> {
     inner: WeakMailboxSenderInner<A>,
+    #[cfg(feature = "metrics")]
+    messages_sent: metrics::Counter,
+    #[cfg(feature = "metrics")]
+    lifecycle_signals_sent: metrics::Counter,
+    #[cfg(feature = "metrics")]
+    link_died_signals_sent: metrics::Counter,
 }
 
 enum WeakMailboxSenderInner<A: Actor> {
@@ -294,9 +425,21 @@ impl<A: Actor> WeakMailboxSender<A> {
         match &self.inner {
             WeakMailboxSenderInner::Bounded(tx) => tx.upgrade().map(|tx| MailboxSender {
                 inner: MailboxSenderInner::Bounded(tx),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             }),
             WeakMailboxSenderInner::Unbounded(tx) => tx.upgrade().map(|tx| MailboxSender {
                 inner: MailboxSenderInner::Unbounded(tx),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             }),
         }
     }
@@ -333,9 +476,21 @@ impl<A: Actor> Clone for WeakMailboxSender<A> {
         match &self.inner {
             WeakMailboxSenderInner::Bounded(tx) => WeakMailboxSender {
                 inner: WeakMailboxSenderInner::Bounded(tx.clone()),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
             WeakMailboxSenderInner::Unbounded(tx) => WeakMailboxSender {
                 inner: WeakMailboxSenderInner::Unbounded(tx.clone()),
+                #[cfg(feature = "metrics")]
+                messages_sent: self.messages_sent.clone(),
+                #[cfg(feature = "metrics")]
+                lifecycle_signals_sent: self.lifecycle_signals_sent.clone(),
+                #[cfg(feature = "metrics")]
+                link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
         }
     }
@@ -355,6 +510,12 @@ impl<A: Actor> fmt::Debug for WeakMailboxSender<A> {
 /// Instances are created by the [`bounded`] and [`unbounded`] functions.
 pub struct MailboxReceiver<A: Actor> {
     inner: MailboxReceiverInner<A>,
+    #[cfg(feature = "metrics")]
+    messages_received: metrics::Counter,
+    #[cfg(feature = "metrics")]
+    lifecycle_signals_received: metrics::Counter,
+    #[cfg(feature = "metrics")]
+    link_died_signals_received: metrics::Counter,
 }
 
 enum MailboxReceiverInner<A: Actor> {
@@ -372,10 +533,22 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::recv`]: tokio::sync::mpsc::Receiver::recv
     /// [`mpsc::UnboundedReceiver::recv`]: tokio::sync::mpsc::UnboundedReceiver::recv
     pub async fn recv(&mut self) -> Option<Signal<A>> {
-        match &mut self.inner {
+        let signal = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.recv().await,
             MailboxReceiverInner::Unbounded(rx) => rx.recv().await,
+        };
+
+        #[cfg(feature = "metrics")]
+        match &signal {
+            Some(Signal::Message { .. }) => self.messages_received.increment(1),
+            Some(Signal::StartupFinished | Signal::Stop) => {
+                self.lifecycle_signals_received.increment(1)
+            }
+            Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
+            None => {}
         }
+
+        signal
     }
 
     /// Receives the next values for this receiver and extends `buffer`.
@@ -385,10 +558,26 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::recv_many`]: tokio::sync::mpsc::Receiver::recv_many
     /// [`mpsc::UnboundedReceiver::recv_many`]: tokio::sync::mpsc::UnboundedReceiver::recv_many
     pub async fn recv_many(&mut self, buffer: &mut Vec<Signal<A>>, limit: usize) -> usize {
-        match &mut self.inner {
+        let count = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.recv_many(buffer, limit).await,
             MailboxReceiverInner::Unbounded(rx) => rx.recv_many(buffer, limit).await,
+        };
+
+        #[cfg(feature = "metrics")]
+        {
+            let len = buffer.len();
+            for signal in &buffer[len - 1 - count..len - 1] {
+                match signal {
+                    Signal::Message { .. } => self.messages_received.increment(1),
+                    Signal::StartupFinished | Signal::Stop => {
+                        self.lifecycle_signals_received.increment(1)
+                    }
+                    Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
+                }
+            }
         }
+
+        count
     }
 
     /// Tries to receive the next value for this receiver.
@@ -398,10 +587,22 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::try_recv`]: tokio::sync::mpsc::Receiver::try_recv
     /// [`mpsc::UnboundedReceiver::try_recv`]: tokio::sync::mpsc::UnboundedReceiver::try_recv
     pub fn try_recv(&mut self) -> Result<Signal<A>, TryRecvError> {
-        match &mut self.inner {
+        let res = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.try_recv(),
             MailboxReceiverInner::Unbounded(rx) => rx.try_recv(),
+        };
+
+        #[cfg(feature = "metrics")]
+        match &res {
+            Ok(Signal::Message { .. }) => self.messages_received.increment(1),
+            Ok(Signal::StartupFinished | Signal::Stop) => {
+                self.lifecycle_signals_received.increment(1)
+            }
+            Ok(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
+            Err(_) => {}
         }
+
+        res
     }
 
     /// Blocking receive to call outside of asynchronous contexts.
@@ -411,10 +612,22 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::blocking_recv`]: tokio::sync::mpsc::Receiver::blocking_recv
     /// [`mpsc::UnboundedReceiver::blocking_recv`]: tokio::sync::mpsc::UnboundedReceiver::blocking_recv
     pub fn blocking_recv(&mut self) -> Option<Signal<A>> {
-        match &mut self.inner {
+        let signal = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.blocking_recv(),
             MailboxReceiverInner::Unbounded(rx) => rx.blocking_recv(),
+        };
+
+        #[cfg(feature = "metrics")]
+        match &signal {
+            Some(Signal::Message { .. }) => self.messages_received.increment(1),
+            Some(Signal::StartupFinished | Signal::Stop) => {
+                self.lifecycle_signals_received.increment(1)
+            }
+            Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
+            None => {}
         }
+
+        signal
     }
 
     /// Variant of [`Self::recv_many`] for blocking contexts.
@@ -424,10 +637,26 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::blocking_recv_many`]: tokio::sync::mpsc::Receiver::blocking_recv_many
     /// [`mpsc::UnboundedReceiver::blocking_recv_many`]: tokio::sync::mpsc::UnboundedReceiver::blocking_recv_many
     pub fn blocking_recv_many(&mut self, buffer: &mut Vec<Signal<A>>, limit: usize) -> usize {
-        match &mut self.inner {
+        let count = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.blocking_recv_many(buffer, limit),
             MailboxReceiverInner::Unbounded(rx) => rx.blocking_recv_many(buffer, limit),
+        };
+
+        #[cfg(feature = "metrics")]
+        {
+            let len = buffer.len();
+            for signal in &buffer[len - 1 - count..len - 1] {
+                match signal {
+                    Signal::Message { .. } => self.messages_received.increment(1),
+                    Signal::StartupFinished | Signal::Stop => {
+                        self.lifecycle_signals_received.increment(1)
+                    }
+                    Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
+                }
+            }
         }
+
+        count
     }
 
     /// Closes the receiving half of a channel, without dropping it.
@@ -489,10 +718,24 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::poll_recv`]: tokio::sync::mpsc::Receiver::poll_recv
     /// [`mpsc::UnboundedReceiver::poll_recv`]: tokio::sync::mpsc::UnboundedReceiver::poll_recv
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Signal<A>>> {
-        match &mut self.inner {
+        let poll = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.poll_recv(cx),
             MailboxReceiverInner::Unbounded(rx) => rx.poll_recv(cx),
+        };
+
+        #[cfg(feature = "metrics")]
+        match &poll {
+            Poll::Ready(Some(Signal::Message { .. })) => self.messages_received.increment(1),
+            Poll::Ready(Some(Signal::StartupFinished | Signal::Stop)) => {
+                self.lifecycle_signals_received.increment(1)
+            }
+            Poll::Ready(Some(Signal::LinkDied { .. })) => {
+                self.link_died_signals_received.increment(1)
+            }
+            Poll::Ready(None) | Poll::Pending => {}
         }
+
+        poll
     }
 
     /// Polls to receive multiple messages on this channel, extending the provided buffer.
@@ -507,10 +750,28 @@ impl<A: Actor> MailboxReceiver<A> {
         buffer: &mut Vec<Signal<A>>,
         limit: usize,
     ) -> Poll<usize> {
-        match &mut self.inner {
+        let poll = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.poll_recv_many(cx, buffer, limit),
             MailboxReceiverInner::Unbounded(rx) => rx.poll_recv_many(cx, buffer, limit),
+        };
+
+        #[cfg(feature = "metrics")]
+        {
+            if let Poll::Ready(count) = poll {
+                let len = buffer.len();
+                for signal in &buffer[len - 1 - count..len - 1] {
+                    match signal {
+                        Signal::Message { .. } => self.messages_received.increment(1),
+                        Signal::StartupFinished | Signal::Stop => {
+                            self.lifecycle_signals_received.increment(1)
+                        }
+                        Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
+                    }
+                }
+            }
         }
+
+        poll
     }
 
     /// Returns the number of [`MailboxSender`] handles.
