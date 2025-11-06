@@ -634,6 +634,7 @@ macro_rules! impl_infallible_reply {
 }
 
 impl_infallible_reply!([
+    // Kameo types
     ActorId,
     {A: Actor} ActorRef<A>,
     {A: Actor} PreparedActor<A>,
@@ -650,6 +651,7 @@ impl_infallible_reply!([
     {A: Actor, R: Reply} Context<A, R>,
     {R: Reply} ReplySender<R>,
     Infallible,
+    // Std lib types
     (),
     usize,
     u8,
@@ -710,6 +712,7 @@ impl_infallible_reply!([
     {T: 'static + Send} std::cell::OnceCell<T>,
     {T: 'static + Send} std::sync::mpsc::Sender<T>,
     {T: 'static + Send} std::sync::mpsc::Receiver<T>,
+    // Tokio types
     {T: 'static + Send + Future<Output = O>, O: Send} futures::stream::FuturesOrdered<T>,
     {T: 'static + Send} futures::stream::FuturesUnordered<T>,
     {T: 'static + Send} tokio::sync::OnceCell<T>,
@@ -727,6 +730,8 @@ impl_infallible_reply!([
     {T: 'static + Send} tokio::sync::oneshot::Receiver<T>,
     {T: 'static + Send} tokio::sync::Mutex<T>,
     {T: 'static + Send} tokio::sync::RwLock<T>,
+    tokio::task::AbortHandle,
+    // Tuple types
     {A: 'static + Send} (A,),
     {A: 'static + Send, B: 'static + Send} (A, B),
     {A: 'static + Send, B: 'static + Send, C: 'static + Send} (A, B, C),
