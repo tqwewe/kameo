@@ -725,10 +725,10 @@ where
                     .ok_or(AmqpError::HeadersRequired)?;
 
                 for binding in &exchange.bindings {
-                    if let Some(header_match) = &binding.header_match {
-                        if header_match.matches(message_headers) {
-                            target_queues.insert(binding.queue_name.clone());
-                        }
+                    if let Some(header_match) = &binding.header_match
+                        && header_match.matches(message_headers)
+                    {
+                        target_queues.insert(binding.queue_name.clone());
                     }
                 }
             }

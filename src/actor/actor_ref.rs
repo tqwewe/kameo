@@ -10,7 +10,7 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt, TryFutureExt};
+use futures::{FutureExt, Stream, StreamExt, TryFutureExt, future::BoxFuture, stream::AbortHandle};
 use tokio::{
     sync::{Mutex, SetOnce},
     task::JoinHandle,
@@ -26,6 +26,7 @@ use crate::remote;
 use crate::request;
 
 use crate::{
+    Actor, Reply,
     error::{self, HookError, Infallible, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
@@ -34,7 +35,6 @@ use crate::{
         AskRequest, RecipientTellRequest, ReplyRecipientAskRequest, ReplyRecipientTellRequest,
         TellRequest, WithoutRequestTimeout,
     },
-    Actor, Reply,
 };
 
 use super::id::ActorId;
@@ -117,13 +117,13 @@ where
     ///
     /// This makes the actor discoverable by other nodes in the distributed system.
     #[cfg(feature = "remote")]
-    pub async fn register(&self, name: &str) -> Result<(), error::RegistryError>
+    pub async fn register(&self, name: impl Into<Arc<str>>) -> Result<(), error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
     {
         remote::ActorSwarm::get()
             .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .register(self.clone(), name.to_string())
+            .register(self.clone(), name.into())
             .await
     }
 
@@ -143,13 +143,13 @@ where
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
     #[cfg(feature = "remote")]
-    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
+    pub async fn lookup(name: impl Into<Arc<str>>) -> Result<Option<Self>, error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
     {
         remote::ActorSwarm::get()
             .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .lookup_local(name.to_string())
+            .lookup_local(name.into())
             .await
     }
 
@@ -770,7 +770,8 @@ where
         remote::REMOTE_REGISTRY
             .lock()
             .await
-            .insert(self.id, remote::RemoteRegistryActorRef::new(self.clone()));
+            .entry(self.id)
+            .or_insert_with(|| remote::RemoteRegistryActorRef::new(self.clone(), None));
 
         self.links.lock().await.insert(
             sibbling_ref.id,
@@ -1020,10 +1021,11 @@ where
             remote::ActorSwarm::get().unwrap().sender().clone(),
         );
 
-        remote::REMOTE_REGISTRY.lock().await.insert(
-            self.id(),
-            remote::RemoteRegistryActorRef::new_weak(self.downgrade()),
-        );
+        remote::REMOTE_REGISTRY
+            .lock()
+            .await
+            .entry(self.id())
+            .or_insert_with(|| remote::RemoteRegistryActorRef::new_weak(self.downgrade(), None));
 
         remote_ref
     }
@@ -1043,10 +1045,10 @@ where
             remote::ActorSwarm::get().unwrap().sender().clone(),
         );
 
-        remote::REMOTE_REGISTRY.blocking_lock().insert(
-            self.id(),
-            remote::RemoteRegistryActorRef::new_weak(self.downgrade()),
-        );
+        remote::REMOTE_REGISTRY
+            .blocking_lock()
+            .entry(self.id())
+            .or_insert_with(|| remote::RemoteRegistryActorRef::new_weak(self.downgrade(), None));
 
         remote_ref
     }
@@ -1480,13 +1482,13 @@ where
     /// Use [`lookup_all`] when multiple actors might exist and you need deterministic behavior.
     ///
     /// [`lookup_all`]: Self::lookup_all
-    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
+    pub async fn lookup(name: impl Into<Arc<str>>) -> Result<Option<Self>, error::RegistryError>
     where
         A: remote::RemoteActor + 'static,
     {
         remote::ActorSwarm::get()
             .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .lookup(name.to_string())
+            .lookup(name.into())
             .await
     }
 
@@ -1497,12 +1499,12 @@ where
     ///
     /// Use this when multiple actors may be registered under the same name
     /// and you need to handle all of them or make deterministic choices.
-    pub fn lookup_all(name: &str) -> remote::LookupStream<A>
+    pub fn lookup_all(name: impl Into<Arc<str>>) -> remote::LookupStream<A>
     where
         A: remote::RemoteActor + 'static,
     {
         match remote::ActorSwarm::get() {
-            Some(swarm) => swarm.lookup_all(name.to_string()),
+            Some(swarm) => swarm.lookup_all(name.into()),
             None => remote::LookupStream::new_err(),
         }
     }

@@ -3,9 +3,9 @@ use std::time::Duration;
 use futures::{StreamExt, TryStreamExt};
 use kameo::prelude::*;
 use libp2p::{
-    mdns, noise,
+    PeerId, mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, PeerId,
+    tcp, yamux,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};

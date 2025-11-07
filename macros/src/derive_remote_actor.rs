@@ -1,8 +1,8 @@
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
+    DeriveInput, Expr, ExprAssign, ExprLit, Generics, Ident, Lit, LitStr,
     parse::{Parse, ParseStream},
     spanned::Spanned,
-    DeriveInput, Expr, ExprAssign, ExprLit, Generics, Ident, Lit, LitStr,
 };
 
 pub struct DeriveRemoteActor {

@@ -1,22 +1,22 @@
 use std::task;
 
 use either::Either;
-use futures::{stream::FuturesUnordered, StreamExt};
+use futures::{StreamExt, stream::FuturesUnordered};
 use libp2p::{
-    core::{transport::PortUse, Endpoint},
+    Multiaddr, PeerId,
+    core::{Endpoint, transport::PortUse},
     swarm::{
         ConnectionClosed, ConnectionDenied, ConnectionHandler, ConnectionHandlerSelect,
         ConnectionId, FromSwarm, NetworkBehaviour, THandler, THandlerInEvent, THandlerOutEvent,
         ToSwarm,
     },
-    Multiaddr, PeerId,
 };
 use tokio::sync::mpsc;
 
 use crate::error::{ActorStopReason, SwarmAlreadyBootstrappedError};
 
 use super::{
-    messaging, registry, ActorSwarm, RemoteRegistryActorRef, SwarmCommand, REMOTE_REGISTRY,
+    ActorSwarm, REMOTE_REGISTRY, RemoteRegistryActorRef, SwarmCommand, messaging, registry,
 };
 
 /// A network behaviour that combines messaging and registry capabilities for remote actor communication.
@@ -419,14 +419,14 @@ impl NetworkBehaviour for Behaviour {
 
         match self.messaging.poll(cx) {
             task::Poll::Ready(ev) => {
-                return task::Poll::Ready(ev.map_in(Either::Left).map_out(Event::Messaging))
+                return task::Poll::Ready(ev.map_in(Either::Left).map_out(Event::Messaging));
             }
             task::Poll::Pending => {}
         }
 
         match self.registry.poll(cx) {
             task::Poll::Ready(ev) => {
-                return task::Poll::Ready(ev.map_in(Either::Right).map_out(Event::Registry))
+                return task::Poll::Ready(ev.map_in(Either::Right).map_out(Event::Registry));
             }
             task::Poll::Pending => {}
         }

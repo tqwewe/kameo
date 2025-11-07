@@ -1,4 +1,4 @@
-use futures::{future::BoxFuture, FutureExt};
+use futures::{FutureExt, future::BoxFuture};
 use std::{
     future::{Future, IntoFuture},
     pin, task,
@@ -10,12 +10,12 @@ use tokio::sync::oneshot;
 use crate::{actor, remote};
 
 use crate::{
+    Actor, Reply,
     actor::{ActorRef, ReplyRecipient},
     error::{self, SendError},
     mailbox::Signal,
     message::Message,
     reply::{ReplyError, ReplySender},
-    Actor, Reply,
 };
 
 use super::{WithRequestTimeout, WithoutRequestTimeout};
@@ -112,7 +112,11 @@ where
         Tr: Into<Option<Duration>>,
     {
         #[cfg(all(debug_assertions, feature = "tracing"))]
-        warn_deadlock(self.actor_ref, "An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.", self.called_at);
+        warn_deadlock(
+            self.actor_ref,
+            "An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.",
+            self.called_at,
+        );
 
         let (reply, rx) = oneshot::channel();
         let signal = Signal::Message {
@@ -976,11 +980,11 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
+        Actor,
         actor::{ActorRef, Spawn},
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
-        Actor,
     };
 
     #[tokio::test]

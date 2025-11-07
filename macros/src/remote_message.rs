@@ -1,11 +1,11 @@
 use proc_macro2::TokenStream;
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
+    AngleBracketedGenericArguments, GenericArgument, Generics, ItemImpl, LitStr, PathArguments,
+    PathSegment, Token, Type,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned,
-    AngleBracketedGenericArguments, GenericArgument, Generics, ItemImpl, LitStr, PathArguments,
-    PathSegment, Token, Type,
 };
 
 pub struct RemoteMessageAttrs {

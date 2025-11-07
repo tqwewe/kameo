@@ -53,21 +53,26 @@
 //! // transports, discovery, and protocol composition
 //! ```
 
-use std::{any, collections::HashMap, error, str, sync::LazyLock};
+use std::{
+    any,
+    collections::HashMap,
+    error, str,
+    sync::{Arc, LazyLock},
+};
 
 use futures::StreamExt;
 use libp2p::{
-    mdns, noise,
+    PeerId, SwarmBuilder, mdns, noise,
     swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, PeerId, SwarmBuilder,
+    tcp, yamux,
 };
 use tokio::sync::Mutex;
 
 use crate::{
+    Actor,
     actor::{ActorId, ActorRef, Links, WeakActorRef},
     error::{RegistryError, RemoteSendError},
     mailbox::SignalMailbox,
-    Actor,
 };
 
 #[doc(hidden)]
@@ -85,26 +90,29 @@ pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistr
 
 pub(crate) struct RemoteRegistryActorRef {
     actor_ref: BoxRegisteredActorRef,
+    pub(crate) name: Option<Arc<str>>,
     pub(crate) signal_mailbox: Box<dyn SignalMailbox>,
     pub(crate) links: Links,
 }
 
 impl RemoteRegistryActorRef {
-    pub(crate) fn new<A: Actor>(actor_ref: ActorRef<A>) -> Self {
+    pub(crate) fn new<A: Actor>(actor_ref: ActorRef<A>, name: Option<Arc<str>>) -> Self {
         let signal_mailbox = actor_ref.weak_signal_mailbox();
         let links = actor_ref.links.clone();
         RemoteRegistryActorRef {
             actor_ref: BoxRegisteredActorRef::Strong(Box::new(actor_ref)),
+            name,
             signal_mailbox,
             links,
         }
     }
 
-    pub(crate) fn new_weak<A: Actor>(actor_ref: WeakActorRef<A>) -> Self {
+    pub(crate) fn new_weak<A: Actor>(actor_ref: WeakActorRef<A>, name: Option<Arc<str>>) -> Self {
         let signal_mailbox = actor_ref.weak_signal_mailbox();
         let links = actor_ref.links.clone();
         RemoteRegistryActorRef {
             actor_ref: BoxRegisteredActorRef::Weak(Box::new(actor_ref)),
+            name,
             signal_mailbox,
             links,
         }
@@ -281,7 +289,7 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
 /// Unregisters an actor within the swarm.
 ///
 /// This will only unregister an actor previously registered by the current node.
-pub async fn unregister(name: impl Into<String>) -> Result<(), RegistryError> {
+pub async fn unregister(name: impl Into<Arc<str>>) -> Result<(), RegistryError> {
     ActorSwarm::get()
         .ok_or(RegistryError::SwarmNotBootstrapped)?
         .unregister(name.into())

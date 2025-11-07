@@ -28,31 +28,32 @@ use std::{
     fmt,
     marker::PhantomData,
     num::{
-        NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
-        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,
+        NonZeroI8, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI128, NonZeroIsize, NonZeroU8,
+        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU128, NonZeroUsize,
     },
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize},
         Arc, Mutex, Once, RwLock,
+        atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize},
     },
     thread::Thread,
 };
 
+#[cfg(target_has_atomic = "8")]
+use std::sync::atomic::{AtomicI8, AtomicU8};
 #[cfg(target_has_atomic = "16")]
 use std::sync::atomic::{AtomicI16, AtomicU16};
 #[cfg(target_has_atomic = "32")]
 use std::sync::atomic::{AtomicI32, AtomicU32};
 #[cfg(target_has_atomic = "64")]
 use std::sync::atomic::{AtomicI64, AtomicU64};
-#[cfg(target_has_atomic = "8")]
-use std::sync::atomic::{AtomicI8, AtomicU8};
 
-use downcast_rs::{impl_downcast, DowncastSend};
+use downcast_rs::{DowncastSend, impl_downcast};
 use futures::Future;
 use tokio::sync::oneshot;
 
 use crate::{
+    Actor,
     actor::{
         ActorId, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef, WeakRecipient,
         WeakReplyRecipient,
@@ -60,7 +61,6 @@ use crate::{
     error::{ActorStopReason, BoxSendError, Infallible, PanicError, SendError},
     mailbox::{MailboxReceiver, MailboxSender},
     message::{BoxReply, Context},
-    Actor,
 };
 
 /// A boxed reply sender which will be downcast to the correct type when receiving a reply.

@@ -19,8 +19,8 @@ all-features = true
 [package]
 name = "kameo"
 version = "0.18.0"
-edition = "2021"
-rust-version = "1.85.1"
+edition = "2024"
+rust-version = "1.88.0"
 description = "Fault-tolerant Async Actors Built on Tokio"
 readme = "README.md"
 repository = "https://github.com/tqwewe/kameo"

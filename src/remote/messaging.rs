@@ -40,12 +40,11 @@ use std::{
 
 use futures::FutureExt;
 use libp2p::{
-    request_response,
+    PeerId, StreamProtocol, request_response,
     swarm::{
         ConnectionDenied, ConnectionId, DialFailure, FromSwarm, NetworkBehaviour, THandler,
         THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
-    PeerId, StreamProtocol,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{sync::oneshot, task::JoinSet};
@@ -56,7 +55,7 @@ use crate::{
 };
 
 use super::_internal::{
-    RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID, REMOTE_ACTORS, REMOTE_MESSAGES,
+    REMOTE_ACTORS, REMOTE_MESSAGES, RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID,
 };
 
 const PROTO_NAME: StreamProtocol = StreamProtocol::new("/kameo/messaging/1.0.0");
@@ -1136,7 +1135,6 @@ impl NetworkBehaviour for Behaviour {
         }) = event
         {
             // Remove requests for this peer id
-            #[cfg_attr(feature = "remote", allow(clippy::incompatible_msrv))]
             let dead_requests = self
                 .requests
                 .extract_if(|_, (req_peer_id, _)| req_peer_id == &peer_id);

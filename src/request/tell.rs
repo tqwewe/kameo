@@ -1,14 +1,14 @@
 use std::{future::IntoFuture, time::Duration};
 
-use futures::{future::BoxFuture, FutureExt};
+use futures::{FutureExt, future::BoxFuture};
 
 use crate::{
+    Actor,
     actor::{ActorRef, Recipient, ReplyRecipient},
     error::SendError,
     mailbox::Signal,
     message::Message,
     reply::ReplyError,
-    Actor,
 };
 
 use super::{WithRequestTimeout, WithoutRequestTimeout};
@@ -87,7 +87,11 @@ where
         let tx = self.actor_ref.mailbox_sender();
         if tx.capacity().is_some() {
             #[cfg(all(debug_assertions, feature = "tracing"))]
-                warn_deadlock(self.actor_ref, "An actor is sending a `tell` request to itself using a bounded mailbox, which may lead to a deadlock. To avoid this, use `.try_send()`.", self.called_at);
+            warn_deadlock(
+                self.actor_ref,
+                "An actor is sending a `tell` request to itself using a bounded mailbox, which may lead to a deadlock. To avoid this, use `.try_send()`.",
+                self.called_at,
+            );
         }
 
         match self.mailbox_timeout.into() {
@@ -126,7 +130,11 @@ where
         let tx = self.actor_ref.mailbox_sender();
         if tx.capacity().is_some() {
             #[cfg(all(debug_assertions, feature = "tracing"))]
-                warn_deadlock(self.actor_ref, "An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.", self.called_at);
+            warn_deadlock(
+                self.actor_ref,
+                "An actor is sending a blocking `tell` request to itself using a bounded mailbox, which may lead to a deadlock.",
+                self.called_at,
+            );
         }
 
         Ok(self.actor_ref.mailbox_sender().blocking_send(signal)?)
@@ -366,12 +374,12 @@ mod remote {
     use tokio::sync::oneshot;
 
     use crate::{
+        Actor,
         actor::RemoteActorRef,
         error::RemoteSendError,
         message::Message,
-        remote::{messaging, RemoteActor, RemoteMessage, SwarmCommand},
+        remote::{RemoteActor, RemoteMessage, SwarmCommand, messaging},
         request::{WithRequestTimeout, WithoutRequestTimeout},
-        Actor,
     };
 
     /// A request to send a message to a remote actor without any reply.
@@ -553,11 +561,11 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
+        Actor,
         actor::{ActorRef, Spawn},
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
-        Actor,
     };
 
     #[tokio::test]

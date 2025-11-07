@@ -1,23 +1,30 @@
 use core::task;
-use std::{borrow::Cow, marker::PhantomData, pin, str, sync::OnceLock, task::Poll, time::Duration};
+use std::{
+    borrow::Cow,
+    marker::PhantomData,
+    pin, str,
+    sync::{Arc, OnceLock},
+    task::Poll,
+    time::Duration,
+};
 
-use futures::{ready, Future, FutureExt, Stream, StreamExt};
+use futures::{Future, FutureExt, Stream, StreamExt, ready};
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
+    Actor,
     actor::{ActorId, ActorRef, RemoteActorRef},
     error::{ActorStopReason, Infallible, RegistryError, RemoteSendError},
-    Actor,
 };
 
 use super::{
+    DowncastRegsiteredActorRefError, REMOTE_REGISTRY, RemoteActor, RemoteRegistryActorRef,
     messaging::SwarmResponse,
     registry::{
         ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply,
         UnregisterReply,
     },
-    DowncastRegsiteredActorRefError, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
 static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
@@ -76,7 +83,7 @@ impl ActorSwarm {
     /// Looks up an actor running locally.
     pub(crate) fn lookup_local<A: Actor + RemoteActor + 'static>(
         &self,
-        name: String,
+        name: Arc<str>,
     ) -> impl Future<Output = Result<Option<ActorRef<A>>, RegistryError>> {
         let reply_rx = self
             .swarm_tx
@@ -111,7 +118,7 @@ impl ActorSwarm {
     /// Looks up an actor in the swarm.
     pub(crate) async fn lookup<A: Actor + RemoteActor>(
         &self,
-        name: String,
+        name: Arc<str>,
     ) -> Result<Option<RemoteActorRef<A>>, RegistryError> {
         #[cfg(all(debug_assertions, feature = "tracing"))]
         let name_clone = name.clone();
@@ -135,7 +142,7 @@ impl ActorSwarm {
     }
 
     /// Looks up all actors with a given name in the swarm.
-    pub(crate) fn lookup_all<A: Actor + RemoteActor>(&self, name: String) -> LookupStream<A> {
+    pub(crate) fn lookup_all<A: Actor + RemoteActor>(&self, name: Arc<str>) -> LookupStream<A> {
         let (reply_tx, reply_rx) = mpsc::unbounded_channel();
         let cmd = SwarmCommand::Lookup {
             name,
@@ -151,14 +158,14 @@ impl ActorSwarm {
     pub(crate) fn register<A: Actor + RemoteActor + 'static>(
         &self,
         actor_ref: ActorRef<A>,
-        name: String,
+        name: Arc<str>,
     ) -> impl Future<Output = Result<(), RegistryError>> {
         let registration = ActorRegistration::new(actor_ref.id(), Cow::Borrowed(A::REMOTE_ID));
 
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Register {
-                name,
+                name: name.clone(),
                 registration,
                 reply,
             });
@@ -167,10 +174,10 @@ impl ActorSwarm {
             let res = reply_rx.await;
             match res {
                 Ok(()) | Err(RegistryError::QuorumFailed { .. }) => {
-                    REMOTE_REGISTRY
-                        .lock()
-                        .await
-                        .insert(actor_ref.id(), RemoteRegistryActorRef::new(actor_ref));
+                    REMOTE_REGISTRY.lock().await.insert(
+                        actor_ref.id(),
+                        RemoteRegistryActorRef::new(actor_ref, Some(name)),
+                    );
 
                     Ok(())
                 }
@@ -183,7 +190,7 @@ impl ActorSwarm {
     ///
     /// The future returned by unregister does not have to be awaited.
     /// Awaiting it is only necessary to handle the result.
-    pub fn unregister(&self, name: String) -> impl Future<Output = ()> {
+    pub fn unregister(&self, name: Arc<str>) -> impl Future<Output = ()> {
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Unregister { name, reply });
@@ -395,21 +402,21 @@ pub(crate) enum SwarmCommand {
     /// Lookup providers for an actor by name in the kademlia network.
     Lookup {
         /// Registered name.
-        name: String,
+        name: Arc<str>,
         /// Reply sender.
         reply: LookupReply,
     },
     /// Lookup an actor by name on the local node only.
     LookupLocal {
         /// Actor name.
-        name: String,
+        name: Arc<str>,
         /// Reply sender.
         reply: LookupLocalReply,
     },
     /// Register an actor under a name.
     Register {
         /// Actor name.
-        name: String,
+        name: Arc<str>,
         /// Registration information.
         registration: ActorRegistration<'static>,
         /// Reply sender.
@@ -418,7 +425,7 @@ pub(crate) enum SwarmCommand {
     /// Stop providing a key.
     Unregister {
         /// Actor name.
-        name: String,
+        name: Arc<str>,
         /// Reply sender.
         reply: UnregisterReply,
     },

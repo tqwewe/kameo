@@ -32,22 +32,23 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     fmt,
     num::NonZero,
     str::{self, FromStr},
+    sync::Arc,
     task,
     time::{Duration, Instant},
 };
 
 use libp2p::{
-    kad::{self, store::RecordStore, StoreInserts},
-    swarm::{
-        behaviour::ConnectionEstablished, ConnectionDenied, ConnectionId, DialError, DialFailure,
-        FromSwarm, NetworkBehaviour, NewExternalAddrOfPeer, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, StreamProtocol,
+    kad::{self, StoreInserts, store::RecordStore},
+    swarm::{
+        ConnectionDenied, ConnectionId, DialError, DialFailure, FromSwarm, NetworkBehaviour,
+        NewExternalAddrOfPeer, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::ConnectionEstablished,
+    },
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -226,10 +227,10 @@ impl Behaviour {
     /// registration fails immediately.
     pub fn register(
         &mut self,
-        name: String,
+        name: impl Into<Arc<str>>,
         registration: ActorRegistration<'static>,
     ) -> Result<kad::QueryId, kad::store::Error> {
-        self.register_with_reply(name, registration, None)
+        self.register_with_reply(name.into(), registration, None)
             .map_err(|(_, err)| err)
     }
 
@@ -270,8 +271,8 @@ impl Behaviour {
     /// # Returns
     ///
     /// The query ID for tracking the lookup progress.
-    pub fn lookup(&mut self, name: String) -> kad::QueryId {
-        self.lookup_with_reply(name, None)
+    pub fn lookup(&mut self, name: impl Into<Arc<str>>) -> kad::QueryId {
+        self.lookup_with_reply(name.into(), None)
     }
 
     /// Looks up an actor in the local registry only.
@@ -299,15 +300,14 @@ impl Behaviour {
         if is_providing {
             // Get metadata for local provider
             let metadata_key = format!("{name}:meta:{}", self.local_peer_id);
-            let registration = store_mut
+            store_mut
                 .get(&kad::RecordKey::new(&metadata_key))
                 .map(|record| {
                     ActorRegistration::from_bytes(&record.value)
                         .map(ActorRegistration::into_owned)
                         .map_err(RegistryError::from)
                 })
-                .transpose();
-            registration
+                .transpose()
         } else {
             Ok(None)
         }
@@ -323,11 +323,11 @@ impl Behaviour {
 
     pub(super) fn register_with_reply(
         &mut self,
-        name: String,
+        name: Arc<str>,
         registration: ActorRegistration<'static>,
         reply: Option<RegisterReply>,
     ) -> Result<kad::QueryId, (Option<RegisterReply>, kad::store::Error)> {
-        let key = kad::RecordKey::new(&name);
+        let key = kad::RecordKey::new(&name.as_bytes());
         let provider_query_id = match self.kademlia.start_providing(key) {
             Ok(id) => id,
             Err(err) => {
@@ -351,10 +351,12 @@ impl Behaviour {
 
     pub(super) fn lookup_with_reply(
         &mut self,
-        name: String,
+        name: Arc<str>,
         reply: Option<LookupReply>,
     ) -> kad::QueryId {
-        let query_id = self.kademlia.get_providers(kad::RecordKey::new(&name));
+        let query_id = self
+            .kademlia
+            .get_providers(kad::RecordKey::new(&name.as_bytes()));
         self.lookup_queries.insert(
             query_id,
             LookupQuery {
@@ -420,7 +422,6 @@ impl Behaviour {
                         tracing::warn!("bootstrap failed: {err}");
                     }
 
-                    #[cfg_attr(feature = "remote", allow(clippy::incompatible_msrv))]
                     let failed_peers = self
                         .pending_peers
                         .extract_if(|_, failed_at| failed_at.elapsed() > Duration::from_secs(5));
@@ -1047,7 +1048,7 @@ impl NetworkBehaviour for Behaviour {
 }
 
 struct RegistrationQuery {
-    name: String,
+    name: Arc<str>,
     registration: Option<ActorRegistration<'static>>,
     put_query_id: Option<kad::QueryId>,
     provider_result: Option<kad::AddProviderResult>,
@@ -1055,7 +1056,7 @@ struct RegistrationQuery {
 }
 
 struct LookupQuery {
-    name: String,
+    name: Arc<str>,
     providers_finished: bool,
     metadata_queries: HashSet<kad::QueryId>,
     queried_providers: HashSet<PeerId>,
