@@ -14,12 +14,12 @@
 //! # Example
 //!
 //! ```
-//! use kameo::Actor;
+//! use std::time::Duration;
+//!
+//! use kameo::prelude::*;
 //! use kameo_actors::broker::{Broker, Subscribe, Publish};
 //! use kameo_actors::DeliveryStrategy;
 //! use glob::Pattern;
-//! # use std::time::Duration;
-//! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor, Clone)]
 //! struct TemperatureUpdate(f32);

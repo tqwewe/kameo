@@ -17,9 +17,8 @@
 //! # Example
 //!
 //! ```
-//! use kameo::Actor;
+//! use kameo::prelude::*;
 //! use kameo_actors::pool::{ActorPool, Broadcast, Dispatch};
-//! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
 //! struct MyWorker;
