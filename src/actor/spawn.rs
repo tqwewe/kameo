@@ -265,10 +265,8 @@ async fn abortable_actor_loop<A>(
 where
     A: Actor,
 {
-    if startup_finished {
-        if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
-            return reason;
-        }
+    if startup_finished && let ControlFlow::Break(reason) = state.handle_startup_finished().await {
+        return reason;
     }
     loop {
         let reason = recv_mailbox_loop(state, &mut mailbox_rx, startup_result).await;
