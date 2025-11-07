@@ -422,7 +422,6 @@ impl Behaviour {
                         tracing::warn!("bootstrap failed: {err}");
                     }
 
-                    #[cfg_attr(feature = "remote", allow(clippy::incompatible_msrv))]
                     let failed_peers = self
                         .pending_peers
                         .extract_if(|_, failed_at| failed_at.elapsed() > Duration::from_secs(5));
