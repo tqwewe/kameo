@@ -8,23 +8,23 @@ use std::{
     time::Duration,
 };
 
-use futures::{ready, Future, FutureExt, Stream, StreamExt};
+use futures::{Future, FutureExt, Stream, StreamExt, ready};
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
+    Actor,
     actor::{ActorId, ActorRef, RemoteActorRef},
     error::{ActorStopReason, Infallible, RegistryError, RemoteSendError},
-    Actor,
 };
 
 use super::{
+    DowncastRegsiteredActorRefError, REMOTE_REGISTRY, RemoteActor, RemoteRegistryActorRef,
     messaging::SwarmResponse,
     registry::{
         ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply,
         UnregisterReply,
     },
-    DowncastRegsiteredActorRefError, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
 static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
