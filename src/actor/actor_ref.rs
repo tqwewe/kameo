@@ -10,7 +10,7 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt, TryFutureExt};
+use futures::{FutureExt, Stream, StreamExt, TryFutureExt, future::BoxFuture, stream::AbortHandle};
 use tokio::{
     sync::{Mutex, SetOnce},
     task::JoinHandle,
@@ -26,6 +26,7 @@ use crate::remote;
 use crate::request;
 
 use crate::{
+    Actor, Reply,
     error::{self, HookError, Infallible, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
@@ -34,7 +35,6 @@ use crate::{
         AskRequest, RecipientTellRequest, ReplyRecipientAskRequest, ReplyRecipientTellRequest,
         TellRequest, WithoutRequestTimeout,
     },
-    Actor, Reply,
 };
 
 use super::id::ActorId;
@@ -123,7 +123,7 @@ where
     {
         remote::ActorSwarm::get()
             .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .register(self.clone(), name.to_string())
+            .register(self.clone(), name.to_string().into())
             .await
     }
 
@@ -770,7 +770,8 @@ where
         remote::REMOTE_REGISTRY
             .lock()
             .await
-            .insert(self.id, remote::RemoteRegistryActorRef::new(self.clone()));
+            .entry(self.id)
+            .or_insert_with(|| remote::RemoteRegistryActorRef::new(self.clone(), None));
 
         self.links.lock().await.insert(
             sibbling_ref.id,
@@ -1020,10 +1021,11 @@ where
             remote::ActorSwarm::get().unwrap().sender().clone(),
         );
 
-        remote::REMOTE_REGISTRY.lock().await.insert(
-            self.id(),
-            remote::RemoteRegistryActorRef::new_weak(self.downgrade()),
-        );
+        remote::REMOTE_REGISTRY
+            .lock()
+            .await
+            .entry(self.id())
+            .or_insert_with(|| remote::RemoteRegistryActorRef::new_weak(self.downgrade(), None));
 
         remote_ref
     }
@@ -1043,10 +1045,10 @@ where
             remote::ActorSwarm::get().unwrap().sender().clone(),
         );
 
-        remote::REMOTE_REGISTRY.blocking_lock().insert(
-            self.id(),
-            remote::RemoteRegistryActorRef::new_weak(self.downgrade()),
-        );
+        remote::REMOTE_REGISTRY
+            .blocking_lock()
+            .entry(self.id())
+            .or_insert_with(|| remote::RemoteRegistryActorRef::new_weak(self.downgrade(), None));
 
         remote_ref
     }

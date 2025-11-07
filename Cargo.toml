@@ -19,7 +19,7 @@ all-features = true
 [package]
 name = "kameo"
 version = "0.18.0"
-edition = "2021"
+edition = "2024"
 rust-version = "1.85.1"
 description = "Fault-tolerant Async Actors Built on Tokio"
 readme = "README.md"

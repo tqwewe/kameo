@@ -1,23 +1,30 @@
 use core::task;
-use std::{borrow::Cow, marker::PhantomData, pin, str, sync::OnceLock, task::Poll, time::Duration};
+use std::{
+    borrow::Cow,
+    marker::PhantomData,
+    pin, str,
+    sync::{Arc, OnceLock},
+    task::Poll,
+    time::Duration,
+};
 
-use futures::{ready, Future, FutureExt, Stream, StreamExt};
+use futures::{Future, FutureExt, Stream, StreamExt, ready};
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
+    Actor,
     actor::{ActorId, ActorRef, RemoteActorRef},
     error::{ActorStopReason, Infallible, RegistryError, RemoteSendError},
-    Actor,
 };
 
 use super::{
+    DowncastRegsiteredActorRefError, REMOTE_REGISTRY, RemoteActor, RemoteRegistryActorRef,
     messaging::SwarmResponse,
     registry::{
         ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply,
         UnregisterReply,
     },
-    DowncastRegsiteredActorRefError, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
 static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
@@ -151,14 +158,14 @@ impl ActorSwarm {
     pub(crate) fn register<A: Actor + RemoteActor + 'static>(
         &self,
         actor_ref: ActorRef<A>,
-        name: String,
+        name: Arc<str>,
     ) -> impl Future<Output = Result<(), RegistryError>> {
         let registration = ActorRegistration::new(actor_ref.id(), Cow::Borrowed(A::REMOTE_ID));
 
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Register {
-                name,
+                name: name.clone(),
                 registration,
                 reply,
             });
@@ -167,10 +174,10 @@ impl ActorSwarm {
             let res = reply_rx.await;
             match res {
                 Ok(()) | Err(RegistryError::QuorumFailed { .. }) => {
-                    REMOTE_REGISTRY
-                        .lock()
-                        .await
-                        .insert(actor_ref.id(), RemoteRegistryActorRef::new(actor_ref));
+                    REMOTE_REGISTRY.lock().await.insert(
+                        actor_ref.id(),
+                        RemoteRegistryActorRef::new(actor_ref, Some(name)),
+                    );
 
                     Ok(())
                 }
@@ -183,7 +190,7 @@ impl ActorSwarm {
     ///
     /// The future returned by unregister does not have to be awaited.
     /// Awaiting it is only necessary to handle the result.
-    pub fn unregister(&self, name: String) -> impl Future<Output = ()> {
+    pub fn unregister(&self, name: Arc<str>) -> impl Future<Output = ()> {
         let reply_rx = self
             .swarm_tx
             .send_with_reply(|reply| SwarmCommand::Unregister { name, reply });
@@ -409,7 +416,7 @@ pub(crate) enum SwarmCommand {
     /// Register an actor under a name.
     Register {
         /// Actor name.
-        name: String,
+        name: Arc<str>,
         /// Registration information.
         registration: ActorRegistration<'static>,
         /// Reply sender.
@@ -418,7 +425,7 @@ pub(crate) enum SwarmCommand {
     /// Stop providing a key.
     Unregister {
         /// Actor name.
-        name: String,
+        name: Arc<str>,
         /// Reply sender.
         reply: UnregisterReply,
     },

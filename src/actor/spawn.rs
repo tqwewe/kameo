@@ -1,9 +1,9 @@
 use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread};
 
 use futures::{
+    FutureExt, StreamExt,
     future::BoxFuture,
     stream::{AbortHandle, AbortRegistration, Abortable, FuturesUnordered},
-    FutureExt, StreamExt,
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -17,8 +17,8 @@ use tracing::{error, trace};
 use crate::remote;
 
 use crate::{
-    actor::{kind::ActorBehaviour, Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID},
-    error::{invoke_actor_error_hook, ActorStopReason, PanicError, SendError},
+    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, Link, Links, kind::ActorBehaviour},
+    error::{ActorStopReason, PanicError, SendError, invoke_actor_error_hook},
     mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -204,13 +204,9 @@ where
 
             log_actor_stop_reason(id, name, &reason);
             let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
-
             while let Some(()) = notify_futs.next().await {}
 
-            #[cfg(not(feature = "remote"))]
-            crate::registry::ACTOR_REGISTRY.lock().unwrap().remove(name);
-            #[cfg(feature = "remote")]
-            remote::REMOTE_REGISTRY.lock().await.remove(&id);
+            unregister_actor(&id, name).await;
 
             match on_stop_res {
                 Ok(()) => {
@@ -243,6 +239,8 @@ where
 
             let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
             while let Some(()) = notify_futs.next().await {}
+
+            unregister_actor(&id, name).await;
 
             let ActorStopReason::Panicked(err) = reason else {
                 unreachable!()
@@ -377,6 +375,19 @@ async fn notify_links(
     }
 
     futs
+}
+
+#[allow(unused_variables)]
+async fn unregister_actor(id: &ActorId, name: &'static str) {
+    #[cfg(not(feature = "remote"))]
+    crate::registry::ACTOR_REGISTRY.lock().unwrap().remove(name);
+    #[cfg(feature = "remote")]
+    if let Some(entry) = remote::REMOTE_REGISTRY.lock().await.remove(id)
+        && let Some(registered_name) = entry.name
+        && let Some(swarm) = remote::ActorSwarm::get()
+    {
+        _ = swarm.unregister(registered_name);
+    }
 }
 
 #[inline]

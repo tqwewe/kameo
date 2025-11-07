@@ -32,22 +32,23 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     fmt,
     num::NonZero,
     str::{self, FromStr},
+    sync::Arc,
     task,
     time::{Duration, Instant},
 };
 
 use libp2p::{
-    kad::{self, store::RecordStore, StoreInserts},
-    swarm::{
-        behaviour::ConnectionEstablished, ConnectionDenied, ConnectionId, DialError, DialFailure,
-        FromSwarm, NetworkBehaviour, NewExternalAddrOfPeer, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, StreamProtocol,
+    kad::{self, StoreInserts, store::RecordStore},
+    swarm::{
+        ConnectionDenied, ConnectionId, DialError, DialFailure, FromSwarm, NetworkBehaviour,
+        NewExternalAddrOfPeer, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::ConnectionEstablished,
+    },
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -226,10 +227,10 @@ impl Behaviour {
     /// registration fails immediately.
     pub fn register(
         &mut self,
-        name: String,
+        name: impl Into<Arc<str>>,
         registration: ActorRegistration<'static>,
     ) -> Result<kad::QueryId, kad::store::Error> {
-        self.register_with_reply(name, registration, None)
+        self.register_with_reply(name.into(), registration, None)
             .map_err(|(_, err)| err)
     }
 
@@ -323,11 +324,11 @@ impl Behaviour {
 
     pub(super) fn register_with_reply(
         &mut self,
-        name: String,
+        name: Arc<str>,
         registration: ActorRegistration<'static>,
         reply: Option<RegisterReply>,
     ) -> Result<kad::QueryId, (Option<RegisterReply>, kad::store::Error)> {
-        let key = kad::RecordKey::new(&name);
+        let key = kad::RecordKey::new(&name.as_bytes());
         let provider_query_id = match self.kademlia.start_providing(key) {
             Ok(id) => id,
             Err(err) => {
@@ -1047,7 +1048,7 @@ impl NetworkBehaviour for Behaviour {
 }
 
 struct RegistrationQuery {
-    name: String,
+    name: Arc<str>,
     registration: Option<ActorRegistration<'static>>,
     put_query_id: Option<kad::QueryId>,
     provider_result: Option<kad::AddProviderResult>,
