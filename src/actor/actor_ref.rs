@@ -277,7 +277,7 @@ where
     /// ```
     /// use std::time::Duration;
     ///
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     /// use kameo::error::Infallible;
     /// use tokio::time::sleep;
     ///
@@ -318,7 +318,7 @@ where
     /// ```
     /// use std::num::ParseIntError;
     ///
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// struct MyActor;
     ///
@@ -361,7 +361,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// struct MyActor;
     ///
@@ -436,7 +436,7 @@ where
     /// ```
     /// use std::num::ParseIntError;
     ///
-    /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
     /// use kameo::error::ActorStopReason;
     ///
     /// struct MyActor;
@@ -490,7 +490,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
     /// use kameo::error::ActorStopReason;
     ///
     /// struct MyActor;
@@ -551,7 +551,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -597,7 +597,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -638,6 +638,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -688,6 +689,7 @@ where
     /// use std::thread;
     ///
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -735,8 +737,8 @@ where
     /// # Example
     ///
     /// ```no_run
-    /// # use kameo::actor::RemoteActorRef;
     /// # use kameo::Actor;
+    /// # use kameo::actor::{RemoteActorRef, Spawn};
     /// #
     /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct MyActor;
@@ -786,6 +788,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -831,6 +834,7 @@ where
     /// # use std::thread;
     /// #
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -873,8 +877,8 @@ where
     /// # Example
     ///
     /// ```
-    /// # use kameo::actor::RemoteActorRef;
     /// # use kameo::Actor;
+    /// # use kameo::actor::{RemoteActorRef, Spawn};
     /// #
     /// # #[derive(Actor, kameo::RemoteActor)]
     /// # struct MyActor;
@@ -920,6 +924,7 @@ where
     ///
     /// ```
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     /// use kameo::message::{Context, Message, StreamMessage};
     ///
     /// #[derive(kameo::Actor)]
