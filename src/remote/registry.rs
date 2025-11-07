@@ -32,7 +32,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
     fmt,
     num::NonZero,
     str::{self, FromStr},
@@ -42,13 +42,13 @@ use std::{
 };
 
 use libp2p::{
-    kad::{self, store::RecordStore, StoreInserts},
-    swarm::{
-        behaviour::ConnectionEstablished, ConnectionDenied, ConnectionId, DialError, DialFailure,
-        FromSwarm, NetworkBehaviour, NewExternalAddrOfPeer, THandler, THandlerInEvent,
-        THandlerOutEvent, ToSwarm,
-    },
     Multiaddr, PeerId, StreamProtocol,
+    kad::{self, StoreInserts, store::RecordStore},
+    swarm::{
+        ConnectionDenied, ConnectionId, DialError, DialFailure, FromSwarm, NetworkBehaviour,
+        NewExternalAddrOfPeer, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
+        behaviour::ConnectionEstablished,
+    },
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -271,8 +271,8 @@ impl Behaviour {
     /// # Returns
     ///
     /// The query ID for tracking the lookup progress.
-    pub fn lookup(&mut self, name: String) -> kad::QueryId {
-        self.lookup_with_reply(name, None)
+    pub fn lookup(&mut self, name: impl Into<Arc<str>>) -> kad::QueryId {
+        self.lookup_with_reply(name.into(), None)
     }
 
     /// Looks up an actor in the local registry only.
@@ -351,10 +351,12 @@ impl Behaviour {
 
     pub(super) fn lookup_with_reply(
         &mut self,
-        name: String,
+        name: Arc<str>,
         reply: Option<LookupReply>,
     ) -> kad::QueryId {
-        let query_id = self.kademlia.get_providers(kad::RecordKey::new(&name));
+        let query_id = self
+            .kademlia
+            .get_providers(kad::RecordKey::new(&name.as_bytes()));
         self.lookup_queries.insert(
             query_id,
             LookupQuery {
@@ -1055,7 +1057,7 @@ struct RegistrationQuery {
 }
 
 struct LookupQuery {
-    name: String,
+    name: Arc<str>,
     providers_finished: bool,
     metadata_queries: HashSet<kad::QueryId>,
     queried_providers: HashSet<PeerId>,

@@ -8,18 +8,20 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
-use crate::{Actor, actor::ActorRef, error::RegistryError};
+use crate::{
+    Actor,
+    actor::{ActorId, ActorRef},
+    error::RegistryError,
+};
 
 /// Global actor registry for local actors.
 pub static ACTOR_REGISTRY: LazyLock<Mutex<ActorRegistry>> =
     LazyLock::new(|| Mutex::new(ActorRegistry::new()));
 
-type AnyActorRef = Box<dyn Any + Send>;
-
 /// A local actor registry storing actor refs by name.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ActorRegistry {
-    actor_refs: HashMap<Cow<'static, str>, AnyActorRef>,
+    actor_refs: HashMap<Cow<'static, str>, RegisteredActorRef>,
 }
 
 impl ActorRegistry {
@@ -43,7 +45,7 @@ impl ActorRegistry {
     }
 
     /// An iterator visiting all registered actor refs in arbitrary order.
-    pub fn names(&self) -> Keys<'_, Cow<'static, str>, AnyActorRef> {
+    pub fn names(&self) -> Keys<'_, Cow<'static, str>, RegisteredActorRef> {
         self.actor_refs.keys()
     }
 
@@ -76,7 +78,7 @@ impl ActorRegistry {
             .get(name)
             .map(|actor_ref| {
                 actor_ref
-                    .downcast_ref()
+                    .actor_ref()
                     .cloned()
                     .ok_or(RegistryError::BadActorType)
             })
@@ -103,7 +105,8 @@ impl ActorRegistry {
             return false;
         }
 
-        self.actor_refs.insert(name, Box::new(actor_ref));
+        self.actor_refs
+            .insert(name, RegisteredActorRef::new(actor_ref));
         true
     }
 
@@ -115,10 +118,39 @@ impl ActorRegistry {
     {
         self.actor_refs.remove(name).is_some()
     }
+
+    /// Removes a previously registered actor ref by `ActorId`.
+    pub fn remove_by_id(&mut self, id: &ActorId) -> bool {
+        self.actor_refs
+            .extract_if(|_, entry| &entry.id == id)
+            .next()
+            .is_some()
+    }
 }
 
-impl Default for ActorRegistry {
-    fn default() -> Self {
-        Self::new()
+/// A locally registered actor ref.
+#[derive(Debug)]
+pub struct RegisteredActorRef {
+    id: ActorId,
+    actor_ref: Box<dyn Any + Send>,
+}
+
+impl RegisteredActorRef {
+    /// Creates a new `RegisteredActorRef` from an `ActorRef`.
+    pub fn new<A: Actor>(actor_ref: ActorRef<A>) -> Self {
+        RegisteredActorRef {
+            id: actor_ref.id(),
+            actor_ref: Box::new(actor_ref),
+        }
+    }
+
+    /// Returns the actor's id.
+    pub fn id(&self) -> ActorId {
+        self.id
+    }
+
+    /// Returns the `ActorRef`, or `None` if the provided `A` generic doesn't match the registered entry.
+    pub fn actor_ref<A: Actor>(&self) -> Option<&ActorRef<A>> {
+        self.actor_ref.downcast_ref()
     }
 }

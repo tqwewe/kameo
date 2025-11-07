@@ -206,7 +206,7 @@ where
             let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
             while let Some(()) = notify_futs.next().await {}
 
-            unregister_actor(&id, name).await;
+            unregister_actor(&id).await;
 
             match on_stop_res {
                 Ok(()) => {
@@ -240,7 +240,7 @@ where
             let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
             while let Some(()) = notify_futs.next().await {}
 
-            unregister_actor(&id, name).await;
+            unregister_actor(&id).await;
 
             let ActorStopReason::Panicked(err) = reason else {
                 unreachable!()
@@ -378,9 +378,12 @@ async fn notify_links(
 }
 
 #[allow(unused_variables)]
-async fn unregister_actor(id: &ActorId, name: &'static str) {
+async fn unregister_actor(id: &ActorId) {
     #[cfg(not(feature = "remote"))]
-    crate::registry::ACTOR_REGISTRY.lock().unwrap().remove(name);
+    crate::registry::ACTOR_REGISTRY
+        .lock()
+        .unwrap()
+        .remove_by_id(id);
     #[cfg(feature = "remote")]
     if let Some(entry) = remote::REMOTE_REGISTRY.lock().await.remove(id)
         && let Some(registered_name) = entry.name

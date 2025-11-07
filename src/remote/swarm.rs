@@ -8,23 +8,23 @@ use std::{
     time::Duration,
 };
 
-use futures::{Future, FutureExt, Stream, StreamExt, ready};
+use futures::{ready, Future, FutureExt, Stream, StreamExt};
 use libp2p::PeerId;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    Actor,
     actor::{ActorId, ActorRef, RemoteActorRef},
     error::{ActorStopReason, Infallible, RegistryError, RemoteSendError},
+    Actor,
 };
 
 use super::{
-    DowncastRegsiteredActorRefError, REMOTE_REGISTRY, RemoteActor, RemoteRegistryActorRef,
     messaging::SwarmResponse,
     registry::{
         ActorRegistration, LookupLocalReply, LookupReply, LookupResult, RegisterReply,
         UnregisterReply,
     },
+    DowncastRegsiteredActorRefError, RemoteActor, RemoteRegistryActorRef, REMOTE_REGISTRY,
 };
 
 static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
@@ -83,7 +83,7 @@ impl ActorSwarm {
     /// Looks up an actor running locally.
     pub(crate) fn lookup_local<A: Actor + RemoteActor + 'static>(
         &self,
-        name: String,
+        name: Arc<str>,
     ) -> impl Future<Output = Result<Option<ActorRef<A>>, RegistryError>> {
         let reply_rx = self
             .swarm_tx
@@ -118,7 +118,7 @@ impl ActorSwarm {
     /// Looks up an actor in the swarm.
     pub(crate) async fn lookup<A: Actor + RemoteActor>(
         &self,
-        name: String,
+        name: Arc<str>,
     ) -> Result<Option<RemoteActorRef<A>>, RegistryError> {
         #[cfg(all(debug_assertions, feature = "tracing"))]
         let name_clone = name.clone();
@@ -142,7 +142,7 @@ impl ActorSwarm {
     }
 
     /// Looks up all actors with a given name in the swarm.
-    pub(crate) fn lookup_all<A: Actor + RemoteActor>(&self, name: String) -> LookupStream<A> {
+    pub(crate) fn lookup_all<A: Actor + RemoteActor>(&self, name: Arc<str>) -> LookupStream<A> {
         let (reply_tx, reply_rx) = mpsc::unbounded_channel();
         let cmd = SwarmCommand::Lookup {
             name,
@@ -402,14 +402,14 @@ pub(crate) enum SwarmCommand {
     /// Lookup providers for an actor by name in the kademlia network.
     Lookup {
         /// Registered name.
-        name: String,
+        name: Arc<str>,
         /// Reply sender.
         reply: LookupReply,
     },
     /// Lookup an actor by name on the local node only.
     LookupLocal {
         /// Actor name.
-        name: String,
+        name: Arc<str>,
         /// Reply sender.
         reply: LookupLocalReply,
     },
