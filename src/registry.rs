@@ -3,12 +3,12 @@
 use std::{
     any::Any,
     borrow::{Borrow, Cow},
-    collections::{hash_map::Keys, HashMap},
+    collections::{HashMap, hash_map::Keys},
     hash::Hash,
     sync::{LazyLock, Mutex},
 };
 
-use crate::{actor::ActorRef, error::RegistryError, Actor};
+use crate::{Actor, actor::ActorRef, error::RegistryError};
 
 /// Global actor registry for local actors.
 pub static ACTOR_REGISTRY: LazyLock<Mutex<ActorRegistry>> =

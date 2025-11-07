@@ -9,8 +9,8 @@ use std::{
     cmp, error, fmt,
     hash::{Hash, Hasher},
     sync::{
-        atomic::{AtomicPtr, Ordering},
         Arc, Mutex,
+        atomic::{AtomicPtr, Ordering},
     },
 };
 
@@ -20,7 +20,7 @@ use tokio::{
     time::error::Elapsed,
 };
 
-use crate::{actor::ActorId, mailbox::Signal, reply::ReplyError, Actor};
+use crate::{Actor, actor::ActorId, mailbox::Signal, reply::ReplyError};
 
 type ErrorHookFn = fn(&PanicError);
 

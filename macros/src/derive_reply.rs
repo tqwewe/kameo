@@ -1,7 +1,7 @@
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
-    parse::{Parse, ParseStream},
     DeriveInput, Generics, Ident,
+    parse::{Parse, ParseStream},
 };
 
 pub struct DeriveReply {

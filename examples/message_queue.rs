@@ -1,9 +1,9 @@
 use kameo::prelude::*;
+use kameo_actors::DeliveryStrategy;
 use kameo_actors::message_queue::{
     BasicConsume, BasicPublish, ExchangeDeclare, ExchangeType, MessageQueue, QueueBind,
     QueueDeclare,
 };
-use kameo_actors::DeliveryStrategy;
 
 #[derive(Clone)]
 struct TemperatureUpdate(f32);

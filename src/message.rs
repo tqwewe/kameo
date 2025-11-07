@@ -16,13 +16,13 @@
 
 use std::{any, fmt};
 
-use futures::{future::BoxFuture, Future, FutureExt};
+use futures::{Future, FutureExt, future::BoxFuture};
 
 use crate::{
+    Actor,
     actor::ActorRef,
     error::{self, PanicError, SendError},
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
-    Actor,
 };
 
 /// A boxed dynamic message type for the actor `A`.

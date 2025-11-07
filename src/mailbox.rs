@@ -9,15 +9,15 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::{future::BoxFuture, FutureExt};
+use futures::{FutureExt, future::BoxFuture};
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
 use crate::{
+    Actor,
     actor::{ActorId, ActorRef},
     error::{ActorStopReason, SendError},
     message::BoxMessage,
     reply::BoxReplySender,
-    Actor,
 };
 
 /// Creates a bounded mailbox for communicating between actors with backpressure.

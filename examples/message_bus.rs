@@ -1,7 +1,7 @@
 use kameo::prelude::*;
 use kameo_actors::{
-    message_bus::{MessageBus, Publish, Register},
     DeliveryStrategy,
+    message_bus::{MessageBus, Publish, Register},
 };
 
 #[derive(Actor)]

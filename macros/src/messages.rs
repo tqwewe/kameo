@@ -1,13 +1,13 @@
 use heck::ToUpperCamelCase;
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote, quote_spanned, ToTokens};
+use quote::{ToTokens, format_ident, quote, quote_spanned};
 use syn::{
+    Attribute, Expr, Field, FnArg, GenericParam, Generics, Ident, ImplItem, ItemImpl, Meta,
+    MetaNameValue, Pat, ReturnType, Signature, Token, Type, Visibility,
     parse::{Parse, ParseStream, Parser},
     parse_quote, parse_quote_spanned,
     punctuated::Punctuated,
     spanned::Spanned,
-    Attribute, Expr, Field, FnArg, GenericParam, Generics, Ident, ImplItem, ItemImpl, Meta,
-    MetaNameValue, Pat, ReturnType, Signature, Token, Type, Visibility,
 };
 
 pub struct Messages {
@@ -473,7 +473,7 @@ impl Parse for Messages {
                 return Err(syn::Error::new(
                     item_impl.self_ty.span(),
                     "expected a path or ident",
-                ))
+                ));
             }
         };
         let (messages, errors) = Messages::extract_messages(&mut item_impl);

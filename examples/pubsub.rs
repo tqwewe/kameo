@@ -1,7 +1,7 @@
 use kameo::prelude::*;
 use kameo_actors::{
-    pubsub::{PubSub, Publish, Subscribe},
     DeliveryStrategy,
+    pubsub::{PubSub, Publish, Subscribe},
 };
 
 #[derive(Clone)]
