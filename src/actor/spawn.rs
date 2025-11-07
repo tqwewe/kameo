@@ -44,7 +44,7 @@ impl<A: Actor> PreparedActor<A> {
     /// This function allows you to explicitly specify a mailbox when preparing an actor.
     /// Use this when you need custom mailbox behavior or capacity.
     ///
-    /// This is typically created though [`Actor::prepare`] and [`Actor::prepare_with_mailbox`].
+    /// This is typically created though [`Actor::prepare`](crate::actor::Spawn::prepare) and [`Actor::prepare_with_mailbox`](crate::actor::Spawn::prepare_with_mailbox).
     pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
@@ -84,7 +84,7 @@ impl<A: Actor> PreparedActor<A> {
     ///
     /// ```no_run
     /// # use kameo::Actor;
-    /// # use kameo::actor::PreparedActor;
+    /// # use kameo::actor::{PreparedActor, Spawn};
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -115,7 +115,7 @@ impl<A: Actor> PreparedActor<A> {
 
     /// Spawns the actor in a new background tokio task, returning the `JoinHandle`.
     ///
-    /// See [`Actor::spawn`] for more information.
+    /// See [`Spawn::spawn`](crate::actor::Spawn::spawn) for more information.
     pub fn spawn(self, args: A::Args) -> JoinHandle<Result<(A, ActorStopReason), PanicError>> {
         #[cfg(not(all(tokio_unstable, feature = "tracing")))]
         {
@@ -133,7 +133,7 @@ impl<A: Actor> PreparedActor<A> {
 
     /// Spawns the actor in a new background thread, returning the `JoinHandle`.
     ///
-    /// See [`Actor::spawn_in_thread`] for more information.
+    /// See [`Spawn::spawn_in_thread`](crate::actor::Spawn::spawn_in_thread) for more information.
     pub fn spawn_in_thread(
         self,
         args: A::Args,

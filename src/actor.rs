@@ -294,9 +294,130 @@ pub trait Actor: Sized + Send + 'static {
         actor_ref: WeakActorRef<Self>,
         mailbox_rx: &mut MailboxReceiver<Self>,
     ) -> impl Future<Output = Option<Signal<Self>>> + Send {
-        async move { mailbox_rx.recv().await }
+        mailbox_rx.recv()
     }
+}
 
+/// Provides methods for spawning actors with various configurations.
+///
+/// This trait is automatically implemented for all types that implement [`Actor`], providing
+/// convenient methods to spawn actors in different execution contexts and with different
+/// mailbox configurations.
+///
+/// The `Spawn` trait separates actor instantiation from actor behavior, keeping the [`Actor`]
+/// trait focused on lifecycle hooks and message handling while providing ergonomic spawn
+/// methods through this extension trait.
+///
+/// # Choosing a Spawn Method
+///
+/// - **[`spawn`]** or **[`spawn_default`]**: Standard async actor with bounded mailbox (most common)
+/// - **[`spawn_with_mailbox`]**: Custom mailbox configuration (unbounded, custom capacity)
+/// - **[`spawn_in_thread`]**: Blocking operations requiring dedicated thread
+/// - **[`spawn_link`]**: Actor needs supervision link established before spawning
+///
+/// # Examples
+///
+/// ## Basic Spawning
+///
+/// ```
+/// use kameo::Actor;
+/// use kameo::actor::Spawn;
+///
+/// #[derive(Actor)]
+/// struct Counter {
+///     count: i32,
+/// }
+///
+/// # tokio_test::block_on(async {
+/// // Spawn with explicit initialization
+/// let actor_ref = Counter::spawn(Counter { count: 0 });
+/// # })
+/// ```
+///
+/// ## Default Spawning
+///
+/// ```
+/// use kameo::Actor;
+/// use kameo::actor::Spawn;
+///
+/// #[derive(Actor, Default)]
+/// struct Counter {
+///     count: i32,
+/// }
+///
+/// # tokio_test::block_on(async {
+/// // Spawn with default initialization
+/// let actor_ref = Counter::spawn_default();
+/// # })
+/// ```
+///
+/// ## Custom Mailbox
+///
+/// ```
+/// use kameo::Actor;
+/// use kameo::actor::Spawn;
+/// use kameo::mailbox;
+///
+/// #[derive(Actor)]
+/// struct HighThroughput;
+///
+/// # tokio_test::block_on(async {
+/// // Spawn with unbounded mailbox for high message rates
+/// let actor_ref = HighThroughput::spawn_with_mailbox(
+///     HighThroughput,
+///     mailbox::unbounded()
+/// );
+/// # })
+/// ```
+///
+/// ## Blocking Operations
+///
+/// ```no_run
+/// use std::fs::File;
+/// use kameo::Actor;
+/// use kameo::actor::Spawn;
+///
+/// #[derive(Actor)]
+/// struct FileWriter {
+///     file: File,
+/// }
+///
+/// // Spawn in dedicated thread for blocking I/O
+/// let actor_ref = FileWriter::spawn_in_thread(
+///     FileWriter { file: File::create("log.txt").unwrap() }
+/// );
+/// ```
+///
+/// ## Supervision
+///
+/// ```
+/// use kameo::Actor;
+/// use kameo::actor::Spawn;
+///
+/// #[derive(Actor)]
+/// struct Supervisor;
+///
+/// #[derive(Actor)]
+/// struct Worker;
+///
+/// # tokio_test::block_on(async {
+/// let supervisor = Supervisor::spawn(Supervisor);
+/// // Link worker to supervisor before spawning
+/// let worker = Worker::spawn_link(&supervisor, Worker).await;
+/// # })
+/// ```
+///
+/// # Note
+///
+/// This trait is sealed and cannot be implemented manually. It is automatically available
+/// for all [`Actor`] types through a blanket implementation.
+///
+/// [`spawn`]: Spawn::spawn
+/// [`spawn_default`]: Spawn::spawn_default
+/// [`spawn_with_mailbox`]: Spawn::spawn_with_mailbox
+/// [`spawn_in_thread`]: Spawn::spawn_in_thread
+/// [`spawn_link`]: Spawn::spawn_link
+pub trait Spawn: Actor + private::Sealed {
     /// Spawns the actor in a Tokio task, running asynchronously with a default bounded mailbox.
     ///
     /// This function spawns the actor in a non-blocking Tokio task, making it suitable for actors that need to
@@ -304,12 +425,13 @@ pub trait Actor: Sized + Send + 'static {
     /// the returned [`ActorRef`].
     ///
     /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
-    /// For custom mailbox configuration, use [`Actor::spawn_with_mailbox`].
+    /// For custom mailbox configuration, use [`Spawn::spawn_with_mailbox`].
     ///
     /// # Example
     ///
     /// ```
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     ///
     /// #[derive(Actor)]
     /// struct MyActor;
@@ -322,7 +444,45 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// The actor will continue running in the background, and messages can be sent to it via `actor_ref`.
     fn spawn(args: Self::Args) -> ActorRef<Self> {
-        Self::spawn_with_mailbox(args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+        Spawn::spawn_with_mailbox(args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+    }
+
+    /// Spawns the actor with default initialization in a Tokio task.
+    ///
+    /// This is a convenience method for actors that implement [`Default`], equivalent to calling
+    /// `Self::spawn(Self::default())`. The actor runs asynchronously in a non-blocking Tokio task
+    /// and can be interacted with through the returned [`ActorRef`].
+    ///
+    /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
+    /// For custom initialization or mailbox configuration, use [`Spawn::spawn`] or
+    /// [`Spawn::spawn_with_mailbox`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
+    ///
+    /// #[derive(Actor, Default)]
+    /// struct MyActor {
+    ///     count: i32,
+    /// }
+    ///
+    /// # tokio_test::block_on(async {
+    /// // Spawns with default state and bounded mailbox (capacity 64)
+    /// let actor_ref = MyActor::spawn_default();
+    /// # })
+    /// ```
+    ///
+    /// # Requirements
+    ///
+    /// This method requires that `Self::Args` implements [`Default`]. For actors where
+    /// `Args = Self`, this means the actor struct itself must implement `Default`.
+    fn spawn_default() -> ActorRef<Self>
+    where
+        Self::Args: Default,
+    {
+        Spawn::spawn(Self::Args::default())
     }
 
     /// Spawns the actor in a Tokio task with a specific mailbox configuration.
@@ -334,6 +494,7 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// ```
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     /// use kameo::mailbox;
     ///
     /// #[derive(Actor)]
@@ -363,12 +524,13 @@ pub trait Actor: Sized + Send + 'static {
     /// which avoids possible edge cases where the actor could die before having the chance to be linked.
     ///
     /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
-    /// For custom mailbox configuration, use [`Actor::spawn_link_with_mailbox`].
+    /// For custom mailbox configuration, use [`Spawn::spawn_link_with_mailbox`].
     ///
     /// # Example
     ///
     /// ```
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     ///
     /// #[derive(Actor)]
     /// struct FooActor;
@@ -389,7 +551,11 @@ pub trait Actor: Sized + Send + 'static {
     where
         L: Actor,
     {
-        Self::spawn_link_with_mailbox(link_ref, args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+        <Self as Spawn>::spawn_link_with_mailbox::<L>(
+            link_ref,
+            args,
+            mailbox::bounded(DEFAULT_MAILBOX_CAPACITY),
+        )
     }
 
     /// Spawns and links the actor in a Tokio task with a specific mailbox configuration.
@@ -401,6 +567,7 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// ```
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     /// use kameo::mailbox;
     ///
     /// #[derive(Actor)]
@@ -439,7 +606,7 @@ pub trait Actor: Sized + Send + 'static {
     /// Despite running in a blocking thread, the actor can still communicate asynchronously with other actors.
     ///
     /// By default, a bounded mailbox with capacity 64 is used to provide backpressure.
-    /// For custom mailbox configuration, use [`Actor::spawn_in_thread_with_mailbox`].
+    /// For custom mailbox configuration, use [`Spawn::spawn_in_thread_with_mailbox`].
     ///
     /// # Example
     ///
@@ -448,6 +615,7 @@ pub trait Actor: Sized + Send + 'static {
     /// use std::fs::File;
     ///
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     /// use kameo::message::{Context, Message};
     ///
     /// #[derive(Actor)]
@@ -474,7 +642,7 @@ pub trait Actor: Sized + Send + 'static {
     /// This function is useful for actors that require or benefit from running blocking operations while still
     /// enabling asynchronous functionality.
     fn spawn_in_thread(args: Self::Args) -> ActorRef<Self> {
-        Self::spawn_in_thread_with_mailbox(args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+        Spawn::spawn_in_thread_with_mailbox(args, mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
     }
 
     /// Spawns the actor in its own dedicated thread with a specific mailbox configuration.
@@ -489,6 +657,7 @@ pub trait Actor: Sized + Send + 'static {
     /// use std::fs::File;
     ///
     /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     /// use kameo::mailbox;
     /// use kameo::message::{Context, Message};
     ///
@@ -528,13 +697,14 @@ pub trait Actor: Sized + Send + 'static {
     /// # Example
     ///
     /// ```
-    /// # use kameo::Actor;
-    /// #
-    /// # #[derive(Actor)]
-    /// # struct MyActor;
-    /// #
+    /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor;
+    ///
     /// # tokio_test::block_on(async {
-    /// # let other_actor = MyActor::spawn(MyActor);
+    /// let other_actor = MyActor::spawn(MyActor);
     /// let prepared_actor = MyActor::prepare();
     /// prepared_actor.actor_ref().link(&other_actor).await;
     /// let actor_ref = prepared_actor.spawn(MyActor);
@@ -542,7 +712,7 @@ pub trait Actor: Sized + Send + 'static {
     /// # });
     /// ```
     fn prepare() -> PreparedActor<Self> {
-        Self::prepare_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+        Spawn::prepare_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
     }
 
     /// Creates a new prepared actor with a specific mailbox configuration, allowing access to its [`ActorRef`] before spawning.
@@ -553,14 +723,15 @@ pub trait Actor: Sized + Send + 'static {
     /// # Example
     ///
     /// ```
-    /// # use kameo::Actor;
+    /// use kameo::Actor;
+    /// use kameo::actor::Spawn;
     /// use kameo::mailbox;
-    /// #
-    /// # #[derive(Actor)]
-    /// # struct MyActor;
-    /// #
+    ///
+    ///  #[derive(Actor)]
+    ///  struct MyActor;
+    ///
     /// # tokio_test::block_on(async {
-    /// # let other_actor = MyActor::spawn(MyActor);
+    /// let other_actor = MyActor::spawn(MyActor);
     /// let prepared_actor = MyActor::prepare_with_mailbox(mailbox::unbounded());
     /// prepared_actor.actor_ref().link(&other_actor).await;
     /// let actor_ref = prepared_actor.spawn(MyActor);
@@ -572,4 +743,13 @@ pub trait Actor: Sized + Send + 'static {
     ) -> PreparedActor<Self> {
         PreparedActor::new((mailbox_tx, mailbox_rx))
     }
+}
+
+impl<A: Actor> Spawn for A {}
+
+mod private {
+    use super::Actor;
+
+    pub trait Sealed {}
+    impl<A: Actor> Sealed for A {}
 }

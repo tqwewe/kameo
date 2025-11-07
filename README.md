@@ -64,6 +64,7 @@ cargo add kameo
 
 ```rust,ignore
 use kameo::Actor;
+use kameo::actor::Spawn;
 use kameo::message::{Context, Message};
 
 // Implement the actor

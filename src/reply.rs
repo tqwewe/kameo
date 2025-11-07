@@ -780,6 +780,7 @@ impl_infallible_reply!([AtomicI64, AtomicU64]);
 mod tests {
     use std::{error, fmt};
 
+    use crate::actor::Spawn;
     use crate::error::Infallible;
     use crate::{
         actor::Actor,

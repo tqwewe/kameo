@@ -151,6 +151,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -319,6 +320,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -429,6 +431,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -973,7 +976,7 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
-        actor::ActorRef,
+        actor::{ActorRef, Spawn},
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
