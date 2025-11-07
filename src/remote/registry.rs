@@ -32,7 +32,7 @@
 
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet, VecDeque, hash_map::Entry},
+    collections::{hash_map::Entry, HashMap, HashSet, VecDeque},
     fmt,
     num::NonZero,
     str::{self, FromStr},
@@ -42,13 +42,13 @@ use std::{
 };
 
 use libp2p::{
-    Multiaddr, PeerId, StreamProtocol,
-    kad::{self, StoreInserts, store::RecordStore},
+    kad::{self, store::RecordStore, StoreInserts},
     swarm::{
-        ConnectionDenied, ConnectionId, DialError, DialFailure, FromSwarm, NetworkBehaviour,
-        NewExternalAddrOfPeer, THandler, THandlerInEvent, THandlerOutEvent, ToSwarm,
-        behaviour::ConnectionEstablished,
+        behaviour::ConnectionEstablished, ConnectionDenied, ConnectionId, DialError, DialFailure,
+        FromSwarm, NetworkBehaviour, NewExternalAddrOfPeer, THandler, THandlerInEvent,
+        THandlerOutEvent, ToSwarm,
     },
+    Multiaddr, PeerId, StreamProtocol,
 };
 use tokio::sync::{mpsc, oneshot};
 
@@ -300,15 +300,14 @@ impl Behaviour {
         if is_providing {
             // Get metadata for local provider
             let metadata_key = format!("{name}:meta:{}", self.local_peer_id);
-            let registration = store_mut
+            store_mut
                 .get(&kad::RecordKey::new(&metadata_key))
                 .map(|record| {
                     ActorRegistration::from_bytes(&record.value)
                         .map(ActorRegistration::into_owned)
                         .map_err(RegistryError::from)
                 })
-                .transpose();
-            registration
+                .transpose()
         } else {
             Ok(None)
         }
