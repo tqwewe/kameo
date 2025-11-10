@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2025-11-10
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add `metrics` feature flag for mailbox sent/received metrics (#250)
+- Add ctx attribute (#240)
+- Add scheduler actor (#251)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Hide MailboxSender internal variants (#248)
+- **BREAKING:** Move spawn methods to new `Spawn` trait (#253)
+
+### <!-- 3 -->Fixed
+
+- **BREAKING:** Actors not being unregistered on stop (#254)
+
+### <!-- 4 -->Documentation
+
+- Fix bootstrapping actor swarm complete code example [</>](https://github.com/tqwewe/kameo/commit/8e128361aee5eda1dd50e6fe09d8f1a242a9ed53)
+
+### <!-- 5 -->Misc
+
+- Update const-str requirement from 0.6.4 to 0.7.0 (#236)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#237)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#241)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#243)
+- Upgrade `const-str` to `0.7.0` [</>](https://github.com/tqwewe/kameo/commit/865c9eba374af7f09fce88cc8fc1820ce148f774)
+- Fix ci [</>](https://github.com/tqwewe/kameo/commit/bfa329903abd0a8d39be5926d5c160929f7fb205)
+- Bump kameo_macros to version 0.19.0 [</>](https://github.com/tqwewe/kameo/commit/985514a046bdbc5e5d4e7404bbe29c418ad0a3ee)
+
 ## [0.18.0] - 2025-09-11
 
 * @LVivona made their first contribution in #204
