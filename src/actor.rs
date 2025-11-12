@@ -114,6 +114,9 @@ const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 /// [`on_stop`]: Actor::on_stop
 /// [`on_link_died`]: Actor::on_link_died
 pub trait Actor: Sized + Send + 'static {
+    /// If false `MessageHandler::tell` will ignore when an `Err` is returned
+    const TELL_PANIC_ON_ERR: bool = true;
+
     /// Arguments to initialize the actor.
     ///
     /// Its common for `Args = Self`, allowing the actors state to be passed directly,

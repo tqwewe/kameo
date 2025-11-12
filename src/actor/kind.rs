@@ -87,6 +87,13 @@ where
                     ControlFlow::Continue(())
                 }
             }
+            Ok(Err(_)) if !A::TELL_PANIC_ON_ERR => {
+                if stop {
+                    ControlFlow::Break(ActorStopReason::Normal)
+                } else {
+                    ControlFlow::Continue(())
+                }
+            }
             Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
                 PanicError::new_from_panic_any(err),
