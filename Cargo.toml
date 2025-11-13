@@ -3,7 +3,7 @@ resolver = "2"
 members = [".", "actors", "macros"]
 
 [workspace.dependencies]
-kameo = { path = ".", version = "0.19.0" }
+kameo = { path = ".", version = "0.19.1" }
 
 futures = "0.3"
 tokio = "1.47"
@@ -18,7 +18,7 @@ all-features = true
 
 [package]
 name = "kameo"
-version = "0.19.0"
+version = "0.19.1"
 edition = "2024"
 rust-version = "1.88.0"
 description = "Fault-tolerant Async Actors Built on Tokio"
