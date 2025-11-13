@@ -4,7 +4,6 @@
 #![warn(rust_2018_idioms)]
 #![warn(missing_debug_implementations)]
 #![deny(unused_must_use)]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 pub mod actor;
 pub mod error;
