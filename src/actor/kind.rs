@@ -4,7 +4,7 @@ use futures::FutureExt;
 
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
-    error::{ActorStopReason, PanicError},
+    error::{ActorStopReason, PanicError, PanicReason},
     mailbox::{MailboxReceiver, Signal},
     message::BoxMessage,
     reply::BoxReplySender,
@@ -87,16 +87,12 @@ where
                     ControlFlow::Continue(())
                 }
             }
-            Ok(Err(_)) if !A::TELL_PANIC_ON_ERR => {
-                if stop {
-                    ControlFlow::Break(ActorStopReason::Normal)
-                } else {
-                    ControlFlow::Continue(())
-                }
-            }
-            Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(err))), // The reply was an error
+            Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
+                err,
+                PanicReason::OnMessage,
+            ))), // The reply was an error
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
-                PanicError::new_from_panic_any(err),
+                PanicError::new_from_panic_any(err, PanicReason::HandlerPanic),
             )), // The handler panicked
         }
     }
@@ -116,11 +112,12 @@ where
         self.actor_ref.links.lock().await.remove(&id);
         match res {
             Ok(Ok(flow)) => flow,
-            Ok(Err(err)) => {
-                ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(Box::new(err))))
-            }
+            Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
+                Box::new(err),
+                PanicReason::OnLinkDied,
+            ))),
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
-                PanicError::new_from_panic_any(err),
+                PanicError::new_from_panic_any(err, PanicReason::OnLinkDied),
             )),
         }
     }
@@ -145,6 +142,7 @@ where
                     Ok(ControlFlow::Break(reason)) => ControlFlow::Break(reason),
                     Err(err) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
                         Box::new(err),
+                        PanicReason::OnPanic,
                     ))),
                 }
             }
