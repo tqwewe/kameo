@@ -21,7 +21,7 @@ use futures::{Future, FutureExt, future::BoxFuture};
 use crate::{
     Actor,
     actor::ActorRef,
-    error::{self, PanicError, SendError},
+    error::{self, PanicError, PanicReason, SendError},
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
 };
 
@@ -230,7 +230,10 @@ where
                 }
                 None => {
                     if let Some(err) = reply.into_any_err() {
-                        error::invoke_actor_error_hook(&PanicError::new(err));
+                        error::invoke_actor_error_hook(&PanicError::new(
+                            err,
+                            PanicReason::OnMessage,
+                        ));
                     }
                 }
             }
