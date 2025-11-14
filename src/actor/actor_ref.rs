@@ -394,7 +394,7 @@ where
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.0.lock() {
+            Err(err) => match err.err.lock() {
                 Ok(lock) => match lock.downcast_ref() {
                     Some(err) => f(Err(HookError::Error(err))),
                     None => f(Err(HookError::Panicked(err.clone()))),
@@ -530,7 +530,7 @@ where
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.0.lock() {
+            Err(err) => match err.err.lock() {
                 Ok(lock) => match lock.downcast_ref() {
                     Some(err) => f(Err(HookError::Error(err))),
                     None => f(Err(HookError::Panicked(err.clone()))),

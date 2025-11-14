@@ -18,7 +18,7 @@ use crate::remote;
 
 use crate::{
     actor::{Actor, ActorRef, CURRENT_ACTOR_ID, Link, Links, kind::ActorBehaviour},
-    error::{ActorStopReason, PanicError, SendError, invoke_actor_error_hook},
+    error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
     mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -172,8 +172,8 @@ where
     let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
         .catch_unwind()
         .await
-        .map(|res| res.map_err(|err| PanicError::new(Box::new(err))))
-        .map_err(PanicError::new_from_panic_any)
+        .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart)))
+        .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
         .and_then(convert::identity);
     let startup_finished = matches!(
         actor_ref.weak_signal_mailbox().signal_startup_finished(),
@@ -216,7 +216,7 @@ where
                         .expect("nothing else should set the shutdown result");
                 }
                 Err(err) => {
-                    let err = PanicError::new(Box::new(err));
+                    let err = PanicError::new(Box::new(err), PanicReason::OnStop);
                     invoke_actor_error_hook(&err);
 
                     actor_ref

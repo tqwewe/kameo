@@ -197,7 +197,6 @@ pub trait Actor: Sized + Send + 'static {
     /// - The `tx` (reply sender) is tied to the specific `BoxMessage` it corresponds to,
     ///   and passing an incorrect or mismatched `tx` can lead to a panic.
     /// - The `stop` variable can be set to true in a message handler, by calling `Context::stop`.
-    #[inline]
     fn on_message(
         &mut self,
         msg: BoxMessage<Self>,
