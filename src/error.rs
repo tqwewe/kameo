@@ -643,14 +643,16 @@ pub enum PanicReason {
     /// This occurs when an actor's [`Message::handle`](crate::message::Message::handle)
     /// implementation panics or unwinds.
     HandlerPanic,
-    /// The `on_message` hook returned an error.
+    /// The [`on_message`] hook returned an error.
     ///
     /// In the default implementation, this occurs when a message handler returns
     /// an error during a [`tell`](crate::actor::ActorRef::tell) operation, where
     /// there's no mechanism to return the error to the caller. However, if
-    /// [`Actor::on_message`] is overridden with
+    /// [`on_message`] is overridden with
     /// custom logic, this variant indicates that the custom implementation
     /// returned an error.
+    ///
+    /// [`on_message`]: Actor::on_message
     OnMessage,
     /// The [`on_start`](Actor::on_start) lifecycle hook returned an error.
     OnStart,
