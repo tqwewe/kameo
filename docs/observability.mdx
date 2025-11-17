@@ -1,0 +1,44 @@
+---
+title: Observability
+---
+
+## Metrics
+
+Kameo supports a `metrics` feature flag, which keeps track of the number of messages and signals sent and received across actors.
+
+```toml
+kameo = { version = "*", features = ["metrics"] }
+```
+
+With the feature flag enabled, you can install any supported global recorder compatible with the [metrics] crate.
+
+Some common exporters include:
+
+- [metrics-exporter-tcp] - outputs metrics to clients over TCP
+- [metrics-exporter-prometheus] - serves a Prometheus scrape endpoint
+
+[metrics]: https://docs.rs/metrics
+[metrics-exporter-tcp]: https://docs.rs/metrics-exporter-tcp
+[metrics-exporter-prometheus]: https://docs.rs/metrics-exporter-prometheus
+
+## Channels Console
+
+For observability in your terminal, a TUI called [channels-console] is available and supported by kameo.
+
+![Console TUI Example](https://github.com/pawurb/channels-console/raw/main/channels-console-tui5.gif)
+
+This can be enabled with the `channels-console` feature flag in kameo:
+
+```toml
+kameo = { version = "*", features = ["channels-console"] }
+```
+
+You'll also need to install the channels-console TUI:
+
+```bash
+cargo install channels-console --features=tui
+```
+
+Once installed, you can run your kameo app, and in another terminal run `channels-console` to immediately get live usage metrics.
+
+[channels-console]: https://github.com/pawurb/channels-console
