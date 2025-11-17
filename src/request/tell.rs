@@ -842,14 +842,20 @@ mod tests {
             Ok(())
         );
         // Mailbox is empty, this will make there be one item in the mailbox
-        assert_eq!(
-            actor_ref
-                .tell(Sleep(Duration::from_millis(100)))
-                .mailbox_timeout(Duration::from_millis(10))
-                .send()
-                .await,
-            Ok(())
-        );
+        #[cfg(not(feature = "channels-console"))]
+        let fill_count = 1;
+        #[cfg(feature = "channels-console")]
+        let fill_count = 5;
+        for _ in 0..fill_count {
+            assert_eq!(
+                actor_ref
+                    .tell(Sleep(Duration::from_millis(100)))
+                    .mailbox_timeout(Duration::from_millis(10))
+                    .send()
+                    .await,
+                Ok(())
+            );
+        }
         // Finally, this one will fail because there's one item in the mailbox already.
         assert_eq!(
             actor_ref

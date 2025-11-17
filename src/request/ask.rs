@@ -1274,15 +1274,21 @@ mod tests {
                 .await,
             Ok(())
         );
-        // Mailbox still empty, this will add one message to it
-        assert_eq!(
-            actor_ref
-                .tell(Sleep(Duration::from_millis(100)))
-                .mailbox_timeout(Duration::from_millis(10))
-                .send()
-                .await,
-            Ok(())
-        );
+        // Mailbox is empty, this will make there be one item in the mailbox
+        #[cfg(not(feature = "channels-console"))]
+        let fill_count = 1;
+        #[cfg(feature = "channels-console")]
+        let fill_count = 5;
+        for _ in 0..fill_count {
+            assert_eq!(
+                actor_ref
+                    .tell(Sleep(Duration::from_millis(100)))
+                    .mailbox_timeout(Duration::from_millis(10))
+                    .send()
+                    .await,
+                Ok(())
+            );
+        }
         // Mailbox has one item, this will fail
         assert_eq!(
             actor_ref
