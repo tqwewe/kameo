@@ -28,12 +28,7 @@ use crate::{
 pub fn bounded<A: Actor>(buffer: usize) -> (MailboxSender<A>, MailboxReceiver<A>) {
     let (tx, rx) = mpsc::channel(buffer);
     #[cfg(feature = "channels-console")]
-    let (tx, rx) = channels_console::Instrument::instrument(
-        (tx, rx),
-        concat!(file!(), ":", line!()),
-        Some(A::name()),
-        Some(buffer),
-    );
+    let (tx, rx) = channels_console::instrument!((tx, rx), label = A::name());
     (
         MailboxSender {
             inner: MailboxSenderInner::Bounded(tx),
@@ -64,12 +59,7 @@ pub fn bounded<A: Actor>(buffer: usize) -> (MailboxSender<A>, MailboxReceiver<A>
 pub fn unbounded<A: Actor>() -> (MailboxSender<A>, MailboxReceiver<A>) {
     let (tx, rx) = mpsc::unbounded_channel();
     #[cfg(feature = "channels-console")]
-    let (tx, rx) = channels_console::Instrument::instrument(
-        (tx, rx),
-        concat!(file!(), ":", line!()),
-        Some(A::name()),
-        None,
-    );
+    let (tx, rx) = channels_console::instrument!((tx, rx), label = A::name());
     (
         MailboxSender {
             inner: MailboxSenderInner::Unbounded(tx),
