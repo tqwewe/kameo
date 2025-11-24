@@ -1275,9 +1275,9 @@ mod tests {
             Ok(())
         );
         // Mailbox is empty, this will make there be one item in the mailbox
-        #[cfg(not(feature = "channels-console"))]
+        #[cfg(not(feature = "hotpath"))]
         let fill_count = 1;
-        #[cfg(feature = "channels-console")]
+        #[cfg(feature = "hotpath")]
         let fill_count = 5;
         for _ in 0..fill_count {
             assert_eq!(
