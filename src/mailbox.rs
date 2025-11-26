@@ -27,8 +27,8 @@ use crate::{
 /// [`mpsc::channel`]: tokio::sync::mpsc::channel
 pub fn bounded<A: Actor>(buffer: usize) -> (MailboxSender<A>, MailboxReceiver<A>) {
     let (tx, rx) = mpsc::channel(buffer);
-    #[cfg(feature = "channels-console")]
-    let (tx, rx) = channels_console::instrument!((tx, rx), label = A::name());
+    #[cfg(feature = "hotpath")]
+    let (tx, rx) = hotpath::channel!((tx, rx), label = A::name());
     (
         MailboxSender {
             inner: MailboxSenderInner::Bounded(tx),
@@ -58,8 +58,8 @@ pub fn bounded<A: Actor>(buffer: usize) -> (MailboxSender<A>, MailboxReceiver<A>
 /// [`mpsc::unbounded_channel`]: tokio::sync::mpsc::unbounded_channel
 pub fn unbounded<A: Actor>() -> (MailboxSender<A>, MailboxReceiver<A>) {
     let (tx, rx) = mpsc::unbounded_channel();
-    #[cfg(feature = "channels-console")]
-    let (tx, rx) = channels_console::instrument!((tx, rx), label = A::name());
+    #[cfg(feature = "hotpath")]
+    let (tx, rx) = hotpath::channel!((tx, rx), label = A::name());
     (
         MailboxSender {
             inner: MailboxSenderInner::Unbounded(tx),
