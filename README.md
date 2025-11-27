@@ -159,10 +159,8 @@ If you find Kameo useful and would like to support its development, please consi
 
 ### Special Thanks to Our Sponsors
 
-A huge thank you to [**Huly Labs**], [**Caido Community**], [**vanhouc**], [**cawfeecoder**], and [**JaniM**] for supporting Kameo's development! 💖
+A huge thank you to [**Caido Community**], [**vanhouc**], [**cawfeecoder**], and [**JaniM**] for supporting Kameo's development! 💖
 
-<a href="https://huly.io/"><img src="https://avatars.githubusercontent.com/u/87086734?s=100&v=4" width="100" height="100" alt="Huly Labs"/></a>
-&nbsp;&nbsp;&nbsp;
 <a href="https://github.com/caido-community"><img src="https://avatars.githubusercontent.com/u/168573261?s=100&v=4" width="100" height="100" alt="Caido Community"/></a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://github.com/vanhouc"><img src="https://avatars.githubusercontent.com/u/3475140?s=100&v=4" width="100" height="100" alt="vanhouc"/></a>
@@ -171,7 +169,6 @@ A huge thank you to [**Huly Labs**], [**Caido Community**], [**vanhouc**], [**ca
 &nbsp;&nbsp;&nbsp;
 <a href="https://github.com/JaniM"><img src="https://avatars.githubusercontent.com/u/908675?s=100&v=4" width="100" height="100" alt="JaniM"/></a>
 
-[**Huly Labs**]: https://huly.io/
 [**Caido Community**]: https://github.com/caido-community
 [**vanhouc**]: https://github.com/vanhouc
 [**cawfeecoder**]: https://github.com/cawfeecoder
