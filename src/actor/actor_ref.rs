@@ -201,7 +201,7 @@ where
     pub fn downgrade(&self) -> WeakActorRef<A> {
         WeakActorRef {
             id: self.id,
-            mailbox: self.mailbox_sender.downgrade(),
+            mailbox_sender: self.mailbox_sender.downgrade(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_result: self.startup_result.clone(),
@@ -212,7 +212,7 @@ where
     pub(crate) fn into_downgrade(self) -> WeakActorRef<A> {
         WeakActorRef {
             id: self.id,
-            mailbox: self.mailbox_sender.downgrade(),
+            mailbox_sender: self.mailbox_sender.downgrade(),
             abort_handle: self.abort_handle,
             links: self.links,
             startup_result: self.startup_result,
@@ -1842,7 +1842,7 @@ impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
 /// if all `ActorRef`s have been dropped, and otherwise it returns an `ActorRef`.
 pub struct WeakActorRef<A: Actor> {
     id: ActorId,
-    mailbox: WeakMailboxSender<A>,
+    mailbox_sender: WeakMailboxSender<A>,
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
@@ -1855,10 +1855,16 @@ impl<A: Actor> WeakActorRef<A> {
         self.id
     }
 
+    /// Returns whether the actor is currently alive.
+    #[inline]
+    pub fn is_alive(&self) -> bool {
+        !self.shutdown_result.initialized()
+    }
+
     /// Tries to convert a `WeakActorRef` into a [`ActorRef`]. This will return `Some`
     /// if there are other `ActorRef` instances alive, otherwise `None` is returned.
     pub fn upgrade(&self) -> Option<ActorRef<A>> {
-        self.mailbox.upgrade().map(|mailbox| ActorRef {
+        self.mailbox_sender.upgrade().map(|mailbox| ActorRef {
             id: self.id,
             mailbox_sender: mailbox,
             abort_handle: self.abort_handle.clone(),
@@ -1870,18 +1876,206 @@ impl<A: Actor> WeakActorRef<A> {
 
     /// Returns the number of [`ActorRef`] handles.
     pub fn strong_count(&self) -> usize {
-        self.mailbox.strong_count()
+        self.mailbox_sender.strong_count()
     }
 
     /// Returns the number of [`WeakActorRef`] handles.
     pub fn weak_count(&self) -> usize {
-        self.mailbox.weak_count()
+        self.mailbox_sender.weak_count()
+    }
+
+    /// Returns `true` if the current task is the actor itself.
+    ///
+    /// See [`ActorRef::is_current`] for full details.
+    #[inline]
+    pub fn is_current(&self) -> bool {
+        CURRENT_ACTOR_ID
+            .try_with(Clone::clone)
+            .map(|current_actor_id| current_actor_id == self.id)
+            .unwrap_or(false)
+    }
+
+    /// Kills the actor immediately.
+    ///
+    /// See [`ActorRef::kill`] for full details on behavior.
+    #[inline]
+    pub fn kill(&self) {
+        self.abort_handle.abort()
+    }
+
+    /// Waits for the actor to finish startup and become ready to process messages.
+    ///
+    /// See [`ActorRef::wait_for_startup`] for full details and examples.
+    #[inline]
+    pub async fn wait_for_startup(&self) {
+        self.startup_result.wait().await;
+    }
+
+    /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
+    ///
+    /// See [`ActorRef::wait_for_startup_result`] for full details and examples.
+    pub async fn wait_for_startup_result(&self) -> Result<(), HookError<A::Error>>
+    where
+        A::Error: Clone,
+    {
+        match self.startup_result.wait().await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err
+                .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
+                .unwrap_or_else(|| HookError::Panicked(err.clone()))),
+        }
+    }
+
+    /// Waits for the actor to finish startup, returning the startup result with a closure containing the error.
+    ///
+    /// See [`ActorRef::wait_for_startup_with_result`] for full details and examples.
+    pub async fn wait_for_startup_with_result<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
+    {
+        match self.startup_result.wait().await {
+            Ok(()) => f(Ok(())),
+            Err(err) => match err.err.lock() {
+                Ok(lock) => match lock.downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+            },
+        }
+    }
+
+    /// Waits for the actor to finish processing and stop running.
+    ///
+    /// See [`ActorRef::wait_for_shutdown`] for full details and examples.
+    #[inline]
+    pub async fn wait_for_shutdown(&self) {
+        self.shutdown_result.wait().await;
+    }
+
+    /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
+    ///
+    /// See [`ActorRef::wait_for_shutdown_result`] for full details and examples.
+    pub async fn wait_for_shutdown_result(&self) -> Result<(), HookError<A::Error>>
+    where
+        A::Error: Clone,
+    {
+        match self.shutdown_result.wait().await {
+            Ok(()) => Ok(()),
+            Err(err) => Err(err
+                .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
+                .unwrap_or_else(|| HookError::Panicked(err.clone()))),
+        }
+    }
+
+    /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
+    ///
+    /// See [`ActorRef::wait_for_shutdown_with_result`] for full details and examples.
+    pub async fn wait_for_shutdown_with_result<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
+    {
+        match self.shutdown_result.wait().await {
+            Ok(()) => f(Ok(())),
+            Err(err) => match err.err.lock() {
+                Ok(lock) => match lock.downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
+                    Some(err) => f(Err(HookError::Error(err))),
+                    None => f(Err(HookError::Panicked(err.clone()))),
+                },
+            },
+        }
+    }
+
+    /// Unlinks two previously linked sibling actors.
+    ///
+    /// See [`ActorRef::unlink`] for full details and examples.
+    #[inline]
+    pub async fn unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id {
+            return;
+        }
+
+        if self.id < sibbling_ref.id {
+            let mut this_links = self.links.lock().await;
+            let mut sibbling_links = sibbling_ref.links.lock().await;
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        } else {
+            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut this_links = self.links.lock().await;
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        }
+    }
+
+    /// Blockingly unlinks two previously linked sibling actors.
+    ///
+    /// See [`ActorRef::blocking_unlink`] for full details and examples.
+    #[inline]
+    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
+        if self.id == sibbling_ref.id {
+            return;
+        }
+
+        if self.id < sibbling_ref.id {
+            let mut this_links = self.links.blocking_lock();
+            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        } else {
+            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut this_links = self.links.blocking_lock();
+
+            this_links.remove(&sibbling_ref.id);
+            sibbling_links.remove(&self.id);
+        }
+    }
+
+    /// Unlinks the local actor with a previously linked remote actor.
+    ///
+    /// See [`ActorRef::unlink_remote`] for full details and examples.
+    #[cfg(feature = "remote")]
+    pub async fn unlink_remote<B>(
+        &self,
+        sibbling_ref: &RemoteActorRef<B>,
+    ) -> Result<(), error::RemoteSendError<error::Infallible>>
+    where
+        A: remote::RemoteActor,
+        B: Actor + remote::RemoteActor,
+    {
+        if self.id == sibbling_ref.id {
+            return Ok(());
+        }
+
+        self.links.lock().await.remove(&sibbling_ref.id);
+        remote::ActorSwarm::get()
+            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
+            .unlink::<B>(self.id, sibbling_ref.id)
+            .await
+    }
+
+    /// Returns a reference to the weak mailbox sender.
+    ///
+    /// See [`ActorRef::mailbox_sender`] for full details.
+    #[inline]
+    pub fn mailbox_sender(&self) -> &WeakMailboxSender<A> {
+        &self.mailbox_sender
     }
 
     #[cfg(feature = "remote")]
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
-        Box::new(self.mailbox.clone())
+        Box::new(self.mailbox_sender.clone())
     }
 }
 
@@ -1889,7 +2083,7 @@ impl<A: Actor> Clone for WeakActorRef<A> {
     fn clone(&self) -> Self {
         WeakActorRef {
             id: self.id,
-            mailbox: self.mailbox.clone(),
+            mailbox_sender: self.mailbox_sender.clone(),
             abort_handle: self.abort_handle.clone(),
             links: self.links.clone(),
             startup_result: self.startup_result.clone(),
