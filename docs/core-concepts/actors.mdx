@@ -57,7 +57,7 @@ impl Actor for MyActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         println!("Actor started");
         Ok(MyActor)
     }
