@@ -103,36 +103,6 @@ path = "examples/remote/type_hash_demo.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "streaming_api_server"
-path = "examples/remote/streaming_api_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "streaming_api_client"
-path = "examples/remote/streaming_api_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_streaming_simple"
-path = "examples/remote/test_streaming_simple.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_message_sizes"
-path = "examples/remote/test_message_sizes.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "streaming_only_test"
-path = "examples/remote/streaming_only_test.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "max_performance_test"
-path = "examples/remote/max_performance_test.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "ask_concrete_client"
 path = "examples/remote/ask_concrete_client.rs"
 required-features = ["remote"]
@@ -173,11 +143,6 @@ path = "examples/remote/ask_generic_server.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "simple_streaming_test"
-path = "examples/remote/simple_streaming_test.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "tell_concrete_client"
 path = "examples/remote/tell_concrete_client.rs"
 required-features = ["remote"]
@@ -198,16 +163,6 @@ path = "examples/remote/tell_concrete_lookup_fail_server.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "prebacktest_stream_server"
-path = "examples/remote/prebacktest_stream_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "prebacktest_stream_client"
-path = "examples/remote/prebacktest_stream_client.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "tell_generic_client"
 path = "examples/remote/tell_generic_client.rs"
 required-features = ["remote"]
@@ -223,83 +178,8 @@ path = "examples/remote/tell_messages.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "tell_candle_client"
-path = "examples/remote/tell_candle_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_candle_server"
-path = "examples/remote/tell_candle_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_large_messages"
-path = "examples/remote/test_large_messages.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "test_large_only"
 path = "examples/remote/test_large_only.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_streaming_fix"
-path = "examples/remote/test_streaming_fix.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "type_hash_compile_time_proof"
-path = "examples/remote/type_hash_compile_time_proof.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "type_hash_const_proof"
-path = "examples/remote/type_hash_const_proof.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "zero_alloc_demo"
-path = "examples/remote/zero_alloc_demo.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "zero_copy_benchmark"
-path = "examples/remote/zero_copy_benchmark.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "zero_copy_comparison_test"
-path = "examples/remote/zero_copy_comparison_test.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "zero_copy_perf_test"
-path = "examples/remote/zero_copy_perf_test.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_bidirectional_gossip"
-path = "examples/remote/test_bidirectional_gossip.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "bug_gossip_fail_server"
-path = "examples/remote/bug_gossip_fail_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "bug_gossip_fail_client"
-path = "examples/remote/bug_gossip_fail_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "prebacktest_benchmark_client"
-path = "examples/remote/prebacktest_benchmark_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "simple_prebacktest_client"
-path = "examples/remote/simple_prebacktest_client.rs"
 required-features = ["remote"]
 
 [[example]]
@@ -315,16 +195,6 @@ required-features = ["remote"]
 [[example]]
 name = "ask_client_simple_match"
 path = "examples/remote/ask_client_simple_match.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_bugfix_server"
-path = "examples/remote/tell_bugfix_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_bugfix_client"
-path = "examples/remote/tell_bugfix_client.rs"
 required-features = ["remote"]
 
 [[bench]]
