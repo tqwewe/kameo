@@ -12,8 +12,7 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 // Removed serde - using rkyv for zero-copy serialization
 use tokio::sync::RwLock;
 
-use super::transport::BoxError;
-use crate::actor::{Actor, ActorId};
+use crate::actor::ActorId;
 
 use super::transport::{
     MessageHandler, RemoteActorLocation, RemoteTransport, TransportConfig, TransportError,
@@ -32,6 +31,16 @@ pub struct KameoTransport {
     registry: Arc<RwLock<std::collections::HashMap<String, ActorId>>>,
 }
 
+impl std::fmt::Debug for KameoTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KameoTransport")
+            .field("config", &self.config)
+            .field("has_handle", &self.handle.is_some())
+            .field("has_message_handler", &self.message_handler.is_some())
+            .finish()
+    }
+}
+
 impl KameoTransport {
     /// Create a new kameo_remote transport with the given configuration
     pub fn new(config: TransportConfig) -> Self {
@@ -47,42 +56,57 @@ impl KameoTransport {
     pub fn handle(&self) -> Option<&kameo_remote::GossipRegistryHandle> {
         self.handle.as_ref().map(|arc| arc.as_ref())
     }
-    
+
     /// Get the underlying kameo_remote handle for advanced operations like adding peers
     pub fn get_handle(&self) -> Result<Arc<kameo_remote::GossipRegistryHandle>, TransportError> {
-        self.handle.as_ref()
+        self.handle
+            .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))
             .map(|h| h.clone())
     }
-    
+
     /// Set the handle for the transport (used when creating with custom keypair)
     pub fn set_handle(&mut self, handle: Arc<GossipRegistryHandle>) {
         self.handle = Some(handle);
     }
-    
+
     /// Register an actor with synchronous peer acknowledgment using default timeout
-    /// 
+    ///
     /// This is a convenience method that calls the trait method with a 2 second timeout.
-    pub async fn register_actor_sync(&self, name: String, actor_id: ActorId) -> TransportResult<()> {
-        <Self as RemoteTransport>::register_actor_sync(self, name, actor_id, Duration::from_secs(2)).await
+    pub async fn register_actor_sync(
+        &self,
+        name: String,
+        actor_id: ActorId,
+    ) -> TransportResult<()> {
+        <Self as RemoteTransport>::register_actor_sync(self, name, actor_id, Duration::from_secs(2))
+            .await
     }
-    
+
     /// Register a distributed actor and automatically register its handlers.
-    /// 
+    ///
     /// This method registers the actor and automatically calls its distributed handler registration.
     /// The actor must implement the DistributedActor trait (via the distributed_actor! macro).
-    /// 
+    ///
     /// NOTE: Defaults to Immediate priority for fast gossip propagation.
-    pub async fn register_distributed_actor<A>(&self, name: String, actor_ref: &crate::actor::ActorRef<A>) -> TransportResult<()> 
+    pub async fn register_distributed_actor<A>(
+        &self,
+        name: String,
+        actor_ref: &crate::actor::ActorRef<A>,
+    ) -> TransportResult<()>
     where
         A: crate::Actor + crate::remote::DistributedActor + 'static,
     {
         // Default to Immediate priority for fast registration without delays
-        self.register_distributed_actor_with_priority(name, actor_ref, kameo_remote::RegistrationPriority::Immediate).await
+        self.register_distributed_actor_with_priority(
+            name,
+            actor_ref,
+            kameo_remote::RegistrationPriority::Immediate,
+        )
+        .await
     }
 
     /// Register a distributed actor synchronously with peer confirmation.
-    /// 
+    ///
     /// This method registers the actor, registers its handlers, and waits for confirmation from at least one peer.
     /// If no peers are available, returns immediately after local registration.
     /// Use this to eliminate sleep delays in distributed systems by waiting for actual gossip propagation.
@@ -95,14 +119,21 @@ impl KameoTransport {
     where
         A: crate::Actor + crate::remote::DistributedActor + 'static,
     {
-        tracing::info!("🔄 [TRANSPORT] Starting register_distributed_actor_sync for '{}' (timeout: {:?})", name, timeout);
-        
+        tracing::info!(
+            "🔄 [TRANSPORT] Starting register_distributed_actor_sync for '{}' (timeout: {:?})",
+            name,
+            timeout
+        );
+
         // Validate that global transport is properly configured
         {
             use super::distributed_actor_ref::GLOBAL_TRANSPORT;
             let global = GLOBAL_TRANSPORT.lock().unwrap();
             if global.is_none() {
-                tracing::error!("❌ [TRANSPORT] No global transport configured for '{}'", name);
+                tracing::error!(
+                    "❌ [TRANSPORT] No global transport configured for '{}'",
+                    name
+                );
                 return Err(TransportError::Other(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
                     "No global transport configured - call bootstrap_on() or bootstrap_with_config() first"
@@ -117,9 +148,15 @@ impl KameoTransport {
         tracing::info!("📋 [TRANSPORT] Actor ID for '{}': {}", name, actor_id);
 
         // Register distributed handlers
-        tracing::info!("📡 [TRANSPORT] Registering distributed handlers for '{}'", name);
+        tracing::info!(
+            "📡 [TRANSPORT] Registering distributed handlers for '{}'",
+            name
+        );
         A::__register_distributed_handlers(actor_ref);
-        tracing::info!("✅ [TRANSPORT] Distributed handlers registered for '{}'", name);
+        tracing::info!(
+            "✅ [TRANSPORT] Distributed handlers registered for '{}'",
+            name
+        );
 
         // Use sync registration with kameo_remote to wait for peer confirmation
         let handle = self
@@ -130,34 +167,69 @@ impl KameoTransport {
 
         // Serialize ActorId as metadata using rkyv for zero-copy
         tracing::info!("📦 [TRANSPORT] Serializing ActorId metadata for '{}'", name);
-        let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
-            tracing::error!("❌ [TRANSPORT] Failed to serialize ActorId for '{}': {}", name, e);
-            TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
-        })?.to_vec();
-        tracing::info!("✅ [TRANSPORT] ActorId serialized for '{}', metadata size: {} bytes", name, metadata.len());
+        let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id)
+            .map_err(|e| {
+                tracing::error!(
+                    "❌ [TRANSPORT] Failed to serialize ActorId for '{}': {}",
+                    name,
+                    e
+                );
+                TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
+            })?
+            .to_vec();
+        tracing::info!(
+            "✅ [TRANSPORT] ActorId serialized for '{}', metadata size: {} bytes",
+            name,
+            metadata.len()
+        );
 
         // Create location with metadata and immediate priority for sync registration
         let bind_addr = handle.registry.bind_addr;
-        tracing::info!("🏠 [TRANSPORT] Creating RemoteActorLocation for '{}' at bind_addr: {}", name, bind_addr);
+        tracing::info!(
+            "🏠 [TRANSPORT] Creating RemoteActorLocation for '{}' at bind_addr: {}",
+            name,
+            bind_addr
+        );
         let mut location = kameo_remote::RemoteActorLocation::new_with_metadata(
-            bind_addr, 
-            handle.registry.peer_id.clone(), 
-            metadata
+            bind_addr,
+            handle.registry.peer_id.clone(),
+            metadata,
         );
         location.priority = kameo_remote::RegistrationPriority::Immediate;
-        tracing::info!("📍 [TRANSPORT] RemoteActorLocation created for '{}' with Immediate priority", name);
+        tracing::info!(
+            "📍 [TRANSPORT] RemoteActorLocation created for '{}' with Immediate priority",
+            name
+        );
 
         // Use sync registration - this waits for peer confirmation or returns immediately if no peers
-        tracing::info!("⏳ [TRANSPORT] Calling registry.register_actor_sync for '{}' (timeout: {:?})", name, timeout);
-        match handle.registry.register_actor_sync(name.clone(), location, timeout).await {
+        tracing::info!(
+            "⏳ [TRANSPORT] Calling registry.register_actor_sync for '{}' (timeout: {:?})",
+            name,
+            timeout
+        );
+        match handle
+            .registry
+            .register_actor_sync(name.clone(), location, timeout)
+            .await
+        {
             Ok(()) => {
-                tracing::info!("✅ [TRANSPORT] Successfully registered '{}' with kameo_remote registry", name);
+                tracing::info!(
+                    "✅ [TRANSPORT] Successfully registered '{}' with kameo_remote registry",
+                    name
+                );
             }
             Err(e) => {
-                tracing::error!("❌ [TRANSPORT] Failed to register '{}' with kameo_remote: {:?}", name, e);
+                tracing::error!(
+                    "❌ [TRANSPORT] Failed to register '{}' with kameo_remote: {:?}",
+                    name,
+                    e
+                );
                 // Check if this is a timeout error and panic with debug info
                 let error_msg = format!("{:?}", e);
-                if error_msg.contains("timed out") || error_msg.contains("timeout") || error_msg.contains("Timeout") {
+                if error_msg.contains("timed out")
+                    || error_msg.contains("timeout")
+                    || error_msg.contains("Timeout")
+                {
                     panic!(
                         "🚨 CRITICAL: register_distributed_actor_sync timed out after {:?} for actor '{}'\n\
                          This should NEVER happen in normal operation and indicates a serious distributed system issue:\n\
@@ -175,21 +247,24 @@ impl KameoTransport {
             }
         }
 
-        tracing::info!("🎉 [TRANSPORT] Completed register_distributed_actor_sync for '{}'", name);
+        tracing::info!(
+            "🎉 [TRANSPORT] Completed register_distributed_actor_sync for '{}'",
+            name
+        );
         Ok(())
     }
 
     /// Register a distributed actor with specific priority and automatically register its handlers.
-    /// 
+    ///
     /// This method registers the actor with the specified priority and automatically calls its distributed handler registration.
     /// Use RegistrationPriority::Immediate for instant gossip propagation without delay.
     /// The actor must implement the DistributedActor trait (via the distributed_actor! macro).
     pub async fn register_distributed_actor_with_priority<A>(
-        &self, 
-        name: String, 
+        &self,
+        name: String,
         actor_ref: &crate::actor::ActorRef<A>,
-        priority: kameo_remote::RegistrationPriority
-    ) -> TransportResult<()> 
+        priority: kameo_remote::RegistrationPriority,
+    ) -> TransportResult<()>
     where
         A: crate::Actor + crate::remote::DistributedActor + 'static,
     {
@@ -204,17 +279,18 @@ impl KameoTransport {
                 ))));
             }
         }
-        
+
         // Register the actor with the specified priority (convert enum to u8)
         let priority_u8 = match priority {
             kameo_remote::RegistrationPriority::Normal => 0,
             kameo_remote::RegistrationPriority::Immediate => 1,
         };
-        self.register_actor_with_priority(name, actor_ref.id(), priority_u8).await?;
-        
+        self.register_actor_with_priority(name, actor_ref.id(), priority_u8)
+            .await?;
+
         // Automatically register the distributed handlers
         A::__register_distributed_handlers(actor_ref);
-        
+
         Ok(())
     }
 }
@@ -224,7 +300,7 @@ impl KameoTransport {
     pub async fn connect_to_peers(&self) -> Result<(), super::transport::TransportError> {
         if let Some(handle) = &self.handle {
             let mut successful_connections = 0;
-            
+
             for peer_addr in self.config.peers.iter() {
                 // Use proper node naming like manual examples: kameo_node_{port}
                 let peer_node_name = format!("kameo_node_{}", peer_addr.port());
@@ -234,7 +310,9 @@ impl KameoTransport {
                 );
 
                 // Use the proper kameo_remote API: add_peer + connect with proper PeerId
-                let peer = handle.add_peer(&kameo_remote::PeerId::new(&peer_node_name)).await;
+                let peer = handle
+                    .add_peer(&kameo_remote::PeerId::new(&peer_node_name))
+                    .await;
                 match peer.connect(peer_addr).await {
                     Ok(_) => {
                         println!(
@@ -254,12 +332,15 @@ impl KameoTransport {
             }
 
             if successful_connections > 0 {
-                println!("Successfully connected to {} peers using kameo_remote API.", successful_connections);
+                println!(
+                    "Successfully connected to {} peers using kameo_remote API.",
+                    successful_connections
+                );
             }
         }
         Ok(())
     }
-    
+
     /// Get a connection handle for a specific location
     /// This allows caching the connection to avoid mutex locks on every tell/ask
     pub async fn get_connection_for_location(
@@ -270,10 +351,14 @@ impl KameoTransport {
             .handle
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
-            
+
         // This still goes through the mutex, but only once during actor ref creation
-        handle.get_connection(location.peer_addr).await
-            .map_err(|e| TransportError::ConnectionFailed(format!("Failed to get connection: {}", e)))
+        handle
+            .get_connection(location.peer_addr)
+            .await
+            .map_err(|e| {
+                TransportError::ConnectionFailed(format!("Failed to get connection: {}", e))
+            })
     }
 }
 
@@ -293,10 +378,10 @@ impl RemoteTransport for KameoTransport {
             // For default bootstrap_on, we use a test keypair (not for production)
             let node_name = format!("kameo_node_{}", bind_addr.port());
             let keypair = kameo_remote::KeyPair::new_for_testing(&node_name);
-            
+
             let gossip_config = GossipConfig {
                 key_pair: Some(keypair),
-                gossip_interval: Duration::from_secs(5), 
+                gossip_interval: Duration::from_secs(5),
                 max_gossip_peers: 3,
                 ..Default::default()
             };
@@ -348,27 +433,36 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
-                TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
-            })?.to_vec();
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id)
+                .map_err(|e| {
+                    TransportError::SerializationFailed(format!(
+                        "Failed to serialize ActorId: {}",
+                        e
+                    ))
+                })?
+                .to_vec();
 
             // Register with kameo_remote's gossip protocol including ActorId metadata
             let bind_addr = handle.registry.bind_addr;
-            
+
             // Create location with metadata and immediate priority for instant gossip
             let mut location = kameo_remote::RemoteActorLocation::new_with_metadata(
-                bind_addr, 
-                handle.registry.peer_id.clone(), 
-                metadata
+                bind_addr,
+                handle.registry.peer_id.clone(),
+                metadata,
             );
             location.priority = kameo_remote::RegistrationPriority::Immediate;
-            
+
             // Register with immediate priority to trigger instant gossip synchronization
-            handle.registry
-                .register_actor_with_priority(name.clone(), location, kameo_remote::RegistrationPriority::Immediate)
+            handle
+                .registry
+                .register_actor_with_priority(
+                    name.clone(),
+                    location,
+                    kameo_remote::RegistrationPriority::Immediate,
+                )
                 .await
                 .map_err(|e| TransportError::Other(Box::new(e)))?;
-
 
             // With Immediate priority, the registration will trigger immediate gossip
             // to all connected peers, eliminating the need to wait for the next gossip interval
@@ -395,20 +489,25 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
-                TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
-            })?.to_vec();
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id)
+                .map_err(|e| {
+                    TransportError::SerializationFailed(format!(
+                        "Failed to serialize ActorId: {}",
+                        e
+                    ))
+                })?
+                .to_vec();
 
             // Register with kameo_remote's gossip protocol using specified priority
             let bind_addr = handle.registry.bind_addr;
-            
+
             // Create location with metadata and convert u8 priority to RegistrationPriority
             let mut location = kameo_remote::RemoteActorLocation::new_with_metadata(
-                bind_addr, 
-                handle.registry.peer_id.clone(), 
-                metadata
+                bind_addr,
+                handle.registry.peer_id.clone(),
+                metadata,
             );
-            
+
             // Convert u8 to RegistrationPriority
             let kameo_priority = if priority >= 1 {
                 kameo_remote::RegistrationPriority::Immediate
@@ -416,9 +515,10 @@ impl RemoteTransport for KameoTransport {
                 kameo_remote::RegistrationPriority::Normal
             };
             location.priority = kameo_priority;
-            
+
             // Register with the specified priority to control gossip timing
-            handle.registry
+            handle
+                .registry
                 .register_actor_with_priority(name.clone(), location, kameo_priority)
                 .await
                 .map_err(|e| TransportError::Other(Box::new(e)))?;
@@ -426,7 +526,7 @@ impl RemoteTransport for KameoTransport {
             Ok(())
         })
     }
-    
+
     fn register_actor_sync(
         &self,
         name: String,
@@ -444,24 +544,28 @@ impl RemoteTransport for KameoTransport {
             registry.write().await.insert(name.clone(), actor_id);
 
             // Serialize ActorId as metadata using rkyv for zero-copy
-            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id).map_err(|e| {
-                TransportError::SerializationFailed(format!("Failed to serialize ActorId: {}", e))
-            })?.to_vec();
+            let metadata = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_id)
+                .map_err(|e| {
+                    TransportError::SerializationFailed(format!(
+                        "Failed to serialize ActorId: {}",
+                        e
+                    ))
+                })?
+                .to_vec();
 
             // Create location with metadata
             let location = kameo_remote::RemoteActorLocation::new_with_metadata(
-                handle.registry.bind_addr, 
-                handle.registry.peer_id.clone(), 
-                metadata
+                handle.registry.bind_addr,
+                handle.registry.peer_id.clone(),
+                metadata,
             );
-            
-            
+
             // Use the new synchronous registration method with timeout
-            handle.registry
+            handle
+                .registry
                 .register_actor_sync(name.clone(), location, timeout)
                 .await
                 .map_err(|e| TransportError::Other(Box::new(e)))?;
-
 
             Ok(())
         })
@@ -512,10 +616,8 @@ impl RemoteTransport for KameoTransport {
                 // Try to deserialize ActorId from metadata first
                 let actor_id = if !loc.metadata.is_empty() {
                     match rkyv::from_bytes::<ActorId, rkyv::rancor::Error>(&loc.metadata) {
-                        Ok(id) => {
-                            id
-                        },
-                        Err(e) => {
+                        Ok(id) => id,
+                        Err(_e) => {
                             // Fall back to local registry
                             registry
                                 .read()
@@ -532,9 +634,7 @@ impl RemoteTransport for KameoTransport {
                         .await
                         .get(&name)
                         .copied()
-                        .unwrap_or_else(|| {
-                            ActorId::from_u64(0)
-                        })
+                        .unwrap_or_else(|| ActorId::from_u64(0))
                 };
 
                 let remote_location = RemoteActorLocation {
@@ -545,8 +645,7 @@ impl RemoteTransport for KameoTransport {
                     actor_id,
                     metadata: loc.metadata.clone(),
                 };
-                
-                
+
                 Ok(Some(remote_location))
             } else {
                 Ok(None)
@@ -561,15 +660,25 @@ impl RemoteTransport for KameoTransport {
         _message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Archive + for<'a> RkyvSerialize<
-            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
-        > + Send + 'static,
+        M: Archive
+            + for<'a> RkyvSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
     {
         Box::pin(async move {
             // kameo_remote doesn't have typed message support yet
             // Use send_tell_typed instead
             Err(TransportError::Other(
-                "Typed messages not supported by kameo_remote yet. Use send_tell_typed instead".into(),
+                "Typed messages not supported by kameo_remote yet. Use send_tell_typed instead"
+                    .into(),
             ))
         })
     }
@@ -589,19 +698,30 @@ impl RemoteTransport for KameoTransport {
     >
     where
         A: crate::actor::Actor + crate::message::Message<M>,
-        M: Archive + for<'a> RkyvSerialize<
-            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
-        > + Send + 'static,
-        <A as crate::message::Message<M>>::Reply: Archive + for<'a> RkyvDeserialize<
-            <A as crate::message::Message<M>>::Reply,
-            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
-        > + Send,
+        M: Archive
+            + for<'a> RkyvSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
+        <A as crate::message::Message<M>>::Reply: Archive
+            + for<'a> RkyvDeserialize<
+                <A as crate::message::Message<M>>::Reply,
+                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+            > + Send,
     {
         Box::pin(async move {
             // kameo_remote doesn't have typed message support yet
             // Use send_ask_typed instead
             Err(TransportError::Other(
-                "Typed messages not supported by kameo_remote yet. Use send_ask_typed instead".into(),
+                "Typed messages not supported by kameo_remote yet. Use send_ask_typed instead"
+                    .into(),
             ))
         })
     }
@@ -625,33 +745,35 @@ impl RemoteTransport for KameoTransport {
             let mut pool = handle.registry.connection_pool.lock().await;
 
             // Get or create connection to peer
-            let conn = pool.get_connection(peer_addr).await
-                .map_err(|e| TransportError::ConnectionFailed(format!("Failed to get connection: {}", e)))?;
+            let conn = pool.get_connection(peer_addr).await.map_err(|e| {
+                TransportError::ConnectionFailed(format!("Failed to get connection: {}", e))
+            })?;
 
             // Use direct binary protocol to avoid double serialization
             // Format: [length:4][type:1][correlation_id:2][reserved:5][actor_id:8][type_hash:4][payload_len:4][payload:N]
-            
+
             let inner_size = 8 + 16 + payload.len(); // header + actor fields + payload
             let mut message = Vec::with_capacity(4 + inner_size);
-            
+
             // Length prefix (4 bytes)
             message.extend_from_slice(&(inner_size as u32).to_be_bytes());
-            
+
             // Header: [type:1][correlation_id:2][reserved:5]
             message.push(3u8); // MessageType::ActorTell
             message.extend_from_slice(&0u16.to_be_bytes()); // No correlation for tell
             message.extend_from_slice(&[0u8; 5]); // Reserved
-            
+
             // Actor message: [actor_id:8][type_hash:4][payload_len:4][payload:N]
             message.extend_from_slice(&actor_id.into_u64().to_be_bytes());
             message.extend_from_slice(&type_hash.to_be_bytes());
             message.extend_from_slice(&(payload.len() as u32).to_be_bytes());
             message.extend_from_slice(&payload);
-            
+
             // Send the message via kameo_remote using send_binary_message
-            conn.send_binary_message(&message).await
-                .map_err(|e| TransportError::Other(format!("Failed to send typed tell: {}", e).into()))?;
-            
+            conn.send_binary_message(&message).await.map_err(|e| {
+                TransportError::Other(format!("Failed to send typed tell: {}", e).into())
+            })?;
+
             Ok(())
         })
     }
@@ -675,28 +797,29 @@ impl RemoteTransport for KameoTransport {
             // Get connection pool from registry
             let mut pool = handle.registry.connection_pool.lock().await;
 
-
             // Get or create connection to peer
-            let conn = pool.get_connection(peer_addr).await
-                .map_err(|e| TransportError::ConnectionFailed(format!("Failed to get connection: {}", e)))?;
-            
+            let conn = pool.get_connection(peer_addr).await.map_err(|e| {
+                TransportError::ConnectionFailed(format!("Failed to get connection: {}", e))
+            })?;
 
             // For ask operations, we need to wrap in RegistryMessage::ActorMessage
             // The server expects this format for Ask messages
-            
+
             let actor_message = kameo_remote::registry::RegistryMessage::ActorMessage {
                 actor_id: actor_id.into_u64().to_string(),
                 type_hash,
                 payload,
                 correlation_id: None, // This MUST be None - the Ask envelope will set it
             };
-            
+
             // Serialize the RegistryMessage
-            let serialized_msg = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message)
-                .map_err(|e| TransportError::Other(format!("Failed to serialize actor message: {}", e).into()))?;
-            
-            
-            
+            let serialized_msg =
+                rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message).map_err(|e| {
+                    TransportError::Other(
+                        format!("Failed to serialize actor message: {}", e).into(),
+                    )
+                })?;
+
             // Send the ask message and wait for reply
             // conn.ask() will add the proper header with MessageType::Ask (1) and correlation ID
             // The server will:
@@ -709,26 +832,24 @@ impl RemoteTransport for KameoTransport {
                     // The reply should be the serialized response from the actor
                     Ok(Bytes::from(reply_bytes))
                 }
-                Ok(Err(e)) => {
-                    Err(TransportError::Other(format!("Failed to send typed ask: {}", e).into()))
-                }
-                Err(_) => {
-                    Err(TransportError::Timeout)
-                }
+                Ok(Err(e)) => Err(TransportError::Other(
+                    format!("Failed to send typed ask: {}", e).into(),
+                )),
+                Err(_) => Err(TransportError::Timeout),
             }
         })
     }
 
     fn send_ask_streaming(
         &self,
-        actor_id: ActorId,
+        _actor_id: ActorId,
         location: &RemoteActorLocation,
-        type_hash: u32,
+        _type_hash: u32,
         payload: Bytes,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = TransportResult<Bytes>> + Send + '_>> {
         let peer_addr = location.peer_addr;
-        
+
         Box::pin(async move {
             let handle = self
                 .handle
@@ -739,54 +860,50 @@ impl RemoteTransport for KameoTransport {
             let mut pool = handle.registry.connection_pool.lock().await;
 
             // Get or create connection to peer
-            let conn = pool.get_connection(peer_addr).await
-                .map_err(|e| TransportError::ConnectionFailed(format!("Failed to get connection for streaming: {}", e)))?;
-            
+            let conn = pool.get_connection(peer_addr).await.map_err(|e| {
+                TransportError::ConnectionFailed(format!(
+                    "Failed to get connection for streaming: {}",
+                    e
+                ))
+            })?;
+
             // For streaming ask operations, use the connection's streaming capability with ask
             // This builds a proper ask message with streaming protocol support
-            
+
             if payload.len() <= STREAM_THRESHOLD {
                 // Small message, use regular ask path
                 match tokio::time::timeout(timeout, conn.ask(&payload)).await {
-                    Ok(Ok(reply_bytes)) => {
-                        Ok(Bytes::from(reply_bytes))
-                    }
-                    Ok(Err(e)) => {
-                        Err(TransportError::Other(format!("Failed to send ask: {}", e).into()))
-                    }
-                    Err(_) => {
-                        Err(TransportError::Timeout)
-                    }
+                    Ok(Ok(reply_bytes)) => Ok(Bytes::from(reply_bytes)),
+                    Ok(Err(e)) => Err(TransportError::Other(
+                        format!("Failed to send ask: {}", e).into(),
+                    )),
+                    Err(_) => Err(TransportError::Timeout),
                 }
             } else {
                 // Large message requires streaming protocol
                 // Since kameo_remote doesn't have native ask_streaming yet, implement chunked approach
-                
+
                 // CRITICAL FIX: The previous implementation only sent the first chunk
                 // This implementation uses a chunked protocol for large ask messages
-                
+
                 const CHUNK_SIZE: usize = 256 * 1024; // 256KB chunks to stay under threshold
                 let chunks: Vec<&[u8]> = payload.chunks(CHUNK_SIZE).collect();
                 let total_chunks = chunks.len();
-                
+
                 if total_chunks == 1 {
                     // Single chunk, but still large - try regular ask
                     // Note: this may fail if the message is too large for ring buffer
                     match tokio::time::timeout(timeout, conn.ask(&payload)).await {
-                        Ok(Ok(reply_bytes)) => {
-                            Ok(Bytes::from(reply_bytes))
-                        }
-                        Ok(Err(e)) => {
-                            Err(TransportError::Other(format!("Failed to send large ask message: {}", e).into()))
-                        }
-                        Err(_) => {
-                            Err(TransportError::Timeout)
-                        }
+                        Ok(Ok(reply_bytes)) => Ok(Bytes::from(reply_bytes)),
+                        Ok(Err(e)) => Err(TransportError::Other(
+                            format!("Failed to send large ask message: {}", e).into(),
+                        )),
+                        Err(_) => Err(TransportError::Timeout),
                     }
                 } else {
                     // Multiple chunks - implement chunked ask protocol
                     // This is a workaround until native streaming ask is available
-                    
+
                     // For now, this is a limitation - we can only handle single large messages
                     // Multi-chunk ask operations require protocol-level support
                     let error_msg = format!(
@@ -795,7 +912,7 @@ impl RemoteTransport for KameoTransport {
                         total_chunks,
                         STREAM_THRESHOLD
                     );
-                    
+
                     Err(TransportError::Other(error_msg.into()))
                 }
             }
@@ -812,4 +929,3 @@ impl RemoteTransport for KameoTransport {
         }
     }
 }
-

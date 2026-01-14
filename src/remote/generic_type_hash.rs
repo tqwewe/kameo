@@ -13,7 +13,7 @@ use super::type_hash::{HasTypeHash, TypeHash};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
 /// // Define your generic type
 /// struct Cache<K, V> {
 ///     // ...
@@ -43,7 +43,7 @@ macro_rules! impl_type_hash {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```rust
 /// struct Cache<K, V> { /* ... */ }
 ///
 /// // Generate implementations for common type combinations
@@ -132,8 +132,6 @@ impl<T: HasTypeHash> RuntimeTypeHash for T {
 /// # Example
 ///
 /// ```rust
-/// use kameo::remote::generic_type_hash::generic_type_hash;
-///
 /// let hash = generic_type_hash::<Vec<String>>();
 /// ```
 pub fn generic_type_hash<T: ?Sized + 'static>() -> TypeHash {

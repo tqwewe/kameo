@@ -128,23 +128,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Use a deterministic keypair for testing (consistent peer ID)
     let client_keypair = kameo_remote::KeyPair::new_for_testing("ask_client_test_key");
-    
+
     // Bootstrap on port 9331 with TLS enabled using keypair
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9331".parse()?,
-        client_keypair
-    ).await?;
-    println!("✅ Client initialized with address: {}", transport.local_addr());
+        client_keypair,
+    )
+    .await?;
+    println!(
+        "✅ Client initialized with address: {}",
+        transport.local_addr()
+    );
 
     // Connect to server with TLS encryption
     println!("\n📡 Connecting to server at 127.0.0.1:9330...");
     if let Some(handle) = transport.handle() {
         // Add the server as a trusted peer using its keypair-based PeerId
         let server_peer_id = kameo_remote::PeerId::new("ask_server_test_key");
-        
-        let peer = handle
-            .add_peer(&server_peer_id)
-            .await;
+
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9330".parse()?).await?;
         println!("✅ Connected to server");
     }
@@ -156,16 +158,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Look up remote actor (with connection caching)
     println!("🔍 Looking up remote calculator...");
     let calc_ref = match DistributedActorRef::lookup("calculator").await? {
-            Some(ref_) => {
-                println!("✅ Found remote Calculator actor!");
-                ref_
-            }
-            None => {
-                println!("❌ Failed to find Calculator actor");
-                println!("💡 Make sure the server is running.");
-                return Ok(());
-            }
-        };
+        Some(ref_) => {
+            println!("✅ Found remote Calculator actor!");
+            ref_
+        }
+        None => {
+            println!("❌ Failed to find Calculator actor");
+            println!("💡 Make sure the server is running.");
+            return Ok(());
+        }
+    };
 
     println!("\n📤 Running Kameo ask performance tests...");
     let all_tests_start = Instant::now();
@@ -190,20 +192,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 Test 3: Multiple rapid operations (10 samples)");
     let mut times = Vec::new();
     let rapid_start = Instant::now();
-    
+
     for i in 1..=10 {
         let start = Instant::now();
         let result: AddResult = calc_ref.ask(Add { a: i, b: i * 2 }).send().await?;
         let duration = start.elapsed();
         times.push(duration);
-        println!("   Sample {}: {} + {} = {} in {:?}", 
-                i, i, i * 2, result.result, duration);
+        println!(
+            "   Sample {}: {} + {} = {} in {:?}",
+            i,
+            i,
+            i * 2,
+            result.result,
+            duration
+        );
         assert_eq!(result.result, i + i * 2);
     }
-    
+
     let total_duration = rapid_start.elapsed();
     let avg_duration = times.iter().sum::<std::time::Duration>() / times.len() as u32;
-    
+
     // IDENTICAL stats format to Theta
     println!("📊 Performance Stats:");
     println!("   Successful operations: {}", times.len());
@@ -213,7 +221,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         times.sort();
         println!("   Min time: {:?}", times[0]);
         println!("   Max time: {:?}", times[times.len() - 1]);
-        println!("   Throughput: {:.2} ops/sec", times.len() as f64 / total_duration.as_secs_f64());
+        println!(
+            "   Throughput: {:.2} ops/sec",
+            times.len() as f64 / total_duration.as_secs_f64()
+        );
     }
 
     let all_tests_duration = all_tests_start.elapsed();

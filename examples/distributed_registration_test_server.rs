@@ -1,7 +1,6 @@
 //! Minimal test server that demonstrates distributed actor registration/lookup issue
 
 use kameo::actor::{Actor, ActorRef};
-use kameo::message::{Context, Message};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;
 
@@ -51,17 +50,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Bootstrap transport on port 9320 WITH TLS
     let server_keypair = kameo_remote::KeyPair::new_for_testing("test_server_key");
     println!("🔐 Server using Ed25519 keypair for TLS encryption");
-    
+
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9320".parse()?,
-        server_keypair
-    ).await?;
-    
+        server_keypair,
+    )
+    .await?;
+
     println!("Server transport ready on {}", transport.local_addr());
 
     // Create and spawn the test actor using macro-generated spawn
     let actor_ref = TestActor::spawn(());
-    
+
     println!("Actor spawned with ID: {}", actor_ref.id());
 
     // Add client as known peer for TLS authentication
@@ -79,7 +79,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     transport
         .register_actor(actor_name.to_string(), actor_ref.id())
         .await?;
-    
+
     println!("Actor registered as '{}'", actor_name);
     println!("Waiting for client to lookup the actor...");
 

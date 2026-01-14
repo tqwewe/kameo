@@ -7,13 +7,12 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, Bytes};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 use crate::actor::ActorId;
 use crate::error::SendError;
 
-use super::remote_message_trait::RemoteMessage;
 use super::transport::{RemoteActorLocation, RemoteTransport, TransportError};
 use super::type_hash::HasTypeHash;
 use kameo_remote::connection_pool::ConnectionHandle;
@@ -26,7 +25,7 @@ use kameo_remote::connection_pool::ConnectionHandle;
 /// to optimize away all runtime type checks and generate the most efficient code possible.
 ///
 /// This eliminates dynamic dispatch overhead
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct DistributedActorRef<T = Box<super::kameo_transport::KameoTransport>> {
     /// The actor's ID
     pub(crate) actor_id: ActorId,
@@ -134,6 +133,10 @@ where
 // Global transport cache for lookup without parameters
 use std::sync::{Arc, LazyLock, Mutex};
 
+/// Global transport instance for distributed actor lookups
+///
+/// This is set by the bootstrap functions and used by DistributedActorRef::lookup()
+/// to enable convenient actor lookups without explicit transport parameters.
 pub static GLOBAL_TRANSPORT: LazyLock<
     Arc<Mutex<Option<Box<super::kameo_transport::KameoTransport>>>>,
 > = LazyLock::new(|| Arc::new(Mutex::new(None)));
@@ -184,6 +187,7 @@ impl DistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
 ///
 /// This struct is monomorphized for each message type M, allowing the compiler
 /// to generate specialized code with compile-time constants and optimized paths.
+#[derive(Debug)]
 pub struct DistributedTellRequest<'a, M, T = Box<super::kameo_transport::KameoTransport>> {
     actor_ref: &'a DistributedActorRef<T>,
     message: M,
@@ -226,7 +230,7 @@ where
 
         // Optimized serialization - can be specialized per message type
         let payload = rkyv::to_bytes::<rkyv::rancor::Error>(&self.message)
-            .map_err(|e| SendError::ActorStopped)?;
+            .map_err(|_e| SendError::ActorStopped)?;
 
         // Use streaming for large messages automatically
         if let Some(ref conn) = self.actor_ref.connection {
@@ -245,7 +249,7 @@ where
                     .await
                 {
                     Ok(_) => return Ok(()),
-                    Err(e) => {
+                    Err(_e) => {
                         return Err(SendError::ActorStopped); // Don't fall through to normal path for large messages!
                     }
                 }
@@ -331,6 +335,7 @@ where
 ///
 /// This struct is monomorphized for each message type M and reply type R,
 /// generating specialized code with no runtime overhead.
+#[derive(Debug)]
 pub struct DistributedAskRequest<'a, M, R, T = Box<super::kameo_transport::KameoTransport>> {
     actor_ref: &'a DistributedActorRef<T>,
     message: M,
@@ -395,7 +400,7 @@ where
         // Deserialize the reply using rkyv - monomorphized for reply type R
         let reply = match rkyv::from_bytes::<R, rkyv::rancor::Error>(&reply_bytes) {
             Ok(r) => r,
-            Err(e) => {
+            Err(_e) => {
                 return Err(SendError::ActorStopped);
             }
         };
@@ -413,7 +418,7 @@ where
 
         // Optimized serialization - specialized per message type
         let payload = rkyv::to_bytes::<rkyv::rancor::Error>(&self.message)
-            .map_err(|e| SendError::ActorStopped)?;
+            .map_err(|_e| SendError::ActorStopped)?;
 
         // Default timeout if not specified
         let timeout = self.timeout.unwrap_or(Duration::from_secs(2));

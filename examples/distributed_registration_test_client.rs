@@ -18,14 +18,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Bootstrap transport on port 9321 WITH TLS
     let client_keypair = kameo_remote::KeyPair::new_for_testing("test_client_key");
     println!("🔐 Client using Ed25519 keypair for TLS encryption");
-    
+
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9321".parse()?,
-        client_keypair
-    ).await?;
-    
+        client_keypair,
+    )
+    .await?;
+
     println!("Client transport ready on {}", transport.local_addr());
-    
+
     // Connect to server with TLS authentication
     if let Some(handle) = transport.handle() {
         let server_peer_id = kameo_remote::PeerId::new("test_server_key");
@@ -40,13 +41,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Attempt to lookup the distributed actor
     println!("Looking up distributed actor 'test_distributed_actor'...");
-    
+
     let actor_name = "test_distributed_actor";
     match DistributedActorRef::lookup(actor_name).await {
         Ok(Some(actor_ref)) => {
             println!("SUCCESS: Found distributed actor!");
             println!("Actor ID: {}", actor_ref.id());
-            
+
             // Try sending a message using tell (one-way)
             match actor_ref.tell(Ping).send().await {
                 Ok(_) => {
@@ -58,7 +59,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         }
         Ok(None) => {
-            println!("FAILURE: Actor '{}' not found in distributed registry", actor_name);
+            println!(
+                "FAILURE: Actor '{}' not found in distributed registry",
+                actor_name
+            );
             println!("This reproduces the issue - registration not propagated to client");
             std::process::exit(1);
         }

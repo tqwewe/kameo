@@ -6,7 +6,6 @@
 //! Run after starting the server:
 //! cargo run --example prebacktest_stream_client --features remote
 
-use kameo::actor::{Actor, ActorRef};
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
 use rustc_hash::FxHashMap;
 use std::time::Duration;
@@ -46,25 +45,25 @@ pub struct TimeSeriesEvent {
 // Generate realistic large PreBacktestMessage that triggers streaming (>1MB)
 fn generate_large_prebacktest_message() -> PreBacktestMessage {
     println!("📊 Generating large PreBacktestMessage to trigger streaming...");
-    
+
     let symbol = CryptoFuturesSymbol {
         base: "SOL".to_string(),
         quote: "USDT".to_string(),
     };
-    
+
     let mut candles = FxHashMap::default();
-    
+
     // Generate realistic candle data for multiple timeframes (like the real system)
     let timeframes = vec![
-        (60, 260640),    // 1m candles
-        (300, 52128),    // 5m candles  
-        (900, 17376),    // 15m candles
-        (1800, 8688),    // 30m candles
-        (3600, 4344),    // 1h candles
-        (14400, 1086),   // 4h candles
-        (86400, 181),    // 1d candles
+        (60, 260640),  // 1m candles
+        (300, 52128),  // 5m candles
+        (900, 17376),  // 15m candles
+        (1800, 8688),  // 30m candles
+        (3600, 4344),  // 1h candles
+        (14400, 1086), // 4h candles
+        (86400, 181),  // 1d candles
     ];
-    
+
     let mut total_candles = 0;
     for (timeframe, count) in timeframes {
         let mut tf_candles = Vec::with_capacity(count);
@@ -81,7 +80,7 @@ fn generate_large_prebacktest_message() -> PreBacktestMessage {
         total_candles += count;
         candles.insert(timeframe, tf_candles);
     }
-    
+
     // Generate price events (largest data set)
     let mut price_events = Vec::with_capacity(260640);
     for i in 0..260640 {
@@ -91,7 +90,7 @@ fn generate_large_prebacktest_message() -> PreBacktestMessage {
             event_type: "price".to_string(),
         });
     }
-    
+
     // Generate OI snapshots
     let mut oi_snapshots = Vec::with_capacity(52114);
     for i in 0..52114 {
@@ -101,14 +100,14 @@ fn generate_large_prebacktest_message() -> PreBacktestMessage {
             event_type: "oi_snapshot".to_string(),
         });
     }
-    
+
     let message = PreBacktestMessage {
         symbol,
         candles,
         price_events,
         oi_snapshots,
     };
-    
+
     // Calculate estimated size
     let estimated_size = {
         let candles_size = total_candles * std::mem::size_of::<FuturesOHLCVCandle>();
@@ -116,14 +115,18 @@ fn generate_large_prebacktest_message() -> PreBacktestMessage {
         let oi_snapshots_size = message.oi_snapshots.len() * 64;
         (candles_size + price_events_size + oi_snapshots_size) as f64 / (1024.0 * 1024.0)
     };
-    
+
     println!("📏 Generated PreBacktestMessage:");
-    println!("  📊 Total candles: {} across {} timeframes", total_candles, message.candles.len());
-    println!("  🎯 Price events: {}", message.price_events.len());  
+    println!(
+        "  📊 Total candles: {} across {} timeframes",
+        total_candles,
+        message.candles.len()
+    );
+    println!("  🎯 Price events: {}", message.price_events.len());
     println!("  📦 OI snapshots: {}", message.oi_snapshots.len());
     println!("  💾 Estimated size: ~{:.2} MB", estimated_size);
     println!("  ⚡ This should trigger automatic streaming (>1MB threshold)");
-    
+
     message
 }
 
@@ -146,15 +149,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9001".parse()?,
         client_keypair,
-    ).await?;
-    println!("✅ TA Manager listening on {} with TLS encryption", transport.local_addr());
+    )
+    .await?;
+    println!(
+        "✅ TA Manager listening on {} with TLS encryption",
+        transport.local_addr()
+    );
 
     // Connect to server with TLS encryption
     println!("\n📡 Connecting to ExecutionRouter at 127.0.0.1:9002 with TLS...");
     if let Some(handle) = transport.handle() {
         let server_peer_id = kameo_remote::PeerId::new("prebacktest_server_key");
         let peer = handle.add_peer(&server_peer_id).await;
-        
+
         match peer.connect(&"127.0.0.1:9002".parse().unwrap()).await {
             Ok(_) => println!("✅ TLS connection established with ExecutionRouter!"),
             Err(e) => {
@@ -213,7 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Wait a moment to see any additional error logs
     tokio::time::sleep(Duration::from_secs(2)).await;
-    
+
     println!("\n🔍 Check server logs for streaming protocol errors!");
     println!("Expected error: 'Expected Gossip message but got StreamStart'");
 

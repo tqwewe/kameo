@@ -15,7 +15,6 @@ use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
 mod bugfix_messages;
 use bugfix_messages::*;
 
-
 // ExecutionRouter actor - simulates real ExecutionRouter that should send BacktestSummary
 struct ExecutorActor {
     messages_received: u32,
@@ -38,7 +37,7 @@ impl Actor for ExecutorActor {
             prebacktest_received: false,
             backtest_iteration_received: false,
             backtest_summary_received: false, // THIS IS WHAT WE'RE TESTING
-            executor_ref: None, // Will cache ta_manager ref like working example
+            executor_ref: None,               // Will cache ta_manager ref like working example
         })
     }
 }
@@ -68,7 +67,7 @@ impl Message<PreBacktestMessage> for ExecutorActor {
     ) -> Self::Reply {
         self.messages_received += 1;
         self.prebacktest_received = true;
-        
+
         println!(
             "🎯 [EXECUTOR] PreBacktest received #{}: strategy={}, symbol={}, timeframe={}",
             self.messages_received, msg.strategy, msg.symbol, msg.timeframe
@@ -87,16 +86,18 @@ impl Message<BacktestIterationMessage> for ExecutorActor {
     ) -> Self::Reply {
         self.messages_received += 1;
         self.backtest_iteration_received = true;
-        
+
         println!(
             "📊 [EXECUTOR] BacktestIteration received #{}: iteration={}, progress={}%, pnl={}",
             self.messages_received, msg.iteration, msg.progress_pct, msg.current_pnl
         );
-        
+
         // NOW SEND BACKTESTSUMMARY BACK TO TA MANAGER (the critical test!)
         if let Some(ta_manager_ref) = &self.executor_ref {
-            println!("🚨 [EXECUTOR] Preparing to send BacktestSummary to TAManager - THE CRITICAL TEST!");
-            
+            println!(
+                "🚨 [EXECUTOR] Preparing to send BacktestSummary to TAManager - THE CRITICAL TEST!"
+            );
+
             let backtest_summary = BacktestSummaryMessage {
                 backtest_id: "test_backtest_from_executor".to_string(),
                 total_pnl: 2500.50,
@@ -104,19 +105,27 @@ impl Message<BacktestIterationMessage> for ExecutorActor {
                 win_rate: 73.2,
                 summary_data: vec![42u8; 1_100_000], // Large payload - 1.1MB to force streaming mode
             };
-            
-            println!("🔬 [EXECUTOR] BacktestSummary created - size: {} bytes", backtest_summary.summary_data.len());
+
+            println!(
+                "🔬 [EXECUTOR] BacktestSummary created - size: {} bytes",
+                backtest_summary.summary_data.len()
+            );
             println!("🔬 [EXECUTOR] TAManager actor_ref available");
-            
+
             // Note: Cannot access private fields, but we can still try to send
-            println!("🔬 [EXECUTOR] Message size: {} bytes (testing against streaming threshold)", backtest_summary.summary_data.len());
-            
+            println!(
+                "🔬 [EXECUTOR] Message size: {} bytes (testing against streaming threshold)",
+                backtest_summary.summary_data.len()
+            );
+
             println!("🔬 [EXECUTOR] About to call tell().send()...");
             match ta_manager_ref.tell(backtest_summary).send().await {
                 Ok(_) => {
-                    println!("✅ [EXECUTOR] tell().send() returned Ok - message queued for sending!");
+                    println!(
+                        "✅ [EXECUTOR] tell().send() returned Ok - message queued for sending!"
+                    );
                     println!("🔬 [EXECUTOR] Note: This doesn't guarantee delivery, just successful queuing");
-                },
+                }
                 Err(e) => {
                     println!("❌ [EXECUTOR] tell().send() failed: {:?}", e);
                     println!("🔬 [EXECUTOR] This indicates an immediate sending error");
@@ -139,7 +148,7 @@ impl Message<BacktestSummaryMessage> for ExecutorActor {
     ) -> Self::Reply {
         self.messages_received += 1;
         self.backtest_summary_received = true;
-        
+
         println!(
             "🚨🎯📡 *** [EXECUTOR] BacktestSummary RECEIVED #{} *** 🚨🎯📡",
             self.messages_received
@@ -148,7 +157,9 @@ impl Message<BacktestSummaryMessage> for ExecutorActor {
             "🚨 SUCCESS: BacktestSummary handler IS working! ID={}, PnL={}, trades={}, win_rate={}%, data_size={} bytes",
             msg.backtest_id, msg.total_pnl, msg.total_trades, msg.win_rate, msg.summary_data.len()
         );
-        println!("🔥 [EXECUTOR] BacktestSummary handler SUCCESS! This should work in real system too!");
+        println!(
+            "🔥 [EXECUTOR] BacktestSummary handler SUCCESS! This should work in real system too!"
+        );
 
         // Send acknowledgment back to executor (using cached ref from SetExecutorRef)
         if let Some(executor_ref) = &self.executor_ref {
@@ -186,16 +197,25 @@ impl Message<TestComplete> for ExecutorActor {
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         println!("\n🏁 [EXECUTOR] Test completed!");
-        println!("   Messages received by TAManager: {}", self.messages_received);
+        println!(
+            "   Messages received by TAManager: {}",
+            self.messages_received
+        );
         println!("   Messages sent by executor: {}", msg.total_messages_sent);
         println!("   Test duration: {}ms", msg.test_duration_ms);
-        
+
         // Show which messages were received
         println!("\n📋 [EXECUTOR] Message Status:");
         println!("   ✅ PreBacktest received: {}", self.prebacktest_received);
-        println!("   ✅ BacktestIteration received: {}", self.backtest_iteration_received);
-        println!("   🚨 BacktestSummary received: {} 🚨", self.backtest_summary_received);
-        
+        println!(
+            "   ✅ BacktestIteration received: {}",
+            self.backtest_iteration_received
+        );
+        println!(
+            "   🚨 BacktestSummary received: {} 🚨",
+            self.backtest_summary_received
+        );
+
         if self.backtest_summary_received {
             println!("🎉 [EXECUTOR] SUCCESS: BacktestSummary message was received!");
             println!("🔬 [EXECUTOR] If this works but real system doesn't, the issue is elsewhere");
@@ -203,12 +223,14 @@ impl Message<TestComplete> for ExecutorActor {
             println!("❌ [EXECUTOR] FAILURE: BacktestSummary message was NOT received!");
             println!("🔬 [EXECUTOR] This reproduces the real system issue");
         }
-        
+
         if msg.test_duration_ms > 0 {
-            println!("   Messages/second: {:.2}", 
-                     msg.total_messages_sent as f64 / (msg.test_duration_ms as f64 / 1000.0));
+            println!(
+                "   Messages/second: {:.2}",
+                msg.total_messages_sent as f64 / (msg.test_duration_ms as f64 / 1000.0)
+            );
         }
-        
+
         println!("\n✨ [EXECUTOR] BacktestSummary message flow test complete!");
     }
 }
@@ -219,18 +241,18 @@ impl ExecutorActor {
     async fn handle_prebacktest(&mut self, msg: &rkyv::Archived<PreBacktestMessage>) {
         self.messages_received += 1;
         self.prebacktest_received = true;
-        
+
         println!(
             "🎯 [EXECUTOR] PreBacktest received #{}: strategy={}, symbol={}, timeframe={}",
             self.messages_received, &msg.strategy, &msg.symbol, &msg.timeframe
         );
     }
 
-    // Handle BacktestIterationMessage with archived type - zero-copy deserialization  
+    // Handle BacktestIterationMessage with archived type - zero-copy deserialization
     async fn handle_backtest_iteration(&mut self, msg: &rkyv::Archived<BacktestIterationMessage>) {
         self.messages_received += 1;
         self.backtest_iteration_received = true;
-        
+
         println!(
             "📊 [EXECUTOR] BacktestIteration received #{}: iteration={}, progress={}%, pnl={}",
             self.messages_received, msg.iteration, msg.progress_pct, msg.current_pnl
@@ -241,7 +263,7 @@ impl ExecutorActor {
     async fn handle_backtest_summary(&mut self, msg: &rkyv::Archived<BacktestSummaryMessage>) {
         self.messages_received += 1;
         self.backtest_summary_received = true;
-        
+
         println!(
             "🚨🎯📡 *** [EXECUTOR] BacktestSummary RECEIVED #{} *** 🚨🎯📡",
             self.messages_received
@@ -263,7 +285,10 @@ impl ExecutorActor {
             };
 
             if let Err(e) = executor_ref.tell(test_iteration_message).send().await {
-                println!("❌ [EXECUTOR] Failed to send BacktestIterationMessage test to executor: {:?}", e);
+                println!(
+                    "❌ [EXECUTOR] Failed to send BacktestIterationMessage test to executor: {:?}",
+                    e
+                );
             } else {
                 println!("✅ [EXECUTOR] Successfully sent BacktestIterationMessage test back to executor!");
             }
@@ -283,7 +308,10 @@ impl ExecutorActor {
             };
 
             if let Err(e) = executor_ref.tell(response).send().await {
-                println!("❌ [EXECUTOR] Failed to send TAManagerResponse to executor: {:?}", e);
+                println!(
+                    "❌ [EXECUTOR] Failed to send TAManagerResponse to executor: {:?}",
+                    e
+                );
             } else {
                 println!("📤 [EXECUTOR] Sent TAManagerResponse to executor");
             }
@@ -302,9 +330,15 @@ impl ExecutorActor {
         // Show which messages were received
         println!("\n📋 [EXECUTOR] Message Status:");
         println!("   ✅ PreBacktest received: {}", self.prebacktest_received);
-        println!("   ✅ BacktestIteration received: {}", self.backtest_iteration_received);
-        println!("   🚨 BacktestSummary received: {} 🚨", self.backtest_summary_received);
-        
+        println!(
+            "   ✅ BacktestIteration received: {}",
+            self.backtest_iteration_received
+        );
+        println!(
+            "   🚨 BacktestSummary received: {} 🚨",
+            self.backtest_summary_received
+        );
+
         if self.backtest_summary_received {
             println!("🎉 [EXECUTOR] SUCCESS: BacktestSummary message was received!");
             println!("🔬 [EXECUTOR] If this works but real system doesn't, the issue is elsewhere");
@@ -316,7 +350,6 @@ impl ExecutorActor {
         println!("✅ [EXECUTOR] Archived handler test complete!");
     }
 }
-
 
 // Register ExecutorActor for distributed messaging
 // REPRODUCTION SUCCESS: We've confirmed the issue is message size related
@@ -442,11 +475,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 println!("✅ [EXECUTOR] Found TAManager! Setting up bidirectional messaging...");
                                 // Send SetExecutorRef message to properly set up bidirectional communication
                                 if let Err(e) = lookup_actor_ref
-                                    .tell(SetExecutorRef { executor_ref: ta_manager_ref })
+                                    .tell(SetExecutorRef {
+                                        executor_ref: ta_manager_ref,
+                                    })
                                     .send()
                                     .await
                                 {
-                                    println!("❌ [EXECUTOR] Failed to set executor reference: {:?}", e);
+                                    println!(
+                                        "❌ [EXECUTOR] Failed to set executor reference: {:?}",
+                                        e
+                                    );
                                 } else {
                                     println!("🎉 [EXECUTOR] Bidirectional messaging ready!");
                                     break; // Stop looking once we find the executor

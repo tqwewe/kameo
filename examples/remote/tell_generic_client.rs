@@ -3,8 +3,6 @@
 //! Run after starting the server:
 //! cargo run --example tell_generic_client --features remote
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
@@ -131,16 +129,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor
     println!("\n🔍 Looking up remote StorageActor...");
-    let storage_ref = match DistributedActorRef::lookup("storage").await? {
-        Some(ref_) => {
-            println!("✅ Found StorageActor on server");
-            ref_
-        }
-        None => {
-            println!("❌ StorageActor not found on server");
-            return Err("Storage actor not found".into());
-        }
-    };
+    let storage_ref =
+        match DistributedActorRef::<StorageActor>::lookup("storage", transport).await? {
+            Some(ref_) => {
+                println!("✅ Found StorageActor on server");
+                ref_
+            }
+            None => {
+                println!("❌ StorageActor not found on server");
+                return Err("Storage actor not found".into());
+            }
+        };
 
     // Send tell messages
     println!("\n📤 Sending tell messages to remote actor...");

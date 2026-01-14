@@ -6,7 +6,7 @@
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
 use kameo::Actor;
 use std::time::Instant;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 // Test message structure for small messages
 #[derive(kameo::RemoteMessage, Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -63,24 +63,35 @@ impl kameo::message::Message<SmallTestMessage> for SmallMessageTestActor {
 #[tokio::test]
 async fn test_small_tell_messages_100kb() {
     // Test 100KB messages use regular protocol
-    let _ = tracing_subscriber::fmt().with_env_filter("kameo_remote=warn").try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("kameo_remote=warn")
+        .try_init();
 
     // Bootstrap test nodes
-    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse().unwrap())
-        .await.expect("Server bootstrap failed");
-    
-    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse().unwrap())
-        .await.expect("Client bootstrap failed");
+    let mut server_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse().unwrap())
+            .await
+            .expect("Server bootstrap failed");
+
+    let mut client_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse().unwrap())
+            .await
+            .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
-    server_transport.register_actor("small_test_actor".to_string(), actor_ref.id())
-        .await.expect("Actor registration failed");
+    server_transport
+        .register_actor("small_test_actor".to_string(), actor_ref.id())
+        .await
+        .expect("Actor registration failed");
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle.add_peer(&kameo_remote::PeerId::new("test_server_9400")).await;
-        peer.connect(&"127.0.0.1:9400".parse().unwrap()).await
+        let peer = handle
+            .add_peer(&kameo_remote::PeerId::new("test_server_9400"))
+            .await;
+        peer.connect(&"127.0.0.1:9400".parse().unwrap())
+            .await
             .expect("Connection failed");
     }
 
@@ -89,7 +100,8 @@ async fn test_small_tell_messages_100kb() {
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::lookup("small_test_actor")
-        .await.expect("Lookup failed")
+        .await
+        .expect("Lookup failed")
         .expect("Actor not found");
 
     // Test 100KB message - should use regular protocol
@@ -104,9 +116,12 @@ async fn test_small_tell_messages_100kb() {
     let duration = start.elapsed();
 
     println!("✅ 100KB tell message sent in {:?}", duration);
-    
+
     // Verify it was processed (would need actor confirmation mechanism)
-    assert!(duration < Duration::from_millis(100), "100KB message should be fast");
+    assert!(
+        duration < Duration::from_millis(100),
+        "100KB message should be fast"
+    );
 
     // Cleanup
     server_transport.shutdown().await.ok();
@@ -116,24 +131,35 @@ async fn test_small_tell_messages_100kb() {
 #[tokio::test]
 async fn test_small_ask_messages_500kb() {
     // Test 500KB ask messages use regular protocol
-    let _ = tracing_subscriber::fmt().with_env_filter("kameo_remote=warn").try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("kameo_remote=warn")
+        .try_init();
 
     // Bootstrap test nodes with different ports
-    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9410".parse().unwrap())
-        .await.expect("Server bootstrap failed");
-    
-    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9411".parse().unwrap())
-        .await.expect("Client bootstrap failed");
+    let mut server_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9410".parse().unwrap())
+            .await
+            .expect("Server bootstrap failed");
+
+    let mut client_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9411".parse().unwrap())
+            .await
+            .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
-    server_transport.register_actor("small_ask_actor".to_string(), actor_ref.id())
-        .await.expect("Actor registration failed");
+    server_transport
+        .register_actor("small_ask_actor".to_string(), actor_ref.id())
+        .await
+        .expect("Actor registration failed");
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle.add_peer(&kameo_remote::PeerId::new("test_server_9410")).await;
-        peer.connect(&"127.0.0.1:9410".parse().unwrap()).await
+        let peer = handle
+            .add_peer(&kameo_remote::PeerId::new("test_server_9410"))
+            .await;
+        peer.connect(&"127.0.0.1:9410".parse().unwrap())
+            .await
             .expect("Connection failed");
     }
 
@@ -142,7 +168,8 @@ async fn test_small_ask_messages_500kb() {
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::lookup("small_ask_actor")
-        .await.expect("Lookup failed")
+        .await
+        .expect("Lookup failed")
         .expect("Actor not found");
 
     // Test 500KB ask message - should use regular protocol
@@ -153,19 +180,23 @@ async fn test_small_ask_messages_500kb() {
     };
 
     let start = Instant::now();
-    let response: SmallTestResponse = timeout(
-        Duration::from_secs(5),
-        remote_ref.ask(message).send()
-    ).await.expect("Ask timeout").expect("Ask failed");
+    let response: SmallTestResponse =
+        timeout(Duration::from_secs(5), remote_ref.ask(message).send())
+            .await
+            .expect("Ask timeout")
+            .expect("Ask failed");
     let duration = start.elapsed();
 
     println!("✅ 500KB ask message completed in {:?}", duration);
-    
+
     // Verify response
     assert_eq!(response.processed_bytes, 500_000);
     assert_eq!(response.id, "test_500kb");
     assert!(response.success);
-    assert!(duration < Duration::from_millis(200), "500KB ask should be fast");
+    assert!(
+        duration < Duration::from_millis(200),
+        "500KB ask should be fast"
+    );
 
     // Cleanup
     server_transport.shutdown().await.ok();
@@ -175,24 +206,35 @@ async fn test_small_ask_messages_500kb() {
 #[tokio::test]
 async fn test_boundary_condition_999kb() {
     // Test message just under 1MB threshold - should use regular protocol
-    let _ = tracing_subscriber::fmt().with_env_filter("kameo_remote=warn").try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("kameo_remote=warn")
+        .try_init();
 
     // Bootstrap test nodes with different ports
-    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9420".parse().unwrap())
-        .await.expect("Server bootstrap failed");
-    
-    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9421".parse().unwrap())
-        .await.expect("Client bootstrap failed");
+    let mut server_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9420".parse().unwrap())
+            .await
+            .expect("Server bootstrap failed");
+
+    let mut client_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9421".parse().unwrap())
+            .await
+            .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
-    server_transport.register_actor("boundary_test_actor".to_string(), actor_ref.id())
-        .await.expect("Actor registration failed");
+    server_transport
+        .register_actor("boundary_test_actor".to_string(), actor_ref.id())
+        .await
+        .expect("Actor registration failed");
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle.add_peer(&kameo_remote::PeerId::new("test_server_9420")).await;
-        peer.connect(&"127.0.0.1:9420".parse().unwrap()).await
+        let peer = handle
+            .add_peer(&kameo_remote::PeerId::new("test_server_9420"))
+            .await;
+        peer.connect(&"127.0.0.1:9420".parse().unwrap())
+            .await
             .expect("Connection failed");
     }
 
@@ -201,7 +243,8 @@ async fn test_boundary_condition_999kb() {
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::lookup("boundary_test_actor")
-        .await.expect("Lookup failed")
+        .await
+        .expect("Lookup failed")
         .expect("Actor not found");
 
     // Test 999KB message - should still use regular protocol
@@ -212,21 +255,25 @@ async fn test_boundary_condition_999kb() {
     };
 
     let start = Instant::now();
-    let response: SmallTestResponse = timeout(
-        Duration::from_secs(5),
-        remote_ref.ask(message).send()
-    ).await.expect("Ask timeout").expect("Ask failed");
+    let response: SmallTestResponse =
+        timeout(Duration::from_secs(5), remote_ref.ask(message).send())
+            .await
+            .expect("Ask timeout")
+            .expect("Ask failed");
     let duration = start.elapsed();
 
     println!("✅ 999KB boundary ask message completed in {:?}", duration);
-    
+
     // Verify response
     assert_eq!(response.processed_bytes, 999_999);
     assert_eq!(response.id, "test_999kb");
     assert!(response.success);
-    
+
     // Should still be reasonably fast for regular protocol
-    assert!(duration < Duration::from_millis(500), "999KB ask should be reasonably fast");
+    assert!(
+        duration < Duration::from_millis(500),
+        "999KB ask should be reasonably fast"
+    );
 
     // Cleanup
     server_transport.shutdown().await.ok();
@@ -236,24 +283,35 @@ async fn test_boundary_condition_999kb() {
 #[tokio::test]
 async fn test_performance_baseline_small_messages() {
     // Establish performance baseline for small messages
-    let _ = tracing_subscriber::fmt().with_env_filter("kameo_remote=warn").try_init();
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("kameo_remote=warn")
+        .try_init();
 
     // Bootstrap test nodes with different ports
-    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9430".parse().unwrap())
-        .await.expect("Server bootstrap failed");
-    
-    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9431".parse().unwrap())
-        .await.expect("Client bootstrap failed");
+    let mut server_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9430".parse().unwrap())
+            .await
+            .expect("Server bootstrap failed");
+
+    let mut client_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9431".parse().unwrap())
+            .await
+            .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
-    server_transport.register_actor("perf_test_actor".to_string(), actor_ref.id())
-        .await.expect("Actor registration failed");
+    server_transport
+        .register_actor("perf_test_actor".to_string(), actor_ref.id())
+        .await
+        .expect("Actor registration failed");
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle.add_peer(&kameo_remote::PeerId::new("test_server_9430")).await;
-        peer.connect(&"127.0.0.1:9430".parse().unwrap()).await
+        let peer = handle
+            .add_peer(&kameo_remote::PeerId::new("test_server_9430"))
+            .await;
+        peer.connect(&"127.0.0.1:9430".parse().unwrap())
+            .await
             .expect("Connection failed");
     }
 
@@ -262,12 +320,13 @@ async fn test_performance_baseline_small_messages() {
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::lookup("perf_test_actor")
-        .await.expect("Lookup failed")
+        .await
+        .expect("Lookup failed")
         .expect("Actor not found");
 
     // Test multiple sizes to establish baseline
     let test_sizes = [1_000, 10_000, 100_000, 500_000]; // 1KB, 10KB, 100KB, 500KB
-    
+
     for size in &test_sizes {
         let data = vec![(*size % 256) as u8; *size];
         let message = SmallTestMessage {
@@ -276,26 +335,38 @@ async fn test_performance_baseline_small_messages() {
         };
 
         let start = Instant::now();
-        let response: SmallTestResponse = timeout(
-            Duration::from_secs(5),
-            remote_ref.ask(message).send()
-        ).await.expect("Ask timeout").expect("Ask failed");
+        let response: SmallTestResponse =
+            timeout(Duration::from_secs(5), remote_ref.ask(message).send())
+                .await
+                .expect("Ask timeout")
+                .expect("Ask failed");
         let duration = start.elapsed();
 
-        println!("📊 {}KB message: {:?} ({:.2} MB/s)", 
-                 size / 1000, 
-                 duration,
-                 (*size as f64 / 1024.0 / 1024.0) / duration.as_secs_f64());
-        
+        println!(
+            "📊 {}KB message: {:?} ({:.2} MB/s)",
+            size / 1000,
+            duration,
+            (*size as f64 / 1024.0 / 1024.0) / duration.as_secs_f64()
+        );
+
         assert_eq!(response.processed_bytes, *size);
         assert!(response.success);
-        
+
         // Performance assertions - regular protocol should be quite fast
         match *size {
-            1_000 => assert!(duration < Duration::from_millis(10), "1KB should be very fast"),
+            1_000 => assert!(
+                duration < Duration::from_millis(10),
+                "1KB should be very fast"
+            ),
             10_000 => assert!(duration < Duration::from_millis(20), "10KB should be fast"),
-            100_000 => assert!(duration < Duration::from_millis(50), "100KB should be reasonably fast"),
-            500_000 => assert!(duration < Duration::from_millis(100), "500KB should be acceptable"),
+            100_000 => assert!(
+                duration < Duration::from_millis(50),
+                "100KB should be reasonably fast"
+            ),
+            500_000 => assert!(
+                duration < Duration::from_millis(100),
+                "500KB should be acceptable"
+            ),
             _ => {}
         }
     }

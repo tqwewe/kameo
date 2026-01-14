@@ -9,7 +9,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::transport::RemoteTransport;
 use rustc_hash::FxHashMap;
 
 // Simulate the trading system's PreBacktestMessage with realistic large data
@@ -63,10 +63,14 @@ impl Actor for ExecutionRouterActor {
 
 impl Message<PreBacktestMessage> for ExecutionRouterActor {
     type Reply = ();
-    
-    async fn handle(&mut self, msg: PreBacktestMessage, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+
+    async fn handle(
+        &mut self,
+        msg: PreBacktestMessage,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
         self.messages_received += 1;
-        
+
         // Calculate message statistics (like the real system)
         let total_candles: usize = msg.candles.values().map(|v| v.len()).sum();
         let estimated_size_mb = {
@@ -75,10 +79,14 @@ impl Message<PreBacktestMessage> for ExecutionRouterActor {
             let oi_snapshots_size = msg.oi_snapshots.len() * 64; // Rough estimate
             (candles_size + price_events_size + oi_snapshots_size) as f64 / (1024.0 * 1024.0)
         };
-        
+
         println!("✅ EXECUTOR: PreBacktestMessage received successfully!");
         println!("  📈 Symbol: {}/{}", msg.symbol.base, msg.symbol.quote);
-        println!("  📊 Total candles: {} across {} timeframes", total_candles, msg.candles.len());
+        println!(
+            "  📊 Total candles: {} across {} timeframes",
+            total_candles,
+            msg.candles.len()
+        );
         for (tf, candles) in &msg.candles {
             println!("    - Timeframe {}s: {} candles", tf, candles.len());
         }
@@ -100,7 +108,7 @@ distributed_actor! {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Ensure the rustls CryptoProvider is installed (required for TLS)
     kameo_remote::tls::ensure_crypto_provider();
-    
+
     // Enable detailed logging to see the streaming vs gossip issue
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=debug,kameo=debug")
@@ -111,13 +119,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let server_keypair = kameo_remote::KeyPair::new_for_testing("prebacktest_server_key");
     println!("🔐 Server using Ed25519 keypair for TLS encryption");
-    
+
     // Bootstrap on port 9002 (like the real execution service)
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9002".parse()?,
-        server_keypair
-    ).await?;
-    println!("✅ ExecutionRouter listening on {} with TLS encryption", transport.local_addr());
+        server_keypair,
+    )
+    .await?;
+    println!(
+        "✅ ExecutionRouter listening on {} with TLS encryption",
+        transport.local_addr()
+    );
 
     // Create and register ExecutionRouter
     let actor_ref = ExecutionRouterActor::spawn(());
@@ -142,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let _peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Added TA Manager as trusted peer for TLS");
     }
-    
+
     println!("📡 Server ready for large PreBacktestMessage streaming");
     println!("\n📡 Run client with:");
     println!("   cargo run --example prebacktest_stream_client --features remote");

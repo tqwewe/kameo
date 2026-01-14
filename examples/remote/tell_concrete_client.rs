@@ -318,8 +318,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     Ok(())
 }
 
-use std::time::Instant;
-
 // Real indicator output types from trading-ta (simplified for benchmark)
 #[derive(kameo::RemoteMessage, Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 struct IndicatorData {

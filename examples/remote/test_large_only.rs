@@ -3,8 +3,6 @@
 //! Server: cargo run --example test_large_only --features remote -- server
 //! Client: cargo run --example test_large_only --features remote -- client
 
-#![allow(dead_code, unused_variables)]
-
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;
@@ -63,10 +61,12 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let actor_ref = TestActor::spawn(());
     let actor_id = actor_ref.id();
 
-    // Register with transport - automatically handles distributed ask/reply
     transport
-        .register_distributed_actor("test_large".to_string(), &actor_ref)
+        .register_actor("test_large".to_string(), actor_id)
         .await?;
+
+    let handler = kameo::remote::v2_bootstrap::get_distributed_handler();
+    handler.registry().register(actor_id, actor_ref.clone());
 
     use kameo::remote::type_hash::HasTypeHash;
     println!(
@@ -109,7 +109,7 @@ async fn run_client() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
     // Lookup the actor
-    let actor = kameo::remote::DistributedActorRef::lookup("test_large")
+    let actor = kameo::remote::DistributedActorRef::lookup("test_large", transport.clone())
         .await?
         .ok_or("TestActor not found")?;
 

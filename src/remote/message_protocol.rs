@@ -191,12 +191,6 @@ pub struct StringToHashMapper {
     mappings: std::collections::HashMap<(String, String), TypeHash>,
 }
 
-impl Default for StringToHashMapper {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl StringToHashMapper {
     /// Create a new empty string-to-hash mapper
     pub fn new() -> Self {
@@ -219,6 +213,8 @@ impl StringToHashMapper {
 
     /// Create a mapper with common built-in mappings
     pub fn with_defaults() -> Self {
+        let mapper = Self::new();
+
         // Add default mappings for backward compatibility
         // These would be the existing RemoteActor implementations
         // Example:
@@ -228,7 +224,7 @@ impl StringToHashMapper {
         //     TypeHash::from_bytes(b"StringCache:Get")
         // );
 
-        Self::new()
+        mapper
     }
 }
 

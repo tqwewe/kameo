@@ -104,16 +104,16 @@ where
     /// #
     /// # impl Message<i64> for Counter {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: i64, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    /// #     async fn handle(&mut self, msg: i64, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
     /// #         self.count += msg;
     /// #     }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let counter_ref = Counter::spawn(Counter::default());
+    /// # let counter_ref = Counter::default().spawn();
     /// let count = 42;
     /// counter_ref.tell(count).send().await?;
-    /// # Ok::<(), SendError<i64>>(())
+    /// # Ok::<(), SendError>(())
     /// # });
     /// ```
     pub async fn send(self) -> Result<(), SendError<M>> {
@@ -152,16 +152,16 @@ where
     /// #
     /// # impl Message<i64> for Counter {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: i64, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+    /// #     async fn handle(&mut self, msg: i64, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
     /// #         self.count += msg;
     /// #     }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let counter_ref = Counter::spawn(Counter::default());
+    /// # let counter_ref = Counter::default().spawn();
     /// let count = 42;
     /// counter_ref.tell(count).try_send()?;
-    /// # Ok::<(), SendError<i64>>(())
+    /// # Ok::<(), SendError>(())
     /// # });
     /// ```
     pub fn try_send(self) -> Result<(), SendError<M>> {
@@ -191,6 +191,7 @@ where
         self.send().boxed()
     }
 }
+
 /// A request to send a message to a typed actor without any reply.
 #[allow(missing_debug_implementations)]
 #[must_use = "request won't be sent without awaiting send() method"]
