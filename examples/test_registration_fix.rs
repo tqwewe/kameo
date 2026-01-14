@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 1: Local registration works with remote feature
     println!("Test 1: Local registration with remote feature enabled");
     let actor1 = TestActor::spawn(TestActor { id: 1 });
-    match actor1.register("test_actor_1").await {
+    match actor1.register_local("test_actor_1") {
         Ok(()) => println!("✅ Registration succeeded"),
         Err(e) => {
             println!("❌ Registration failed: {:?}", e);
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test 3: Duplicate registration fails correctly
     println!("\nTest 3: Duplicate registration prevention");
     let actor2 = TestActor::spawn(TestActor { id: 2 });
-    match actor2.register("test_actor_1").await {
+    match actor2.register_local("test_actor_1") {
         Ok(()) => {
             println!("❌ Duplicate registration succeeded (should have failed)");
             return Err("Duplicate registration should fail".into());
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 4: Multiple different actors can be registered
     println!("\nTest 4: Multiple actor registration");
-    match actor2.register("test_actor_2").await {
+    match actor2.register_local("test_actor_2") {
         Ok(()) => println!("✅ Second actor registered successfully"),
         Err(e) => {
             println!("❌ Second actor registration failed: {:?}", e);

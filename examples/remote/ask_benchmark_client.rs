@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor (with connection caching)
     println!("\n🔍 Looking up remote CalculatorActor...");
-    let calc_ref = match DistributedActorRef::lookup("calculator").await? {
+    let calc_ref = match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
             Some(ref_) => {
                 println!("✅ Found CalculatorActor on server with cached connection");
                 ref_
@@ -212,7 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Warm up with a few operations
     println!("\n🏃 Warming up connection...");
     for i in 1..=3 {
-        let _: AddResult = calc_ref.ask(Add { a: i, b: i }).send().await?;
+        let _ = calc_ref.ask(Add { a: i, b: i }).send().await?;
     }
     println!("✅ Warm-up complete");
 
@@ -221,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut single_times = Vec::new();
     for i in 1..=10 {
         let start = Instant::now();
-        let result: AddResult = calc_ref.ask(Add { a: i, b: i * 2 }).send().await?;
+        let result = calc_ref.ask(Add { a: i, b: i * 2 }).send().await?;
         let duration = start.elapsed();
         single_times.push(duration);
         println!("   Sample {}: {} in {:?}", i, result.result, duration);
@@ -235,7 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     for i in 1..=50 {
         let start = Instant::now();
-        let _: AddResult = calc_ref.ask(Add { a: i, b: i + 10 }).send().await?;
+        let _ = calc_ref.ask(Add { a: i, b: i + 10 }).send().await?;
         let duration = start.elapsed();
         rapid_times.push(duration);
     }
@@ -254,13 +254,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     for i in 1..=20 {
         // Add operation
         let start = Instant::now();
-        let _: AddResult = calc_ref.ask(Add { a: i, b: i * 3 }).send().await?;
+        let _ = calc_ref.ask(Add { a: i, b: i * 3 }).send().await?;
         let duration = start.elapsed();
         add_times.push(duration);
         
         // Multiply operation  
         let start = Instant::now();
-        let _: MultiplyResult = calc_ref.ask(Multiply { a: i, b: i + 1 }).send().await?;
+        let _ = calc_ref.ask(Multiply { a: i, b: i + 1 }).send().await?;
         let duration = start.elapsed();
         multiply_times.push(duration);
     }
@@ -277,7 +277,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let calc_ref_clone = calc_ref.clone();
         let handle = tokio::spawn(async move {
             let start = Instant::now();
-            let _: AddResult = calc_ref_clone.ask(Add { a: i, b: i * 4 }).send().await.unwrap();
+            let _ = calc_ref_clone.ask(Add { a: i, b: i * 4 }).send().await.unwrap();
             start.elapsed()
         });
         handles.push(handle);

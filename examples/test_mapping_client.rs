@@ -6,6 +6,17 @@ use kameo_remote;
 mod test_mapping_messages;
 use test_mapping_messages::*;
 
+#[derive(Debug)]
+struct TestActor;
+use kameo::actor::{Actor, ActorRef};
+impl Actor for TestActor {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 TEST MAPPING SYNTAX CLIENT");
@@ -31,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("⏳ Waiting for gossip to propagate...");
     tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
 
-    let actor_ref = match DistributedActorRef::lookup("test_actor").await {
+    let actor_ref = match DistributedActorRef::<TestActor>::lookup("test_actor").await {
         Ok(Some(actor)) => actor,
         Ok(None) => return Err("Actor not found".into()),
         Err(e) => return Err(e.into()),

@@ -159,16 +159,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor with connection caching
     println!("\n🔍 Looking up remote CalculatorActor with connection caching...");
-    let calc_ref = match DistributedActorRef::lookup("calculator").await? {
-        Some(ref_) => {
-            println!("✅ Found CalculatorActor on server with cached connection");
-            ref_
-        }
-        None => {
-            println!("❌ CalculatorActor not found on server");
-            return Err("Actor not found".into());
-        }
-    };
+    let calc_ref =
+        match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
+            Some(ref_) => {
+                println!("✅ Found CalculatorActor on server with cached connection");
+                ref_
+            }
+            None => {
+                println!("❌ CalculatorActor not found on server");
+                return Err("Actor not found".into());
+            }
+        };
 
     // Send ask messages and verify responses
     println!("\n📤 Sending ask messages to remote actor...");

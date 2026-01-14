@@ -66,6 +66,58 @@ pub struct CandleAnalysis {
     pub processing_time_us: u64,
 }
 
+use kameo::actor::{Actor, ActorRef};
+use kameo::distributed_actor;
+use kameo::message::{Context, Message};
+
+#[derive(Debug)]
+struct CandleAnalyzerActor;
+
+impl Actor for CandleAnalyzerActor {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    async fn on_start(_args: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(Self)
+    }
+}
+
+impl Message<FuturesOHLCVCandle> for CandleAnalyzerActor {
+    type Reply = CandleAnalysis;
+
+    async fn handle(
+        &mut self,
+        _msg: FuturesOHLCVCandle,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        panic!("Client should not handle messages")
+    }
+}
+
+distributed_actor! {
+    CandleAnalyzerActor {
+        FuturesOHLCVCandle,
+    }
+}
+
+impl kameo::reply::Reply for CandleAnalysis {
+    type Ok = Self;
+    type Error = kameo::error::Infallible;
+    type Value = Self;
+
+    fn to_result(self) -> Result<Self, kameo::error::Infallible> {
+        Ok(self)
+    }
+
+    fn into_any_err(self) -> Option<Box<dyn kameo::reply::ReplyError>> {
+        None
+    }
+
+    fn into_value(self) -> Self::Value {
+        self
+    }
+}
+
 // Simple random float generator (avoiding external deps)
 mod rand {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -122,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up the remote candle analyzer actor
     println!("\n🔍 Looking up remote CandleAnalyzerActor...");
-    let candle_analyzer = match DistributedActorRef::lookup("candle_analyzer").await? {
+    let candle_analyzer = match DistributedActorRef::<CandleAnalyzerActor>::lookup("candle_analyzer").await? {
         Some(ref_) => {
             println!("✅ Found CandleAnalyzerActor on server");
             ref_
@@ -147,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             1000.0 + (i as f64 * 100.0),
         );
 
-        let _analysis: CandleAnalysis = candle_analyzer.ask(candle).send().await?;
+        let _analysis = candle_analyzer.ask(candle).send().await?;
     }
 
     // Benchmark configuration
@@ -186,7 +238,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let request_start = Instant::now();
 
             // Send ask request and wait for reply
-            let analysis: CandleAnalysis = candle_analyzer.ask(candle).send().await?;
+            let analysis = candle_analyzer.ask(candle).send().await?;
 
             let request_latency_us = request_start.elapsed().as_micros() as u64;
 

@@ -12,10 +12,20 @@ use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
 mod tell_messages;
 use tell_messages::*;
 
+#[derive(Debug)]
+struct ClientActor;
+impl Actor for ClientActor {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
+
 // Concrete actor - logger that receives log messages
 struct LoggerActor {
     message_count: u32,
-    client_ref: Option<DistributedActorRef>,
+    client_ref: Option<DistributedActorRef<ClientActor>>,
     test_completed: bool,
     _server_batch_sent: bool,
 }
@@ -44,7 +54,7 @@ impl Actor for LoggerActor {
 // Message for setting client reference
 #[derive(Clone)]
 pub struct SetClientRef {
-    pub client_ref: DistributedActorRef,
+    pub client_ref: DistributedActorRef<ClientActor>,
 }
 
 impl Message<SetClientRef> for LoggerActor {
@@ -171,7 +181,7 @@ impl LoggerActor {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Only do expensive lookup if we don't have a client ref yet
         if self.client_ref.is_none() {
-            match DistributedActorRef::lookup("client").await {
+            match DistributedActorRef::<ClientActor>::lookup("client").await {
                 Ok(Some(client_ref)) => {
                     println!(
                         "✅ [SERVER] Found client on-demand! Setting up bidirectional messaging..."
@@ -446,7 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Ok(_) => {
                         println!("✅ [SERVER] Connected to client!");
                         // Connection established, now try to lookup client actor
-                        match DistributedActorRef::lookup("client").await {
+                        match DistributedActorRef::<ClientActor>::lookup("client").await {
                             Ok(Some(client_ref)) => {
                                 println!("✅ [SERVER] Found client! Setting up bidirectional messaging...");
                                 if let Err(e) = lookup_actor_ref

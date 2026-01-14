@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor (with connection caching)
     println!("\n🔍 Looking up remote CalculatorActor...");
-    let calc_ref = match DistributedActorRef::lookup("calculator").await? {
+    let calc_ref = match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
         Some(ref_) => {
             println!("✅ Found CalculatorActor on server with cached connection");
             ref_
@@ -177,7 +177,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 1: Add operation
     println!("\n🧪 Test 1: Asking to add 10 + 20");
     let start = std::time::Instant::now();
-    let result: AddResult = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
+    let result = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -189,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 2: Multiply operation
     println!("\n🧪 Test 2: Asking to multiply 5 × 7");
     let start = std::time::Instant::now();
-    let result: MultiplyResult = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
+    let result = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -201,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 3: Another add operation
     println!("\n🧪 Test 3: Asking to add 100 + 200");
     let start = std::time::Instant::now();
-    let result: AddResult = calc_ref.ask(Add { a: 100, b: 200 }).send().await?;
+    let result = calc_ref.ask(Add { a: 100, b: 200 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -213,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 4: With timeout
     println!("\n🧪 Test 4: Asking with explicit timeout");
     let start = std::time::Instant::now();
-    let result: MultiplyResult = calc_ref
+    let result = calc_ref
         .ask(Multiply { a: 12, b: 12 })
         .timeout(std::time::Duration::from_secs(5))
         .send()
@@ -231,7 +231,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let batch_start = std::time::Instant::now();
     for i in 1..=5 {
         let start = std::time::Instant::now();
-        let result: AddResult = calc_ref.ask(Add { a: i, b: i * 10 }).send().await?;
+        let result = calc_ref.ask(Add { a: i, b: i * 10 }).send().await?;
         let duration = start.elapsed();
         println!(
             "   Request {}: {} + {} = {} (operation count: {}) in {:?}",

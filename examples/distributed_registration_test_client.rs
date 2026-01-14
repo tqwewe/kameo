@@ -1,6 +1,17 @@
 //! Minimal test client that demonstrates distributed actor registration/lookup issue
 
+use kameo::actor::{Actor, ActorRef};
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+
+#[derive(Debug)]
+struct TestActor;
+impl Actor for TestActor {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        unimplemented!()
+    }
+}
 
 // Import same message from server
 #[derive(kameo::RemoteMessage, Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -43,7 +54,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Looking up distributed actor 'test_distributed_actor'...");
 
     let actor_name = "test_distributed_actor";
-    match DistributedActorRef::lookup(actor_name).await {
+    match DistributedActorRef::<TestActor>::lookup(actor_name).await {
         Ok(Some(actor_ref)) => {
             println!("SUCCESS: Found distributed actor!");
             println!("Actor ID: {}", actor_ref.id());

@@ -157,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor (with connection caching)
     println!("🔍 Looking up remote calculator...");
-    let calc_ref = match DistributedActorRef::lookup("calculator").await? {
+    let calc_ref = match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
         Some(ref_) => {
             println!("✅ Found remote Calculator actor!");
             ref_
@@ -175,7 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 1: Add operation - EXACTLY like Theta
     println!("\n🧪 Test 1: Asking to add 10 + 20");
     let start = Instant::now();
-    let result: AddResult = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
+    let result = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
     let duration = start.elapsed();
     println!("✅ Got response: {} in {:?}", result.result, duration);
     assert_eq!(result.result, 30);
@@ -183,7 +183,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 2: Multiply operation - EXACTLY like Theta
     println!("\n🧪 Test 2: Asking to multiply 5 × 7");
     let start = Instant::now();
-    let result: MultiplyResult = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
+    let result = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
     let duration = start.elapsed();
     println!("✅ Got response: {} in {:?}", result.result, duration);
     assert_eq!(result.result, 35);
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     for i in 1..=10 {
         let start = Instant::now();
-        let result: AddResult = calc_ref.ask(Add { a: i, b: i * 2 }).send().await?;
+        let result = calc_ref.ask(Add { a: i, b: i * 2 }).send().await?;
         let duration = start.elapsed();
         times.push(duration);
         println!(

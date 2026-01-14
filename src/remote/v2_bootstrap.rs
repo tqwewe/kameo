@@ -266,7 +266,7 @@ pub async fn bootstrap_with_keypair(
     }
 
     // Automatically set the global transport for DistributedActorRef::lookup
-    super::DistributedActorRef::set_global_transport(transport.clone());
+    super::distributed_actor_ref::set_global_transport(transport.clone());
 
     tracing::info!(
         local_addr = %addr,
@@ -368,7 +368,7 @@ pub async fn bootstrap_with_config(
     );
 
     // Automatically set the global transport for DistributedActorRef::lookup
-    super::DistributedActorRef::set_global_transport(transport.clone());
+    super::distributed_actor_ref::set_global_transport(transport.clone());
 
     Ok(transport)
 }

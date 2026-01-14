@@ -10,8 +10,9 @@ use std::time::Duration;
 use bytes::{BufMut, Bytes};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
-use crate::actor::ActorId;
+use crate::actor::{Actor, ActorId};
 use crate::error::SendError;
+use crate::message::Message;
 
 use super::transport::{RemoteActorLocation, RemoteTransport, TransportError};
 use super::type_hash::HasTypeHash;
@@ -25,8 +26,11 @@ use kameo_remote::connection_pool::ConnectionHandle;
 /// to optimize away all runtime type checks and generate the most efficient code possible.
 ///
 /// This eliminates dynamic dispatch overhead
-#[derive(Clone, Debug)]
-pub struct DistributedActorRef<T = Box<super::kameo_transport::KameoTransport>> {
+#[derive(Debug)]
+pub struct DistributedActorRef<A, T = Box<super::kameo_transport::KameoTransport>>
+where
+    A: Actor,
+{
     /// The actor's ID
     pub(crate) actor_id: ActorId,
     /// The actor's location
@@ -35,10 +39,29 @@ pub struct DistributedActorRef<T = Box<super::kameo_transport::KameoTransport>> 
     pub(crate) transport: T,
     /// Cached connection handle for lock-free access (only for KameoTransport)
     pub(crate) connection: Option<ConnectionHandle>,
+    /// The actor type, used for message type inference
+    pub(crate) _actor_type: PhantomData<A>,
 }
 
-impl<T> DistributedActorRef<T>
+impl<A, T> Clone for DistributedActorRef<A, T>
 where
+    A: Actor,
+    T: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            actor_id: self.actor_id,
+            location: self.location.clone(),
+            transport: self.transport.clone(),
+            connection: self.connection.clone(),
+            _actor_type: PhantomData,
+        }
+    }
+}
+
+impl<A, T> DistributedActorRef<A, T>
+where
+    A: Actor,
     T: RemoteTransport,
 {
     /// Create a new zero-cost distributed actor reference
@@ -56,6 +79,7 @@ where
             location,
             transport,
             connection: Some(connection),
+            _actor_type: PhantomData,
         }
     }
 
@@ -74,7 +98,7 @@ where
     /// This method is monomorphized for each message type M, allowing the compiler
     /// to generate specialized, high-performance code with no dynamic dispatch overhead.
     /// All type hashes, serialization, and message handling is resolved at compile time.
-    pub fn tell<M>(&self, message: M) -> DistributedTellRequest<'_, M, T>
+    pub fn tell<M>(&self, message: M) -> DistributedTellRequest<'_, A, M, T>
     where
         M: HasTypeHash
             + Send
@@ -103,8 +127,9 @@ where
     ///
     /// This method is monomorphized for each message type M and reply type R,
     /// generating specialized code with no runtime overhead.
-    pub fn ask<M, R>(&self, message: M) -> DistributedAskRequest<'_, M, R, T>
+    pub fn ask<M>(&self, message: M) -> DistributedAskRequest<'_, A, M, T>
     where
+        A: Actor + Message<M>,
         M: HasTypeHash
             + Send
             + 'static
@@ -119,13 +144,34 @@ where
                     rkyv::rancor::Error,
                 >,
             >,
+        for<'b> <A as Message<M>>::Reply: Archive
+            + RSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        rkyv::util::AlignedVec,
+                        rkyv::ser::allocator::ArenaHandle<'b>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            >,
+        for<'b> <<A as Message<M>>::Reply as Archive>::Archived:
+            RDeserialize<<A as Message<M>>::Reply, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>
+            + rkyv::bytecheck::CheckBytes<
+                rkyv::rancor::Strategy<
+                    rkyv::validation::Validator<
+                        rkyv::validation::archive::ArchiveValidator<'b>,
+                        rkyv::validation::shared::SharedValidator,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            >,
     {
         DistributedAskRequest {
             actor_ref: self,
             message,
             timeout: None,
             _message_type: PhantomData,
-            _reply_type: PhantomData,
         }
     }
 }
@@ -142,14 +188,10 @@ pub static GLOBAL_TRANSPORT: LazyLock<
 > = LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 // Specialized implementation for KameoTransport to cache connections
-impl DistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
-    /// Set the global transport for lookup calls without transport parameter
-    /// This is private - only callable from within the kameo crate (by bootstrap functions)
-    pub(crate) fn set_global_transport(transport: Box<super::kameo_transport::KameoTransport>) {
-        let mut global = GLOBAL_TRANSPORT.lock().unwrap();
-        *global = Some(transport);
-    }
-
+impl<A> DistributedActorRef<A, Box<super::kameo_transport::KameoTransport>>
+where
+    A: Actor,
+{
     /// Look up a distributed actor by name (uses cached global transport)
     pub async fn lookup(
         name: &str,
@@ -183,20 +225,31 @@ impl DistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
     }
 }
 
+/// Set the global transport for lookup calls without transport parameter
+/// This is private - only callable from within the kameo crate (by bootstrap functions)
+pub(crate) fn set_global_transport(transport: Box<super::kameo_transport::KameoTransport>) {
+    let mut global = GLOBAL_TRANSPORT.lock().unwrap();
+    *global = Some(transport);
+}
+
 /// A pending tell request to a distributed actor (zero-cost version).
 ///
 /// This struct is monomorphized for each message type M, allowing the compiler
 /// to generate specialized code with compile-time constants and optimized paths.
 #[derive(Debug)]
-pub struct DistributedTellRequest<'a, M, T = Box<super::kameo_transport::KameoTransport>> {
-    actor_ref: &'a DistributedActorRef<T>,
+pub struct DistributedTellRequest<'a, A, M, T = Box<super::kameo_transport::KameoTransport>>
+where
+    A: Actor,
+{
+    actor_ref: &'a DistributedActorRef<A, T>,
     message: M,
     timeout: Option<Duration>,
     _message_type: PhantomData<M>,
 }
 
-impl<'a, M, T> DistributedTellRequest<'a, M, T>
+impl<'a, A, M, T> DistributedTellRequest<'a, A, M, T>
 where
+    A: Actor,
     M: HasTypeHash
         + Send
         + 'static
@@ -336,16 +389,17 @@ where
 /// This struct is monomorphized for each message type M and reply type R,
 /// generating specialized code with no runtime overhead.
 #[derive(Debug)]
-pub struct DistributedAskRequest<'a, M, R, T = Box<super::kameo_transport::KameoTransport>> {
-    actor_ref: &'a DistributedActorRef<T>,
+pub struct DistributedAskRequest<'a, A: Actor, M, T = Box<super::kameo_transport::KameoTransport>>
+{
+    actor_ref: &'a DistributedActorRef<A, T>,
     message: M,
     timeout: Option<Duration>,
     _message_type: PhantomData<M>,
-    _reply_type: PhantomData<R>,
 }
 
-impl<'a, M, R, T> DistributedAskRequest<'a, M, R, T>
+impl<'a, A, M, T> DistributedAskRequest<'a, A, M, T>
 where
+    A: Actor + Message<M>,
     M: HasTypeHash
         + Send
         + 'static
@@ -360,8 +414,8 @@ where
                 rkyv::rancor::Error,
             >,
         >,
-    R: Archive
-        + for<'b> RSerialize<
+    for<'b> <A as Message<M>>::Reply: Archive
+        + RSerialize<
             rkyv::rancor::Strategy<
                 rkyv::ser::Serializer<
                     rkyv::util::AlignedVec,
@@ -371,16 +425,17 @@ where
                 rkyv::rancor::Error,
             >,
         >,
-    <R as Archive>::Archived: for<'b> RDeserialize<R, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>
-        + for<'b> rkyv::bytecheck::CheckBytes<
-            rkyv::rancor::Strategy<
-                rkyv::validation::Validator<
-                    rkyv::validation::archive::ArchiveValidator<'b>,
-                    rkyv::validation::shared::SharedValidator,
+    for<'b> <<A as Message<M>>::Reply as Archive>::Archived:
+        RDeserialize<<A as Message<M>>::Reply, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>
+            + rkyv::bytecheck::CheckBytes<
+                rkyv::rancor::Strategy<
+                    rkyv::validation::Validator<
+                        rkyv::validation::archive::ArchiveValidator<'b>,
+                        rkyv::validation::shared::SharedValidator,
+                    >,
+                    rkyv::rancor::Error,
                 >,
-                rkyv::rancor::Error,
             >,
-        >,
     T: RemoteTransport,
 {
     /// Set a timeout for the ask operation
@@ -393,12 +448,14 @@ where
     ///
     /// This method is fully monomorphized for message type M and reply type R,
     /// generating specialized code with no dynamic dispatch overhead.
-    pub async fn send(self) -> Result<R, SendError> {
+    pub async fn send(self) -> Result<<A as Message<M>>::Reply, SendError> {
         // Get the raw bytes using the zero-cost implementation
         let reply_bytes = self.send_raw().await?;
 
         // Deserialize the reply using rkyv - monomorphized for reply type R
-        let reply = match rkyv::from_bytes::<R, rkyv::rancor::Error>(&reply_bytes) {
+        let reply = match rkyv::from_bytes::<<A as Message<M>>::Reply, rkyv::rancor::Error>(
+            &reply_bytes,
+        ) {
             Ok(r) => r,
             Err(_e) => {
                 return Err(SendError::ActorStopped);

@@ -23,7 +23,7 @@ async fn test_local_registration_with_remote_feature() {
     let actor = TestActor::spawn(TestActor::new(1));
 
     // Should succeed without returning SwarmNotBootstrapped error
-    actor.register("test_actor").await.unwrap();
+    actor.register_local("test_actor").unwrap();
 
     // Should be able to find the actor via local lookup
     let found = ActorRef::<TestActor>::lookup("test_actor").await.unwrap();
@@ -43,10 +43,10 @@ async fn test_no_duplicate_local_registration() {
     let actor2 = TestActor::spawn(TestActor::new(3));
 
     // First registration should succeed
-    actor1.register("duplicate_test").await.unwrap();
+    actor1.register_local("duplicate_test").unwrap();
 
     // Second registration with same name should fail
-    let result = actor2.register("duplicate_test").await;
+    let result = actor2.register_local("duplicate_test");
     assert!(matches!(result, Err(RegistryError::NameAlreadyRegistered)));
 
     // Verify only the first actor is registered
@@ -71,9 +71,9 @@ async fn test_multiple_actor_registration() {
     let actor3 = TestActor::spawn(TestActor::new(6));
 
     // Register all actors with different names
-    actor1.register("actor_1").await.unwrap();
-    actor2.register("actor_2").await.unwrap();
-    actor3.register("actor_3").await.unwrap();
+    actor1.register_local("actor_1").unwrap();
+    actor2.register_local("actor_2").unwrap();
+    actor3.register_local("actor_3").unwrap();
 
     // Verify all can be found
     let found1 = ActorRef::<TestActor>::lookup("actor_1")
@@ -113,7 +113,7 @@ async fn test_lookup_nonexistent_actor() {
 #[tokio::test]
 async fn test_registration_cleanup_after_stop() {
     let actor = TestActor::spawn(TestActor::new(7));
-    actor.register("cleanup_test").await.unwrap();
+    actor.register_local("cleanup_test").unwrap();
 
     // Verify actor is registered
     let found = ActorRef::<TestActor>::lookup("cleanup_test").await.unwrap();

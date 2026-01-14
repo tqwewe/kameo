@@ -99,7 +99,7 @@ async fn test_small_tell_messages_100kb() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Look up remote actor
-    let remote_ref = DistributedActorRef::lookup("small_test_actor")
+    let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("small_test_actor")
         .await
         .expect("Lookup failed")
         .expect("Actor not found");
@@ -167,7 +167,7 @@ async fn test_small_ask_messages_500kb() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Look up remote actor
-    let remote_ref = DistributedActorRef::lookup("small_ask_actor")
+    let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("small_ask_actor")
         .await
         .expect("Lookup failed")
         .expect("Actor not found");
@@ -242,7 +242,7 @@ async fn test_boundary_condition_999kb() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Look up remote actor
-    let remote_ref = DistributedActorRef::lookup("boundary_test_actor")
+    let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("boundary_test_actor")
         .await
         .expect("Lookup failed")
         .expect("Actor not found");
@@ -319,7 +319,7 @@ async fn test_performance_baseline_small_messages() {
     tokio::time::sleep(Duration::from_millis(500)).await;
 
     // Look up remote actor
-    let remote_ref = DistributedActorRef::lookup("perf_test_actor")
+    let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("perf_test_actor")
         .await
         .expect("Lookup failed")
         .expect("Actor not found");

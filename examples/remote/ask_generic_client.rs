@@ -43,13 +43,31 @@ struct Multiply {
 #[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct GetLastResult;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Archive, RSerialize, RDeserialize)]
+#[derive(Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct LastResult {
     value: Option<i32>,
     operation_count: u32,
 }
 
 impl kameo::reply::Reply for LastResult {
+    type Ok = Self;
+    type Error = kameo::error::Infallible;
+    type Value = Self;
+
+    fn to_result(self) -> Result<Self, kameo::error::Infallible> {
+        Ok(self)
+    }
+
+    fn into_any_err(self) -> Option<Box<dyn kameo::reply::ReplyError>> {
+        None
+    }
+
+    fn into_value(self) -> Self::Value {
+        self
+    }
+}
+
+impl kameo::reply::Reply for i32 {
     type Ok = Self;
     type Error = kameo::error::Infallible;
     type Value = Self;
@@ -154,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Look up remote actor
     println!("\n🔍 Looking up remote CalculatorActor...");
     let calc_ref =
-        match DistributedActorRef::<CalculatorActor>::lookup("calculator", transport).await? {
+        match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
             Some(ref_) => {
                 println!("✅ Found CalculatorActor on server");
                 ref_

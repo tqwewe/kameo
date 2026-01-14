@@ -118,25 +118,25 @@ pub async fn unregister(_name: impl Into<String>) -> Result<(), RegistryError> {
 ///
 /// This would be returned by RemoteActorRef::lookup_all() but requires
 /// access to the transport/registry which should be managed by the application.
+use std::marker::PhantomData;
+
 #[derive(Debug)]
-pub struct LookupStream<A> {
-    _phantom: std::marker::PhantomData<A>,
+pub struct LookupStream {
+    _phantom: PhantomData<()>,
 }
 
-impl<A> LookupStream<A> {
+impl LookupStream {
     /// Create a stream that immediately returns an error
     pub fn new_err() -> Self {
         LookupStream {
-            _phantom: std::marker::PhantomData,
+            _phantom: PhantomData,
         }
     }
 }
 
-impl<A> futures::Stream for LookupStream<A>
-where
-    A: crate::Actor,
+impl futures::Stream for LookupStream
 {
-    type Item = Result<distributed_actor_ref::DistributedActorRef, RegistryError>;
+    type Item = Result<dynamic_distributed_actor_ref::DynamicDistributedActorRef, RegistryError>;
 
     fn poll_next(
         self: std::pin::Pin<&mut Self>,
