@@ -94,7 +94,6 @@ impl MessageHandler for RemoteMessageHandler {
         type_hash: u32,
         payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
-        let actor_id = actor_id;
         let payload = payload.to_vec();
 
         Box::pin(async move {
@@ -130,7 +129,6 @@ impl MessageHandler for RemoteMessageHandler {
         type_hash: u32,
         payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = Result<Bytes, BoxError>> + Send + '_>> {
-        let actor_id = actor_id;
         let payload = payload.to_vec();
 
         Box::pin(async move {
@@ -146,7 +144,7 @@ impl MessageHandler for RemoteMessageHandler {
                 let reply_timeout = Some(Duration::from_secs(30));
                 return (ask_fn)(actor_id, payload, mailbox_timeout, reply_timeout)
                     .await
-                    .map(|vec| Bytes::from(vec))
+                    .map(Bytes::from)
                     .map_err(|e| match e {
                         RemoteSendError::UnknownMessage {
                             actor_remote_id,

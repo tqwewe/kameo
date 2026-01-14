@@ -19,6 +19,12 @@ pub struct DistributedMessageHandler {
     legacy_handler: RemoteMessageHandler,
 }
 
+impl Default for DistributedMessageHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DistributedMessageHandler {
     /// Creates a new distributed message handler for legacy message routing
     pub fn new() -> Self {

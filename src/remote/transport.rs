@@ -152,6 +152,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
             + 'static;
 
     /// Send an ask message to a remote actor and wait for reply
+    #[allow(clippy::type_complexity)]
     fn send_ask<A, M>(
         &self,
         actor_id: ActorId,

@@ -25,18 +25,18 @@ impl KameoActorMessageHandler {
     }
 }
 
+/// Type alias for the actor message handler future return type
+type ActorMessageFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = kameo_remote::Result<Option<Vec<u8>>>> + Send>>;
+
 /// Create an immediate error future for invalid actor IDs
 ///
 /// This helper simplifies error handling in the message handler by providing
 /// a clean way to return parse errors without nested async blocks.
-fn invalid_actor_id_error(
-    actor_id: &str,
-    err: std::num::ParseIntError,
-) -> std::pin::Pin<Box<dyn std::future::Future<Output = kameo_remote::Result<Option<Vec<u8>>>> + Send>>
-{
+fn invalid_actor_id_error(actor_id: &str, err: std::num::ParseIntError) -> ActorMessageFuture {
     let msg = format!("Invalid actor_id '{}': {}", actor_id, err);
     Box::pin(std::future::ready(Err(kameo_remote::GossipError::Network(
-        std::io::Error::new(std::io::ErrorKind::InvalidData, msg),
+        std::io::Error::other(msg),
     ))))
 }
 
@@ -72,7 +72,7 @@ impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
                     distributed_handler.as_ref(),
                     actor_id,
                     type_hash,
-                    payload.into(),
+                    payload,
                 )
                 .await
                 {
@@ -80,8 +80,7 @@ impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
                         // OPTIMIZATION: reply is already Bytes, convert to Vec without clone
                         Ok(Some(reply.into()))
                     }
-                    Err(e) => Err(kameo_remote::GossipError::Network(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    Err(e) => Err(kameo_remote::GossipError::Network(std::io::Error::other(
                         format!("Ask handler error: {:?}", e),
                     ))),
                 }
@@ -91,13 +90,12 @@ impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
                     distributed_handler.as_ref(),
                     actor_id,
                     type_hash,
-                    payload.into(),
+                    payload,
                 )
                 .await
                 {
                     Ok(()) => Ok(None),
-                    Err(e) => Err(kameo_remote::GossipError::Network(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    Err(e) => Err(kameo_remote::GossipError::Network(std::io::Error::other(
                         format!("Tell handler error: {:?}", e),
                     ))),
                 }
@@ -241,7 +239,7 @@ pub async fn bootstrap_with_keypair(
     // Create and start the gossip registry with TLS enabled using new_with_tls
     let handle = GossipRegistryHandle::new_with_tls(addr, secret_key, Some(gossip_config))
         .await
-        .map_err(|e| BoxError::from(e))?;
+        .map_err(BoxError::from)?;
 
     // Use the set_handle method if available, or we need to add it
     transport.set_handle(Arc::new(handle));

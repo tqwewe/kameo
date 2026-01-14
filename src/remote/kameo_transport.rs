@@ -62,7 +62,7 @@ impl KameoTransport {
         self.handle
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))
-            .map(|h| h.clone())
+            .cloned()
     }
 
     /// Set the handle for the transport (used when creating with custom keypair)
