@@ -25,6 +25,21 @@ impl KameoActorMessageHandler {
     }
 }
 
+/// Create an immediate error future for invalid actor IDs
+///
+/// This helper simplifies error handling in the message handler by providing
+/// a clean way to return parse errors without nested async blocks.
+fn invalid_actor_id_error(
+    actor_id: &str,
+    err: std::num::ParseIntError,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = kameo_remote::Result<Option<Vec<u8>>>> + Send>>
+{
+    let msg = format!("Invalid actor_id '{}': {}", actor_id, err);
+    Box::pin(std::future::ready(Err(kameo_remote::GossipError::Network(
+        std::io::Error::new(std::io::ErrorKind::InvalidData, msg),
+    ))))
+}
+
 impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
     fn handle_actor_message(
         &self,
@@ -40,12 +55,7 @@ impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
         let actor_id_u64 = match actor_id.parse::<u64>() {
             Ok(id) => id,
             Err(e) => {
-                return Box::pin(async move {
-                    Err(kameo_remote::GossipError::Network(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("Invalid actor_id: {}", e),
-                    )))
-                });
+                return invalid_actor_id_error(actor_id, e);
             }
         };
 
@@ -103,6 +113,23 @@ static GLOBAL_DISTRIBUTED_HANDLER: std::sync::LazyLock<Arc<DistributedMessageHan
 /// Get access to the global distributed message handler for registering actors
 pub fn get_distributed_handler() -> &'static Arc<DistributedMessageHandler> {
     &GLOBAL_DISTRIBUTED_HANDLER
+}
+
+/// Set the KAMEO_USE_V2_TRANSPORT environment variable safely
+///
+/// Warns if the variable is already set to a different value before overwriting.
+fn set_v2_transport_env_var() {
+    const ENV_VAR_NAME: &str = "KAMEO_USE_V2_TRANSPORT";
+    match std::env::var(ENV_VAR_NAME) {
+        Ok(val) if val != "true" => {
+            tracing::warn!(
+                existing_value = %val,
+                "KAMEO_USE_V2_TRANSPORT already set to different value, overwriting to 'true'"
+            );
+        }
+        _ => {}
+    }
+    std::env::set_var(ENV_VAR_NAME, "true");
 }
 
 // COMMENTED OUT: Non-TLS bootstrap methods - migrating to TLS-only
@@ -195,7 +222,7 @@ pub async fn bootstrap_with_keypair(
     // We need to modify the transport after creation to use the custom keypair
 
     // Force kameo_remote transport for v2 bootstrap
-    std::env::set_var("KAMEO_USE_V2_TRANSPORT", "true");
+    set_v2_transport_env_var();
 
     let mut transport = Box::new(KameoTransport::new(config));
 
@@ -228,10 +255,23 @@ pub async fn bootstrap_with_keypair(
             .registry
             .set_actor_message_handler(bridge_handler)
             .await;
+        tracing::debug!("Distributed message handler registered successfully");
+    } else {
+        tracing::error!(
+            "Failed to register distributed message handler - transport handle not available"
+        );
+        return Err(BoxError::from(
+            "Transport handle not available for handler registration",
+        ));
     }
 
     // Automatically set the global transport for DistributedActorRef::lookup
     super::DistributedActorRef::set_global_transport(transport.clone());
+
+    tracing::info!(
+        local_addr = %addr,
+        "Kameo remote transport started with TLS"
+    );
 
     Ok(transport)
 }
@@ -292,7 +332,10 @@ pub async fn bootstrap_with_config(
     config: TransportConfig,
 ) -> Result<Box<KameoTransport>, BoxError> {
     // Force kameo_remote transport for v2 bootstrap
-    std::env::set_var("KAMEO_USE_V2_TRANSPORT", "true");
+    set_v2_transport_env_var();
+
+    // Capture encryption setting before config is consumed
+    let enable_encryption = config.enable_encryption;
 
     let mut transport = Box::new(KameoTransport::new(config));
     transport.start().await?;
@@ -306,11 +349,23 @@ pub async fn bootstrap_with_config(
             .registry
             .set_actor_message_handler(bridge_handler)
             .await;
+        tracing::debug!("Distributed message handler registered successfully");
     } else {
+        tracing::error!(
+            "Failed to register distributed message handler - transport handle not available"
+        );
+        return Err(BoxError::from(
+            "Transport handle not available for handler registration",
+        ));
     }
 
     // Log the local address
-    let _local_addr = transport.local_addr();
+    let local_addr = transport.local_addr();
+    tracing::info!(
+        local_addr = %local_addr,
+        encryption = enable_encryption,
+        "Kameo remote transport started"
+    );
 
     // Automatically set the global transport for DistributedActorRef::lookup
     super::DistributedActorRef::set_global_transport(transport.clone());
@@ -318,10 +373,17 @@ pub async fn bootstrap_with_config(
     Ok(transport)
 }
 
-/// Bootstrap multiple kameo_remote nodes that connect to each other
+/// Bootstrap multiple kameo_remote nodes for testing purposes.
 ///
-/// This is useful for testing and development when you want to quickly
-/// set up a cluster of nodes.
+/// # Warning
+///
+/// **Currently creates ISOLATED nodes** - they are not automatically connected
+/// to each other. Peer connection requires manual setup after bootstrap.
+///
+/// This is useful for:
+/// - Unit testing individual nodes
+/// - Setting up nodes that will be connected via external orchestration
+/// - Development scenarios where you need multiple isolated transports
 ///
 /// # Arguments
 /// * `count` - Number of nodes to create
@@ -333,17 +395,33 @@ pub async fn bootstrap_with_config(
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     // Create 3 nodes on ports 8080, 8081, 8082
+///     // Create 3 isolated nodes on ports 8080, 8081, 8082
 ///     let transports = v2_bootstrap::bootstrap_cluster(3, 8080).await?;
-///     
-///     // Use the transports...
+///
+///     // IMPORTANT: Nodes are NOT connected to each other!
+///     // To connect them, use the peer connection API:
+///     // let handle = transports[0].handle().unwrap();
+///     // handle.connect_to("127.0.0.1:8081".parse()?).await?;
+///
 ///     Ok(())
 /// }
 /// ```
+///
+/// # Note
+///
+/// For a fully connected cluster, you must manually establish peer connections
+/// after calling this function. See the kameo_remote documentation for the
+/// peer connection API.
 pub async fn bootstrap_cluster(
     count: usize,
     base_port: u16,
 ) -> Result<Vec<Box<KameoTransport>>, BoxError> {
+    tracing::warn!(
+        node_count = count,
+        base_port = base_port,
+        "bootstrap_cluster creates ISOLATED nodes - peer connections must be established manually"
+    );
+
     let mut transports = Vec::with_capacity(count);
     let mut addrs = Vec::with_capacity(count);
 
@@ -360,6 +438,13 @@ pub async fn bootstrap_cluster(
     // Note: This requires kameo_remote to support adding peers after startup
     // For now, this just creates isolated nodes
     // TODO: Add peer connection support when kameo_remote API allows it
+
+    tracing::info!(
+        node_count = count,
+        addresses = ?addrs,
+        "Created {} isolated transport nodes",
+        count
+    );
 
     Ok(transports)
 }
