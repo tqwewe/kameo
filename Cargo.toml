@@ -158,16 +158,6 @@ path = "examples/remote/tell_concrete_lookup_fail_server.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "prebacktest_stream_server"
-path = "examples/remote/prebacktest_stream_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "prebacktest_stream_client"
-path = "examples/remote/prebacktest_stream_client.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "tell_generic_client"
 path = "examples/remote/tell_generic_client.rs"
 required-features = ["remote"]
@@ -180,21 +170,6 @@ required-features = ["remote"]
 [[example]]
 name = "tell_messages"
 path = "examples/remote/tell_messages.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_candle_client"
-path = "examples/remote/tell_candle_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_candle_server"
-path = "examples/remote/tell_candle_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_large_messages"
-path = "examples/remote/test_large_messages.rs"
 required-features = ["remote"]
 
 [[example]]
@@ -235,31 +210,6 @@ required-features = ["remote"]
 [[example]]
 name = "simple_prebacktest_client"
 path = "examples/remote/simple_prebacktest_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "simple_prebacktest_server"
-path = "examples/remote/simple_prebacktest_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "ask_server_simple_match"
-path = "examples/remote/ask_server_simple_match.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "ask_client_simple_match"
-path = "examples/remote/ask_client_simple_match.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_bugfix_server"
-path = "examples/remote/tell_bugfix_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "tell_bugfix_client"
-path = "examples/remote/tell_bugfix_client.rs"
 required-features = ["remote"]
 
 [[bench]]
