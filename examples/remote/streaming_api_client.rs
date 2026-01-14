@@ -12,7 +12,6 @@ use std::time::Instant;
 
 // Import shared message definitions for streaming
 mod streaming_messages;
-use streaming_messages::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

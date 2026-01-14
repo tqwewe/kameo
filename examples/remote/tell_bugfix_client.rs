@@ -49,8 +49,10 @@ impl Message<TAManagerResponse> for TAManagerActor {
             "🚨📨 [TAMANAGER] RECEIVED TAManagerResponse #{}: {}",
             msg.message_id, msg.response_data
         );
-        println!("🔥 [TAMANAGER] TAManagerResponse handler working! Bidirectional messaging SUCCESS!");
-        
+        println!(
+            "🔥 [TAMANAGER] TAManagerResponse handler working! Bidirectional messaging SUCCESS!"
+        );
+
         println!(
             "📨 [TAMANAGER] Total responses received from TAManager: {}",
             self.responses_received
@@ -69,17 +71,18 @@ impl Message<BacktestSummaryMessage> for TAManagerActor {
     ) -> Self::Reply {
         self.responses_received += 1;
 
-        println!(
-            "🚨🎯📡 *** [TAMANAGER] BacktestSummary RECEIVED from Executor! *** 🚨🎯📡"
-        );
+        println!("🚨🎯📡 *** [TAMANAGER] BacktestSummary RECEIVED from Executor! *** 🚨🎯📡");
         println!(
             "🎉 SUCCESS: BacktestSummary handler IS working! ID={}, PnL={}, trades={}, win_rate={}%, data_size={} bytes",
             msg.backtest_id, msg.total_pnl, msg.total_trades, msg.win_rate, msg.summary_data.len()
         );
         println!("🔥 [TAMANAGER] BacktestSummary bidirectional messaging SUCCESS!");
-        println!("🔬 [TAMANAGER] Message details: backtest_id={}, summary_data first 10 bytes: {:?}", 
-                msg.backtest_id, &msg.summary_data[..std::cmp::min(10, msg.summary_data.len())]);
-        
+        println!(
+            "🔬 [TAMANAGER] Message details: backtest_id={}, summary_data first 10 bytes: {:?}",
+            msg.backtest_id,
+            &msg.summary_data[..std::cmp::min(10, msg.summary_data.len())]
+        );
+
         println!(
             "📨 [TAMANAGER] Total responses received from Executor: {}",
             self.responses_received
@@ -137,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9310".parse()?).await?;
         println!("✅ Connected to Executor server with TLS encryption and mutual authentication");
-        
+
         // Give time for connection to stabilize
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
@@ -162,10 +165,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote Executor actor (with connection caching)
     println!("\n🔍 Looking up remote ExecutorActor...");
-    
+
     // Give gossip protocol time to propagate actor registration
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    
+
     let executor_ref = match DistributedActorRef::lookup("executor").await? {
         Some(ref_) => {
             println!("✅ Found ExecutorActor on server with cached connection");
@@ -180,7 +183,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // === BACKTEST MESSAGE FLOW TEST ===
     println!("\n📤 Testing BacktestSummary message flow simulation...");
-    println!("🔄 Sending: PreBacktest → BacktestIteration, then Executor sends BacktestSummary back");
+    println!(
+        "🔄 Sending: PreBacktest → BacktestIteration, then Executor sends BacktestSummary back"
+    );
     let all_tests_start = std::time::Instant::now();
 
     // Debug: Print the type hashes being used
@@ -237,16 +242,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 Step 3: 🚨 Waiting for BacktestSummary from Executor 🚨");
     println!("🚨 This is the message that fails to be received in the real system!");
     println!("⏳ [TAMANAGER] The Executor should now send BacktestSummary back...");
-    
+
     // Give enough time for the BacktestSummary to be sent and received
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     let all_tests_duration = all_tests_start.elapsed();
     println!("\n🎉 Message flow complete! Check output above for BacktestSummary receipt.");
     println!("⏱️  Total time: {:?}", all_tests_duration);
-    
+
     println!("\n🚨 KEY TEST RESULT:");
-    println!("🔍 Look above for '🚨🎯📡 *** [TAMANAGER] BacktestSummary RECEIVED from Executor! ***'");
+    println!(
+        "🔍 Look above for '🚨🎯📡 *** [TAMANAGER] BacktestSummary RECEIVED from Executor! ***'"
+    );
     println!("   ✅ If you see it: Bidirectional BacktestSummary messaging works!");
     println!("   ❌ If you don't: We've reproduced the real system issue!");
 

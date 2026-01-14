@@ -6,9 +6,6 @@ use std::{
 };
 use tokio::sync::oneshot;
 
-#[cfg(feature = "remote")]
-use crate::{actor, remote};
-
 use crate::{
     actor::{ActorRef, ReplyRecipient},
     error::{self, SendError},
@@ -645,7 +642,6 @@ where
         (self.f)()
     }
 }
-
 
 /// A request to send a message to a typed actor with reply.
 #[allow(missing_debug_implementations)]

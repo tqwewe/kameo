@@ -1,5 +1,5 @@
 //! Shared message definitions for bugfix test - SINGLE SOURCE OF TRUTH
-//! 
+//!
 //! This reproduces the real trading system message flow:
 //! 1. PreBacktest: Executor -> TAManager
 //! 2. BacktestIteration: Executor -> TAManager  

@@ -1,11 +1,11 @@
 mod derive_actor;
-mod derive_reply;
 mod derive_remote_message;
+mod derive_reply;
 mod messages;
 
 use derive_actor::DeriveActor;
-use derive_reply::DeriveReply;
 use derive_remote_message::DeriveRemoteMessage;
+use derive_reply::DeriveReply;
 use messages::Messages;
 use proc_macro::TokenStream;
 use quote::ToTokens;
@@ -145,8 +145,6 @@ pub fn derive_remote_message(input: TokenStream) -> TokenStream {
     TokenStream::from(derive_remote_message.into_token_stream())
 }
 
-
-
 /// Attribute macro that automatically adds the required derives for remote messages.
 ///
 /// This macro automatically applies:
@@ -176,7 +174,7 @@ pub fn derive_remote_message(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn remote_message_derive(_attrs: TokenStream, input: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(input as syn::DeriveInput);
-    
+
     // Add the required derive attributes
     let derives = vec![
         "::kameo_macros::RemoteMessage",
@@ -184,13 +182,13 @@ pub fn remote_message_derive(_attrs: TokenStream, input: TokenStream) -> TokenSt
         "::rkyv::Serialize",
         "::rkyv::Deserialize",
     ];
-    
+
     // Parse the derive paths
     let derive_paths: Vec<syn::Path> = derives
         .into_iter()
         .map(|d| syn::parse_str(d).unwrap())
         .collect();
-    
+
     // Create the derive attribute
     let derive_attr = syn::Attribute {
         pound_token: syn::Token![#](proc_macro2::Span::call_site()),
@@ -198,7 +196,9 @@ pub fn remote_message_derive(_attrs: TokenStream, input: TokenStream) -> TokenSt
         bracket_token: syn::token::Bracket(proc_macro2::Span::call_site()),
         meta: syn::Meta::List(syn::MetaList {
             path: syn::parse_str("derive").unwrap(),
-            delimiter: syn::MacroDelimiter::Paren(syn::token::Paren(proc_macro2::Span::call_site())),
+            delimiter: syn::MacroDelimiter::Paren(
+                syn::token::Paren(proc_macro2::Span::call_site()),
+            ),
             tokens: {
                 let mut tokens = proc_macro2::TokenStream::new();
                 for (i, path) in derive_paths.iter().enumerate() {
@@ -211,9 +211,9 @@ pub fn remote_message_derive(_attrs: TokenStream, input: TokenStream) -> TokenSt
             },
         }),
     };
-    
+
     // Add the derive attribute to the struct
     input.attrs.push(derive_attr);
-    
+
     TokenStream::from(quote::quote! { #input })
 }

@@ -8,7 +8,6 @@ use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
 
 // Import shared message definitions
 mod streaming_messages;
-use streaming_messages::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

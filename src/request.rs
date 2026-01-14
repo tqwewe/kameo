@@ -8,12 +8,12 @@ mod tell;
 // TODO: These types need to be updated to use DistributedAskRequest/DistributedTellRequest
 // #[cfg(feature = "remote")]
 // pub use ask::RemoteAskRequest;
-// 
+//
 // #[cfg(feature = "remote")]
 // pub use tell::RemoteTellRequest;
 
 pub use ask::{AskRequest, BlockingPendingReply, PendingReply, ReplyRecipientAskRequest};
-pub use tell::{RecipientRequest, TellRequest, RecipientTellRequest};
+pub use tell::{RecipientRequest, RecipientTellRequest, TellRequest};
 
 /// A type for requests without any timeout set.
 #[derive(Clone, Copy, Debug, Default)]

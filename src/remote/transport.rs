@@ -1,5 +1,5 @@
 //! Transport abstraction layer for remote actors
-//! 
+//!
 //! This module provides a trait-based abstraction over different transport implementations,
 //! allowing Kameo to support multiple networking backends for distributed actor communication.
 
@@ -11,7 +11,6 @@ use bytes::Bytes;
 use rkyv::{Archive, Serialize as RkyvSerialize};
 
 use crate::actor::{Actor, ActorId};
-use crate::error::SendError;
 use crate::message::Message;
 
 /// Type alias for boxed errors
@@ -20,15 +19,19 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 /// Remote-specific errors
 #[derive(Debug, thiserror::Error)]
 pub enum RemoteError {
+    /// The requested actor is not registered with the remote transport
     #[error("actor not registered: {0}")]
     ActorNotRegistered(String),
-    
+
+    /// The operation timed out waiting for a response
     #[error("timeout occurred")]
     Timeout,
-    
+
+    /// The underlying swarm/transport has stopped
     #[error("swarm stopped")]
     SwarmStopped,
-    
+
+    /// Other errors from the transport layer
     #[error(transparent)]
     Other(#[from] BoxError),
 }
@@ -39,21 +42,27 @@ pub type TransportResult<T> = Result<T, TransportError>;
 /// Errors that can occur during transport operations
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
+    /// Failed to establish a connection to a remote peer
     #[error("connection failed: {0}")]
     ConnectionFailed(String),
-    
+
+    /// Failed to serialize or deserialize message data
     #[error("serialization failed: {0}")]
     SerializationFailed(String),
-    
+
+    /// The requested actor could not be found
     #[error("actor not found: {0}")]
     ActorNotFound(String),
-    
+
+    /// The operation timed out
     #[error("timeout occurred")]
     Timeout,
-    
+
+    /// The transport has been shut down
     #[error("transport shutdown")]
     Shutdown,
-    
+
+    /// Other transport-related errors
     #[error(transparent)]
     Other(#[from] BoxError),
 }
@@ -70,26 +79,26 @@ impl From<TransportError> for RemoteError {
 }
 
 /// Trait for transport implementations
-/// 
+///
 /// This trait abstracts over different networking backends (kameo_remote, iroh, etc.)
 /// to provide a unified interface for remote actor communication.
 pub trait RemoteTransport: Send + Sync + 'static {
     /// Start the transport layer
     fn start(&mut self) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
-    
+
     /// Shutdown the transport layer
     fn shutdown(&mut self) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
-    
+
     /// Get the local peer ID/address
     fn local_addr(&self) -> SocketAddr;
-    
+
     /// Register an actor with a given name
     fn register_actor(
         &self,
         name: String,
         actor_id: ActorId,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
-    
+
     /// Register an actor with synchronous confirmation from peers
     fn register_actor_sync(
         &self,
@@ -103,24 +112,24 @@ pub trait RemoteTransport: Send + Sync + 'static {
         &self,
         name: String,
         actor_id: ActorId,
-        priority: u8, // Use u8 to avoid import issues for now - 0=Normal, 1=Immediate
+        _priority: u8, // Use u8 to avoid import issues for now - 0=Normal, 1=Immediate
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
-        // Default implementation just calls register_actor 
+        // Default implementation just calls register_actor
         self.register_actor(name, actor_id)
     }
-    
+
     /// Unregister an actor
     fn unregister_actor(
         &self,
         name: &str,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
-    
+
     /// Lookup a remote actor by name
     fn lookup_actor(
         &self,
         name: &str,
     ) -> Pin<Box<dyn Future<Output = TransportResult<Option<RemoteActorLocation>>> + Send + '_>>;
-    
+
     /// Send a tell message to a remote actor
     fn send_tell<M>(
         &self,
@@ -129,10 +138,19 @@ pub trait RemoteTransport: Send + Sync + 'static {
         message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Archive + for<'a> RkyvSerialize<
-            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
-        > + Send + 'static;
-    
+        M: Archive
+            + for<'a> RkyvSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static;
+
     /// Send an ask message to a remote actor and wait for reply
     fn send_ask<A, M>(
         &self,
@@ -143,47 +161,61 @@ pub trait RemoteTransport: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = TransportResult<<A as Message<M>>::Reply>> + Send + '_>>
     where
         A: Actor + Message<M>,
-        M: Archive + for<'a> RkyvSerialize<
-            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
-        > + Send + 'static,
-        <A as Message<M>>::Reply: Archive + for<'a> rkyv::Deserialize<
-            <A as Message<M>>::Reply,
-            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
-        > + Send;
-    
+        M: Archive
+            + for<'a> RkyvSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
+        <A as Message<M>>::Reply: Archive
+            + for<'a> rkyv::Deserialize<
+                <A as Message<M>>::Reply,
+                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+            > + Send;
+
     /// Send a tell message with explicit type hash (for generic actors)
     fn send_tell_typed(
         &self,
-        actor_id: ActorId,
-        location: &RemoteActorLocation,
-        type_hash: u32,
-        payload: Bytes,
+        _actor_id: ActorId,
+        _location: &RemoteActorLocation,
+        _type_hash: u32,
+        _payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
         // Default implementation delegates to send_tell with a dummy message
         // Transports can override for better efficiency
         Box::pin(async move {
-            Err(TransportError::Other("Typed messages not supported by this transport".into()))
+            Err(TransportError::Other(
+                "Typed messages not supported by this transport".into(),
+            ))
         })
     }
-    
+
     /// Send an ask message with explicit type hash (for generic actors)
     fn send_ask_typed(
         &self,
-        actor_id: ActorId,
-        location: &RemoteActorLocation,
-        type_hash: u32,
-        payload: Bytes,
-        timeout: std::time::Duration,
+        _actor_id: ActorId,
+        _location: &RemoteActorLocation,
+        _type_hash: u32,
+        _payload: Bytes,
+        _timeout: std::time::Duration,
     ) -> Pin<Box<dyn Future<Output = TransportResult<Bytes>> + Send + '_>> {
         // Default implementation delegates to send_ask with a dummy message
         // Transports can override for better efficiency
         Box::pin(async move {
-            Err(TransportError::Other("Typed messages not supported by this transport".into()))
+            Err(TransportError::Other(
+                "Typed messages not supported by this transport".into(),
+            ))
         })
     }
-    
+
     /// Send an ask message with streaming protocol for large messages (>1MB)
-    /// 
+    ///
     /// This method should be used for messages that exceed the streaming threshold
     /// to ensure optimal performance and avoid memory issues with large payloads.
     fn send_ask_streaming(
@@ -198,16 +230,14 @@ pub trait RemoteTransport: Send + Sync + 'static {
         // Transports should override for true streaming support
         self.send_ask_typed(actor_id, location, type_hash, payload, timeout)
     }
-    
+
     /// Handle incoming messages for local actors
-    fn set_message_handler(
-        &mut self,
-        handler: Box<dyn MessageHandler>,
-    );
+    fn set_message_handler(&mut self, handler: Box<dyn MessageHandler>);
 }
 
 /// Information about a remote actor's location
 #[derive(Debug, Clone, Archive, RkyvSerialize, rkyv::Deserialize)]
+#[rkyv(derive(Debug))]
 pub struct RemoteActorLocation {
     /// The peer address hosting the actor
     pub peer_addr: SocketAddr,
@@ -226,7 +256,7 @@ pub trait MessageHandler: Send + Sync {
         message_type: &str,
         payload: &[u8],
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>>;
-    
+
     /// Handle an incoming ask message
     fn handle_ask(
         &self,
@@ -234,7 +264,7 @@ pub trait MessageHandler: Send + Sync {
         message_type: &str,
         payload: &[u8],
     ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, BoxError>> + Send + '_>>;
-    
+
     /// Handle an incoming tell message with type hash (for generic actors)
     fn handle_tell_typed(
         &self,
@@ -246,7 +276,7 @@ pub trait MessageHandler: Send + Sync {
         let message_type = format!("hash:{:08x}", type_hash);
         self.handle_tell(actor_id, &message_type, &payload)
     }
-    
+
     /// Handle an incoming ask message with type hash (for generic actors)
     fn handle_ask_typed(
         &self,
@@ -343,9 +373,18 @@ impl<T: RemoteTransport + ?Sized> RemoteTransport for Box<T> {
         message: M,
     ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
     where
-        M: Archive + for<'a> RkyvSerialize<
-            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
-        > + Send + 'static,
+        M: Archive
+            + for<'a> RkyvSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
     {
         (**self).send_tell(actor_id, location, message)
     }
@@ -365,13 +404,23 @@ impl<T: RemoteTransport + ?Sized> RemoteTransport for Box<T> {
     >
     where
         A: crate::actor::Actor + crate::message::Message<M>,
-        M: Archive + for<'a> RkyvSerialize<
-            rkyv::rancor::Strategy<rkyv::ser::Serializer<&'a mut [u8], rkyv::ser::allocator::ArenaHandle<'a>, rkyv::ser::sharing::Share>, rkyv::rancor::Error>
-        > + Send + 'static,
-        <A as crate::message::Message<M>>::Reply: Archive + for<'a> rkyv::Deserialize<
-            <A as crate::message::Message<M>>::Reply,
-            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>
-        > + Send,
+        M: Archive
+            + for<'a> RkyvSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
+        <A as crate::message::Message<M>>::Reply: Archive
+            + for<'a> rkyv::Deserialize<
+                <A as crate::message::Message<M>>::Reply,
+                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+            > + Send,
     {
         (**self).send_ask::<A, M>(actor_id, location, message, timeout)
     }

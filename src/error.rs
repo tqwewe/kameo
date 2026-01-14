@@ -617,7 +617,10 @@ impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             #[cfg(feature = "remote")]
-            RegistryError::SwarmNotBootstrapped => write!(f, "transport not available - use external transport/registry"),
+            RegistryError::SwarmNotBootstrapped => write!(
+                f,
+                "transport not available - use external transport/registry"
+            ),
             RegistryError::NameAlreadyRegistered => write!(f, "name already registered"),
             RegistryError::BadActorType => write!(f, "bad actor type"),
             #[cfg(feature = "remote")]
@@ -631,11 +634,6 @@ impl fmt::Display for RegistryError {
 }
 
 impl error::Error for RegistryError {}
-
-
-
-
-
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]
@@ -800,7 +798,6 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
     }
 }
 
-
 #[cfg(feature = "remote")]
 impl<E> fmt::Display for RemoteSendError<E>
 where
@@ -839,7 +836,10 @@ where
             RemoteSendError::DeserializeHandlerError(err) => {
                 write!(f, "failed to deserialize handler error: {err}")
             }
-            RemoteSendError::SwarmNotBootstrapped => write!(f, "transport not available - use external transport/registry"),
+            RemoteSendError::SwarmNotBootstrapped => write!(
+                f,
+                "transport not available - use external transport/registry"
+            ),
             RemoteSendError::DialFailure => write!(f, "dial failure"),
             RemoteSendError::NetworkTimeout => write!(f, "network timeout"),
             RemoteSendError::ConnectionClosed => write!(f, "connection closed"),

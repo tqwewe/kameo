@@ -28,9 +28,7 @@ impl Actor for CalculatorActor {
 }
 
 // Same message types as server
-#[derive(
-    RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize,
-)]
+#[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct Add {
     a: i32,
     b: i32,
@@ -60,9 +58,7 @@ impl kameo::reply::Reply for AddResult {
     }
 }
 
-#[derive(
-    RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize,
-)]
+#[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct Multiply {
     a: i32,
     b: i32,

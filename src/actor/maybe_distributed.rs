@@ -5,8 +5,8 @@
 //! - `actor_ref.register("name")?` for local registration
 //! - `actor_ref.register_distributed("name")?` for distributed registration
 //!
-//! The goal is to achieve a single `actor_ref.register("name")?` method that 
-//! automatically handles both local and distributed registration based on 
+//! The goal is to achieve a single `actor_ref.register("name")?` method that
+//! automatically handles both local and distributed registration based on
 //! whether the actor was created with the `distributed_actor!` macro.
 //!
 //! This requires either:

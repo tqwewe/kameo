@@ -17,11 +17,12 @@ struct LoggerActor {
     message_count: u32,
     client_ref: Option<DistributedActorRef>,
     test_completed: bool,
-    server_batch_sent: bool,
+    _server_batch_sent: bool,
 }
 
 // Separate actor for TellConcrete messages
 #[derive(Debug)]
+#[allow(dead_code)]
 struct ConcreteActor {
     count: u32,
 }
@@ -35,7 +36,7 @@ impl Actor for LoggerActor {
             message_count: 0,
             client_ref: None,
             test_completed: false,
-            server_batch_sent: false,
+            _server_batch_sent: false,
         })
     }
 }
@@ -100,6 +101,7 @@ impl Message<GetCountMessage> for LoggerActor {
 
 // Handler method for distributed actor - now accepts archived types for zero-copy
 impl LoggerActor {
+    #[allow(dead_code)]
     async fn handle_log(&mut self, msg: &rkyv::Archived<LogMessage>) {
         self.message_count += 1;
         // Access fields directly from archived type - no deserialization!
@@ -118,6 +120,7 @@ impl LoggerActor {
         }
     }
 
+    #[allow(dead_code)]
     async fn handle_tell_concrete(&mut self, msg: &rkyv::Archived<TellConcrete>) {
         self.message_count += 1;
         let data_len = msg.data.len();
@@ -214,6 +217,7 @@ impl LoggerActor {
     }
 
     // Handle TestComplete message - signals end of client→server phase
+    #[allow(dead_code)]
     async fn handle_test_complete(&mut self, msg: &rkyv::Archived<TestComplete>) {
         println!(
             "🏁 [SERVER] Client completed! Sent {} messages in {}ms",
@@ -411,7 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if let Some(handle) = transport.handle() {
         // The client will use this same keypair name, so we add it as a trusted peer
         let client_peer_id = kameo_remote::PeerId::new("tls_client_production_key");
-        let peer = handle.add_peer(&client_peer_id).await;
+        let _peer = handle.add_peer(&client_peer_id).await;
         println!(
             "✅ Added client as trusted peer for TLS: {}",
             client_peer_id

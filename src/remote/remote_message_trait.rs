@@ -26,12 +26,12 @@ use super::type_hash::{HasTypeHash, TypeHash};
 ///     content: String,
 /// }
 /// ```
-pub trait RemoteMessage: 
-    HasTypeHash + 
-    Send + 
-    'static + 
-    Archive + 
-    for<'a> RSerialize<
+pub trait RemoteMessage:
+    HasTypeHash
+    + Send
+    + 'static
+    + Archive
+    + for<'a> RSerialize<
         rkyv::rancor::Strategy<
             rkyv::ser::Serializer<
                 rkyv::util::AlignedVec,
@@ -44,15 +44,15 @@ pub trait RemoteMessage:
 {
     /// Compile-time constant: the type hash as a u32
     const TYPE_HASH_U32: u32 = Self::TYPE_HASH.as_u32();
-    
+
     /// Compile-time constant: the type name for debugging
     const TYPE_NAME: &'static str;
-    
+
     /// Optional hint about the typical serialized size for pre-allocation optimization
     const SERIALIZED_SIZE_HINT: Option<usize> = None;
-    
+
     /// Optimized serialization method that can be specialized per message type.
-    /// 
+    ///
     /// The default implementation uses standard rkyv serialization, but message types
     /// can override this for custom optimization strategies.
     fn serialize_optimized(&self) -> Result<rkyv::util::AlignedVec, rkyv::rancor::Error>
@@ -61,9 +61,9 @@ pub trait RemoteMessage:
     {
         rkyv::to_bytes::<rkyv::rancor::Error>(self)
     }
-    
+
     /// Convert the serialized data to Bytes efficiently.
-    /// 
+    ///
     /// This can be overridden for message types that want to use custom
     /// memory management or zero-copy strategies.
     fn to_bytes_optimized(&self) -> Result<Bytes, rkyv::rancor::Error>
@@ -79,7 +79,7 @@ pub trait RemoteMessage:
 pub trait MessageTypeInfo {
     /// Get the compile-time type hash
     const TYPE_HASH: TypeHash;
-    
+
     /// Get the type name for debugging
     const TYPE_NAME: &'static str;
 }

@@ -19,11 +19,11 @@ pub mod remote_v2;
 pub mod reply;
 pub mod request;
 
-pub use actor::Actor;
-#[cfg(feature = "macros")]
-pub use kameo_macros::{messages, remote_message_derive, Actor, Reply, RemoteMessage};
 #[cfg(all(feature = "remote", feature = "macros"))]
 pub use crate::remote::RemoteMessage;
+pub use actor::Actor;
+#[cfg(feature = "macros")]
+pub use kameo_macros::{messages, remote_message_derive, Actor, RemoteMessage, Reply};
 pub use reply::Reply;
 
 /// Commonly used types and functions that can be imported with a single use statement.
@@ -36,24 +36,24 @@ pub use reply::Reply;
 /// and traits needed for typical actor system usage.
 pub mod prelude {
     #[cfg(feature = "macros")]
-    pub use kameo_macros::{messages, remote_message_derive, Actor, Reply, RemoteMessage};
+    pub use kameo_macros::{messages, remote_message_derive, Actor, RemoteMessage, Reply};
 
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;
     #[allow(deprecated)]
     pub use crate::actor::ActorID;
     pub use crate::actor::{
-        Actor, ActorId, ActorRef, ActorRegistration, PreparedActor, Recipient, ReplyRecipient, WeakActorRef,
-        WeakRecipient, WeakReplyRecipient,
+        Actor, ActorId, ActorRef, ActorRegistration, PreparedActor, Recipient, ReplyRecipient,
+        WeakActorRef, WeakRecipient, WeakReplyRecipient,
     };
     #[cfg(feature = "remote")]
     pub use crate::error::RemoteSendError;
-    #[cfg(feature = "remote")]
-    pub use crate::remote::{RemoteMessage, DistributedActorRef};
     pub use crate::error::{ActorStopReason, PanicError, SendError};
     pub use crate::mailbox::{self, MailboxReceiver, MailboxSender};
     pub use crate::message::{Context, Message};
     #[cfg(feature = "remote")]
     pub use crate::remote;
+    #[cfg(feature = "remote")]
+    pub use crate::remote::{DistributedActorRef, RemoteMessage};
     pub use crate::reply::{DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender};
 }

@@ -11,7 +11,7 @@ struct TestActor {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 Testing registration fixes...\n");
-    
+
     // Test 1: Local registration works with remote feature
     println!("Test 1: Local registration with remote feature enabled");
     let actor1 = TestActor::spawn(TestActor { id: 1 });
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     }
-    
+
     // Test 2: Local lookup works with remote feature
     println!("\nTest 2: Local lookup with remote feature enabled");
     match ActorRef::<TestActor>::lookup("test_actor_1").await {
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     }
-    
+
     // Test 3: Duplicate registration fails correctly
     println!("\nTest 3: Duplicate registration prevention");
     let actor2 = TestActor::spawn(TestActor { id: 2 });
@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     }
-    
+
     // Test 4: Multiple different actors can be registered
     println!("\nTest 4: Multiple actor registration");
     match actor2.register("test_actor_2").await {
@@ -70,18 +70,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     }
-    
+
     // Verify both actors can be found
-    let found1 = ActorRef::<TestActor>::lookup("test_actor_1").await?.unwrap();
-    let found2 = ActorRef::<TestActor>::lookup("test_actor_2").await?.unwrap();
-    
+    let found1 = ActorRef::<TestActor>::lookup("test_actor_1")
+        .await?
+        .unwrap();
+    let found2 = ActorRef::<TestActor>::lookup("test_actor_2")
+        .await?
+        .unwrap();
+
     if found1.id() == actor1.id() && found2.id() == actor2.id() {
         println!("✅ Both actors found correctly");
     } else {
         println!("❌ Actor lookup mismatch");
         return Err("Actor mismatch".into());
     }
-    
+
     // Test 5: Non-existent actor lookup returns None
     println!("\nTest 5: Non-existent actor lookup");
     match ActorRef::<TestActor>::lookup("nonexistent").await {
@@ -95,15 +99,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err(e.into());
         }
     }
-    
+
     println!("\n🎉 All registration fix tests passed!");
     println!("\nKey achievements:");
     println!("• Local registration works with remote feature enabled");
-    println!("• Local lookup works with remote feature enabled"); 
+    println!("• Local lookup works with remote feature enabled");
     println!("• Duplicate registration is properly prevented");
     println!("• Multiple actors can be registered with different names");
     println!("• Non-existent actor lookup returns None (not error)");
     println!("\n✨ The registration system fixes are working correctly!");
-    
+
     Ok(())
 }

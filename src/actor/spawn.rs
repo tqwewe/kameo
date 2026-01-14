@@ -18,9 +18,6 @@ use tokio::{
 #[cfg(feature = "tracing")]
 use tracing::{error, trace};
 
-#[cfg(feature = "remote")]
-use crate::remote;
-
 use crate::{
     actor::{
         kind::{ActorBehaviour, ActorState},
@@ -263,12 +260,11 @@ where
                         }
                         .boxed(),
                     );
-                }
-                #[cfg(feature = "remote")]
-                Link::Remote(_notified_actor_remote_id) => {
-                    // TODO: Implement remote link notification without ActorSwarm
-                    // This functionality will be added back when remote links are reimplemented
-                }
+                } // #[cfg(feature = "remote")]
+                  // Link::Remote(_notified_actor_remote_id) => {
+                  //     // TODO: Implement remote link notification without ActorSwarm
+                  //     // This functionality will be added back when remote links are reimplemented
+                  // }
             }
         }
     }

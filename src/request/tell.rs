@@ -1,5 +1,9 @@
-use std::{fmt, future::{Future, IntoFuture}, time::Duration};
 use futures::{future::BoxFuture, FutureExt};
+use std::{
+    fmt,
+    future::{Future, IntoFuture},
+    time::Duration,
+};
 
 use crate::{
     actor::{ActorRef, Recipient},
@@ -36,8 +40,9 @@ where
     pub(crate) fn new(
         actor_ref: &'a ActorRef<A>,
         msg: M,
-        #[cfg(all(debug_assertions, feature = "tracing"))]
-        called_at: &'static std::panic::Location<'static>,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
     ) -> Self {
         TellRequest {
             actor_ref,
@@ -55,10 +60,7 @@ where
     M: Send + 'static,
 {
     /// Sets the timeout for waiting for the actors mailbox to have capacity.
-    pub fn mailbox_timeout(
-        self,
-        duration: Duration,
-    ) -> TellRequest<'a, A, M, WithRequestTimeout> {
+    pub fn mailbox_timeout(self, duration: Duration) -> TellRequest<'a, A, M, WithRequestTimeout> {
         self.mailbox_timeout_opt(Some(duration))
     }
 
@@ -171,9 +173,7 @@ where
     /// This is useful when you need to send messages from synchronous code.
     pub fn blocking_send(self) -> Result<(), SendError<M>> {
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                self.send().await
-            })
+            tokio::runtime::Handle::current().block_on(async move { self.send().await })
         })
     }
 }
@@ -191,7 +191,6 @@ where
         self.send().boxed()
     }
 }
-
 
 /// A request to send a message to a typed actor without any reply.
 #[allow(missing_debug_implementations)]
@@ -215,8 +214,9 @@ where
     pub(crate) fn new(
         actor_ref: &'a Recipient<M>,
         msg: M,
-        #[cfg(all(debug_assertions, feature = "tracing"))]
-        called_at: &'static std::panic::Location<'static>,
+        #[cfg(all(debug_assertions, feature = "tracing"))] called_at: &'static std::panic::Location<
+            'static,
+        >,
     ) -> Self {
         RecipientTellRequest {
             actor_ref,
@@ -280,9 +280,7 @@ where
     /// Sends the message in a blocking context.
     pub fn blocking_send(self) -> Result<(), SendError<M>> {
         tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async move {
-                self.send().await
-            })
+            tokio::runtime::Handle::current().block_on(async move { self.send().await })
         })
     }
 }
@@ -321,12 +319,13 @@ impl<M> RecipientRequest<M> for Recipient<M>
 where
     M: Send + 'static,
 {
-    type Future<'a> = BoxFuture<'a, Result<(), SendError<M>>> where Self: 'a;
+    type Future<'a>
+        = BoxFuture<'a, Result<(), SendError<M>>>
+    where
+        Self: 'a;
 
     fn send(&self, msg: M) -> Self::Future<'_> {
-        Box::pin(async move {
-            self.handler.tell(msg, None).await
-        })
+        Box::pin(async move { self.handler.tell(msg, None).await })
     }
 
     fn try_send(&self, msg: M) -> Result<(), SendError<M>> {
@@ -340,16 +339,15 @@ where
 //     M: BoxDebug + Send + 'static,
 // {
 //     type Future<'a> = BoxFuture<'a, Result<(), SendError>> where Self: 'a;
-// 
+//
 //     fn send(&self, msg: M) -> Self::Future<'_> {
 //         self.send_msg_boxed(Box::new(msg))
 //     }
-// 
+//
 //     fn try_send(&self, msg: M) -> Result<(), SendError> {
 //         self.try_send_msg_boxed(Box::new(msg))
 //     }
 // }
-
 
 #[cfg(all(debug_assertions, feature = "tracing"))]
 fn warn_deadlock<A: Actor>(
@@ -371,15 +369,8 @@ fn warn_deadlock<A: Actor>(
     }
 }
 
-pub use {
-    pub_tell_request_dyn::*,
-};
-
-
-
-
+pub use pub_tell_request_dyn::*;
 
 mod pub_tell_request_dyn {
     pub use super::RecipientRequest as DynTellRequest;
 }
-

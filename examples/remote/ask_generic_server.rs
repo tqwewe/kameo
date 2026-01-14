@@ -1,12 +1,12 @@
 //! Simplified concrete actor ask server (previously generic)
-//! 
+//!
 //! Run this first:
 //! cargo run --example ask_generic_server --features remote
 
 use kameo::actor::{Actor, ActorRef};
+use kameo::distributed_actor;
 use kameo::message::{Context, Message};
 use kameo::remote::transport::RemoteTransport;
-use kameo::distributed_actor;
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
@@ -20,11 +20,8 @@ struct CalculatorActor {
 impl Actor for CalculatorActor {
     type Args = ();
     type Error = Box<dyn std::error::Error + Send + Sync>;
-    
-    async fn on_start(
-        _args: Self::Args,
-        _actor_ref: ActorRef<Self>,
-    ) -> Result<Self, Self::Error> {
+
+    async fn on_start(_args: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         Ok(Self {
             last_result: None,
             operation_count: 0,
@@ -77,16 +74,14 @@ impl kameo::reply::Reply for LastResult {
 
 impl Message<Add> for CalculatorActor {
     type Reply = i32;
-    
-    async fn handle(
-        &mut self,
-        msg: Add,
-        _ctx: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
+
+    async fn handle(&mut self, msg: Add, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
         self.operation_count += 1;
         let result = msg.a + msg.b;
-        println!("🧮 Computing {} + {} = {} (operation #{})", 
-                 msg.a, msg.b, result, self.operation_count);
+        println!(
+            "🧮 Computing {} + {} = {} (operation #{})",
+            msg.a, msg.b, result, self.operation_count
+        );
         self.last_result = Some(result);
         result
     }
@@ -94,7 +89,7 @@ impl Message<Add> for CalculatorActor {
 
 impl Message<Multiply> for CalculatorActor {
     type Reply = i32;
-    
+
     async fn handle(
         &mut self,
         msg: Multiply,
@@ -102,8 +97,10 @@ impl Message<Multiply> for CalculatorActor {
     ) -> Self::Reply {
         self.operation_count += 1;
         let result = msg.a * msg.b;
-        println!("🧮 Computing {} × {} = {} (operation #{})", 
-                 msg.a, msg.b, result, self.operation_count);
+        println!(
+            "🧮 Computing {} × {} = {} (operation #{})",
+            msg.a, msg.b, result, self.operation_count
+        );
         self.last_result = Some(result);
         result
     }
@@ -111,14 +108,16 @@ impl Message<Multiply> for CalculatorActor {
 
 impl Message<GetLastResult> for CalculatorActor {
     type Reply = LastResult;
-    
+
     async fn handle(
         &mut self,
         _msg: GetLastResult,
         _ctx: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        println!("📊 Getting last result (operation count: {})", 
-                 self.operation_count);
+        println!(
+            "📊 Getting last result (operation count: {})",
+            self.operation_count
+        );
         LastResult {
             value: self.last_result,
             operation_count: self.operation_count,
@@ -131,24 +130,30 @@ impl CalculatorActor {
     async fn handle_add(&mut self, msg: &rkyv::Archived<Add>) -> i32 {
         self.operation_count += 1;
         let result = msg.a + msg.b;
-        println!("🧮 Computing {} + {} = {} (operation #{})", 
-                 msg.a, msg.b, result, self.operation_count);
+        println!(
+            "🧮 Computing {} + {} = {} (operation #{})",
+            msg.a, msg.b, result, self.operation_count
+        );
         self.last_result = Some(result);
         result
     }
-    
+
     async fn handle_multiply(&mut self, msg: &rkyv::Archived<Multiply>) -> i32 {
         self.operation_count += 1;
         let result = msg.a * msg.b;
-        println!("🧮 Computing {} × {} = {} (operation #{})", 
-                 msg.a, msg.b, result, self.operation_count);
+        println!(
+            "🧮 Computing {} × {} = {} (operation #{})",
+            msg.a, msg.b, result, self.operation_count
+        );
         self.last_result = Some(result);
         result
     }
-    
+
     async fn handle_get_last(&mut self, _msg: &rkyv::Archived<GetLastResult>) -> LastResult {
-        println!("📊 Getting last result (operation count: {})", 
-                 self.operation_count);
+        println!(
+            "📊 Getting last result (operation count: {})",
+            self.operation_count
+        );
         LastResult {
             value: self.last_result,
             operation_count: self.operation_count,
@@ -171,34 +176,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=info,kameo=info")
         .try_init();
-    
+
     println!("\n🚀 === SIMPLIFIED CALCULATOR ASK SERVER ===");
-    
+
     // Bootstrap on port 9340
     let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9340".parse()?).await?;
     println!("✅ Server listening on {}", transport.local_addr());
-    
+
     // Create and register CalculatorActor
     let calc_ref = CalculatorActor::spawn(());
     let calc_id = calc_ref.id();
-    
-    transport.register_actor("calculator".to_string(), calc_id).await?;
-    
+
+    transport
+        .register_actor("calculator".to_string(), calc_id)
+        .await?;
+
     let handler = kameo::remote::v2_bootstrap::get_distributed_handler();
     handler.registry().register(calc_id, calc_ref.clone());
-    
+
     println!("✅ CalculatorActor registered with ID {:?}", calc_id);
-    
+
     // Add client as peer
     if let Some(handle) = transport.handle() {
-        let _peer = handle.add_peer(&kameo_remote::PeerId::new("kameo_node_9341")).await;
+        let _peer = handle
+            .add_peer(&kameo_remote::PeerId::new("kameo_node_9341"))
+            .await;
         println!("✅ Added client node as peer");
     }
-    
+
     println!("\n📡 Server ready. Run client with:");
     println!("   cargo run --example ask_generic_client --features remote");
     println!("\n💤 Server will run until you press Ctrl+C...\n");
-    
+
     // Keep server running
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;

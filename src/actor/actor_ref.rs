@@ -17,23 +17,12 @@ use tokio::{
     task_local,
 };
 
-#[cfg(feature = "remote")]
-use std::marker::PhantomData;
-
-#[cfg(feature = "remote")]
-use crate::remote;
-#[cfg(feature = "remote")]
-use crate::request;
-
 use crate::{
     error::{self, HookError, Infallible, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
     reply::ReplyError,
-    request::{
-        AskRequest, ReplyRecipientAskRequest,
-        TellRequest, WithoutRequestTimeout,
-    },
+    request::{AskRequest, ReplyRecipientAskRequest, TellRequest, WithoutRequestTimeout},
     Actor, Reply,
 };
 
@@ -44,9 +33,6 @@ pub trait ActorRegistration: Actor {
     /// Register the actor under a given name
     fn register_actor(actor_ref: &ActorRef<Self>, name: &str) -> Result<(), error::RegistryError>;
 }
-
-
-
 
 task_local! {
     pub(crate) static CURRENT_ACTOR_ID: ActorId;
@@ -144,8 +130,7 @@ where
     /// Looks up an actor registered locally by its name.
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
-    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError>
-    {
+    pub async fn lookup(name: &str) -> Result<Option<Self>, error::RegistryError> {
         crate::registry::ACTOR_REGISTRY.lock().unwrap().get(name)
     }
 
@@ -726,7 +711,6 @@ where
         }
     }
 
-
     /// Unlinks two previously linked sibling actors.
     ///
     /// # Example
@@ -814,7 +798,6 @@ where
             sibbling_links.remove(&self.id);
         }
     }
-
 
     /// Attaches a stream of messages to the actor, forwarding each item in the stream.
     ///
@@ -929,21 +912,15 @@ where
         };
 
         match &self.mailbox_sender {
-            MailboxSender::Bounded(tx) => {
-                match mailbox_timeout {
-                    Some(timeout) => {
-                        match tokio::time::timeout(timeout, tx.send(signal)).await {
-                            Ok(Ok(())) => Ok(()),
-                            Ok(Err(err)) => Err(err.into()),
-                            Err(_) => Err(SendError::Timeout(None)),
-                        }
-                    }
-                    None => tx.send(signal).await.map_err(Into::into),
-                }
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal).map_err(Into::into)
-            }
+            MailboxSender::Bounded(tx) => match mailbox_timeout {
+                Some(timeout) => match tokio::time::timeout(timeout, tx.send(signal)).await {
+                    Ok(Ok(())) => Ok(()),
+                    Ok(Err(err)) => Err(err.into()),
+                    Err(_) => Err(SendError::Timeout(None)),
+                },
+                None => tx.send(signal).await.map_err(Into::into),
+            },
+            MailboxSender::Unbounded(tx) => tx.send(signal).map_err(Into::into),
         }
     }
 
@@ -962,15 +939,10 @@ where
         };
 
         match &self.mailbox_sender {
-            MailboxSender::Bounded(tx) => {
-                tx.try_send(signal).map_err(Into::into)
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal).map_err(Into::into)
-            }
+            MailboxSender::Bounded(tx) => tx.try_send(signal).map_err(Into::into),
+            MailboxSender::Unbounded(tx) => tx.send(signal).map_err(Into::into),
         }
     }
-
 
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
@@ -1144,7 +1116,10 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> ReplyRecipient<M, O
     ///
     /// See [`ActorRef::tell`].
     pub async fn tell(&self, msg: M) -> Result<(), SendError> {
-        self.handler.tell(msg, None).await.map_err(|_| SendError::ActorStopped)
+        self.handler
+            .tell(msg, None)
+            .await
+            .map_err(|_| SendError::ActorStopped)
     }
 
     /// Sends a message to the actor waits for a reply.
@@ -1356,7 +1331,6 @@ impl<M: Send + 'static> Hash for Recipient<M> {
     }
 }
 
-
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
@@ -1401,12 +1375,6 @@ impl<A: Actor> WeakActorRef<A> {
     /// Returns the number of [`WeakActorRef`] handles.
     pub fn weak_count(&self) -> usize {
         self.mailbox.weak_count()
-    }
-
-    #[cfg(feature = "remote")]
-    #[inline]
-    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
-        Box::new(self.mailbox.clone())
     }
 }
 
@@ -1654,8 +1622,6 @@ impl ops::Deref for Links {
 #[derive(Clone)]
 pub(crate) enum Link {
     Local(Box<dyn SignalMailbox>),
-    #[cfg(feature = "remote")]
-    Remote(std::borrow::Cow<'static, str>),
 }
 
 pub(crate) trait MessageHandler<M: Send + 'static>:
@@ -1741,15 +1707,12 @@ where
         msg: M,
         mailbox_timeout: Option<Duration>,
     ) -> BoxFuture<'_, Result<(), SendError<M>>> {
-        async move {
-            self.send_fut(msg, mailbox_timeout).await
-        }.boxed()
+        async move { self.send_fut(msg, mailbox_timeout).await }.boxed()
     }
 
     fn try_tell(&self, msg: M) -> Result<(), SendError<M>> {
         self.try_send(msg)
     }
-
 }
 
 pub(crate) trait ReplyMessageHandler<M: Send + 'static, Ok: Send + 'static, Err: ReplyError>:

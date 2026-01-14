@@ -1,23 +1,23 @@
 //! Macros for declaring distributed actor message types
-//! 
+//!
 //! This module provides ergonomic macros for declaring which concrete
 //! instantiations of generic message types should be supported for
 //! distributed actors.
 
 /// Declare message types for a distributed actor
-/// 
+///
 /// This macro generates `HasTypeHash` implementations for all the
 /// specified message type instantiations. Use this before implementing
 /// the `distributed_actor!` macro.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```ignore
 /// // First, declare your generic types
 /// struct Cache<K, V> { ... }
 /// struct Get<K> { key: K }
 /// struct Set<K, V> { key: K, value: V }
-/// 
+///
 /// // Then declare which instantiations you'll use
 /// declare_message_types! {
 ///     // For Cache<String, i32>
@@ -38,10 +38,10 @@
 ///         Set<i32, String>,
 ///     }
 /// }
-/// 
+///
 /// // Now use distributed_actor! macro
 /// distributed_actor! {
-///     impl<K, V> DistributedActor for Cache<K, V> 
+///     impl<K, V> DistributedActor for Cache<K, V>
 ///     where /* bounds */
 ///     {
 ///         Get<K> => handle_get,
@@ -62,7 +62,7 @@ macro_rules! declare_message_types {
         $(
             $crate::impl_type_hash!($actor);
         )*
-        
+
         // Generate HasTypeHash for all message types (deduped by compiler)
         $(
             $(
@@ -73,12 +73,12 @@ macro_rules! declare_message_types {
 }
 
 /// Alternative syntax: declare message types inline with the actor
-/// 
+///
 /// This provides a more compact way to declare message types right
 /// where you define your distributed actor implementation.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```ignore
 /// distributed_actor_with_types! {
 ///     actor: Cache<K, V>
@@ -88,7 +88,7 @@ macro_rules! declare_message_types {
 ///         Cache<i32, String> => [Get<i32>, Set<i32, String>],
 ///     }
 ///     
-///     impl<K, V> DistributedActor 
+///     impl<K, V> DistributedActor
 ///     where
 ///         K: Eq + Hash + Clone + Send + 'static + Serialize + for<'de> Deserialize<'de>,
 ///         V: Clone + Send + 'static + Serialize + for<'de> Deserialize<'de>,
@@ -105,7 +105,7 @@ macro_rules! distributed_actor_with_types {
         messages: {
             $($actor_concrete:ty => [$($msg:ty),*]),* $(,)?
         }
-        
+
         impl<$($g:ident),*> DistributedActor
         $(where $($where_clause:tt)*)?
         {
@@ -120,7 +120,7 @@ macro_rules! distributed_actor_with_types {
                 }
             ),*
         }
-        
+
         // Then use the regular distributed_actor! macro
         $crate::distributed_actor! {
             impl<$($g: $crate::remote::distributed_actor::DistributedBound),*> DistributedActor for $actor_base<$($g),*>
@@ -133,7 +133,7 @@ macro_rules! distributed_actor_with_types {
 }
 
 /// Helper trait that combines common bounds for distributed actors
-/// 
+///
 /// This is used internally by the macros to reduce boilerplate
 pub trait DistributedBound: Send + Sync + 'static {}
 impl<T: Send + Sync + 'static> DistributedBound for T {}

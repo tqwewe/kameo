@@ -19,12 +19,11 @@ use kameo::message::{Context, Message};
 impl Actor for StorageActor {
     type Args = ();
     type Error = Box<dyn std::error::Error + Send + Sync>;
-    
-    async fn on_start(
-        _args: Self::Args,
-        _actor_ref: ActorRef<Self>,
-    ) -> Result<Self, Self::Error> {
-        Ok(Self { _phantom: std::marker::PhantomData })
+
+    async fn on_start(_args: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            _phantom: std::marker::PhantomData,
+        })
     }
 }
 
@@ -42,7 +41,7 @@ struct PrintItems;
 
 impl Message<StoreItem> for StorageActor {
     type Reply = ();
-    
+
     async fn handle(
         &mut self,
         _msg: StoreItem,
@@ -54,7 +53,7 @@ impl Message<StoreItem> for StorageActor {
 
 impl Message<ClearStorage> for StorageActor {
     type Reply = ();
-    
+
     async fn handle(
         &mut self,
         _msg: ClearStorage,
@@ -66,7 +65,7 @@ impl Message<ClearStorage> for StorageActor {
 
 impl Message<PrintItems> for StorageActor {
     type Reply = ();
-    
+
     async fn handle(
         &mut self,
         _msg: PrintItems,
@@ -81,11 +80,11 @@ impl StorageActor {
     async fn handle_store_item(&mut self, _msg: &rkyv::Archived<StoreItem>) {
         panic!("Client should not handle messages")
     }
-    
+
     async fn handle_clear_storage(&mut self, _msg: &rkyv::Archived<ClearStorage>) {
         panic!("Client should not handle messages")
     }
-    
+
     async fn handle_print_items(&mut self, _msg: &rkyv::Archived<PrintItems>) {
         panic!("Client should not handle messages")
     }
@@ -108,51 +107,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _ = tracing_subscriber::fmt()
         .with_env_filter("kameo_remote=info,kameo=info")
         .try_init();
-    
+
     println!("\n🚀 === GENERIC STORAGE TELL CLIENT ===");
-    
+
     // Bootstrap on port 9321
     let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9321".parse()?).await?;
     println!("✅ Client listening on {}", transport.local_addr());
-    
+
     // Connect to server
     println!("\n📡 Connecting to server at 127.0.0.1:9320...");
     if let Some(handle) = transport.handle() {
-        let peer = handle.add_peer(&kameo_remote::PeerId::new("kameo_node_9320")).await;
+        let peer = handle
+            .add_peer(&kameo_remote::PeerId::new("kameo_node_9320"))
+            .await;
         peer.connect(&"127.0.0.1:9320".parse()?).await?;
         println!("✅ Connected to server");
     }
-    
+
     // Wait for connection to stabilize
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    
+
     // Look up remote actor
     println!("\n🔍 Looking up remote StorageActor...");
-    let storage_ref = match DistributedActorRef::<StorageActor>::lookup("storage", transport).await? {
-        Some(ref_) => {
-            println!("✅ Found StorageActor on server");
-            ref_
-        }
-        None => {
-            println!("❌ StorageActor not found on server");
-            return Err("Storage actor not found".into());
-        }
-    };
-    
+    let storage_ref =
+        match DistributedActorRef::<StorageActor>::lookup("storage", transport).await? {
+            Some(ref_) => {
+                println!("✅ Found StorageActor on server");
+                ref_
+            }
+            None => {
+                println!("❌ StorageActor not found on server");
+                return Err("Storage actor not found".into());
+            }
+        };
+
     // Send tell messages
     println!("\n📤 Sending tell messages to remote actor...");
-    
+
     // Test 1: Store some items
     println!("\n🧪 Test 1: Storing items");
     let items = vec!["apple", "banana", "cherry", "date"];
     for item in items {
         let start = std::time::Instant::now();
-        storage_ref.tell(StoreItem { item: item.to_string() }).send().await?;
+        storage_ref
+            .tell(StoreItem {
+                item: item.to_string(),
+            })
+            .send()
+            .await?;
         let duration = start.elapsed();
         println!("   Stored '{}' in {:?}", item, duration);
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    
+
     // Test 2: Print items
     println!("\n🧪 Test 2: Printing stored items");
     let start = std::time::Instant::now();
@@ -160,18 +167,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let duration = start.elapsed();
     println!("   Print command sent in {:?}", duration);
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    
+
     // Test 3: Store more items
     println!("\n🧪 Test 3: Storing more items");
     let more_items = vec!["elderberry", "fig", "grape"];
     for item in more_items {
         let start = std::time::Instant::now();
-        storage_ref.tell(StoreItem { item: item.to_string() }).send().await?;
+        storage_ref
+            .tell(StoreItem {
+                item: item.to_string(),
+            })
+            .send()
+            .await?;
         let duration = start.elapsed();
         println!("   Stored '{}' in {:?}", item, duration);
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    
+
     // Test 4: Print all items
     println!("\n🧪 Test 4: Printing all stored items");
     let start = std::time::Instant::now();
@@ -179,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let duration = start.elapsed();
     println!("   Print command sent in {:?}", duration);
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    
+
     // Test 5: Clear storage
     println!("\n🧪 Test 5: Clearing storage");
     let start = std::time::Instant::now();
@@ -187,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let duration = start.elapsed();
     println!("   Clear command sent in {:?}", duration);
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    
+
     // Test 6: Print empty storage
     println!("\n🧪 Test 6: Printing cleared storage");
     let start = std::time::Instant::now();
@@ -195,8 +207,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let duration = start.elapsed();
     println!("   Print command sent in {:?}", duration);
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    
+
     println!("\n🎉 All tell messages sent successfully! Check the server output for the results.");
-    
+
     Ok(())
 }
