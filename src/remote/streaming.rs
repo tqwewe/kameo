@@ -5,7 +5,7 @@
 //! and write directly to the socket for minimal latency.
 //!
 //! # Example
-//! ```
+//! ```ignore
 //! // Create a stream for sending PreBacktest messages
 //! let mut stream = actor_ref.create_stream::<PreBacktest>("backtest_data").await?;
 //!

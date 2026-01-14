@@ -190,8 +190,8 @@ fn set_v2_transport_env_var() {
 /// use kameo::remote::v2_bootstrap;
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+///     let keypair = kameo_remote::KeyPair::new_for_testing("test");
 ///     let transport = v2_bootstrap::bootstrap_with_keypair(
 ///         "127.0.0.1:8080".parse()?,
 ///         keypair
@@ -294,7 +294,7 @@ pub async fn bootstrap_with_keypair(
 /// use kameo::remote::v2_bootstrap;
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     let transport = v2_bootstrap::bootstrap_on("127.0.0.1:9330".parse()?).await?;
 ///     Ok(())
 /// }
@@ -311,16 +311,18 @@ pub async fn bootstrap_on(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxEr
 ///
 /// # Example
 /// ```no_run
-/// use kameo::remote::{v2_bootstrap, TransportConfig};
+/// use kameo::remote::v2_bootstrap;
+/// use kameo::remote::transport::TransportConfig;
 /// use std::time::Duration;
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     let config = TransportConfig {
 ///         bind_addr: "127.0.0.1:0".parse()?,
 ///         max_connections: 500,
 ///         connection_timeout: Duration::from_secs(10),
 ///         enable_encryption: false, // For testing
+///         peers: Vec::new(),
 ///     };
 ///     let transport = v2_bootstrap::bootstrap_with_config(config).await?;
 ///     Ok(())
@@ -392,7 +394,7 @@ pub async fn bootstrap_with_config(
 /// use kameo::remote::v2_bootstrap;
 ///
 /// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ///     // Create 3 isolated nodes on ports 8080, 8081, 8082
 ///     let transports = v2_bootstrap::bootstrap_cluster(3, 8080).await?;
 ///

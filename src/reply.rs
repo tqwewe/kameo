@@ -276,6 +276,7 @@ where
 ///     data: String,
 /// }
 ///
+/// #[derive(Clone)]
 /// struct ProcessData(String);
 ///
 /// impl Message<ProcessData> for TargetActor {

@@ -104,16 +104,16 @@ where
     /// #
     /// # impl Message<i64> for Counter {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: i64, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    /// #     async fn handle(&mut self, msg: i64, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
     /// #         self.count += msg;
     /// #     }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let counter_ref = Counter::default().spawn();
+    /// # let counter_ref = Counter::spawn(Counter::default());
     /// let count = 42;
     /// counter_ref.tell(count).send().await?;
-    /// # Ok::<(), SendError>(())
+    /// # Ok::<(), SendError<i64>>(())
     /// # });
     /// ```
     pub async fn send(self) -> Result<(), SendError<M>> {
@@ -152,16 +152,16 @@ where
     /// #
     /// # impl Message<i64> for Counter {
     /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: i64, _ctx: Context<'_, Self, Self::Reply>) -> Self::Reply {
+    /// #     async fn handle(&mut self, msg: i64, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
     /// #         self.count += msg;
     /// #     }
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let counter_ref = Counter::default().spawn();
+    /// # let counter_ref = Counter::spawn(Counter::default());
     /// let count = 42;
     /// counter_ref.tell(count).try_send()?;
-    /// # Ok::<(), SendError>(())
+    /// # Ok::<(), SendError<i64>>(())
     /// # });
     /// ```
     pub fn try_send(self) -> Result<(), SendError<M>> {

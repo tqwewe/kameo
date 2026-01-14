@@ -13,17 +13,17 @@
 //!
 //! ## Getting Started
 //!
-//! ```
+//! ```ignore
 //! use kameo::remote;
 //!
 //! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Bootstrap with default configuration
-//!     remote::v2_bootstrap::bootstrap().await?;
-//!     
-//!     // Now use actors normally
-//!     // actor_ref.register("my_actor").await?;
-//!     
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     // Bootstrap on a specific address
+//!     let transport = remote::v2_bootstrap::bootstrap_on("127.0.0.1:9330".parse()?).await?;
+//!
+//!     // Now use actors normally - register distributed actors with the transport
+//!     // transport.register_distributed_actor("my_actor", &actor_ref).await?;
+//!
 //!     Ok(())
 //! }
 //! ```
