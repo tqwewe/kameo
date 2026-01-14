@@ -187,12 +187,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let calc_ref = CalculatorActor::spawn(());
     let calc_id = calc_ref.id();
 
+    // Register with transport - automatically handles distributed ask/reply
     transport
-        .register_actor("calculator".to_string(), calc_id)
+        .register_distributed_actor("calculator".to_string(), &calc_ref)
         .await?;
-
-    let handler = kameo::remote::v2_bootstrap::get_distributed_handler();
-    handler.registry().register(calc_id, calc_ref.clone());
 
     println!("✅ CalculatorActor registered with ID {:?}", calc_id);
 

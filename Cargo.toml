@@ -98,11 +98,6 @@ name = "stream"
 path = "examples/local/stream.rs"
 
 [[example]]
-name = "type_hash_demo"
-path = "examples/remote/type_hash_demo.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "ask_concrete_client"
 path = "examples/remote/ask_concrete_client.rs"
 required-features = ["remote"]

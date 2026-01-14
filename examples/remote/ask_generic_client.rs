@@ -43,7 +43,7 @@ struct Multiply {
 #[derive(RemoteMessage, Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct GetLastResult;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Archive, RSerialize, RDeserialize)]
+#[derive(Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct LastResult {
     value: Option<i32>,
     operation_count: u32,
@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Look up remote actor
     println!("\n🔍 Looking up remote CalculatorActor...");
     let calc_ref =
-        match DistributedActorRef::<CalculatorActor>::lookup("calculator", transport).await? {
+        match DistributedActorRef::lookup("calculator").await? {
             Some(ref_) => {
                 println!("✅ Found CalculatorActor on server");
                 ref_
@@ -170,19 +170,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Test 1: Addition
     println!("\n🧪 Test 1: Addition 42 + 58");
-    let result = calc_ref.ask(Add { a: 42, b: 58 }).send().await?;
+    let result: i32 = calc_ref.ask(Add { a: 42, b: 58 }).send().await?;
     println!("✅ Got response: {}", result);
     assert_eq!(result, 100);
 
     // Test 2: Multiplication
     println!("\n🧪 Test 2: Multiplication 12 × 12");
-    let result = calc_ref.ask(Multiply { a: 12, b: 12 }).send().await?;
+    let result: i32 = calc_ref.ask(Multiply { a: 12, b: 12 }).send().await?;
     println!("✅ Got response: {}", result);
     assert_eq!(result, 144);
 
     // Test 3: Get last result
     println!("\n🧪 Test 3: Getting last result");
-    let result = calc_ref.ask(GetLastResult).send().await?;
+    let result: LastResult = calc_ref.ask(GetLastResult).send().await?;
     println!(
         "✅ Got response: value={:?}, operation_count={}",
         result.value, result.operation_count
@@ -192,13 +192,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Test 4: More operations
     println!("\n🧪 Test 4: Addition 1000 + 2000");
-    let result = calc_ref.ask(Add { a: 1000, b: 2000 }).send().await?;
+    let result: i32 = calc_ref.ask(Add { a: 1000, b: 2000 }).send().await?;
     println!("✅ Got response: {}", result);
     assert_eq!(result, 3000);
 
     // Test 5: Final status
     println!("\n🧪 Test 5: Getting final status");
-    let result = calc_ref.ask(GetLastResult).send().await?;
+    let result: LastResult = calc_ref.ask(GetLastResult).send().await?;
     println!(
         "✅ Got response: value={:?}, operation_count={}",
         result.value, result.operation_count

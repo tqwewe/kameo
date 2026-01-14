@@ -188,7 +188,7 @@ macro_rules! distributed_actor {
                             }),
 
                             // Ask handler - sends DistributedMessage and waits for reply
-                            ask: std::sync::Arc::new(move |aid, payload, mailbox_timeout, reply_timeout| {
+                            ask: std::sync::Arc::new(move |aid, payload, _mailbox_timeout, _reply_timeout| {
                                 let actor_ref = actor_ref_for_ask.clone();
                                 Box::pin(async move {
                                     if aid != actor_id {
@@ -201,20 +201,18 @@ macro_rules! distributed_actor {
                                         payload: payload.to_vec(),
                                     };
 
-                                    // Note: Timeout would need to be implemented via reply_timeout/mailbox_timeout
-                                    // For now, use default timeout
-                                    let result = actor_ref.ask(msg).send().await;
-
-                                    match result {
-                                        Ok(Ok(reply)) => Ok(reply),
-                                        Ok(Err(_e)) => Err($crate::error::RemoteSendError::ActorStopped),
+                                    // Send ask and handle the response
+                                    // Kameo's Reply trait extracts Ok/Error from Result types,
+                                    // so reply is Vec<u8> directly (the Ok type of our Result)
+                                    match actor_ref.ask(msg).send().await {
+                                        Ok(reply) => Ok(reply),
                                         Err(_) => Err($crate::error::RemoteSendError::ActorNotRunning),
                                     }
                                 })
                             }),
 
                             // Try ask handler - simplified version without priority
-                            try_ask: std::sync::Arc::new(move |aid, payload, timeout| {
+                            try_ask: std::sync::Arc::new(move |aid, payload, _timeout| {
                                 let actor_ref = actor_ref_for_try_ask.clone();
                                 Box::pin(async move {
                                     if aid != actor_id {
@@ -227,12 +225,9 @@ macro_rules! distributed_actor {
                                         payload: payload.to_vec(),
                                     };
 
-                                    // Note: We don't apply timeout here, would need reply_timeout/mailbox_timeout
-                                    let result = actor_ref.ask(msg).send().await;
-
-                                    match result {
-                                        Ok(Ok(reply)) => Ok(reply),
-                                        Ok(Err(_e)) => Err($crate::error::RemoteSendError::ActorStopped),
+                                    // Send ask and handle the response
+                                    match actor_ref.ask(msg).send().await {
+                                        Ok(reply) => Ok(reply),
                                         Err(_) => Err($crate::error::RemoteSendError::ActorNotRunning),
                                     }
                                 })

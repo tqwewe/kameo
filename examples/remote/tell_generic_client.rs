@@ -130,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Look up remote actor
     println!("\n🔍 Looking up remote StorageActor...");
     let storage_ref =
-        match DistributedActorRef::<StorageActor>::lookup("storage", transport).await? {
+        match DistributedActorRef::lookup("storage").await? {
             Some(ref_) => {
                 println!("✅ Found StorageActor on server");
                 ref_

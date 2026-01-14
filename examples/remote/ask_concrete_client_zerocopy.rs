@@ -34,7 +34,7 @@ struct Add {
     b: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Archive, RSerialize, RDeserialize)]
+#[derive(Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct AddResult {
     result: i32,
     operation_count: u32,
@@ -64,7 +64,7 @@ struct Multiply {
     b: i32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Archive, RSerialize, RDeserialize)]
+#[derive(Debug, Clone, Archive, RSerialize, RDeserialize)]
 struct MultiplyResult {
     result: i32,
     operation_count: u32,
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Look up remote actor with connection caching
     println!("\n🔍 Looking up remote CalculatorActor with connection caching...");
     let calc_ref =
-        match DistributedActorRef::<CalculatorActor, _>::lookup("calculator", transport).await? {
+        match DistributedActorRef::lookup("calculator").await? {
             Some(ref_) => {
                 println!("✅ Found CalculatorActor on server with cached connection");
                 ref_
@@ -176,7 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 1: Add operation
     println!("\n🧪 Test 1: Asking to add 10 + 20");
     let start = std::time::Instant::now();
-    let result = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
+    let result: AddResult = calc_ref.ask(Add { a: 10, b: 20 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -188,7 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 2: Multiply operation
     println!("\n🧪 Test 2: Asking to multiply 5 × 7");
     let start = std::time::Instant::now();
-    let result = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
+    let result: MultiplyResult = calc_ref.ask(Multiply { a: 5, b: 7 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -200,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 3: Another add operation
     println!("\n🧪 Test 3: Asking to add 100 + 200");
     let start = std::time::Instant::now();
-    let result = calc_ref.ask(Add { a: 100, b: 200 }).send().await?;
+    let result: AddResult = calc_ref.ask(Add { a: 100, b: 200 }).send().await?;
     let duration = start.elapsed();
     println!(
         "✅ Got response: {} (operation count: {}) in {:?}",
@@ -212,7 +212,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Test 4: With timeout
     println!("\n🧪 Test 4: Asking with explicit timeout");
     let start = std::time::Instant::now();
-    let result = calc_ref
+    let result: MultiplyResult = calc_ref
         .ask(Multiply { a: 12, b: 12 })
         .timeout(std::time::Duration::from_secs(5))
         .send()
@@ -232,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start = std::time::Instant::now();
 
         // Get raw bytes response
-        let reply_bytes = calc_ref.ask(Add { a: i, b: i * 10 }).send_raw().await?;
+        let reply_bytes = calc_ref.ask::<Add, AddResult>(Add { a: i, b: i * 10 }).send_raw().await?;
 
         // Access archived reply directly - TRUE ZERO-COPY!
         let archived_result =
