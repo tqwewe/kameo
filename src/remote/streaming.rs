@@ -494,7 +494,7 @@ where
 
         Err(format!(
             "Stream {} ({}) forcibly cleaned up - chunks: {}/{:?}, memory: {} bytes, age: {:?}, inactive: {:?}",
-            info.stream_id, info.name, info.chunks_received, info.expected_chunks, 
+            info.stream_id, info.name, info.chunks_received, info.expected_chunks,
             info.memory_usage, info.age, info.last_activity
         ).into())
     }

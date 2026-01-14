@@ -26,8 +26,9 @@ impl KameoActorMessageHandler {
 }
 
 /// Type alias for the actor message handler future return type
-type ActorMessageFuture =
-    std::pin::Pin<Box<dyn std::future::Future<Output = kameo_remote::Result<Option<Vec<u8>>>> + Send>>;
+type ActorMessageFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = kameo_remote::Result<Option<Vec<u8>>>> + Send>,
+>;
 
 /// Create an immediate error future for invalid actor IDs
 ///
