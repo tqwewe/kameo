@@ -3,6 +3,8 @@
 //! Run this first:
 //! cargo run --example tell_concrete_server --features remote
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};

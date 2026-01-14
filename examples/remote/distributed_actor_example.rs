@@ -5,6 +5,8 @@
 //! 2. Messages with #[derive(RemoteMessage)]
 //! 3. distributed_actor! macro for registering handlers
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};

@@ -1,6 +1,8 @@
 //! Client that sends FuturesOHLCVCandle ask requests and receives analysis results
 //! Tests ask/reply performance with real-world trading data structures
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::remote::distributed_actor_ref::DistributedActorRef;
 use kameo::remote::transport::RemoteTransport;
 use kameo::RemoteMessage;

@@ -5,6 +5,8 @@
 //! Run after starting auth_test_server:
 //! cargo run --example auth_test_client_valid --features remote
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
 use kameo::remote::v2_bootstrap;
 

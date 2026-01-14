@@ -1,5 +1,7 @@
 //! Simplified server to test message reception
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};

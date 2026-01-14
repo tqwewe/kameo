@@ -3,6 +3,8 @@
 //! Run with:
 //! cargo run --example auth_test_server --features remote
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::actor::{Actor, ActorRef};
 use kameo::remote::{transport::RemoteTransport, DistributedActor};
 use kameo::remote::v2_bootstrap;

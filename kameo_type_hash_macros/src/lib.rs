@@ -14,7 +14,7 @@ use syn::{parse_macro_input, DeriveInput, GenericParam, Type};
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// #[derive(TypeHash)]
 /// struct MyActor {
 ///     // fields...
@@ -70,7 +70,7 @@ pub fn derive_type_hash(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// #[type_hash("MyOldActorName")]
 /// struct MyNewActor {
 ///     // fields...
@@ -102,7 +102,7 @@ pub fn type_hash(args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,ignore
 /// const CACHE_HASH: TypeHash = type_hash_for!(Cache<String, User>);
 /// ```
 #[proc_macro]

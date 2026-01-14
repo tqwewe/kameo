@@ -3,6 +3,8 @@
 //! Run after starting the server:
 //! cargo run --example ask_concrete_client --features remote
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};

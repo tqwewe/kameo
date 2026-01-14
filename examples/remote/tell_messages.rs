@@ -3,6 +3,8 @@
 //! This demonstrates the "define once, use everywhere" pattern for distributed actor messages.
 //! Both client and server import from this single source of truth.
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::actor::ActorRef;
 use kameo::{Actor, RemoteMessage};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};

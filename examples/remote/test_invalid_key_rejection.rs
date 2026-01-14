@@ -14,6 +14,8 @@
 //! Run this against a running server:
 //! cargo run --example test_invalid_key_rejection --features remote
 
+#![allow(dead_code, unused_variables)]
+
 use std::net::SocketAddr;
 
 #[tokio::main]

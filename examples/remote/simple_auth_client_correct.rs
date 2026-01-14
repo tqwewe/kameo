@@ -4,6 +4,8 @@
 //! Run after starting simple_auth_server:
 //! cargo run --example simple_auth_client_correct --features remote
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::remote::v2_bootstrap;
 
 #[tokio::main]

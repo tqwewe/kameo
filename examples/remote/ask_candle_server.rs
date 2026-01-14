@@ -1,6 +1,8 @@
 //! Server that processes FuturesOHLCVCandle ask requests and returns analysis results
 //! Demonstrates ask/reply with real-world trading data structures and zero-copy potential
 
+#![allow(dead_code, unused_variables)]
+
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};

@@ -1,6 +1,8 @@
 //! This example proves that type hashes are computed at compile time
 //! by examining the generated assembly code.
 
+#![allow(dead_code, unused_variables)]
+
 #[cfg(not(feature = "remote"))]
 compile_error!("This example requires the 'remote' feature");
 
