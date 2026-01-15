@@ -110,16 +110,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("\n🚀 === GENERIC STORAGE TELL CLIENT ===");
 
-    // Bootstrap on port 9321
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9321".parse()?).await?;
+    // Bootstrap on port 9321 with an explicit keypair
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9321);
+    let server_peer_id = kameo::remote::v2_bootstrap::test_keypair(9320).peer_id();
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9321".parse()?, client_keypair)
+            .await?;
     println!("✅ Client listening on {}", transport.local_addr());
 
     // Connect to server
     println!("\n📡 Connecting to server at 127.0.0.1:9320...");
     if let Some(handle) = transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9320"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9320".parse()?).await?;
         println!("✅ Connected to server");
     }

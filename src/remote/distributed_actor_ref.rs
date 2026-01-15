@@ -199,7 +199,7 @@ where
         let transport = {
             let global = GLOBAL_TRANSPORT.lock().unwrap();
             global.clone().ok_or(
-                "No global transport set - did you call bootstrap_on() or bootstrap_with_config()?",
+                "No global transport set - did you call bootstrap_with_keypair() or bootstrap_with_config() (with keypair)?",
             )?
         };
         if let Some(location) = transport.lookup_actor(name).await? {

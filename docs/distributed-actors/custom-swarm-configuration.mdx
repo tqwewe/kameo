@@ -299,7 +299,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 If you start with bootstrap and later need custom configuration, the migration is straightforward:
 
-1. Replace `remote::bootstrap()` with a custom swarm setup
+1. Replace `remote::bootstrap_with_keypair()` with a custom swarm setup
 2. Add any additional protocols you need
 3. Configure transports and addressing for your deployment
 

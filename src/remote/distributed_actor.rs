@@ -127,7 +127,7 @@ macro_rules! distributed_actor {
                 {
                     let global = $crate::remote::distributed_actor_ref::GLOBAL_TRANSPORT.lock().unwrap();
                     if global.is_none() {
-                        panic!("No transport configured - call bootstrap_on() or bootstrap_with_config() before registering distributed actors");
+                        panic!("No transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) before registering distributed actors");
                     }
                 }
 
@@ -362,7 +362,7 @@ macro_rules! distributed_actor {
                 {
                     let global = $crate::remote::distributed_actor_ref::GLOBAL_TRANSPORT.lock().unwrap();
                     if global.is_none() {
-                        panic!("No transport configured - call bootstrap_on() or bootstrap_with_config() before registering distributed actors");
+                        panic!("No transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) before registering distributed actors");
                     }
                 }
 

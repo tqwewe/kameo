@@ -424,7 +424,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Add the client as a trusted peer for TLS authentication
     if let Some(handle) = transport.handle() {
         // The client will use this same keypair name, so we add it as a trusted peer
-        let client_peer_id = kameo_remote::PeerId::new("tls_client_production_key");
+        let client_peer_id =
+            kameo_remote::KeyPair::new_for_testing("tls_client_production_key").peer_id();
         let _peer = handle.add_peer(&client_peer_id).await;
         println!(
             "✅ Added client as trusted peer for TLS: {}",
@@ -450,7 +451,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
             // Try to connect to client
             if let Some(handle) = transport_cloned.handle() {
-                let client_peer_id = kameo_remote::PeerId::new("tls_client_production_key");
+                let client_peer_id =
+                    kameo_remote::KeyPair::new_for_testing("tls_client_production_key").peer_id();
                 let peer = handle.add_peer(&client_peer_id).await;
                 match peer.connect(&"127.0.0.1:9311".parse().unwrap()).await {
                     Ok(_) => {

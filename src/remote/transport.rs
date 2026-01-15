@@ -304,8 +304,17 @@ pub struct TransportConfig {
     pub connection_timeout: std::time::Duration,
     /// Whether to enable encryption
     pub enable_encryption: bool,
-    /// Peer addresses to connect to
-    pub peers: Vec<SocketAddr>,
+    /// Keypair used for cryptographic identity (required)
+    pub keypair: Option<kameo_remote::KeyPair>,
+    /// Peers to connect to (must include cryptographic PeerId)
+    pub peers: Vec<PeerConfig>,
+}
+
+/// Peer configuration with cryptographic PeerId.
+#[derive(Clone, Debug)]
+pub struct PeerConfig {
+    pub addr: SocketAddr,
+    pub peer_id: kameo_remote::PeerId,
 }
 
 impl Default for TransportConfig {
@@ -315,6 +324,7 @@ impl Default for TransportConfig {
             max_connections: 1000,
             connection_timeout: std::time::Duration::from_secs(30),
             enable_encryption: true,
+            keypair: None,
             peers: Vec::new(),
         }
     }

@@ -97,7 +97,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   Bad Client PeerId: {}", bad_client_peer_id);
     println!("   ⚠️  This key is NOT authorized by the server!");
 
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9312".parse()?).await?;
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9312".parse()?, bad_client_keypair)
+            .await?;
     println!("✅ Bad client listening on {} with WRONG crypto identity", transport.local_addr());
 
     // Try to connect to server using server's actual PeerId, but with our wrong client identity
@@ -223,7 +225,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("   ✅ This key IS expected by the server");
     
     // Create new transport on different port for valid client test
-    let valid_transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9313".parse()?).await?;
+    let valid_transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9313".parse()?, authorized_keypair)
+            .await?;
     println!("✅ Valid client transport on {}", valid_transport.local_addr());
     
     if let Some(handle) = valid_transport.handle() {

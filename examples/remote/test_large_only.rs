@@ -55,7 +55,11 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("🚀 Starting Large Message Test Server...");
 
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse()?).await?;
+    let server_keypair = kameo::remote::v2_bootstrap::test_keypair(9400);
+    let client_peer_id = kameo::remote::v2_bootstrap::test_keypair(9401).peer_id();
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse()?, server_keypair)
+            .await?;
     println!("✅ Server listening on {}", transport.local_addr());
 
     let actor_ref = TestActor::spawn(());
@@ -77,9 +81,7 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as peer
     if let Some(handle) = transport.handle() {
-        let _peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9401"))
-            .await;
+        let _peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Added client node as peer");
     }
 
@@ -96,14 +98,16 @@ async fn run_client() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("🚀 Starting Large Message Test Client...");
 
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse()?).await?;
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9401);
+    let server_peer_id = kameo::remote::v2_bootstrap::test_keypair(9400).peer_id();
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse()?, client_keypair)
+            .await?;
     println!("✅ Client listening on {}", transport.local_addr());
 
     // Connect to server
     if let Some(handle) = transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9400"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9400".parse()?).await?;
     }
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;

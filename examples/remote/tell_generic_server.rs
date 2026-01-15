@@ -161,8 +161,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("\n🚀 === GENERIC STORAGE TELL SERVER ===");
 
-    // Bootstrap on port 9320
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9320".parse()?).await?;
+    // Bootstrap on port 9320 with an explicit keypair
+    let server_keypair = kameo::remote::v2_bootstrap::test_keypair(9320);
+    let client_peer_id = kameo::remote::v2_bootstrap::test_keypair(9321).peer_id();
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9320".parse()?, server_keypair)
+            .await?;
     println!("✅ Server listening on {}", transport.local_addr());
 
     // Create and register StorageActor
@@ -180,9 +184,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as peer
     if let Some(handle) = transport.handle() {
-        let _peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9321"))
-            .await;
+        let _peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Added client node as peer");
     }
 

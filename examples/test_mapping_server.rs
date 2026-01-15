@@ -64,7 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as trusted peer for TLS
     if let Some(handle) = transport.handle() {
-        let client_peer_id = kameo_remote::PeerId::new("test_mapping_client");
+        let client_peer_id =
+            kameo_remote::KeyPair::new_for_testing("test_mapping_client").peer_id();
         let _peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Added client as trusted peer for TLS");
     }

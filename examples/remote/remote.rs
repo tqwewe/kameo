@@ -3,7 +3,6 @@ use std::time::Duration;
 use futures::TryStreamExt;
 use kameo::prelude::*;
 use kameo::distributed_actor;
-use libp2p::PeerId;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
@@ -17,17 +16,14 @@ pub struct MyActor {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Inc {
     amount: u32,
-    from: PeerId,
+    from: String,
 }
 
 impl Message<Inc> for MyActor {
     type Reply = i64;
 
     async fn handle(&mut self, msg: Inc, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
-        info!(
-            "<-- recv inc message from peer {}",
-            &msg.from.to_base58()[46..]
-        );
+        info!("<-- recv inc message from peer {}", msg.from);
         self.count += msg.amount as i64;
         self.count
     }
@@ -47,8 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    // Starts the swarm, and listens on an OS assigned IP and port.
-    let local_peer_id = remote::bootstrap()?;
+    // Starts the swarm with an explicit keypair (TLS required).
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let local_peer_id = keypair.peer_id();
+    remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Register a local actor as "incrementor"
     let actor_ref = MyActor::spawn(MyActor { count: 0 });
@@ -68,7 +66,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match incrementor
                 .ask(&Inc {
                     amount: 10,
-                    from: local_peer_id,
+                    from: local_peer_id.to_string(),
                 })
                 .await
             {

@@ -6,15 +6,16 @@ For quick development and simple distributed actor setups, Kameo provides conven
 
 ## Quick Bootstrap
 
-The simplest way to get started with distributed actors is using the `bootstrap()` function:
+The simplest way to get started with distributed actors is using `bootstrap_with_keypair()`:
 
 ```rust
 use kameo::remote;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap with automatic configuration
-    remote::bootstrap().await?;
+    // Bootstrap with automatic configuration + explicit keypair (TLS required)
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
     
     println!("Distributed actor system started");
     
@@ -32,15 +33,16 @@ This automatically:
 
 ## Bootstrap on Specific Address
 
-If you need to listen on a specific address (useful for known deployments or port requirements), use `bootstrap_on()`:
+If you need to listen on a specific address (useful for known deployments or port requirements), use `bootstrap_on()` with a keypair:
 
 ```rust
 use kameo::remote;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap listening on a specific port
-    remote::bootstrap_on("127.0.0.1:8020").await?;
+    // Bootstrap listening on a specific port with an explicit keypair
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(8020);
+    remote::bootstrap_on("127.0.0.1:8020", keypair).await?;
     
     println!("Node listening on port 8020");
     Ok(())
@@ -60,8 +62,9 @@ struct GreeterActor;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap the distributed actor system
-    remote::bootstrap().await?;
+    // Bootstrap the distributed actor system with an explicit keypair
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
     println!("Distributed system started");
     
     // Spawn and register a local actor
@@ -100,8 +103,9 @@ impl<K: Send + 'static, V: Send + 'static> DistributedActor for KeyValueStore<K,
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap the distributed actor system
-    remote::bootstrap().await?;
+    // Bootstrap the distributed actor system with an explicit keypair
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
     
     // Generic actors work out of the box!
     let store = KeyValueStore::<String, i32>::spawn_default();

@@ -277,33 +277,27 @@ pub async fn bootstrap_with_keypair(
 }
 
 // REMOVED: bootstrap_with_peers - This function was removed because it doesn't properly establish
-// peer connections. Users should use bootstrap_on() and then manually add peers using the
+// peer connections. Users should use bootstrap_with_keypair() and then manually add peers using the
 // proper kameo_remote API pattern:
 //
 // Example:
-//   let transport = bootstrap_on(addr).await?;
+//   let transport = bootstrap_with_keypair(addr, keypair).await?;
 //   let handle = transport.get_handle()?;
-//   let peer = handle.add_peer(&PeerId::new("peer_node_name")).await;
+//   let peer_id = peer_keypair.peer_id();
+//   let peer = handle.add_peer(&peer_id).await;
 //   peer.connect(peer_addr).await?;
 
-/// Bootstrap on a specific address with TLS enabled
-///
-/// # Arguments
-/// * `addr` - The socket address to bind to
-///
-/// # Example
-/// ```no_run
-/// use kameo::remote::v2_bootstrap;
-///
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let transport = v2_bootstrap::bootstrap_on("127.0.0.1:9330".parse()?).await?;
-///     Ok(())
-/// }
-/// ```
-pub async fn bootstrap_on(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxError> {
-    // Use TLS-enabled bootstrap with generated keypair
-    bootstrap_with_keypair(addr, kameo_remote::KeyPair::generate()).await
+/// Create a deterministic test keypair for local testing.
+pub fn test_keypair(seed: u64) -> kameo_remote::KeyPair {
+    kameo_remote::KeyPair::from_seed_for_testing(seed)
+}
+
+/// Bootstrap on a specific address with TLS enabled using an explicit keypair.
+pub async fn bootstrap_on(
+    addr: SocketAddr,
+    keypair: kameo_remote::KeyPair,
+) -> Result<Box<KameoTransport>, BoxError> {
+    bootstrap_with_keypair(addr, keypair).await
 }
 
 /// Bootstrap a kameo_remote transport with custom configuration
@@ -322,7 +316,9 @@ pub async fn bootstrap_on(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxEr
 ///         bind_addr: "127.0.0.1:0".parse()?,
 ///         max_connections: 500,
 ///         connection_timeout: Duration::from_secs(10),
-///         enable_encryption: false, // For testing
+///         enable_encryption: true,
+///         keypair: Some(v2_bootstrap::test_keypair(1)),
+///         ..Default::default()
 ///     };
 ///     let transport = v2_bootstrap::bootstrap_with_config(config).await?;
 ///     Ok(())
@@ -429,8 +425,8 @@ pub async fn bootstrap_cluster(
     for i in 0..count {
         let addr: SocketAddr = format!("127.0.0.1:{}", base_port + i as u16).parse()?;
         addrs.push(addr);
-        // Use TLS-enabled bootstrap with generated keypair
-        let transport = bootstrap_with_keypair(addr, kameo_remote::KeyPair::generate()).await?;
+        // Use TLS-enabled bootstrap with deterministic test keypair
+        let transport = bootstrap_with_keypair(addr, test_keypair(i as u64)).await?;
         transports.push(transport);
     }
 

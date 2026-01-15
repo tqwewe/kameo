@@ -18,8 +18,9 @@ Kameo's distributed actor system is built on a modern architecture that prioriti
 ### Bootstrap Approach
 Perfect for getting started quickly:
 ```rust
-// One line to get started
-kameo::remote::bootstrap().await?;
+// One line to get started (explicit keypair required)
+let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+kameo::remote::bootstrap_on("127.0.0.1:0", keypair).await?;
 ```
 
 ### Advanced Configuration
@@ -33,7 +34,7 @@ v2_bootstrap::bootstrap_with_config(config).await?;
 
 ## How Distributed Actors Work
 
-1. **Network Setup**: Initialize using `kameo::remote::bootstrap()` for automatic configuration, or use advanced configuration options for production deployments with specific transport settings.
+1. **Network Setup**: Initialize using `kameo::remote::bootstrap_on(..., keypair)` for automatic configuration, or use advanced configuration options for production deployments with specific transport settings.
 
 2. **Actor Registration**: After network initialization, actors can be registered under unique names. The registration is distributed through the gossip protocol, making actors discoverable across the entire network.
 

@@ -169,6 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Bootstrap on port 9330 with a deterministic test keypair
     let server_keypair = kameo_remote::KeyPair::new_for_testing("ask_server_test_key");
+    let client_peer_id = kameo_remote::KeyPair::new_for_testing("ask_client_test_key").peer_id();
     let transport = kameo::remote::v2_bootstrap::bootstrap_with_keypair(
         "127.0.0.1:9330".parse()?,
         server_keypair,
@@ -192,9 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as peer
     if let Some(handle) = transport.handle() {
-        let _peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9331"))
-            .await;
+        let _peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Added client node as peer");
     }
 

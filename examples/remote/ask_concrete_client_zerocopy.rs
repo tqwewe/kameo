@@ -140,16 +140,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("\n🚀 === CONCRETE ACTOR ASK CLIENT ===");
 
-    // Bootstrap on port 9331
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9331".parse()?).await?;
+    // Bootstrap on port 9331 with an explicit keypair
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9331);
+    let server_peer_id = kameo::remote::v2_bootstrap::test_keypair(9330).peer_id();
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9331".parse()?, client_keypair)
+            .await?;
     println!("✅ Client listening on {}", transport.local_addr());
 
     // Connect to server
     println!("\n📡 Connecting to server at 127.0.0.1:9330...");
     if let Some(handle) = transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9330"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9330".parse()?).await?;
         println!("✅ Connected to server");
     }

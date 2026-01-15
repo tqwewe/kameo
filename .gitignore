@@ -1,5 +1,6 @@
 *.log
 *.md
+.DS_Store
 /target
 Cargo.lock
 .direnv

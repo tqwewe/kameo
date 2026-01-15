@@ -147,7 +147,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📡 Connecting to server at 127.0.0.1:9310 with TLS...");
     if let Some(handle) = transport.handle() {
         // Add the server as a trusted peer using its keypair-based PeerId
-        let server_peer_id = kameo_remote::PeerId::new("tls_server_production_key");
+        let server_peer_id =
+            kameo_remote::KeyPair::new_for_testing("tls_server_production_key").peer_id();
 
         let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9310".parse()?).await?;

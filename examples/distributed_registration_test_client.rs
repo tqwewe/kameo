@@ -40,7 +40,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Connect to server with TLS authentication
     if let Some(handle) = transport.handle() {
-        let server_peer_id = kameo_remote::PeerId::new("test_server_key");
+        let server_peer_id =
+            kameo_remote::KeyPair::new_for_testing("test_server_key").peer_id();
         let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9320".parse()?).await?;
         println!("✅ Connected to server with TLS encryption and mutual authentication");

@@ -136,7 +136,7 @@ impl KameoTransport {
                 );
                 return Err(TransportError::Other(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
-                    "No global transport configured - call bootstrap_on() or bootstrap_with_config() first"
+                    "No global transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) first"
                 ))));
             }
             tracing::info!("✅ [TRANSPORT] Global transport validated for '{}'", name);
@@ -275,7 +275,7 @@ impl KameoTransport {
             if global.is_none() {
                 return Err(TransportError::Other(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
-                    "No global transport configured - call bootstrap_on() or bootstrap_with_config() first"
+                    "No global transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) first"
                 ))));
             }
         }
@@ -301,30 +301,25 @@ impl KameoTransport {
         if let Some(handle) = &self.handle {
             let mut successful_connections = 0;
 
-            for peer_addr in self.config.peers.iter() {
-                // Use proper node naming like manual examples: kameo_node_{port}
-                let peer_node_name = format!("kameo_node_{}", peer_addr.port());
+            for peer in self.config.peers.iter() {
                 println!(
-                    "Attempting to connect to peer: {} (node: {})",
-                    peer_addr, peer_node_name
+                    "Attempting to connect to peer: {} (peer_id: {})",
+                    peer.addr, peer.peer_id
                 );
 
-                // Use the proper kameo_remote API: add_peer + connect with proper PeerId
-                let peer = handle
-                    .add_peer(&kameo_remote::PeerId::new(&peer_node_name))
-                    .await;
-                match peer.connect(peer_addr).await {
+                let peer_handle = handle.add_peer(&peer.peer_id).await;
+                match peer_handle.connect(&peer.addr).await {
                     Ok(_) => {
                         println!(
-                            "✓ Successfully connected to peer: {} (node: {})",
-                            peer_addr, peer_node_name
+                            "✓ Successfully connected to peer: {} (peer_id: {})",
+                            peer.addr, peer.peer_id
                         );
                         successful_connections += 1;
                     }
                     Err(e) => {
                         println!(
-                            "✗ Failed to connect to peer: {} (node: {}) - {}",
-                            peer_addr, peer_node_name, e
+                            "✗ Failed to connect to peer: {} (peer_id: {}) - {}",
+                            peer.addr, peer.peer_id, e
                         );
                         // Don't fail the entire operation, just continue to next peer
                     }
@@ -371,31 +366,40 @@ impl RemoteTransport for KameoTransport {
                 return Ok(());
             }
 
-            // Parse bind address
             let bind_addr = self.config.bind_addr;
-
-            // Create gossip config - keypair should be provided via bootstrap_with_keypair for TLS
-            // For default bootstrap_on, we use a test keypair (not for production)
-            let node_name = format!("kameo_node_{}", bind_addr.port());
-            let keypair = kameo_remote::KeyPair::new_for_testing(&node_name);
+            let keypair = self
+                .config
+                .keypair
+                .clone()
+                .ok_or_else(|| {
+                    TransportError::Other(
+                        "Missing keypair. Use v2_bootstrap::bootstrap_with_keypair or set TransportConfig.keypair."
+                            .into(),
+                    )
+                })?;
 
             let gossip_config = GossipConfig {
-                key_pair: Some(keypair),
+                key_pair: Some(keypair.clone()),
                 gossip_interval: Duration::from_secs(5),
                 max_gossip_peers: 3,
                 ..Default::default()
             };
 
-            // Create and start the gossip registry with no initial peers
-            // We'll add peers later via add_peer() + connect() calls
-            let handle = GossipRegistryHandle::new(bind_addr, vec![], Some(gossip_config))
-                .await
-                .map_err(|e| TransportError::Other(Box::new(e)))?;
+            let handle = if self.config.enable_encryption {
+                kameo_remote::tls::ensure_crypto_provider();
+                let secret_key =
+                    kameo_remote::migration::migrate_keypair_to_secret_key(keypair.clone())
+                        .map_err(|e| TransportError::Other(Box::new(e)))?;
+                GossipRegistryHandle::new_with_tls(bind_addr, secret_key, Some(gossip_config))
+                    .await
+                    .map_err(|e| TransportError::Other(Box::new(e)))?
+            } else {
+                GossipRegistryHandle::new(bind_addr, vec![], Some(gossip_config))
+                    .await
+                    .map_err(|e| TransportError::Other(Box::new(e)))?
+            };
 
             self.handle = Some(Arc::new(handle));
-
-            // TODO: Hook up message handler to process incoming messages
-
             Ok(())
         })
     }

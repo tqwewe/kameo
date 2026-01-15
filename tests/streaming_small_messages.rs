@@ -67,14 +67,18 @@ async fn test_small_tell_messages_100kb() {
         .with_env_filter("kameo_remote=warn")
         .try_init();
 
-    // Bootstrap test nodes
+    // Bootstrap test nodes with explicit keypairs
+    let server_keypair = kameo::remote::v2_bootstrap::test_keypair(9400);
+    let server_peer_id = server_keypair.peer_id();
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9401);
+
     let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse().unwrap(), server_keypair)
             .await
             .expect("Server bootstrap failed");
 
     let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse().unwrap(), client_keypair)
             .await
             .expect("Client bootstrap failed");
 
@@ -87,9 +91,7 @@ async fn test_small_tell_messages_100kb() {
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("test_server_9400"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9400".parse().unwrap())
             .await
             .expect("Connection failed");
@@ -135,14 +137,18 @@ async fn test_small_ask_messages_500kb() {
         .with_env_filter("kameo_remote=warn")
         .try_init();
 
-    // Bootstrap test nodes with different ports
+    // Bootstrap test nodes with different ports and explicit keypairs
+    let server_keypair = kameo::remote::v2_bootstrap::test_keypair(9410);
+    let server_peer_id = server_keypair.peer_id();
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9411);
+
     let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9410".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9410".parse().unwrap(), server_keypair)
             .await
             .expect("Server bootstrap failed");
 
     let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9411".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9411".parse().unwrap(), client_keypair)
             .await
             .expect("Client bootstrap failed");
 
@@ -155,9 +161,7 @@ async fn test_small_ask_messages_500kb() {
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("test_server_9410"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9410".parse().unwrap())
             .await
             .expect("Connection failed");
@@ -210,14 +214,18 @@ async fn test_boundary_condition_999kb() {
         .with_env_filter("kameo_remote=warn")
         .try_init();
 
-    // Bootstrap test nodes with different ports
+    // Bootstrap test nodes with different ports and explicit keypairs
+    let server_keypair = kameo::remote::v2_bootstrap::test_keypair(9420);
+    let server_peer_id = server_keypair.peer_id();
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9421);
+
     let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9420".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9420".parse().unwrap(), server_keypair)
             .await
             .expect("Server bootstrap failed");
 
     let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9421".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9421".parse().unwrap(), client_keypair)
             .await
             .expect("Client bootstrap failed");
 
@@ -230,9 +238,7 @@ async fn test_boundary_condition_999kb() {
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("test_server_9420"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9420".parse().unwrap())
             .await
             .expect("Connection failed");
@@ -287,14 +293,18 @@ async fn test_performance_baseline_small_messages() {
         .with_env_filter("kameo_remote=warn")
         .try_init();
 
-    // Bootstrap test nodes with different ports
+    // Bootstrap test nodes with different ports and explicit keypairs
+    let server_keypair = kameo::remote::v2_bootstrap::test_keypair(9430);
+    let server_peer_id = server_keypair.peer_id();
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9431);
+
     let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9430".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9430".parse().unwrap(), server_keypair)
             .await
             .expect("Server bootstrap failed");
 
     let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9431".parse().unwrap())
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9431".parse().unwrap(), client_keypair)
             .await
             .expect("Client bootstrap failed");
 
@@ -307,9 +317,7 @@ async fn test_performance_baseline_small_messages() {
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("test_server_9430"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9430".parse().unwrap())
             .await
             .expect("Connection failed");

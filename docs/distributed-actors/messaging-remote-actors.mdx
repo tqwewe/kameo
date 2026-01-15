@@ -14,8 +14,9 @@ After looking up a remote actor using `RemoteActorRef`, you can send messages to
 ```rust
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap the distributed actor system
-    let peer_id = kameo::remote::bootstrap()?;
+    // Bootstrap the distributed actor system with an explicit keypair
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Lookup a registered remote actor
     let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
@@ -109,8 +110,9 @@ Here’s a full example of how to message a remote actor and handle its reply:
 ```rust
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Bootstrap the distributed actor system
-    let peer_id = kameo::remote::bootstrap()?;
+    // Bootstrap the distributed actor system with an explicit keypair
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Lookup a registered remote actor
     let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;

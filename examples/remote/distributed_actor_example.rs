@@ -89,8 +89,10 @@ distributed_actor! {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🚀 === DISTRIBUTED ACTOR EXAMPLE ===");
 
-    // Initialize transport for remote communication
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9340".parse()?).await?;
+    // Initialize transport for remote communication with explicit keypair
+    let keypair = kameo::remote::v2_bootstrap::test_keypair(9340);
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9340".parse()?, keypair).await?;
     println!("✅ Transport listening on {}", transport.local_addr());
 
     // Step 5: Spawn actor using regular Actor::spawn()

@@ -66,7 +66,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as known peer for TLS authentication
     if let Some(handle) = transport.handle() {
-        let client_peer_id = kameo_remote::PeerId::new("test_client_key");
+        let client_peer_id =
+            kameo_remote::KeyPair::new_for_testing("test_client_key").peer_id();
         let _client_peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Server registered client as known peer for TLS authentication");
     }

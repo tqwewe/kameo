@@ -152,16 +152,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     println!("\n🚀 === SIMPLIFIED CALCULATOR ASK CLIENT ===");
 
-    // Bootstrap on port 9341
-    let transport = kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9341".parse()?).await?;
+    // Bootstrap on port 9341 with an explicit keypair
+    let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9341);
+    let server_peer_id = kameo::remote::v2_bootstrap::test_keypair(9340).peer_id();
+    let transport =
+        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9341".parse()?, client_keypair)
+            .await?;
     println!("✅ Client listening on {}", transport.local_addr());
 
     // Connect to server
     println!("\n📡 Connecting to server at 127.0.0.1:9340...");
     if let Some(handle) = transport.handle() {
-        let peer = handle
-            .add_peer(&kameo_remote::PeerId::new("kameo_node_9340"))
-            .await;
+        let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9340".parse()?).await?;
         println!("✅ Connected to server");
     }

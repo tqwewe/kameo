@@ -70,7 +70,9 @@ distributed_actor! {
 async fn test_ask_type_inference() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Start server
     let server_keypair = KeyPair::new_for_testing("server-type-inference");
-    let server_transport = v2_bootstrap::bootstrap_with_keypair("127.0.0.1:0".parse()?, server_keypair).await?;
+    let server_peer_id = server_keypair.peer_id();
+    let server_transport =
+        v2_bootstrap::bootstrap_with_keypair("127.0.0.1:0".parse()?, server_keypair).await?;
     let server_addr = server_transport.local_addr();
 
     // Spawn actor on server
@@ -82,7 +84,6 @@ async fn test_ask_type_inference() -> Result<(), Box<dyn std::error::Error + Sen
     let client_keypair = KeyPair::new_for_testing("client-type-inference");
     let client_transport = v2_bootstrap::bootstrap_with_keypair("127.0.0.1:0".parse()?, client_keypair).await?;
     if let Some(handle) = client_transport.handle() {
-        let server_peer_id = kameo_remote::PeerId::new("server-type-inference");
         let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&server_addr).await?;
     }

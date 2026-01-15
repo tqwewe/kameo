@@ -75,12 +75,14 @@ Here’s a full example showing how to register an actor on one node and look it
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Node 1: Bootstrap & register an actor
-    let peer_id = kameo::remote::bootstrap()?;
+    let node1_keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, node1_keypair).await?;
     let actor_ref = MyActor::spawn(MyActor::default());
     actor_ref.register("my_actor").await?;
     
     // Node 2: Bootstrap, and lookup the actor and send a message
-    let peer_id = kameo::remote::bootstrap()?;
+    let node2_keypair = kameo::remote::v2_bootstrap::test_keypair(2);
+    kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, node2_keypair).await?;
     let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
     if let Some(actor) = remote_actor_ref {
         let result = actor.ask(&Inc { amount: 10 }).await?;
