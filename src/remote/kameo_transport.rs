@@ -385,19 +385,20 @@ impl RemoteTransport for KameoTransport {
                 ..Default::default()
             };
 
-            let handle = if self.config.enable_encryption {
-                kameo_remote::tls::ensure_crypto_provider();
-                let secret_key =
-                    kameo_remote::migration::migrate_keypair_to_secret_key(keypair.clone())
-                        .map_err(|e| TransportError::Other(Box::new(e)))?;
-                GossipRegistryHandle::new_with_tls(bind_addr, secret_key, Some(gossip_config))
-                    .await
-                    .map_err(|e| TransportError::Other(Box::new(e)))?
-            } else {
-                GossipRegistryHandle::new(bind_addr, vec![], Some(gossip_config))
-                    .await
-                    .map_err(|e| TransportError::Other(Box::new(e)))?
-            };
+            if !self.config.enable_encryption {
+                return Err(TransportError::Other(
+                    "TLS is required for remote transport; enable_encryption must be true"
+                        .into(),
+                ));
+            }
+
+            kameo_remote::tls::ensure_crypto_provider();
+            let secret_key =
+                kameo_remote::migration::migrate_keypair_to_secret_key(keypair.clone())
+                    .map_err(|e| TransportError::Other(Box::new(e)))?;
+            let handle = GossipRegistryHandle::new_with_tls(bind_addr, secret_key, Some(gossip_config))
+                .await
+                .map_err(|e| TransportError::Other(Box::new(e)))?;
 
             self.handle = Some(Arc::new(handle));
             Ok(())

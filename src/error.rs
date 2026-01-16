@@ -413,7 +413,7 @@ impl fmt::Display for ActorStopReason {
 }
 
 /// An error type returned from actor startup/shutdown results.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum HookError<E> {
     /// The hook panic error.
     Panicked(PanicError),

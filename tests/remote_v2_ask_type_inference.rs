@@ -1,3 +1,4 @@
+#![cfg(feature = "remote")]
 //! Test for type inference in remote ask calls using the v2 API.
 
 use std::time::Duration;

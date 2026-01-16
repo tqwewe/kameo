@@ -61,7 +61,7 @@ downcast-rs = "2.0.1"
 dyn-clone = "1.0"
 either = { version = "1.15.0", optional = true }
 futures.workspace = true
-kameo_remote = { git = "https://github.com/moofone/kameo_remote", branch = "feature/gossip-improvements", optional = true }
+kameo_remote = { git = "https://github.com/moofone/kameo_remote", optional = true }
 rkyv = { version = "0.8", features = ["bytecheck", "std"], optional = true }
 thiserror = "2.0"
 tokio = { workspace = true, features = [
@@ -96,6 +96,46 @@ path = "examples/local/forward_with_fallback.rs"
 [[example]]
 name = "stream"
 path = "examples/local/stream.rs"
+
+[[example]]
+name = "distributed_registration_test_client"
+path = "examples/distributed_registration_test_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "distributed_registration_test_server"
+path = "examples/distributed_registration_test_server.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "test_futures_ohlcv_client"
+path = "examples/test_futures_ohlcv_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "test_futures_ohlcv_server"
+path = "examples/test_futures_ohlcv_server.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "test_list_client"
+path = "examples/test_list_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "test_list_server"
+path = "examples/test_list_server.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "test_mapping_client"
+path = "examples/test_mapping_client.rs"
+required-features = ["remote"]
+
+[[example]]
+name = "test_mapping_server"
+path = "examples/test_mapping_server.rs"
+required-features = ["remote"]
 
 [[example]]
 name = "ask_concrete_client"

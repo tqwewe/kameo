@@ -1,7 +1,7 @@
-//! Extended message protocol with type hash support
+//! Message protocol with type hash support.
 //!
-//! This module defines the new message format that includes type hashes
-//! for generic actor support while maintaining backward compatibility.
+//! This module defines the v2 message format that includes type hashes
+//! for generic actor support.
 
 use bitflags::bitflags;
 use std::io::{Read, Write};
@@ -155,79 +155,6 @@ pub enum MessageHeaderError {
     Io(#[from] std::io::Error),
 }
 
-/// Compatibility layer for old-style string-based messages
-///
-/// This header is used when communicating with nodes that don't support
-/// type hashes yet.
-#[derive(Debug, Clone)]
-pub struct MessageHeaderV1 {
-    /// The type of message (tell, ask, or response)
-    pub msg_type: MessageType,
-    /// Correlation ID for matching requests to responses
-    pub correlation_id: u16,
-    /// String-based actor identifier (legacy)
-    pub actor_id: String,
-    /// String-based message identifier (legacy)
-    pub message_id: String,
-}
-
-impl MessageHeaderV1 {
-    /// Try to convert to V2 header using a string-to-hash mapping
-    pub fn to_v2(&self, mapper: &StringToHashMapper) -> Option<MessageHeaderV2> {
-        let type_hash = mapper.get_hash(&self.actor_id, &self.message_id)?;
-        Some(MessageHeaderV2 {
-            msg_type: self.msg_type,
-            correlation_id: self.correlation_id,
-            flags: MessageFlags::empty(), // No generic actor flag for legacy
-            type_hash: type_hash.as_u32(),
-            reserved: 0,
-        })
-    }
-}
-
-/// Maps legacy string IDs to type hashes
-#[derive(Debug)]
-pub struct StringToHashMapper {
-    mappings: std::collections::HashMap<(String, String), TypeHash>,
-}
-
-impl StringToHashMapper {
-    /// Create a new empty string-to-hash mapper
-    pub fn new() -> Self {
-        Self {
-            mappings: std::collections::HashMap::new(),
-        }
-    }
-
-    /// Register a mapping from string IDs to type hash
-    pub fn register(&mut self, actor_id: String, message_id: String, type_hash: TypeHash) {
-        self.mappings.insert((actor_id, message_id), type_hash);
-    }
-
-    /// Get type hash for string IDs
-    pub fn get_hash(&self, actor_id: &str, message_id: &str) -> Option<TypeHash> {
-        self.mappings
-            .get(&(actor_id.to_string(), message_id.to_string()))
-            .copied()
-    }
-
-    /// Create a mapper with common built-in mappings
-    pub fn with_defaults() -> Self {
-        let mapper = Self::new();
-
-        // Add default mappings for backward compatibility
-        // These would be the existing RemoteActor implementations
-        // Example:
-        // mapper.register(
-        //     "StringCache".to_string(),
-        //     "Get".to_string(),
-        //     TypeHash::from_bytes(b"StringCache:Get")
-        // );
-
-        mapper
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,14 +181,4 @@ mod tests {
         assert!(!flags.contains(MessageFlags::COMPRESSED));
     }
 
-    #[test]
-    fn test_string_to_hash_mapper() {
-        let mut mapper = StringToHashMapper::new();
-        let hash = TypeHash::from_bytes(b"TestActor:TestMessage");
-
-        mapper.register("TestActor".to_string(), "TestMessage".to_string(), hash);
-
-        assert_eq!(mapper.get_hash("TestActor", "TestMessage"), Some(hash));
-        assert_eq!(mapper.get_hash("OtherActor", "TestMessage"), None);
-    }
 }

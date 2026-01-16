@@ -45,21 +45,15 @@ impl MessageHandler for RemoteMessageHandler {
         message_type: &str,
         payload: &[u8],
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
-        // Legacy string-based routing - try to parse as "hash:XXXXX" format
-        if let Some(hash_str) = message_type.strip_prefix("hash:") {
-            if let Ok(type_hash) = u32::from_str_radix(hash_str, 16) {
-                return self.handle_tell_typed(
-                    actor_id,
-                    type_hash,
-                    Bytes::copy_from_slice(payload),
-                );
-            }
-        }
-
         let msg_type = message_type.to_string();
-        Box::pin(
-            async move { Err(format!("Unsupported message type format: {}", msg_type).into()) },
-        )
+        let _ = (actor_id, payload);
+        Box::pin(async move {
+            Err(format!(
+                "String message types are not supported (got: {})",
+                msg_type
+            )
+            .into())
+        })
     }
 
     fn handle_ask(
@@ -68,24 +62,15 @@ impl MessageHandler for RemoteMessageHandler {
         message_type: &str,
         payload: &[u8],
     ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, BoxError>> + Send + '_>> {
-        // Legacy string-based routing - try to parse as "hash:XXXXX" format
-        if let Some(hash_str) = message_type.strip_prefix("hash:") {
-            if let Ok(type_hash) = u32::from_str_radix(hash_str, 16) {
-                let payload_bytes = Bytes::copy_from_slice(payload);
-                let handler = self.clone();
-                return Box::pin(async move {
-                    handler
-                        .handle_ask_typed(actor_id, type_hash, payload_bytes)
-                        .await
-                        .map(|bytes| bytes.to_vec())
-                });
-            }
-        }
-
         let msg_type = message_type.to_string();
-        Box::pin(
-            async move { Err(format!("Unsupported message type format: {}", msg_type).into()) },
-        )
+        let _ = (actor_id, payload);
+        Box::pin(async move {
+            Err(format!(
+                "String message types are not supported (got: {})",
+                msg_type
+            )
+            .into())
+        })
     }
 
     fn handle_tell_typed(

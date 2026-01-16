@@ -272,9 +272,9 @@ pub trait MessageHandler: Send + Sync {
         type_hash: u32,
         payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
-        // Default implementation converts to string for backward compatibility
-        let message_type = format!("hash:{:08x}", type_hash);
-        self.handle_tell(actor_id, &message_type, &payload)
+        // Typed messages are required; string-based routing is no longer supported.
+        let _ = (actor_id, type_hash, payload);
+        Box::pin(async move { Err("Typed tell handler not implemented".into()) })
     }
 
     /// Handle an incoming ask message with type hash (for generic actors)
@@ -284,12 +284,9 @@ pub trait MessageHandler: Send + Sync {
         type_hash: u32,
         payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = Result<Bytes, BoxError>> + Send + '_>> {
-        // Default implementation converts to string for backward compatibility
-        let message_type = format!("hash:{:08x}", type_hash);
-        Box::pin(async move {
-            let result = self.handle_ask(actor_id, &message_type, &payload).await?;
-            Ok(Bytes::from(result))
-        })
+        // Typed messages are required; string-based routing is no longer supported.
+        let _ = (actor_id, type_hash, payload);
+        Box::pin(async move { Err("Typed ask handler not implemented".into()) })
     }
 }
 
