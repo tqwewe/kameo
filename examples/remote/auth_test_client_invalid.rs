@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📡 Attempting to connect to server...");
     println!("   Expected: ❌ Authentication should FAIL");
     
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42");
     let server_peer_id = server_keypair.peer_id();
     
     if let Some(handle) = transport.handle() {

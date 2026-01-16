@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Bootstrap on port 9314 with cryptographic keypair (client's own key)
     println!("🔑 Setting up client with cryptographic identity...");
-    let client_keypair = kameo_remote::KeyPair::from_seed_for_testing(44); // Different client key
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("44"); // Different client key
     let client_peer_id = client_keypair.peer_id();
     println!("   Client PeerId: {}", client_peer_id);
     
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Connect to server using WRONG server PeerId
     println!("\n📡 Attempting to connect with WRONG server public key...");
-    let wrong_server_keypair = kameo_remote::KeyPair::from_seed_for_testing(99); // WRONG server key!
+    let wrong_server_keypair = kameo_remote::KeyPair::new_for_testing("99"); // WRONG server key!
     let wrong_server_peer_id = wrong_server_keypair.peer_id();
     println!("   Using WRONG server PeerId: {}", wrong_server_peer_id);
     println!("   (Real server has PeerId from seed 42)");
@@ -75,13 +75,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let pool = handle.registry.connection_pool.lock().await;
             // Note: First param is the actual server's peer ID (seed 42)
             // Second param is what we expect (wrong key from seed 99)
-            let actual_server = kameo_remote::KeyPair::from_seed_for_testing(42).peer_id();
+            let actual_server = kameo_remote::KeyPair::new_for_testing("42").peer_id();
             pool.set_expected_server_key(actual_server.clone(), wrong_server_peer_id.clone());
             println!("   Configured to expect wrong server key for {}", actual_server);
         }
         
         // Try to connect to the actual server with wrong expected key
-        let actual_server = kameo_remote::KeyPair::from_seed_for_testing(42).peer_id();
+        let actual_server = kameo_remote::KeyPair::new_for_testing("42").peer_id();
         let peer = handle.add_peer(&actual_server).await;
         
         match peer.connect(&"127.0.0.1:9310".parse()?).await {

@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🔐 === SERVER WITH PRIVATE KEY ===");
 
     // Server has the full keypair (private + public)
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42");
     let server_public_key = server_keypair.public_key_bytes();
     
     println!("🔑 Server Public Key: {:02x?}", &server_public_key[..8]);

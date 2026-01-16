@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let server_addr: SocketAddr = "127.0.0.1:9310".parse()?;
     
     // Generate a valid keypair first
-    let valid_keypair = kameo_remote::KeyPair::from_seed_for_testing(43); // Same as client normally uses
+    let valid_keypair = kameo_remote::KeyPair::new_for_testing("43"); // Same as client normally uses
     let valid_private_key = valid_keypair.private_key_bytes();
     let valid_public_key = valid_keypair.public_key_bytes();
     let valid_peer_id = valid_keypair.peer_id();
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     // Test Case 3: Use the same private key but with different keypair's public key
     println!("\n🧪 Test 3: Same private key with different keypair's public key");
-    let different_keypair = kameo_remote::KeyPair::from_seed_for_testing(99); // Different seed
+    let different_keypair = kameo_remote::KeyPair::new_for_testing("99"); // Different seed
     let different_public_key = different_keypair.public_key_bytes();
     test_private_public_mismatch(
         "Different keypair's public key",

@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let public_key_bytes = corrupted_keypair.public_key_bytes();
     
     // Also show what the VALID keypair looks like for comparison
-    let valid_keypair = kameo_remote::KeyPair::from_seed_for_testing(43);
+    let valid_keypair = kameo_remote::KeyPair::new_for_testing("43");
     let valid_public_key_bytes = valid_keypair.public_key_bytes();
     
     println!("   Private key:     {:02x?} (SAME as valid client)", &private_key_bytes[..8]);
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Connect to server - this should fail during challenge-response
     println!("\n📡 Attempting to connect to server...");
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42");
     let server_peer_id = server_keypair.peer_id();
     println!("   Server PeerId: {}", server_peer_id);
     println!("   🔍 Challenge-response will test if client can sign with private key matching claimed public key...");

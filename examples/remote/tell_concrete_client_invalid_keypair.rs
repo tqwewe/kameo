@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("🔑 Setting up client with WRONG cryptographic identity...");
     
     // DIFFERENCE: Use seed 99 instead of 43 (what server expects)
-    let client_keypair = kameo_remote::KeyPair::from_seed_for_testing(99); // WRONG seed
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("99"); // WRONG seed
     let client_peer_id = client_keypair.peer_id();
     println!("   Client PeerId: {}", client_peer_id);
     println!("   Expected PeerId: 1ba66c6751506850ae0787244c69476b6d45fb857a914a5a0445a24253f7b810");
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Connect to server using server's expected PeerId (IDENTICAL to real client code)
     println!("\n📡 Connecting to server at 127.0.0.1:9310...");
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42); // Must match server
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42"); // Must match server
     let server_peer_id = server_keypair.peer_id();
     println!("   Connecting to server PeerId: {}", server_peer_id);
     

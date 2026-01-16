@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🔐 === TEST: VALID KEYPAIR AUTHENTICATION ===");
 
     // Create valid client keypair (seed 43)
-    let client_keypair = kameo_remote::KeyPair::from_seed_for_testing(43);
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("43");
     let client_peer_id = client_keypair.peer_id();
     println!("🔑 Client PeerId: {}", client_peer_id);
     println!("   Using VALID keypair (correct private/public key relationship)");
@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     // Connect to server
     println!("\n📡 Attempting to connect to server...");
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42");
     let server_peer_id = server_keypair.peer_id();
     
     if let Some(handle) = transport.handle() {

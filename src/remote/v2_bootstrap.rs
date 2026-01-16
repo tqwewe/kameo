@@ -146,7 +146,7 @@ fn set_v2_transport_env_var() {
 ///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+///     let keypair = kameo_remote::KeyPair::new_for_testing("42");
 ///     let transport = v2_bootstrap::bootstrap_with_keypair(
 ///         "127.0.0.1:8080".parse()?,
 ///         keypair
@@ -242,7 +242,7 @@ pub async fn bootstrap_with_keypair(
 
 /// Create a deterministic test keypair for local testing.
 pub fn test_keypair(seed: u64) -> kameo_remote::KeyPair {
-    kameo_remote::KeyPair::from_seed_for_testing(seed)
+    kameo_remote::KeyPair::new_for_testing(seed.to_string())
 }
 
 /// Bootstrap on a specific address with TLS enabled using an explicit keypair.

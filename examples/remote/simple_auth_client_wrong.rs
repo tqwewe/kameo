@@ -15,10 +15,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🔐 === CLIENT WITH WRONG PUBLIC KEY ===");
 
     // Client needs its own keypair for identity
-    let client_keypair = kameo_remote::KeyPair::from_seed_for_testing(43);
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("43");
     
     // Get the WRONG server public key (from different seed)
-    let wrong_server_keypair = kameo_remote::KeyPair::from_seed_for_testing(99);
+    let wrong_server_keypair = kameo_remote::KeyPair::new_for_testing("99");
     let wrong_server_peer_id = wrong_server_keypair.peer_id();
     let wrong_public_key = wrong_server_keypair.public_key_bytes();
     
@@ -42,12 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let pool = handle.registry.connection_pool.lock().await;
             // Note: First param is the actual server's peer ID (seed 42)
             // Second param is what we expect (wrong key from seed 99)
-            let actual_server = kameo_remote::KeyPair::from_seed_for_testing(42).peer_id();
+            let actual_server = kameo_remote::KeyPair::new_for_testing("42").peer_id();
             pool.set_expected_server_key(actual_server, wrong_server_peer_id.clone());
         }
         
         // Connect to the actual server (not the wrong one)
-        let actual_server = kameo_remote::KeyPair::from_seed_for_testing(42).peer_id();
+        let actual_server = kameo_remote::KeyPair::new_for_testing("42").peer_id();
         let peer = handle.add_peer(&actual_server).await;
         
         match peer.connect(&"127.0.0.1:9310".parse()?).await {

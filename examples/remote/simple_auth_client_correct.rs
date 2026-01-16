@@ -15,10 +15,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🔐 === CLIENT WITH CORRECT PUBLIC KEY ===");
 
     // Client needs its own keypair for identity
-    let client_keypair = kameo_remote::KeyPair::from_seed_for_testing(43);
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("43");
     
     // Get the CORRECT server public key (from seed 42)
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42");
     let server_peer_id = server_keypair.peer_id();
     let server_public_key = server_keypair.public_key_bytes();
     

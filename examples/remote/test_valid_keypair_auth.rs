@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Bootstrap on port 9313 with cryptographic keypair (matching what server expects)
     println!("🔑 Setting up client with VALID cryptographic identity...");
-    let client_keypair = kameo_remote::KeyPair::from_seed_for_testing(43); // Valid client key
+    let client_keypair = kameo_remote::KeyPair::new_for_testing("43"); // Valid client key
     let client_peer_id = client_keypair.peer_id();
     println!("   Client PeerId: {}", client_peer_id);
     
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Connect to server using server's CORRECT PeerId
     println!("\n📡 Connecting to server with CORRECT public key...");
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42); // CORRECT server key
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42"); // CORRECT server key
     let server_peer_id = server_keypair.peer_id();
     println!("   Expected server PeerId: {}", server_peer_id);
     

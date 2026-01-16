@@ -18,7 +18,7 @@
 //! let peer_id = keypair.peer_id();
 //! 
 //! // Testing: Deterministic keypair from seed
-//! let keypair = kameo_remote::KeyPair::from_seed_for_testing(42);
+//! let keypair = kameo_remote::KeyPair::new_for_testing("42");
 //! let peer_id = keypair.peer_id();
 //! 
 //! // From existing private key bytes
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Bootstrap on port 9312 (different port) with WRONG keypair
     println!("🔑 Setting up client with WRONG cryptographic identity...");
-    let bad_client_keypair = kameo_remote::KeyPair::from_seed_for_testing(99); // WRONG SEED!
+    let bad_client_keypair = kameo_remote::KeyPair::new_for_testing("99"); // WRONG SEED!
     let bad_client_peer_id = bad_client_keypair.peer_id();
     println!("   Bad Client PeerId: {}", bad_client_peer_id);
     println!("   ⚠️  This key is NOT authorized by the server!");
@@ -104,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Try to connect to server using server's actual PeerId, but with our wrong client identity
     println!("\n📡 Attempting to connect to server at 127.0.0.1:9310...");
-    let server_keypair = kameo_remote::KeyPair::from_seed_for_testing(42); // Correct server key
+    let server_keypair = kameo_remote::KeyPair::new_for_testing("42"); // Correct server key
     let server_peer_id = server_keypair.peer_id();
     println!("   Target server PeerId: {}", server_peer_id);
     println!("   Our (unauthorized) PeerId: {}", bad_client_peer_id);
@@ -219,7 +219,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 === Test 3: Valid Authorized Keypair (Control Test) ===");
     println!("Testing with the CORRECT keypair to verify legitimate clients work...");
     
-    let authorized_keypair = kameo_remote::KeyPair::from_seed_for_testing(43); // Correct seed!
+    let authorized_keypair = kameo_remote::KeyPair::new_for_testing("43"); // Correct seed!
     let authorized_peer_id = authorized_keypair.peer_id();
     println!("   Authorized Client PeerId: {}", authorized_peer_id);
     println!("   ✅ This key IS expected by the server");
