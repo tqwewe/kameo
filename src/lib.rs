@@ -40,8 +40,6 @@ pub mod prelude {
 
     #[cfg(feature = "remote")]
     pub use crate::actor::RemoteActorRef;
-    #[allow(deprecated)]
-    pub use crate::actor::ActorID;
     pub use crate::actor::{
         Actor, ActorId, ActorRef, ActorRegistration, PreparedActor, Recipient, ReplyRecipient,
         WeakActorRef, WeakRecipient, WeakReplyRecipient,

@@ -2,7 +2,7 @@ use std::{
     convert,
     ops::ControlFlow,
     panic::AssertUnwindSafe,
-    sync::{Arc, OnceLock},
+    sync::Arc,
     thread,
 };
 
@@ -12,7 +12,7 @@ use futures::{
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
-    sync::Semaphore,
+    sync::SetOnce,
     task::JoinHandle,
 };
 #[cfg(feature = "tracing")]
@@ -20,7 +20,7 @@ use tracing::{error, trace};
 
 use crate::{
     actor::{
-        kind::{ActorBehaviour, ActorState},
+        kind::ActorBehaviour,
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
     error::{invoke_actor_error_hook, ActorStopReason, PanicError, SendError},
@@ -53,16 +53,14 @@ impl<A: Actor> PreparedActor<A> {
     pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let links = Links::default();
-        let startup_semaphore = Arc::new(Semaphore::new(0));
-        let startup_error = Arc::new(OnceLock::new());
-        let shutdown_error = Arc::new(OnceLock::new());
+        let startup_result = Arc::new(SetOnce::new());
+        let shutdown_result = Arc::new(SetOnce::new());
         let actor_ref = ActorRef::new(
             mailbox_tx,
             abort_handle,
             links,
-            startup_semaphore,
-            startup_error,
-            shutdown_error,
+            startup_result,
+            shutdown_result,
         );
 
         PreparedActor {
@@ -111,7 +109,7 @@ impl<A: Actor> PreparedActor<A> {
     /// # });
     /// ```
     pub async fn run(self, args: A::Args) -> Result<(A, ActorStopReason), PanicError> {
-        run_actor_lifecycle::<A, ActorBehaviour<A>>(
+        run_actor_lifecycle::<A>(
             args,
             self.actor_ref,
             self.mailbox_rx,
@@ -161,7 +159,7 @@ impl<A: Actor> PreparedActor<A> {
 }
 
 #[inline]
-async fn run_actor_lifecycle<A, S>(
+async fn run_actor_lifecycle<A>(
     args: A::Args,
     actor_ref: ActorRef<A>,
     mut mailbox_rx: MailboxReceiver<A>,
@@ -169,7 +167,6 @@ async fn run_actor_lifecycle<A, S>(
 ) -> Result<(A, ActorStopReason), PanicError>
 where
     A: Actor,
-    S: ActorState<A>,
 {
     #[allow(unused_mut)]
     let mut id = actor_ref.id();
@@ -186,17 +183,17 @@ where
     match &start_res {
         Ok(actor) => {
             actor_ref
-                .startup_error
-                .set(None)
-                .expect("nothing else should set the startup error");
+                .startup_result
+                .set(Ok(()))
+                .expect("nothing else should set the startup result");
             Some(actor)
         }
         Err(err) => {
             invoke_actor_error_hook(err);
             actor_ref
-                .startup_error
-                .set(Some(err.clone()))
-                .expect("nothing else should set the startup error");
+                .startup_result
+                .set(Err(err.clone()))
+                .expect("nothing else should set the startup result");
             None
         }
     };
@@ -208,18 +205,17 @@ where
         startup_finished = true;
     }
 
-    let (actor_ref, links, startup_semaphore) = {
+    let (actor_ref, links) = {
         //shadow actor_ref so it will be dropped at the end of the scope
         let actor_ref = actor_ref;
         // Downgrade actor ref
         let weak_actor_ref = actor_ref.downgrade();
-        (weak_actor_ref, actor_ref.links, actor_ref.startup_semaphore)
+        (weak_actor_ref, actor_ref.links)
     };
 
     let mut state = match start_res {
-        Ok(actor) => S::new_from_actor(actor, actor_ref.clone()),
+        Ok(actor) => ActorBehaviour::new_from_actor(actor, actor_ref.clone()),
         Err(err) => {
-            startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
             let reason = ActorStopReason::Panicked(err);
             log_actor_stop_reason(id, name, &reason);
             let ActorStopReason::Panicked(err) = reason else {
@@ -230,12 +226,7 @@ where
     };
 
     let reason = Abortable::new(
-        abortable_actor_loop(
-            &mut state,
-            &mut mailbox_rx,
-            startup_semaphore,
-            startup_finished,
-        ),
+        abortable_actor_loop(&mut state, &mut mailbox_rx, startup_finished),
         abort_registration,
     )
     .await
@@ -282,9 +273,9 @@ where
         Ok(()) => {
             if let Some(actor_ref) = actor_ref.upgrade() {
                 actor_ref
-                    .shutdown_error
-                    .set(None)
-                    .expect("nothing else should set the shutdown error");
+                    .shutdown_result
+                    .set(Ok(()))
+                    .expect("nothing else should set the shutdown result");
             }
         }
         Err(err) => {
@@ -292,9 +283,9 @@ where
             invoke_actor_error_hook(&err);
             if let Some(actor_ref) = actor_ref.upgrade() {
                 actor_ref
-                    .shutdown_error
-                    .set(Some(err))
-                    .expect("nothing else should set the shutdown error");
+                    .shutdown_result
+                    .set(Err(err))
+                    .expect("nothing else should set the shutdown result");
             }
         }
     }
@@ -302,15 +293,13 @@ where
     Ok((actor, reason))
 }
 
-async fn abortable_actor_loop<A, S>(
-    state: &mut S,
+async fn abortable_actor_loop<A>(
+    state: &mut ActorBehaviour<A>,
     mailbox_rx: &mut MailboxReceiver<A>,
-    startup_semaphore: Arc<Semaphore>,
     startup_finished: bool,
 ) -> ActorStopReason
 where
     A: Actor,
-    S: ActorState<A>,
 {
     if startup_finished {
         if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
@@ -318,26 +307,23 @@ where
         }
     }
     loop {
-        let reason = recv_mailbox_loop(state, mailbox_rx, &startup_semaphore).await;
+        let reason = recv_mailbox_loop(state, mailbox_rx).await;
         if let ControlFlow::Break(reason) = state.on_shutdown(reason).await {
             return reason;
         }
     }
 }
 
-async fn recv_mailbox_loop<A, S>(
-    state: &mut S,
+async fn recv_mailbox_loop<A>(
+    state: &mut ActorBehaviour<A>,
     mailbox_rx: &mut MailboxReceiver<A>,
-    startup_semaphore: &Semaphore,
 ) -> ActorStopReason
 where
     A: Actor,
-    S: ActorState<A>,
 {
     loop {
         match state.next(mailbox_rx).await {
             Some(Signal::StartupFinished) => {
-                startup_semaphore.add_permits(Semaphore::MAX_PERMITS);
                 if let ControlFlow::Break(reason) = state.handle_startup_finished().await {
                     return reason;
                 }

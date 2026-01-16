@@ -210,7 +210,7 @@ where
         Ok(())
     }
 
-    /// Write a frame to the stream (legacy method - copies data)
+    /// Write a frame to the stream (copying method - allocates and copies data)
     async fn write_frame(&mut self, type_hash: u32, data: &[u8]) -> Result<(), StreamError> {
         // Convert to owned data for zero-copy path
         let owned_data = bytes::Bytes::copy_from_slice(data);

@@ -1,3 +1,4 @@
+#![cfg(feature = "remote")]
 //! Tests for small message handling (<1MB) - should use regular protocol
 //!
 //! This test suite verifies that messages under the streaming threshold

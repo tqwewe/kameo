@@ -132,53 +132,6 @@ fn set_v2_transport_env_var() {
     std::env::set_var(ENV_VAR_NAME, "true");
 }
 
-// COMMENTED OUT: Non-TLS bootstrap methods - migrating to TLS-only
-// /// Bootstrap a simple kameo_remote transport with default configuration (LEGACY - NO TLS)
-// ///
-// /// DEPRECATED: This method does not use TLS. Use bootstrap_with_keypair instead.
-// /// Starts a transport on a random port with sensible defaults for development and testing.
-// ///
-// /// # Example
-// /// ```no_run
-// /// use kameo::remote::v2_bootstrap;
-// ///
-// /// #[tokio::main]
-// /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-// ///     let transport = v2_bootstrap::bootstrap_legacy_no_tls().await?;
-// ///     // Now use the transport for remote actors
-// ///     Ok(())
-// /// }
-// /// ```
-// pub async fn bootstrap_legacy_no_tls() -> Result<Box<KameoTransport>, BoxError> {
-//     let config = TransportConfig::default();
-//     bootstrap_with_config(config).await
-// }
-
-// /// Bootstrap a kameo_remote transport on a specific address (LEGACY - NO TLS)
-// ///
-// /// DEPRECATED: This method does not use TLS. Use bootstrap_with_keypair instead.
-// /// # Arguments
-// /// * `addr` - The socket address to bind to
-// ///
-// /// # Example
-// /// ```no_run
-// /// use kameo::remote::v2_bootstrap;
-// ///
-// /// #[tokio::main]
-// /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-// ///     let transport = v2_bootstrap::bootstrap_on_legacy_no_tls("127.0.0.1:8080".parse()?).await?;
-// ///     // Now use the transport for remote actors
-// ///     Ok(())
-// /// }
-// /// ```
-// pub async fn bootstrap_on_legacy_no_tls(addr: SocketAddr) -> Result<Box<KameoTransport>, BoxError> {
-//     let config = TransportConfig {
-//         bind_addr: addr,
-//         ..Default::default()
-//     };
-//     bootstrap_with_config(config).await  // This will set the global transport automatically
-// }
-
 /// Bootstrap a kameo_remote transport with a specific keypair for TLS authentication
 ///
 /// This enables TLS encryption and authentication using the provided keypair.
@@ -228,7 +181,7 @@ pub async fn bootstrap_with_keypair(
 
     // Create gossip config without the keypair (we'll use it for TLS separately)
     let gossip_config = GossipConfig {
-        key_pair: Some(keypair.clone()), // Keep for backward compatibility
+        key_pair: Some(keypair.clone()),
         gossip_interval: std::time::Duration::from_secs(5),
         max_gossip_peers: 3,
         ..Default::default()
