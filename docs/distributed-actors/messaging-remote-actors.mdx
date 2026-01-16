@@ -2,28 +2,30 @@
 title: Messaging Remote Actors
 ---
 
-Once actors are registered and discoverable across nodes, the next step is to start communicating with them. Kameo allows you to send messages to remote actors just like you would with local actors. The underlying networking is handled transparently, and messages are routed across the network using the `RemoteActorRef`. This section explains how to message remote actors and handle replies.
+Once actors are registered and discoverable across nodes, the next step is to start communicating with them. Kameo allows you to send messages to remote actors just like you would with local actors. The underlying networking is handled transparently, and messages are routed across the network using `DistributedActorRef`. This section explains how to message remote actors and handle replies.
 
 ## Sending Messages
 
-After looking up a remote actor using `RemoteActorRef`, you can send messages to it using the familiar `ask` and `tell` patterns.
+After looking up a remote actor using `DistributedActorRef`, you can send messages to it using the familiar `ask` and `tell` patterns.
 
 - **ask**: Used when you expect a reply from the remote actor.
 - **tell**: Used when you do not expect a reply, a "fire-and-forget" style message.
 
 ```rust
+use kameo_remote::KeyPair;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap the distributed actor system with an explicit keypair
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let keypair = KeyPair::new_for_testing("messaging-node");
     kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Lookup a registered remote actor
-    let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+    let remote_actor_ref = DistributedActorRef::<MyActor>::lookup("my_actor").await?;
 
     if let Some(actor) = remote_actor_ref {
         // Send a message and await the reply
-        let result = actor.ask(&Inc { amount: 10 }).await?;
+        let result = actor.ask(Inc { amount: 10 }).await?;
         println!("Incremented count: {result}");
     } else {
         println!("Actor not found");
@@ -41,7 +43,7 @@ If you don’t need a response from the actor, you can use the `tell` method to 
 
 ```rust
 // Send a fire-and-forget message
-actor.tell(&LogMessage { text: String::from("Logging event") }).await?;
+actor.tell(LogMessage { text: String::from("Logging event") }).await?;
 ```
 
 The `tell` method is useful for one-way communication where no acknowledgment is required, such as logging or notification systems.
@@ -50,14 +52,9 @@ The `tell` method is useful for one-way communication where no acknowledgment is
 
 There are two requirements to enable messaging between nodes:
 
-1. **The Actor must implement `RemoteActor`**: Any actor that can be messaged remotely must implement the `RemoteActor` trait, which uniquely identifies the actor type. This allows the system to route messages to the correct actor on remote nodes.
+1. **Distributed actor registration**: The actor must be registered with the `distributed_actor!` macro so its message handlers are available for remote routing.
 
-```rust
-#[derive(RemoteActor)]
-pub struct MyActor;
-```
-
-2. **Message Serialization with `distributed_actor!`**: In Kameo, messages sent between nodes must be serializable. Message types need to implement the required serialization traits, and the actor must be registered with the `distributed_actor!` macro.
+2. **Message serialization**: Messages sent between nodes must implement the required rkyv traits and be registered as `RemoteMessage`.
 
 ```rust
 #[derive(RemoteMessage)]
@@ -108,18 +105,20 @@ In this example, the reply from the remote actor is awaited, and the result is p
 Here’s a full example of how to message a remote actor and handle its reply:
 
 ```rust
+use kameo_remote::KeyPair;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap the distributed actor system with an explicit keypair
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let keypair = KeyPair::new_for_testing("messaging-example");
     kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Lookup a registered remote actor
-    let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+    let remote_actor_ref = DistributedActorRef::<MyActor>::lookup("my_actor").await?;
 
     if let Some(actor) = remote_actor_ref {
         // Send a message and await the reply
-        let result = actor.ask(&Inc { amount: 10 }).await?;
+        let result = actor.ask(Inc { amount: 10 }).await?;
         println!("Incremented count: {result}");
     } else {
         println!("Actor not found");
@@ -137,4 +136,4 @@ In this example, a node is bootstrapped, connected to a network, and looks up a 
 
 Now that you’ve seen how to send messages to remote actors and handle replies, you can start building distributed systems where actors on different nodes communicate seamlessly. Experiment with sending different types of messages and handling remote interactions.
 
-If you haven’t yet set up your actor system, go back to the [Bootstrapping the Actor Swarm](/distributed-actors/bootstrapping-actor-swarm) section for instructions on setting up your distributed actor environment.
+If you haven’t yet set up your actor system, go back to the [Bootstrapping Distributed Actors](/distributed-actors/bootstrapping-actor-swarm) section for instructions on setting up your distributed actor environment.

@@ -50,6 +50,7 @@ remote = [
 ]
 tracing = ["dep:tracing", "tokio/tracing"]
 nightly = [] # Feature flag for nightly-only features
+trading_exchange_core = [] # Enables trading_exchange_core-dependent examples
 
 [dependencies]
 kameo_macros = { version = "0.18.0", path = "./macros", optional = true }
@@ -230,26 +231,6 @@ required-features = ["remote"]
 [[example]]
 name = "ask_client_simple_match"
 path = "examples/remote/ask_client_simple_match.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "bug_gossip_fail_server"
-path = "examples/remote/bug_gossip_fail_server.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "bug_gossip_fail_client"
-path = "examples/remote/bug_gossip_fail_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "prebacktest_benchmark_client"
-path = "examples/remote/prebacktest_benchmark_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "simple_prebacktest_client"
-path = "examples/remote/simple_prebacktest_client.rs"
 required-features = ["remote"]
 
 [[bench]]

@@ -237,7 +237,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
         // Get raw bytes response
         let reply_bytes = calc_ref
-            .ask::<Add, AddResult>(Add { a: i, b: i * 10 })
+            .ask(Add { a: i, b: i * 10 })
             .send_raw()
             .await?;
 

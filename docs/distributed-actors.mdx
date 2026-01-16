@@ -18,8 +18,10 @@ Kameo's distributed actor system is built on a modern architecture that prioriti
 ### Bootstrap Approach
 Perfect for getting started quickly:
 ```rust
+use kameo_remote::KeyPair;
+
 // One line to get started (explicit keypair required)
-let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+let keypair = KeyPair::new_for_testing("bootstrap-demo-node");
 kameo::remote::bootstrap_on("127.0.0.1:0", keypair).await?;
 ```
 

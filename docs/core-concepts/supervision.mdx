@@ -16,8 +16,6 @@ Beyond individual actor behavior, Kameo supports linking actors together to crea
 
 Actors can be linked using `ActorRef::link`, which establishs a sibling relationship between the two actors.
 
-Remote actors can be linked using the `ActorRef::link_remote` and `RemoteActorRef::link_remote` methods.
-
 ### Handling Link Failures
 
 When a linked actor dies, the surviving actors can react to this event using the `on_link_died` hook in the `Actor` trait.
@@ -25,15 +23,12 @@ This hook provides the ID of the deceased actor and the reason for its terminati
 
 The default behavior for `on_link_died` is to stop the current actor if the linked actor died for any reason other than a normal shutdown. This conservative default ensures that failures are not silently ignored, promoting system stability by preventing dependent actors from continuing in an inconsistent state.
 
-In the case of remote actor links, if a peer/node gets disconnected, then all links to actors on that peer will be considered dead, with `ActorStopReason::PeerDisconnected` being signaled to the linked actors.
 
 ## Unlinking Actors
 
 In some scenarios, it may be necessary to remove links between actors, either to restructure the supervision tree or in response to changing application dynamics. Kameo provides the following methods for this purpose:
 
 - `ActorRef::unlink`: Unlinks two previously linked sibling actors.
-- `ActorRef::unlink_remote`: Unlinks two previously linked sibling remote actors.
-- `RemoteActorRef::unlink_remote`: Unlinks two previously linked sibling remote actors.
 
 These methods allows for dynamic adjustments to the actor supervision hierarchy, ensuring that the system can adapt to new requirements or recover from errors by reorganizing actor relationships.
 

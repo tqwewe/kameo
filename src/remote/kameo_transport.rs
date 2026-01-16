@@ -9,7 +9,6 @@ use std::time::Duration;
 use bytes::Bytes;
 use kameo_remote::{GossipConfig, GossipRegistryHandle};
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-// Removed serde - using rkyv for zero-copy serialization
 use tokio::sync::RwLock;
 
 use crate::actor::ActorId;
@@ -62,7 +61,7 @@ impl KameoTransport {
         self.handle
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))
-            .map(|h| h.clone())
+            .cloned()
     }
 
     /// Set the handle for the transport (used when creating with custom keypair)

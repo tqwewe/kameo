@@ -10,11 +10,12 @@ The simplest way to get started with distributed actors is using `bootstrap_with
 
 ```rust
 use kameo::remote;
+use kameo_remote::KeyPair;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap with automatic configuration + explicit keypair (TLS required)
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let keypair = KeyPair::new_for_testing("bootstrap-quickstart");
     remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
     
     println!("Distributed actor system started");
@@ -37,11 +38,12 @@ If you need to listen on a specific address (useful for known deployments or por
 
 ```rust
 use kameo::remote;
+use kameo_remote::KeyPair;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap listening on a specific port with an explicit keypair
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(8020);
+    let keypair = KeyPair::new_for_testing("bootstrap-port-8020");
     remote::bootstrap_on("127.0.0.1:8020", keypair).await?;
     
     println!("Node listening on port 8020");
@@ -56,25 +58,25 @@ Here's a full example showing how to bootstrap and immediately start using distr
 ```rust
 use kameo::prelude::*;
 use kameo::remote;
+use kameo_remote::KeyPair;
 
-#[derive(Actor, RemoteActor)]
+#[derive(Actor)]
 struct GreeterActor;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap the distributed actor system with an explicit keypair
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let keypair = KeyPair::new_for_testing("bootstrap-greeter");
     remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
     println!("Distributed system started");
     
     // Spawn and register a local actor
     let greeter = GreeterActor::spawn_default();
-    greeter.register("greeter").await?;
+    greeter.register("greeter")?;
     println!("Greeter actor registered");
     
     // Look up all greeter actors in the network
-    let mut greeters = RemoteActorRef::<GreeterActor>::lookup_all("greeter");
-    while let Some(remote_greeter) = greeters.try_next().await? {
+    if let Some(remote_greeter) = DistributedActorRef::<GreeterActor>::lookup("greeter").await? {
         println!("Found greeter on remote node");
     }
     
@@ -91,6 +93,7 @@ One of the key advantages of the new system is support for generic actors:
 ```rust
 use kameo::prelude::*;
 use kameo::remote::{DistributedActor, TypeHash};
+use kameo_remote::KeyPair;
 
 #[derive(Actor)]
 struct KeyValueStore<K, V> {
@@ -104,7 +107,7 @@ impl<K: Send + 'static, V: Send + 'static> DistributedActor for KeyValueStore<K,
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bootstrap the distributed actor system with an explicit keypair
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let keypair = KeyPair::new_for_testing("bootstrap-generic");
     remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
     
     // Generic actors work out of the box!

@@ -67,24 +67,6 @@ impl kameo::reply::Reply for LastResult {
     }
 }
 
-impl kameo::reply::Reply for i32 {
-    type Ok = Self;
-    type Error = kameo::error::Infallible;
-    type Value = Self;
-
-    fn to_result(self) -> Result<Self, kameo::error::Infallible> {
-        Ok(self)
-    }
-
-    fn into_any_err(self) -> Option<Box<dyn kameo::reply::ReplyError>> {
-        None
-    }
-
-    fn into_value(self) -> Self::Value {
-        self
-    }
-}
-
 impl Message<Add> for CalculatorActor {
     type Reply = i32;
 

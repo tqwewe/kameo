@@ -2,29 +2,29 @@
 title: Registering and Looking up Actors
 ---
 
-In a distributed system, actors need to be discoverable by other nodes so that they can receive messages from remote peers. Kameo provides actor registration and lookup mechanisms using a decentralized registry powered by **Kademlia DHT** (Distributed Hash Table). This section covers how to register actors and look them up across the network using `ActorSwarm`.
+In a distributed system, actors need to be discoverable by other nodes so that they can receive messages from remote peers. Kameo provides actor registration and lookup mechanisms backed by the kameo_remote transport and its gossip-based registry. This section covers how to register actors and look them up across the network.
 
 ## Registering Actors
 
-After bootstrapping the `ActorSwarm` and setting up the node to listen for connections, actors can be registered under unique names. This makes them discoverable by other nodes, allowing remote actors to send messages to them.
+After bootstrapping the transport and setting up the node to listen for connections, actors can be registered under unique names. This makes them discoverable by other nodes, allowing remote actors to send messages to them.
 
 To register an actor, use the `ActorRef::register` method, which registers the actor under a specified name.
 
 ```rust
 // Spawn and register an actor
 let actor_ref = MyActor::spawn(MyActor::default());
-actor_ref.register("my_actor").await?;
+actor_ref.register("my_actor")?;
 ```
 
-In this example, an actor of type `MyActor` is spawned and registered with the name `"my_actor"`. The name is propagated across the network using the Kademlia DHT, which stores the mapping between the actor’s name and its reference on the node. Other nodes can now look up and interact with this actor using its registered name.
+In this example, an actor of type `MyActor` is spawned and registered with the name `"my_actor"`. The name is propagated across the network via the gossip registry, which stores the mapping between the actor’s name and its location. Other nodes can now look up and interact with this actor using its registered name.
 
 ## Actor Lookup
 
-Once an actor is registered, other nodes can look it up by name. The `RemoteActorRef::lookup` method allows you to retrieve a reference to an actor that is registered on a remote node. If the lookup is successful, the returned `RemoteActorRef` can be used to send messages to the remote actor, just like with local actors.
+Once an actor is registered, other nodes can look it up by name. The `DistributedActorRef::lookup` method allows you to retrieve a reference to an actor that is registered on a remote node. If the lookup is successful, the returned `DistributedActorRef` can be used to send messages to the remote actor, just like with local actors.
 
 ```rust
 // Lookup a registered remote actor
-let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+let remote_actor_ref = DistributedActorRef::<MyActor>::lookup("my_actor").await?;
 
 if let Some(actor) = remote_actor_ref {
     // Use the actor reference to send a message
@@ -35,55 +35,27 @@ if let Some(actor) = remote_actor_ref {
 }
 ```
 
-In this example, the node attempts to look up an actor registered with the name `"my_actor"`. If the actor is found on a remote node, a `RemoteActorRef` is returned, allowing the local node to send messages to the remote actor. A `RemoteActorRef` may in fact be a reference to an actor running on the current node.
-
-### Looking up Multiple Actors
-
-Since multiple nodes can register actors under the same name, Kameo provides `lookup_all` to discover all instances of an actor across the network:
-
-```rust
-// Lookup all actors registered under the same name
-let mut actors = RemoteActorRef::<MyActor>::lookup_all("my_actor");
-while let Some(actor) = actors.try_next().await? {
-    // Send message to each instance
-    let result = actor.ask(&Inc { amount: 5 }).await?;
-    println!("Actor on {:?} returned: {result}", actor.id().peer_id());
-}
-```
-
-The `lookup_all` method returns a stream that yields `RemoteActorRef` instances as they're discovered across the network. This is useful for:
-- **Load balancing**: Distribute work across multiple actor instances
-- **Redundancy**: Send the same message to multiple replicas
-- **Monitoring**: Discover all instances of a service
-
-The original `lookup` method returns the first actor found and is equivalent to taking the first item from `lookup_all`.
-
-## Kademlia DHT: Decentralized Actor Lookup
-
-Kameo’s actor registration and lookup system is powered by **Kademlia DHT**, a distributed hash table used to store and retrieve actor registration details across nodes. When an actor is registered, its name is stored as a key in the DHT, and the value is a reference to the actor on the node where it was registered.
-
-This decentralized registry ensures that actors can be discovered efficiently across a network of nodes, without relying on a centralized registry or server. Each node stores a portion of the DHT and can look up actors registered on other nodes.
-
-- **Registration**: When an actor is registered, its name is propagated to other nodes using the DHT.
-- **Lookup**: When a node looks up an actor by name, the DHT retrieves the location of the actor from the network and returns a reference to the actor.
+In this example, the node attempts to look up an actor registered with the name `"my_actor"`. If the actor is found on a remote node, a `DistributedActorRef` is returned, allowing the local node to send messages to the remote actor. A `DistributedActorRef` may in fact be a reference to an actor running on the current node.
 
 ## Example: Registering and Looking up Actors
 
 Here’s a full example showing how to register an actor on one node and look it up from another:
 
 ```rust
+use kameo_remote::KeyPair;
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Node 1: Bootstrap & register an actor
-    let node1_keypair = kameo::remote::v2_bootstrap::test_keypair(1);
+    let node1_keypair = KeyPair::new_for_testing("register-node-1");
     kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, node1_keypair).await?;
     let actor_ref = MyActor::spawn(MyActor::default());
-    actor_ref.register("my_actor").await?;
+    actor_ref.register("my_actor")?;
     
     // Node 2: Bootstrap, and lookup the actor and send a message
-    let node2_keypair = kameo::remote::v2_bootstrap::test_keypair(2);
+    let node2_keypair = KeyPair::new_for_testing("register-node-2");
     kameo::remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, node2_keypair).await?;
-    let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?;
+    let remote_actor_ref = DistributedActorRef::<MyActor>::lookup("my_actor").await?;
     if let Some(actor) = remote_actor_ref {
         let result = actor.ask(&Inc { amount: 10 }).await?;
         println!("Incremented count: {result}");
@@ -99,7 +71,7 @@ In this example, Node 1 registers an actor with the name `"my_actor"`, and Node 
 
 ## Retry Mechanism for Actor Lookup
 
-In distributed systems, there can be cases where an actor is not yet registered or its registration hasn’t fully propagated through the Kademlia DHT. This can happen if the actor has just been registered or if the network is still syncing. In such cases, it’s useful to implement a retry mechanism when looking up actors, giving the system time to propagate the registration.
+In distributed systems, there can be cases where an actor is not yet registered or its registration hasn’t fully propagated through the gossip registry. This can happen if the actor has just been registered or if the network is still syncing. In such cases, it’s useful to implement a retry mechanism when looking up actors, giving the system time to propagate the registration.
 
 A simple retry loop can help ensure that your node eventually finds the actor, especially in systems where actors are expected to register shortly after startup:
 
@@ -107,9 +79,9 @@ A simple retry loop can help ensure that your node eventually finds the actor, e
 use std::time::Duration;
 use tokio::time::sleep;
 
-async fn retry_lookup() -> Result<Option<RemoteActorRef<MyActor>>, RegistryError> {
+async fn retry_lookup() -> Result<Option<DistributedActorRef<MyActor>>, Box<dyn std::error::Error>> {
     for _ in 0..5 {
-        if let Some(actor) = RemoteActorRef::<MyActor>::lookup("my_actor").await? {
+        if let Some(actor) = DistributedActorRef::<MyActor>::lookup("my_actor").await? {
             return Ok(Some(actor));
         }
         // Retry after a delay if actor is not found
@@ -120,7 +92,7 @@ async fn retry_lookup() -> Result<Option<RemoteActorRef<MyActor>>, RegistryError
 }
 ```
 
-In this example, the lookup is retried up to 5 times, with a 2-second delay between each attempt. If the actor is registered in the meantime, the lookup will succeed and return a reference to the actor. This approach ensures more resilient lookups in scenarios where actor registration or DHT propagation may be delayed.
+In this example, the lookup is retried up to 5 times, with a 2-second delay between each attempt. If the actor is registered in the meantime, the lookup will succeed and return a reference to the actor. This approach ensures more resilient lookups in scenarios where actor registration or registry propagation may be delayed.
 
 A cleaner solution might involve using a crate such as [backon](https://crates.io/crates/backon) for retrying actor lookups.
 
@@ -128,6 +100,6 @@ A cleaner solution might involve using a crate such as [backon](https://crates.i
 
 #### What’s Next?
 
-With actors now registered and discoverable across nodes, the next step is to explore how to send messages to remote actors. The messaging system allows you to send and receive messages between actors on different nodes using `RemoteActorRef`.
+With actors now registered and discoverable across nodes, the next step is to explore how to send messages to remote actors. The messaging system allows you to send and receive messages between actors on different nodes using `DistributedActorRef`.
 
 Explore the next section on [Messaging Remote Actors](/distributed-actors/messaging-remote-actors) to learn more.

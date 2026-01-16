@@ -1,18 +1,17 @@
 use std::time::Duration;
 
-use futures::TryStreamExt;
 use kameo::prelude::*;
 use kameo::distributed_actor;
-use serde::{Deserialize, Serialize};
+use kameo_remote::KeyPair;
 use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
-#[derive(Actor, RemoteActor)]
+#[derive(Actor)]
 pub struct MyActor {
     count: i64,
 }
 
-#[derive(Serialize, Deserialize, RemoteMessage)]
+#[derive(RemoteMessage)]
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Inc {
     amount: u32,
@@ -44,8 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Starts the swarm with an explicit keypair (TLS required).
-    let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
-    let local_peer_id = keypair.peer_id();
+    let keypair = KeyPair::new_for_testing("remote-example-node");
     remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Register a local actor as "incrementor"
@@ -55,18 +53,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     loop {
         // Find all "incrementor" actors
-        let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
-        while let Some(incrementor) = incrementors.try_next().await? {
-            // Skip our local actor
-            if incrementor.id().peer_id() == Some(&local_peer_id) {
-                continue;
-            }
-
+        if let Some(incrementor) = DistributedActorRef::<MyActor>::lookup("incrementor").await? {
             // Send a remote ask request
             match incrementor
-                .ask(&Inc {
+                .ask(Inc {
                     amount: 10,
-                    from: local_peer_id.to_string(),
+                    from: "local".to_string(),
                 })
                 .await
             {

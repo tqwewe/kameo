@@ -1,20 +1,24 @@
 //! Test client for FuturesOHLCVCandle with distributed actor messaging
 
-use kameo::remote::DistributedActorRef;
-use kameo_remote;
-
-// Import FuturesOHLCVCandle from trading-poc
-use trading_exchange_core::types::FuturesOHLCVCandle;
-
-// Test message containing FuturesOHLCVCandle
-#[derive(kameo::RemoteMessage, Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-struct CandleMessage {
-    pub candle: FuturesOHLCVCandle,
-    pub symbol: String,
+#[cfg(not(feature = "trading_exchange_core"))]
+fn main() {
+    eprintln!("This example requires the 'trading_exchange_core' feature.");
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+#[cfg(feature = "trading_exchange_core")]
+mod app {
+    use kameo::remote::DynamicDistributedActorRef;
+    use kameo_remote;
+    use trading_exchange_core::types::FuturesOHLCVCandle;
+
+    // Test message containing FuturesOHLCVCandle
+    #[derive(kameo::RemoteMessage, Clone, Debug, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+    struct CandleMessage {
+        pub candle: FuturesOHLCVCandle,
+        pub symbol: String,
+    }
+
+    pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 TEST FUTURES OHLCV CLIENT");
 
     // Use fixed keypair for testing
@@ -40,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
     // Lookup the remote actor
-    let actor_ref = match DistributedActorRef::lookup("trading_actor").await {
+    let actor_ref = match DynamicDistributedActorRef::lookup("trading_actor", transport.clone()).await {
         Ok(Some(actor)) => {
             println!("✅ Found trading_actor");
             actor
@@ -96,5 +100,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     println!("✅ Done");
 
-    Ok(())
+        Ok(())
+    }
+}
+
+#[cfg(feature = "trading_exchange_core")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    app::run().await
 }

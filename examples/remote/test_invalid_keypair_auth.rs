@@ -6,7 +6,7 @@
 
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 
 // Import shared message definitions
 mod tell_messages;
@@ -93,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 println!("\n⚠️  Attempting to send message (should fail)...");
                 
                 // Try to look up remote actor
-                match DistributedActorRef::lookup("logger").await {
+                match DynamicDistributedActorRef::lookup("logger", transport.clone()).await {
                     Ok(Some(logger_ref)) => {
                         println!("❌ CRITICAL: Found remote actor with wrong key!");
                         

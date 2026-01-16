@@ -13,6 +13,10 @@ use rkyv::{Archive, Serialize as RkyvSerialize};
 use crate::actor::{Actor, ActorId};
 use crate::message::Message;
 
+/// Convenience alias for the boxed future type returned by transport calls.
+pub type TransportFuture<'a, T> =
+    Pin<Box<dyn Future<Output = TransportResult<T>> + Send + 'a>>;
+
 /// Type alias for boxed errors
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -84,10 +88,10 @@ impl From<TransportError> for RemoteError {
 /// to provide a unified interface for remote actor communication.
 pub trait RemoteTransport: Send + Sync + 'static {
     /// Start the transport layer
-    fn start(&mut self) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
+    fn start(&mut self) -> TransportFuture<'_, ()>;
 
     /// Shutdown the transport layer
-    fn shutdown(&mut self) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
+    fn shutdown(&mut self) -> TransportFuture<'_, ()>;
 
     /// Get the local peer ID/address
     fn local_addr(&self) -> SocketAddr;
@@ -97,7 +101,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         &self,
         name: String,
         actor_id: ActorId,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
+    ) -> TransportFuture<'_, ()>;
 
     /// Register an actor with synchronous confirmation from peers
     fn register_actor_sync(
@@ -105,7 +109,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         name: String,
         actor_id: ActorId,
         timeout: std::time::Duration,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
+    ) -> TransportFuture<'_, ()>;
 
     /// Register an actor with specific priority (optional - default to register_actor)
     fn register_actor_with_priority(
@@ -113,7 +117,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         name: String,
         actor_id: ActorId,
         _priority: u8, // Use u8 to avoid import issues for now - 0=Normal, 1=Immediate
-    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
+    ) -> TransportFuture<'_, ()> {
         // Default implementation just calls register_actor
         self.register_actor(name, actor_id)
     }
@@ -122,13 +126,13 @@ pub trait RemoteTransport: Send + Sync + 'static {
     fn unregister_actor(
         &self,
         name: &str,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>;
+    ) -> TransportFuture<'_, ()>;
 
     /// Lookup a remote actor by name
     fn lookup_actor(
         &self,
         name: &str,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<Option<RemoteActorLocation>>> + Send + '_>>;
+    ) -> TransportFuture<'_, Option<RemoteActorLocation>>;
 
     /// Send a tell message to a remote actor
     fn send_tell<M>(
@@ -136,7 +140,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         actor_id: ActorId,
         location: &RemoteActorLocation,
         message: M,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>>
+    ) -> TransportFuture<'_, ()>
     where
         M: Archive
             + for<'a> RkyvSerialize<
@@ -158,7 +162,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         location: &RemoteActorLocation,
         message: M,
         timeout: std::time::Duration,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<<A as Message<M>>::Reply>> + Send + '_>>
+    ) -> TransportFuture<'_, <A as Message<M>>::Reply>
     where
         A: Actor + Message<M>,
         M: Archive
@@ -186,7 +190,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         _location: &RemoteActorLocation,
         _type_hash: u32,
         _payload: Bytes,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<()>> + Send + '_>> {
+    ) -> TransportFuture<'_, ()> {
         // Default implementation delegates to send_tell with a dummy message
         // Transports can override for better efficiency
         Box::pin(async move {
@@ -204,7 +208,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         _type_hash: u32,
         _payload: Bytes,
         _timeout: std::time::Duration,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<Bytes>> + Send + '_>> {
+    ) -> TransportFuture<'_, Bytes> {
         // Default implementation delegates to send_ask with a dummy message
         // Transports can override for better efficiency
         Box::pin(async move {
@@ -225,7 +229,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
         type_hash: u32,
         payload: Bytes,
         timeout: std::time::Duration,
-    ) -> Pin<Box<dyn Future<Output = TransportResult<Bytes>> + Send + '_>> {
+    ) -> TransportFuture<'_, Bytes> {
         // Default implementation falls back to regular typed ask
         // Transports should override for true streaming support
         self.send_ask_typed(actor_id, location, type_hash, payload, timeout)
@@ -310,8 +314,10 @@ pub struct TransportConfig {
 /// Peer configuration with cryptographic PeerId.
 #[derive(Clone, Debug)]
 pub struct PeerConfig {
+    /// Network address where the peer listens for remote actor traffic.
     pub addr: SocketAddr,
-    pub peer_id: kameo_remote::PeerId,
+    /// Stable cryptographic peer identifier required by kameo_remote.
+   pub peer_id: kameo_remote::PeerId,
 }
 
 impl Default for TransportConfig {

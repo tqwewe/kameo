@@ -190,17 +190,6 @@ where
         }
     }
 
-    pub(crate) fn into_downgrade(self) -> WeakActorRef<A> {
-        WeakActorRef {
-            id: self.id,
-            mailbox: self.mailbox_sender.downgrade(),
-            abort_handle: self.abort_handle,
-            links: self.links,
-            startup_result: self.startup_result,
-            shutdown_result: self.shutdown_result,
-        }
-    }
-
     /// Returns the number of [`ActorRef`] handles.
     #[inline]
     pub fn strong_count(&self) -> usize {

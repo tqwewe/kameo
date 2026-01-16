@@ -1,13 +1,18 @@
 //! Test server for FuturesOHLCVCandle with mapping syntax and zero-copy deserialization
 //! This demonstrates the proper way to handle trading-poc messages with rkyv
 
+#[cfg(not(feature = "trading_exchange_core"))]
+fn main() {
+    eprintln!("This example requires the 'trading_exchange_core' feature.");
+}
+
+#[cfg(feature = "trading_exchange_core")]
+mod app {
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;
 use kameo_remote;
 use rkyv::Deserialize;
-
-// Import FuturesOHLCVCandle from trading-poc
 use trading_exchange_core::types::FuturesOHLCVCandle;
 
 // Test message containing FuturesOHLCVCandle
@@ -75,8 +80,7 @@ distributed_actor! {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+pub async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 TEST FUTURES OHLCV SERVER WITH MAPPING SYNTAX");
 
     // Use fixed keypair for testing
@@ -107,4 +111,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("📡 Ready. Run: cargo run --example test_futures_ohlcv_client --features remote");
     tokio::signal::ctrl_c().await?;
     Ok(())
+}
+}
+
+#[cfg(feature = "trading_exchange_core")]
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    app::run().await
 }

@@ -14,7 +14,6 @@ use std::{
     },
 };
 
-// Removed serde - using rkyv for serialization when needed
 use tokio::{
     sync::{mpsc, oneshot},
     time::error::Elapsed,

@@ -99,12 +99,11 @@ pub async fn unregister(_name: impl Into<String>) -> Result<(), RegistryError> {
     Ok(())
 }
 
-/// Stream of actor lookups
-///
-/// This would be returned by RemoteActorRef::lookup_all() but requires
-/// access to the transport/registry which should be managed by the application.
 use std::marker::PhantomData;
 
+/// Stream of actor lookup results for transports that support discovery
+/// subscriptions. Currently a placeholder that always yields an error until
+/// remote multi-lookup is implemented.
 #[derive(Debug)]
 pub struct LookupStream {
     _phantom: PhantomData<()>,

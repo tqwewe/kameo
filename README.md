@@ -31,7 +31,7 @@ Whether you're building a microservice, a real-time application, or an embedded 
 
 This branch includes significant changes to Kameo's distributed actor messaging capabilities:
 
-- **Removal of libp2p**: Replaced with direct TCP connections and a built-in gossip protocol for better performance and control.
+- **Direct TCP + gossip discovery**: High-performance transport with built-in gossip protocol for better performance and control.
 - **TLS-encrypted node traffic**: Optional TLS 1.3 encryption with Ed25519 authentication for secure distributed actor communication.
 - **Removal of linkme crate**: Replaced with compile-time type erasure and automatic registration at actor spawn time.
 - **Generic actors without type ambiguity**: Full support for generic distributed actors through compile-time type hashing.
@@ -125,22 +125,22 @@ Kameo provides built-in support for distributed actors, allowing you to send mes
 ```rust,ignore
 // Spawn and register the actor
 let actor_ref = MyActor::spawn(MyActor::default());
-actor_ref.register("my_actor").await?;
+actor_ref.register("my_actor")?;
 ```
 
 ### Looking Up and Messaging a Remote Actor
 
 ```rust,ignore
 // Lookup the remote actor
-if let Some(remote_actor_ref) = RemoteActorRef::<MyActor>::lookup("my_actor").await? {
-    let count = remote_actor_ref.ask(&Inc { amount: 10 }).await?;
+if let Some(remote_actor_ref) = DistributedActorRef::<MyActor>::lookup("my_actor").await? {
+    let count = remote_actor_ref.ask(Inc { amount: 10 }).await?;
     println!("Incremented! Count is {count}");
 }
 ```
 
 ### Under the Hood
 
-Kameo uses [libp2p](https://libp2p.io) for peer-to-peer networking, enabling actors to communicate over various protocols (TCP/IP, WebSockets, QUIC, etc.) using multiaddresses. This abstraction allows you to focus on your application's logic without worrying about the complexities of network programming.
+Kameo uses the kameo_remote transport with direct TCP connections and gossip-based discovery. This keeps the distributed stack lightweight while still providing transparent remote messaging and actor discovery.
 
 ## Documentation and Resources
 

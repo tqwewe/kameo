@@ -6,6 +6,7 @@
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;
+use kameo::remote::DynamicDistributedActorRef;
 use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
@@ -66,11 +67,8 @@ async fn run_server() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let actor_id = actor_ref.id();
 
     transport
-        .register_actor("test_large".to_string(), actor_id)
+        .register_distributed_actor("test_large".to_string(), &actor_ref)
         .await?;
-
-    let handler = kameo::remote::v2_bootstrap::get_distributed_handler();
-    handler.registry().register(actor_id, actor_ref.clone());
 
     use kameo::remote::type_hash::HasTypeHash;
     println!(
@@ -113,7 +111,7 @@ async fn run_client() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
 
     // Lookup the actor
-    let actor = kameo::remote::DistributedActorRef::lookup("test_large", transport.clone())
+    let actor = DynamicDistributedActorRef::lookup("test_large", transport.clone())
         .await?
         .ok_or("TestActor not found")?;
 

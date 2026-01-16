@@ -206,8 +206,10 @@ macro_rules! distributed_actor {
                                     let result = actor_ref.ask(msg).send().await;
 
                                     match result {
-                                        Ok(Ok(reply)) => Ok(reply),
-                                        Ok(Err(_e)) => Err($crate::error::RemoteSendError::ActorStopped),
+                                        Ok(reply) => Ok(reply),
+                                        Err($crate::error::SendError::HandlerError(_)) => {
+                                            Err($crate::error::RemoteSendError::ActorStopped)
+                                        }
                                         Err(_) => Err($crate::error::RemoteSendError::ActorNotRunning),
                                     }
                                 })
@@ -231,8 +233,10 @@ macro_rules! distributed_actor {
                                     let result = actor_ref.ask(msg).send().await;
 
                                     match result {
-                                        Ok(Ok(reply)) => Ok(reply),
-                                        Ok(Err(_e)) => Err($crate::error::RemoteSendError::ActorStopped),
+                                        Ok(reply) => Ok(reply),
+                                        Err($crate::error::SendError::HandlerError(_)) => {
+                                            Err($crate::error::RemoteSendError::ActorStopped)
+                                        }
                                         Err(_) => Err($crate::error::RemoteSendError::ActorNotRunning),
                                     }
                                 })
@@ -441,7 +445,10 @@ macro_rules! distributed_actor {
 
                                     // Send ask request through the actor's mailbox
                                     // The Message trait implementation provides the Reply type
-                                    let result: Result<<$actor as Message<$msg_ty>>::Reply, _> = if let Some(m_timeout) = mailbox_timeout {
+                                    let result: Result<
+                                        <<$actor as Message<$msg_ty>>::Reply as $crate::reply::Reply>::Ok,
+                                        _,
+                                    > = if let Some(m_timeout) = mailbox_timeout {
                                         if let Some(r_timeout) = reply_timeout {
                                             actor_ref.ask(msg)
                                                 .mailbox_timeout(m_timeout)

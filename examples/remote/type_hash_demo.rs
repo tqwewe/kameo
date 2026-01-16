@@ -25,16 +25,16 @@ impl<K: Clone + Eq + std::hash::Hash, V: Clone> Cache<K, V> {
 }
 
 // Messages for the cache
-#[derive(Debug, Clone, Serialize, Deserialize, TypeHash)]
+#[derive(Debug, Clone, TypeHash)]
 struct Get<K>(K);
 
-#[derive(Debug, Clone, Serialize, Deserialize, TypeHash)]
+#[derive(Debug, Clone, TypeHash)]
 struct Set<K, V> {
     key: K,
     value: V,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TypeHash)]
+#[derive(Debug, Clone, TypeHash)]
 struct Remove<K>(K);
 
 impl<K, V> Message<Cache<K, V>> for Get<K>

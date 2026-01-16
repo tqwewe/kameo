@@ -8,7 +8,7 @@
 
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 
 // Import shared message definitions - defined once at compile time!
 mod tell_messages;
@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor (with connection caching) - zero-cost abstraction!
     println!("\n🔍 Looking up remote LoggerActor...");
-    let logger_ref = match DistributedActorRef::lookup("logger").await? {
+    let logger_ref = match DynamicDistributedActorRef::lookup("logger", transport.clone()).await? {
         Some(ref_) => {
             println!("✅ Found LoggerActor on server with cached connection");
             println!("📍 Actor ID: {:?}", ref_.id());

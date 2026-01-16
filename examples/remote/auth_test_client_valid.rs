@@ -5,7 +5,7 @@
 //! Run after starting auth_test_server:
 //! cargo run --example auth_test_client_valid --features remote
 
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 use kameo::remote::v2_bootstrap;
 
 #[tokio::main]
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     
     // Try to lookup the test actor to verify connectivity
     println!("\n🔍 Looking up test_actor on server...");
-    match DistributedActorRef::lookup("test_actor").await? {
+    match DynamicDistributedActorRef::lookup("test_actor", transport.clone()).await? {
         Some(_) => {
             println!("✅ Found test_actor - full connectivity established!");
         }

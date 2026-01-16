@@ -12,7 +12,7 @@
 
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 
 // Import shared message definitions
 mod tell_messages;
@@ -114,7 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     .register_actor("client".to_string(), client_actor_id)
                     .await?;
                 
-                if let Ok(Some(logger_ref)) = DistributedActorRef::lookup("logger").await {
+                if let Ok(Some(logger_ref)) =
+                    DynamicDistributedActorRef::lookup("logger", transport.clone()).await
+                {
                     match logger_ref
                         .tell(LogMessage {
                             level: "ERROR".to_string(),

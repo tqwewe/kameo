@@ -4,7 +4,7 @@ title: Frequently Asked Questions (FAQ)
 
 ## How does Kameo handle communication over a network?
 
-Kameo uses a modern gossip protocol for networking, with a Distributed Hash Table (DHT) for actor registration and lookup. This allows actors to communicate across nodes without needing a predefined schema, and messages are routed efficiently over TCP connections.
+Kameo uses a modern gossip protocol for networking, with a decentralized registry for actor registration and lookup. This allows actors to communicate across nodes without needing a predefined schema, and messages are routed efficiently over TCP connections.
 
 ---
 
@@ -23,7 +23,7 @@ However, it’s often better to design actors in a way where they notify each ot
 
 ## How is Kameo different from gRPC?
 
-Unlike gRPC, which requires predefined schemas and often involves significant boilerplate, Kameo allows dynamic communication with actors across nodes without the need for code generation or schema management. Actors communicate via `RemoteActorRef`, and messages are passed just like with local actors, making it more flexible and less rigid than gRPC.
+Unlike gRPC, which requires predefined schemas and often involves significant boilerplate, Kameo allows dynamic communication with actors across nodes without the need for code generation or schema management. Actors communicate via `DistributedActorRef`, and messages are passed just like with local actors, making it more flexible and less rigid than gRPC.
 
 ---
 
@@ -35,7 +35,7 @@ Kameo's async nature allows multiple actors to run on a single thread using Toki
 
 ## Can Kameo be used for distributed systems?
 
-Yes, Kameo is built for distributed systems. Using a gossip protocol and DHT, actors can be registered and discovered across nodes, and they can communicate as if they were local. This makes Kameo ideal for distributed microservices or systems where actors are spread across different machines.
+Yes, Kameo is built for distributed systems. Using a gossip protocol and a decentralized registry, actors can be registered and discovered across nodes, and they can communicate as if they were local. This makes Kameo ideal for distributed microservices or systems where actors are spread across different machines.
 
 ---
 

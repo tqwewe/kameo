@@ -41,7 +41,7 @@
 
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 
 // Import shared message definitions
 mod tell_messages;
@@ -174,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Wait a moment for potential gossip sync
             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             
-            match DistributedActorRef::lookup("logger").await {
+            match DynamicDistributedActorRef::lookup("logger", transport.clone()).await {
                 Ok(Some(logger_ref)) => {
                     println!("⚠️  Found LoggerActor! Attempting to send message...");
                     

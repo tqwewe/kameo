@@ -3,7 +3,6 @@ use std::hash::Hash;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicUsize};
 
-// Removed serde - now using only rkyv for serialization
 
 #[cfg(feature = "remote")]
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};

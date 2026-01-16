@@ -8,8 +8,10 @@ use kameo::{
     distributed_actor,
     message::{Context, Message},
     remote::{
-        transport::RemoteTransport,
         distributed_actor_ref::DistributedActorRef,
+        transport::RemoteTransport,
+        type_hash::HasTypeHash,
+        type_registry,
         v2_bootstrap,
     },
     RemoteMessage,
@@ -78,7 +80,15 @@ async fn test_ask_type_inference() -> Result<(), Box<dyn std::error::Error + Sen
 
     // Spawn actor on server
     let actor_ref = TypeInferenceActor::spawn(());
-    server_transport.register_actor("my-actor".to_string(), actor_ref.id()).await?;
+    server_transport
+        .register_distributed_actor("my-actor".to_string(), &actor_ref)
+        .await?;
+
+    // Boundary assertion: the distributed handler must be registered before peer gossip.
+    let ping_hash = <Ping as HasTypeHash>::TYPE_HASH.as_u32();
+    let handler = type_registry::lookup_handler(ping_hash)
+        .expect("Ping handler not registered");
+    assert_eq!(handler.actor_id, actor_ref.id());
 
 
     // Start client
@@ -88,7 +98,7 @@ async fn test_ask_type_inference() -> Result<(), Box<dyn std::error::Error + Sen
         let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&server_addr).await?;
     }
-    tokio::time::sleep(Duration::from_secs(6)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
 
     // Lookup from client
