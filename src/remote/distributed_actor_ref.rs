@@ -83,6 +83,31 @@ where
         }
     }
 
+    #[doc(hidden)]
+    pub fn __new_for_tests(
+        actor_id: ActorId,
+        location: RemoteActorLocation,
+        transport: T,
+        connection: kameo_remote::connection_pool::ConnectionHandle,
+    ) -> Self {
+        Self::new_with_connection(actor_id, location, transport, connection)
+    }
+
+    #[doc(hidden)]
+    pub fn __new_without_connection_for_tests(
+        actor_id: ActorId,
+        location: RemoteActorLocation,
+        transport: T,
+    ) -> Self {
+        Self {
+            actor_id,
+            location,
+            transport,
+            connection: None,
+            _actor_type: PhantomData,
+        }
+    }
+
     /// Get the actor's ID
     pub fn id(&self) -> ActorId {
         self.actor_id
@@ -339,6 +364,7 @@ where
             // Use the ConnectionHandle's zero-copy method
             return conn
                 .send_bytes_zero_copy(message_bytes)
+                .await
                 .map_err(|_| SendError::ActorStopped);
         }
 

@@ -33,6 +33,12 @@ impl DistributedMessageHandler {
     }
 }
 
+impl Default for DistributedMessageHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MessageHandler for DistributedMessageHandler {
     fn handle_tell(
         &self,

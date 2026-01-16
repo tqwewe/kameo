@@ -392,9 +392,7 @@ impl RemoteTransport for KameoTransport {
             }
 
             kameo_remote::tls::ensure_crypto_provider();
-            let secret_key =
-                kameo_remote::migration::migrate_keypair_to_secret_key(keypair.clone())
-                    .map_err(|e| TransportError::Other(Box::new(e)))?;
+            let secret_key = keypair.to_secret_key();
             let handle = GossipRegistryHandle::new_with_tls(bind_addr, secret_key, Some(gossip_config))
                 .await
                 .map_err(|e| TransportError::Other(Box::new(e)))?;

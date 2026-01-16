@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [".", "actors", "kameo_type_hash_macros", "macros"]
+exclude = ["vendor/kameo_remote"]
 
 [workspace.dependencies]
 kameo = { path = ".", version = "0.18.0" }
@@ -48,6 +49,7 @@ remote = [
   "dep:rkyv",
   "tracing",
 ]
+remote_integration_tests = [] # Opt-in, heavy remote integration scenarios
 tracing = ["dep:tracing", "tokio/tracing"]
 nightly = [] # Feature flag for nightly-only features
 trading_exchange_core = [] # Enables trading_exchange_core-dependent examples
@@ -88,6 +90,7 @@ tokio = { version = "1", features = [
 tokio-stream = { version = "0.1.15", features = ["time"] }
 tokio-test = "0.4.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serial_test = "3.2"
 
 
 [[example]]
@@ -236,6 +239,9 @@ required-features = ["remote"]
 [[bench]]
 name = "overhead"
 harness = false
+
+[patch."https://github.com/moofone/kameo_remote"]
+kameo_remote = { path = "vendor/kameo_remote" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

@@ -12,34 +12,71 @@
 /// # Usage
 ///
 /// ## List Syntax (uses Message trait)
-/// ```ignore
+/// ```no_run
+/// use kameo::{distributed_actor, Actor};
+///
+/// #[derive(Actor)]
+/// struct MyActor;
+///
+/// #[derive(
+///     kameo::RemoteMessage,
+///     rkyv::Archive,
+///     rkyv::Serialize,
+///     rkyv::Deserialize,
+/// )]
+/// struct MessageA;
+///
+/// impl kameo::message::Message<MessageA> for MyActor {
+///     type Reply = ();
+///
+///     async fn handle(
+///         &mut self,
+///         _message: MessageA,
+///         _ctx: &mut kameo::message::Context<Self, Self::Reply>,
+///     ) -> Self::Reply {
+///     }
+/// }
+///
 /// distributed_actor! {
 ///     MyActor {
 ///         MessageA,
-///         MessageB,
 ///     }
 /// }
 /// ```
 ///
 /// ## Mapping Syntax (uses archived handlers for zero-copy)
-/// ```ignore
+/// ```no_run
+/// use kameo::{distributed_actor, Actor};
+/// use rkyv::Archived;
+///
+/// #[derive(Actor)]
+/// struct ZeroCopyActor;
+///
+/// #[derive(
+///     kameo::RemoteMessage,
+///     rkyv::Archive,
+///     rkyv::Serialize,
+///     rkyv::Deserialize,
+/// )]
+/// struct MessageB;
+///
+/// impl ZeroCopyActor {
+///     async fn handle_message_b(&mut self, _msg: &Archived<MessageB>) {
+///         // zero-copy handler logic
+///     }
+/// }
+///
 /// distributed_actor! {
-///     MyActor {
-///         MessageA => handle_message_a,  // handler takes &rkyv::Archived<MessageA>
+///     ZeroCopyActor {
 ///         MessageB => handle_message_b,
 ///     }
 /// }
 /// ```
 ///
 /// ## Mixed Syntax
-/// ```ignore
-/// distributed_actor! {
-///     MyActor {
-///         MessageA => handle_a,  // Uses archived handler
-///         MessageB,              // Uses Message trait
-///     }
-/// }
-/// ```
+/// Apply the macro multiple times if you need different styles. You can keep one
+/// actor definition for archived handlers and another for Message trait-based
+/// routing, letting each `distributed_actor!` invocation focus on a single style.
 #[macro_export]
 macro_rules! distributed_actor {
     // Mapping syntax: message => handler

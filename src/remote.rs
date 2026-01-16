@@ -20,7 +20,10 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Bootstrap with an explicit keypair (TLS required)
 //!     let keypair = kameo::remote::v2_bootstrap::test_keypair(1);
-//!     remote::v2_bootstrap::bootstrap_on("127.0.0.1:0".parse()?, keypair).await?;
+//!     let addr: std::net::SocketAddr = "127.0.0.1:0".parse()?;
+//!     remote::v2_bootstrap::bootstrap_on(addr, keypair)
+//!         .await
+//!         .expect("bootstrap failed");
 //!     
 //!     // Now use actors normally
 //!     // actor_ref.register("my_actor").await?;

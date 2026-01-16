@@ -16,7 +16,7 @@ use super::type_hash::{HasTypeHash, TypeHash};
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use kameo::RemoteMessage;
 /// use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 ///

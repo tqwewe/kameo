@@ -14,9 +14,11 @@ use super::type_hash::{HasTypeHash, TypeHash};
 /// # Example
 ///
 /// ```rust
+/// # use kameo::impl_type_hash;
+/// # use std::marker::PhantomData;
 /// // Define your generic type
 /// struct Cache<K, V> {
-///     // ...
+///     _marker: PhantomData<(K, V)>,
 /// }
 ///
 /// // Implement HasTypeHash for specific instantiations
@@ -44,7 +46,11 @@ macro_rules! impl_type_hash {
 /// # Example
 ///
 /// ```rust
-/// struct Cache<K, V> { /* ... */ }
+/// # use kameo::generic_type_hash;
+/// # use std::marker::PhantomData;
+/// struct Cache<K, V> {
+///     _marker: PhantomData<(K, V)>,
+/// }
 ///
 /// // Generate implementations for common type combinations
 /// generic_type_hash! {
@@ -132,6 +138,7 @@ impl<T: HasTypeHash> RuntimeTypeHash for T {
 /// # Example
 ///
 /// ```rust
+/// # use kameo::remote::generic_type_hash::generic_type_hash;
 /// let hash = generic_type_hash::<Vec<String>>();
 /// ```
 pub fn generic_type_hash<T: ?Sized + 'static>() -> TypeHash {

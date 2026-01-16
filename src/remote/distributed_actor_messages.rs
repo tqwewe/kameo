@@ -12,41 +12,31 @@
 ///
 /// # Example
 ///
-/// ```ignore
-/// // First, declare your generic types
-/// struct Cache<K, V> { ... }
-/// struct Get<K> { key: K }
-/// struct Set<K, V> { key: K, value: V }
+/// ```no_run
+/// use kameo::{declare_message_types, distributed_actor, Actor};
+/// use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 ///
-/// // Then declare which instantiations you'll use
-/// declare_message_types! {
-///     // For Cache<String, i32>
-///     Cache<String, i32> => {
-///         Get<String>,
-///         Set<String, i32>,
-///     },
-///     
-///     // For Cache<String, String>
-///     Cache<String, String> => {
-///         Get<String>,
-///         Set<String, String>,
-///     },
-///     
-///     // For Cache<i32, String>
-///     Cache<i32, String> => {
-///         Get<i32>,
-///         Set<i32, String>,
-///     }
+/// #[derive(Actor)]
+/// struct Cache;
+///
+/// #[derive(Archive, RSerialize, RDeserialize)]
+/// struct Get {
+///     key: String,
 /// }
 ///
-/// // Now use distributed_actor! macro
-/// distributed_actor! {
-///     impl<K, V> DistributedActor for Cache<K, V>
-///     where /* bounds */
-///     {
-///         Get<K> => handle_get,
-///         Set<K, V> => handle_set,
-///     }
+/// #[derive(Archive, RSerialize, RDeserialize)]
+/// struct Set {
+///     key: String,
+///     value: i32,
+/// }
+///
+/// impl Cache {
+///     async fn handle_get(&mut self, _msg: &rkyv::Archived<Get>) {}
+///     async fn handle_set(&mut self, _msg: &rkyv::Archived<Set>) {}
+/// }
+///
+/// declare_message_types! {
+///     Cache => { Get, Set },
 /// }
 /// ```
 #[macro_export]
@@ -79,19 +69,18 @@ macro_rules! declare_message_types {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// distributed_actor_with_types! {
 ///     actor: Cache<K, V>
 ///     messages: {
 ///         Cache<String, i32> => [Get<String>, Set<String, i32>],
 ///         Cache<String, String> => [Get<String>, Set<String, String>],
-///         Cache<i32, String> => [Get<i32>, Set<i32, String>],
 ///     }
-///     
+///
 ///     impl<K, V> DistributedActor
 ///     where
-///         K: Eq + Hash + Clone + Send + 'static + Serialize + for<'de> Deserialize<'de>,
-///         V: Clone + Send + 'static + Serialize + for<'de> Deserialize<'de>,
+///         K: Send + Sync + 'static,
+///         V: Send + Sync + 'static,
 ///     {
 ///         Get<K> => handle_get,
 ///         Set<K, V> => handle_set,

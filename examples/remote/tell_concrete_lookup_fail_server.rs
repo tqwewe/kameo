@@ -13,7 +13,7 @@ mod tell_messages;
 use tell_messages::*;
 
 #[derive(Debug)]
-struct ClientActor;
+pub struct ClientActor;
 impl Actor for ClientActor {
     type Args = ();
     type Error = Box<dyn std::error::Error + Send + Sync>;
@@ -27,10 +27,10 @@ struct LoggerActor {
     message_count: u32,
     client_ref: Option<DistributedActorRef<ClientActor>>,
     test_completed: bool,
-    server_batch_sent: bool,
 }
 
 // Separate actor for TellConcrete messages
+#[allow(dead_code)]
 #[derive(Debug)]
 struct ConcreteActor {
     count: u32,
@@ -45,7 +45,6 @@ impl Actor for LoggerActor {
             message_count: 0,
             client_ref: None,
             test_completed: false,
-            server_batch_sent: false,
         })
     }
 }
@@ -108,70 +107,7 @@ impl Message<GetCountMessage> for LoggerActor {
     }
 }
 
-// Handler method for distributed actor - now accepts archived types for zero-copy
 impl LoggerActor {
-    async fn handle_log(&mut self, msg: &rkyv::Archived<LogMessage>) {
-        self.message_count += 1;
-        // Access fields directly from archived type - no deserialization!
-        let level = &msg.level;
-        let content = &msg.content;
-
-        // LOG MESSAGE FOR MINIMAL TEST
-        println!(
-            "📝 [SERVER] Received LogMessage #{}: {} - {}",
-            self.message_count, level, content
-        );
-
-        // BIDIRECTIONAL: Send single response back to client!
-        if let Err(e) = self.send_single_response_to_client().await {
-            println!("❌ [SERVER] Failed to send response to client: {:?}", e);
-        }
-    }
-
-    async fn handle_tell_concrete(&mut self, msg: &rkyv::Archived<TellConcrete>) {
-        self.message_count += 1;
-        let data_len = msg.data.len();
-
-        // Silent processing for TellConcrete messages
-
-        // Special handling for our test messages
-        if msg.id == 999999 {
-            println!(
-                "   ✅ Successfully received 5MB test message! (actual size: {} bytes)",
-                data_len
-            );
-        } else if msg.id == 999998 {
-            println!(
-                "   ✅ Successfully received 35MB test message! (actual size: {} bytes)",
-                data_len
-            );
-        } else if data_len > 1024 {
-            println!(
-                "📦 Received large message {} with {} bytes",
-                msg.id, data_len
-            );
-        }
-
-        // === COMMENTED OUT - TellConcrete responses ===
-        // BIDIRECTIONAL: Send response back to client for TellConcrete messages too!
-        // if let Err(e) = self.send_response_to_client().await {
-        //     println!(
-        //         "❌ [SERVER] Failed to send TellConcrete response to client: {:?}",
-        //         e
-        //     );
-        // }
-    }
-
-    // === COMMENTED OUT - Indicator handling ===
-    // Handle IndicatorData messages (from benchmark)
-    // async fn handle_indicator(&mut self, _archived: &rkyv::Archived<IndicatorData>) {
-    //     // Just count them, don't print each one
-    //     self.message_count += 1;
-    //     if self.message_count % 100 == 0 {
-    //         println!("📊 Received {} indicator messages", self.message_count);
-    //     }
-    // }
-
     // BIDIRECTIONAL: Send single response back to client
     async fn send_single_response_to_client(
         &mut self,
@@ -223,23 +159,6 @@ impl LoggerActor {
         Ok(())
     }
 
-    // Handle TestComplete message - signals end of client→server phase
-    async fn handle_test_complete(&mut self, msg: &rkyv::Archived<TestComplete>) {
-        println!(
-            "🏁 [SERVER] Client completed! Sent {} messages in {}ms",
-            msg.total_messages_sent, msg.test_duration_ms
-        );
-
-        self.test_completed = true;
-
-        // === COMMENTED OUT - Server batch ===
-        // Trigger server→client batch
-        // if let Err(e) = self.send_server_batch().await {
-        //     println!("❌ [SERVER] Failed to send server batch: {:?}", e);
-        // }
-
-        println!("✅ [SERVER] Minimal bidirectional test complete!");
-    }
 }
 
 // Implement Message trait for TestComplete - required for distributed_actor! macro
@@ -421,7 +340,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // The client will use this same keypair name, so we add it as a trusted peer
         let client_peer_id =
             kameo_remote::KeyPair::new_for_testing("tls_client_production_key").peer_id();
-        let peer = handle.add_peer(&client_peer_id).await;
+        let _peer = handle.add_peer(&client_peer_id).await;
         println!(
             "✅ Added client as trusted peer for TLS: {}",
             client_peer_id

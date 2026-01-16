@@ -6,13 +6,11 @@ use kameo::error::RegistryError;
 use kameo::prelude::*;
 
 #[derive(Actor)]
-struct TestActor {
-    id: u32,
-}
+struct TestActor;
 
 impl TestActor {
-    fn new(id: u32) -> Self {
-        Self { id }
+    fn new() -> Self {
+        Self
     }
 }
 
@@ -20,7 +18,7 @@ impl TestActor {
 /// This verifies that actors can register and be looked up locally even when remote feature is enabled
 #[tokio::test]
 async fn test_local_registration_with_remote_feature() {
-    let actor = TestActor::spawn(TestActor::new(1));
+    let actor = TestActor::spawn(TestActor::new());
 
     // Should succeed without returning SwarmNotBootstrapped error
     actor.register_local("test_actor").unwrap();
@@ -39,8 +37,8 @@ async fn test_local_registration_with_remote_feature() {
 /// This verifies that attempting to register an actor with the same name twice fails
 #[tokio::test]
 async fn test_no_duplicate_local_registration() {
-    let actor1 = TestActor::spawn(TestActor::new(2));
-    let actor2 = TestActor::spawn(TestActor::new(3));
+    let actor1 = TestActor::spawn(TestActor::new());
+    let actor2 = TestActor::spawn(TestActor::new());
 
     // First registration should succeed
     actor1.register_local("duplicate_test").unwrap();
@@ -66,9 +64,9 @@ async fn test_no_duplicate_local_registration() {
 /// This verifies that multiple actors with different names can be registered successfully
 #[tokio::test]
 async fn test_multiple_actor_registration() {
-    let actor1 = TestActor::spawn(TestActor::new(4));
-    let actor2 = TestActor::spawn(TestActor::new(5));
-    let actor3 = TestActor::spawn(TestActor::new(6));
+    let actor1 = TestActor::spawn(TestActor::new());
+    let actor2 = TestActor::spawn(TestActor::new());
+    let actor3 = TestActor::spawn(TestActor::new());
 
     // Register all actors with different names
     actor1.register_local("actor_1").unwrap();
@@ -112,7 +110,7 @@ async fn test_lookup_nonexistent_actor() {
 /// This verifies that the registry is properly cleaned up when actors stop
 #[tokio::test]
 async fn test_registration_cleanup_after_stop() {
-    let actor = TestActor::spawn(TestActor::new(7));
+    let actor = TestActor::spawn(TestActor::new());
     actor.register_local("cleanup_test").unwrap();
 
     // Verify actor is registered

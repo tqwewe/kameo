@@ -13,7 +13,7 @@ mod tell_messages;
 use tell_messages::*;
 
 #[derive(Debug)]
-struct ClientActor;
+pub struct ClientActor;
 impl Actor for ClientActor {
     type Args = ();
     type Error = Box<dyn std::error::Error + Send + Sync>;

@@ -5,16 +5,34 @@
 //! and write directly to the socket for minimal latency.
 //!
 //! # Example
-//! ```
-//! // Create a stream for sending PreBacktest messages
-//! let mut stream = actor_ref.create_stream::<PreBacktest>("backtest_data").await?;
+//! ```no_run
+//! use kameo::remote::streaming::{StreamError, StreamFactory};
+//! use kameo::remote::DistributedActorRef;
 //!
-//! // Write messages to the stream
-//! stream.send(large_prebacktest).await?;
-//! stream.send(another_prebacktest).await?;
+//! #[derive(kameo::Actor)]
+//! struct BacktestActor;
 //!
-//! // Close the stream when done
-//! stream.close().await?;
+//! #[derive(
+//!     kameo::RemoteMessage,
+//!     rkyv::Archive,
+//!     rkyv::Serialize,
+//!     rkyv::Deserialize,
+//! )]
+//! struct PreBacktest {
+//!     bytes: Vec<u8>,
+//! }
+//!
+//! async fn send_prebacktests(
+//!     actor_ref: DistributedActorRef<BacktestActor>,
+//!     large: PreBacktest,
+//!     another: PreBacktest,
+//! ) -> Result<(), StreamError> {
+//!     let mut stream = actor_ref.create_stream::<PreBacktest>("backtest_data").await?;
+//!     stream.send(large).await?;
+//!     stream.send(another).await?;
+//!     stream.close().await?;
+//!     Ok(())
+//! }
 //! ```
 
 use bytes::{BufMut, Bytes, BytesMut};
@@ -205,6 +223,7 @@ where
 
         self.connection
             .send_bytes_zero_copy(frame.freeze())
+            .await
             .map_err(|_| StreamError::ConnectionClosed)?;
 
         Ok(())
@@ -276,7 +295,7 @@ where
     ) -> Result<(), StreamError> {
         const MAX_CHUNK_SIZE: usize = 256 * 1024; // 256KB chunks (matching kameo_remote)
 
-        let total_chunks = (data.len() + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE;
+        let total_chunks = data.len().div_ceil(MAX_CHUNK_SIZE);
 
         // Send StreamStart first
         let start_header = kameo_remote::StreamHeader {
@@ -298,6 +317,7 @@ where
 
         self.connection
             .send_bytes_zero_copy(start_frame.freeze())
+            .await
             .map_err(|_| StreamError::ConnectionClosed)?;
 
         // Batch chunks for optimal vectored I/O (reduce syscalls)
@@ -362,6 +382,7 @@ where
 
         self.connection
             .send_bytes_zero_copy(end_frame.freeze())
+            .await
             .map_err(|_| StreamError::ConnectionClosed)?;
 
         Ok(())

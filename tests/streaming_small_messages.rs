@@ -1,11 +1,16 @@
-#![cfg(feature = "remote")]
+#![cfg(all(feature = "remote", feature = "remote_integration_tests"))]
 //! Tests for small message handling (<1MB) - should use regular protocol
 //!
 //! This test suite verifies that messages under the streaming threshold
 //! use the regular protocol and maintain performance characteristics.
 
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
-use kameo::Actor;
+use kameo::remote::{
+    transport::RemoteTransport,
+    type_hash::HasTypeHash,
+    type_registry,
+    DistributedActorRef,
+};
+use kameo::{distributed_actor, Actor};
 use std::time::Instant;
 use tokio::time::{timeout, Duration};
 
@@ -61,7 +66,21 @@ impl kameo::message::Message<SmallTestMessage> for SmallMessageTestActor {
     }
 }
 
+distributed_actor! {
+    SmallMessageTestActor {
+        SmallTestMessage,
+    }
+}
+
+fn assert_type_registered<M: HasTypeHash>(actor_id: kameo::actor::ActorId) {
+    let type_hash = <M as HasTypeHash>::TYPE_HASH.as_u32();
+    let entry = type_registry::lookup_handler(type_hash)
+        .expect("type hash not registered");
+    assert_eq!(entry.actor_id, actor_id);
+}
+
 #[tokio::test]
+#[serial_test::serial]
 async fn test_small_tell_messages_100kb() {
     // Test 100KB messages use regular protocol
     let _ = tracing_subscriber::fmt()
@@ -86,9 +105,10 @@ async fn test_small_tell_messages_100kb() {
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
     server_transport
-        .register_actor("small_test_actor".to_string(), actor_ref.id())
+        .register_distributed_actor("small_test_actor".to_string(), &actor_ref)
         .await
         .expect("Actor registration failed");
+    assert_type_registered::<SmallTestMessage>(actor_ref.id());
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
@@ -99,7 +119,7 @@ async fn test_small_tell_messages_100kb() {
     }
 
     // Wait for connection stabilization
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("small_test_actor")
@@ -132,6 +152,7 @@ async fn test_small_tell_messages_100kb() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_small_ask_messages_500kb() {
     // Test 500KB ask messages use regular protocol
     let _ = tracing_subscriber::fmt()
@@ -156,9 +177,10 @@ async fn test_small_ask_messages_500kb() {
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
     server_transport
-        .register_actor("small_ask_actor".to_string(), actor_ref.id())
+        .register_distributed_actor("small_ask_actor".to_string(), &actor_ref)
         .await
         .expect("Actor registration failed");
+    assert_type_registered::<SmallTestMessage>(actor_ref.id());
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
@@ -169,7 +191,7 @@ async fn test_small_ask_messages_500kb() {
     }
 
     // Wait for connection stabilization
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("small_ask_actor")
@@ -209,6 +231,7 @@ async fn test_small_ask_messages_500kb() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_boundary_condition_999kb() {
     // Test message just under 1MB threshold - should use regular protocol
     let _ = tracing_subscriber::fmt()
@@ -233,9 +256,10 @@ async fn test_boundary_condition_999kb() {
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
     server_transport
-        .register_actor("boundary_test_actor".to_string(), actor_ref.id())
+        .register_distributed_actor("boundary_test_actor".to_string(), &actor_ref)
         .await
         .expect("Actor registration failed");
+    assert_type_registered::<SmallTestMessage>(actor_ref.id());
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
@@ -246,7 +270,7 @@ async fn test_boundary_condition_999kb() {
     }
 
     // Wait for connection stabilization
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("boundary_test_actor")
@@ -288,6 +312,7 @@ async fn test_boundary_condition_999kb() {
 }
 
 #[tokio::test]
+#[serial_test::serial]
 async fn test_performance_baseline_small_messages() {
     // Establish performance baseline for small messages
     let _ = tracing_subscriber::fmt()
@@ -312,9 +337,17 @@ async fn test_performance_baseline_small_messages() {
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
     server_transport
-        .register_actor("perf_test_actor".to_string(), actor_ref.id())
+        .register_distributed_actor("perf_test_actor".to_string(), &actor_ref)
         .await
         .expect("Actor registration failed");
+    assert_type_registered::<SmallTestMessage>(actor_ref.id());
+
+fn assert_type_registered<M: HasTypeHash>(actor_id: kameo::actor::ActorId) {
+    let type_hash = <M as HasTypeHash>::TYPE_HASH.as_u32();
+    let entry = type_registry::lookup_handler(type_hash)
+        .expect("type hash not registered");
+    assert_eq!(entry.actor_id, actor_id);
+}
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
@@ -325,7 +358,7 @@ async fn test_performance_baseline_small_messages() {
     }
 
     // Wait for connection stabilization
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Look up remote actor
     let remote_ref = DistributedActorRef::<SmallMessageTestActor>::lookup("perf_test_actor")

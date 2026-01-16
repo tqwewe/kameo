@@ -1,23 +1,22 @@
 #![cfg(feature = "remote")]
 //! Test for type inference in remote ask calls using the v2 API.
 
-use std::time::Duration;
+use std::{net::SocketAddr, time::Duration};
 
+use bytes::Bytes;
 use kameo::{
-    actor::{Actor, ActorRef},
+    actor::{Actor, ActorId, ActorRef},
     distributed_actor,
     message::{Context, Message},
     remote::{
         distributed_actor_ref::DistributedActorRef,
-        transport::RemoteTransport,
-        type_hash::HasTypeHash,
-        type_registry,
-        v2_bootstrap,
+        transport::{
+            MessageHandler, RemoteActorLocation, RemoteTransport, TransportError, TransportFuture,
+        },
     },
     RemoteMessage,
 };
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
-use kameo_remote::KeyPair;
 
 #[derive(Debug)]
 struct TypeInferenceActor;
@@ -71,43 +70,150 @@ distributed_actor! {
 
 #[tokio::test]
 async fn test_ask_type_inference() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Start server
-    let server_keypair = KeyPair::new_for_testing("server-type-inference");
-    let server_peer_id = server_keypair.peer_id();
-    let server_transport =
-        v2_bootstrap::bootstrap_with_keypair("127.0.0.1:0".parse()?, server_keypair).await?;
-    let server_addr = server_transport.local_addr();
+    // Create a deterministic remote actor location (no network needed for type inference test)
+    let location = RemoteActorLocation {
+        peer_addr: "127.0.0.1:0".parse()?,
+        actor_id: ActorId::from_u64(42),
+        metadata: Vec::new(),
+    };
 
-    // Spawn actor on server
-    let actor_ref = TypeInferenceActor::spawn(());
-    server_transport
-        .register_distributed_actor("my-actor".to_string(), &actor_ref)
-        .await?;
+    // Use a deterministic transport that always returns PingResult bytes
+    let transport = TestTransport;
 
-    // Boundary assertion: the distributed handler must be registered before peer gossip.
-    let ping_hash = <Ping as HasTypeHash>::TYPE_HASH.as_u32();
-    let handler = type_registry::lookup_handler(ping_hash)
-        .expect("Ping handler not registered");
-    assert_eq!(handler.actor_id, actor_ref.id());
-
-
-    // Start client
-    let client_keypair = KeyPair::new_for_testing("client-type-inference");
-    let client_transport = v2_bootstrap::bootstrap_with_keypair("127.0.0.1:0".parse()?, client_keypair).await?;
-    if let Some(handle) = client_transport.handle() {
-        let peer = handle.add_peer(&server_peer_id).await;
-        peer.connect(&server_addr).await?;
-    }
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-
-    // Lookup from client
-    let remote_ref = DistributedActorRef::<TypeInferenceActor>::lookup("my-actor").await?.unwrap();
+    let remote_ref: DistributedActorRef<TypeInferenceActor, TestTransport> =
+        DistributedActorRef::__new_without_connection_for_tests(
+            location.actor_id,
+            location,
+            transport,
+        );
 
     // Send ask - should infer the type
-    let result = remote_ref.ask(Ping).send().await?;
+    let result: PingResult = remote_ref.ask(Ping).send().await?;
 
     assert_eq!(result, PingResult);
 
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct TestTransport;
+
+impl RemoteTransport for TestTransport {
+    fn start(&mut self) -> TransportFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn shutdown(&mut self) -> TransportFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn local_addr(&self) -> SocketAddr {
+        "127.0.0.1:0".parse().unwrap()
+    }
+
+    fn register_actor(&self, _name: String, _actor_id: ActorId) -> TransportFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn register_actor_sync(
+        &self,
+        _name: String,
+        _actor_id: ActorId,
+        _timeout: Duration,
+    ) -> TransportFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn unregister_actor(&self, _name: &str) -> TransportFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn lookup_actor(&self, _name: &str) -> TransportFuture<'_, Option<RemoteActorLocation>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    fn send_tell<M>(
+        &self,
+        _actor_id: ActorId,
+        _location: &RemoteActorLocation,
+        _message: M,
+    ) -> TransportFuture<'_, ()>
+    where
+        M: Archive
+            + for<'a> RSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
+    {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn send_ask<A, M>(
+        &self,
+        _actor_id: ActorId,
+        _location: &RemoteActorLocation,
+        _message: M,
+        _timeout: Duration,
+    ) -> TransportFuture<'_, <A as Message<M>>::Reply>
+    where
+        A: Actor + Message<M>,
+        M: Archive
+            + for<'a> RSerialize<
+                rkyv::rancor::Strategy<
+                    rkyv::ser::Serializer<
+                        &'a mut [u8],
+                        rkyv::ser::allocator::ArenaHandle<'a>,
+                        rkyv::ser::sharing::Share,
+                    >,
+                    rkyv::rancor::Error,
+                >,
+            > + Send
+            + 'static,
+        <A as Message<M>>::Reply: Archive
+            + for<'a> rkyv::Deserialize<
+                <A as Message<M>>::Reply,
+                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+            > + Send,
+    {
+        Box::pin(async {
+            Err(TransportError::Other(
+                "send_ask not used in test transport".into(),
+            ))
+        })
+    }
+
+    fn send_tell_typed(
+        &self,
+        _actor_id: ActorId,
+        _location: &RemoteActorLocation,
+        _type_hash: u32,
+        _payload: Bytes,
+    ) -> TransportFuture<'_, ()> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn send_ask_typed(
+        &self,
+        _actor_id: ActorId,
+        _location: &RemoteActorLocation,
+        _type_hash: u32,
+        _payload: Bytes,
+        _timeout: Duration,
+    ) -> TransportFuture<'_, Bytes> {
+        Box::pin(async {
+            let reply = PingResult;
+            let bytes = rkyv::to_bytes::<rkyv::rancor::Error>(&reply)
+                .map_err(|e| TransportError::SerializationFailed(e.to_string()))?;
+            Ok(Bytes::from(bytes.into_vec()))
+        })
+    }
+
+    fn set_message_handler(&mut self, _handler: Box<dyn MessageHandler>) {}
 }
