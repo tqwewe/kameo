@@ -1,8 +1,0 @@
-/target
-Cargo.lock
-.direnv
-.envrc
-sprints/
-qa/
-spec/
-.DS_Store

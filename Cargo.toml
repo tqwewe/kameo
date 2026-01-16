@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
 members = [".", "actors", "kameo_type_hash_macros", "macros"]
-exclude = ["vendor/kameo_remote"]
 
 [workspace.dependencies]
 kameo = { path = ".", version = "0.18.0" }
@@ -239,9 +238,6 @@ required-features = ["remote"]
 [[bench]]
 name = "overhead"
 harness = false
-
-[patch."https://github.com/moofone/kameo_remote"]
-kameo_remote = { path = "vendor/kameo_remote" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
