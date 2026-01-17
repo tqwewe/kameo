@@ -1,6 +1,7 @@
 //! Test server using LIST syntax in distributed_actor! macro
 //! This should work correctly
 
+use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
@@ -72,8 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as trusted peer for TLS
     if let Some(handle) = transport.handle() {
-        let client_peer_id =
-            kameo_remote::KeyPair::new_for_testing("test_list_client").peer_id();
+        let client_peer_id = kameo_remote::KeyPair::new_for_testing("test_list_client").peer_id();
         let _peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Added client as trusted peer for TLS");
     }

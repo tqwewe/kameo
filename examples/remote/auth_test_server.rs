@@ -4,6 +4,7 @@
 //! cargo run --example auth_test_server --features remote
 
 use kameo::actor::{Actor, ActorRef};
+use kameo::actor::Spawn;
 use kameo::remote::{transport::RemoteTransport, DistributedActor};
 use kameo::remote::v2_bootstrap;
 use std::time::Duration;

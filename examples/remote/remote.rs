@@ -42,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(false)
         .init();
 
-    // Starts the swarm with an explicit keypair (TLS required).
+    // Starts the node with an explicit keypair (TLS required).
     let keypair = KeyPair::new_for_testing("remote-example-node");
     remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 

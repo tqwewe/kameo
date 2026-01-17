@@ -35,11 +35,11 @@
 //! }
 //! ```
 
+use crate::Actor;
 use bytes::{BufMut, Bytes, BytesMut};
 use rkyv::{Archive, Serialize as RSerialize};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
-use crate::Actor;
 
 use super::type_hash::HasTypeHash;
 use crate::actor::ActorId;
@@ -516,7 +516,7 @@ where
 
         Err(format!(
             "Stream {} ({}) forcibly cleaned up - chunks: {}/{:?}, memory: {} bytes, age: {:?}, inactive: {:?}",
-            info.stream_id, info.name, info.chunks_received, info.expected_chunks, 
+            info.stream_id, info.name, info.chunks_received, info.expected_chunks,
             info.memory_usage, info.age, info.last_activity
         ).into())
     }
@@ -621,7 +621,9 @@ where
 // Extension trait for DistributedActorRef to add streaming support
 use super::distributed_actor_ref::DistributedActorRef;
 
-impl<A: Actor> StreamFactory for DistributedActorRef<A, Box<super::kameo_transport::KameoTransport>> {
+impl<A: Actor> StreamFactory
+    for DistributedActorRef<A, Box<super::kameo_transport::KameoTransport>>
+{
     async fn create_stream<M>(&self, name: &str) -> Result<MessageStream<M>, StreamError>
     where
         M: HasTypeHash

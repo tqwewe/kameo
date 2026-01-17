@@ -15,6 +15,7 @@ struct CalculatorActor {
 }
 
 use kameo::actor::{Actor, ActorRef};
+use kameo::actor::Spawn;
 use kameo::message::{Context, Message};
 
 impl Actor for CalculatorActor {

@@ -3,10 +3,11 @@
 //! Run this first:
 //! cargo run --example tell_concrete_server --features remote
 
+use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
-use kameo::remote::{transport::RemoteTransport, DistributedActorRef};
+use kameo::remote::{DistributedActorRef, transport::RemoteTransport};
 
 // Import shared message definitions - same file as client!
 mod tell_messages;
@@ -460,7 +461,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         // Connection established, now try to lookup client actor
                         match DistributedActorRef::<ClientActor>::lookup("client").await {
                             Ok(Some(client_ref)) => {
-                                println!("✅ [SERVER] Found client! Setting up bidirectional messaging...");
+                                println!(
+                                    "✅ [SERVER] Found client! Setting up bidirectional messaging..."
+                                );
                                 if let Err(e) = lookup_actor_ref
                                     .tell(SetClientRef { client_ref })
                                     .send()
@@ -473,7 +476,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                 }
                             }
                             Ok(None) => {
-                                println!("⏳ [SERVER] Client connected but actor not registered yet, will retry...");
+                                println!(
+                                    "⏳ [SERVER] Client connected but actor not registered yet, will retry..."
+                                );
                             }
                             Err(e) => {
                                 println!("❌ [SERVER] Error looking up client: {:?}", e);
@@ -483,8 +488,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     Err(_) => {
                         // Only log periodically to avoid spam
                         if retry_count == 1 || retry_count % 30 == 0 {
-                            println!("🔍 [SERVER] Attempting to lookup client for bidirectional messaging (attempt #{})...", retry_count);
-                            println!("🔐 [SERVER] Attempting to establish TLS connection to client at 127.0.0.1:9311...");
+                            println!(
+                                "🔍 [SERVER] Attempting to lookup client for bidirectional messaging (attempt #{})...",
+                                retry_count
+                            );
+                            println!(
+                                "🔐 [SERVER] Attempting to establish TLS connection to client at 127.0.0.1:9311..."
+                            );
                             println!(
                                 "⚠️  [SERVER] Could not connect to client yet: Connection refused"
                             );

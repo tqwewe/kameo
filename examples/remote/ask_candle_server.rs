@@ -1,11 +1,12 @@
 //! Server that processes FuturesOHLCVCandle ask requests and returns analysis results
 //! Demonstrates ask/reply with real-world trading data structures and zero-copy potential
 
+use kameo::RemoteMessage;
+use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
 use kameo::remote::transport::RemoteTransport;
-use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 use std::time::Instant;
 
@@ -126,11 +127,7 @@ impl Message<FuturesOHLCVCandle> for CandleAnalyzerActor {
         let taker_buy_ratio = if let Some(buy_vol) = candle.taker_flow.taker_buy_volume {
             if let Some(sell_vol) = candle.taker_flow.taker_sell_volume {
                 let total = buy_vol + sell_vol;
-                if total > 0.0 {
-                    buy_vol / total
-                } else {
-                    0.5
-                }
+                if total > 0.0 { buy_vol / total } else { 0.5 }
             } else {
                 1.0
             }

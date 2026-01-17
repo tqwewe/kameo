@@ -68,7 +68,7 @@ where
                 Ok(Some(Self::new(location.actor_id, location, transport)))
             }
             Ok(None) => Ok(None),
-            Err(e) => Err(RegistryError::SwarmNotBootstrapped), // No Other variant in RegistryError
+            Err(_e) => Err(RegistryError::TransportNotBootstrapped),
         }
     }
     

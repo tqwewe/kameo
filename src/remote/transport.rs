@@ -14,8 +14,7 @@ use crate::actor::{Actor, ActorId};
 use crate::message::Message;
 
 /// Convenience alias for the boxed future type returned by transport calls.
-pub type TransportFuture<'a, T> =
-    Pin<Box<dyn Future<Output = TransportResult<T>> + Send + 'a>>;
+pub type TransportFuture<'a, T> = Pin<Box<dyn Future<Output = TransportResult<T>> + Send + 'a>>;
 
 /// Type alias for boxed errors
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
@@ -31,9 +30,9 @@ pub enum RemoteError {
     #[error("timeout occurred")]
     Timeout,
 
-    /// The underlying swarm/transport has stopped
-    #[error("swarm stopped")]
-    SwarmStopped,
+    /// The underlying transport has stopped
+    #[error("transport closed")]
+    TransportClosed,
 
     /// Other errors from the transport layer
     #[error(transparent)]
@@ -76,7 +75,7 @@ impl From<TransportError> for RemoteError {
         match err {
             TransportError::ActorNotFound(name) => RemoteError::ActorNotRegistered(name),
             TransportError::Timeout => RemoteError::Timeout,
-            TransportError::Shutdown => RemoteError::SwarmStopped,
+            TransportError::Shutdown => RemoteError::TransportClosed,
             _ => RemoteError::Other(err.into()),
         }
     }
@@ -97,11 +96,7 @@ pub trait RemoteTransport: Send + Sync + 'static {
     fn local_addr(&self) -> SocketAddr;
 
     /// Register an actor with a given name
-    fn register_actor(
-        &self,
-        name: String,
-        actor_id: ActorId,
-    ) -> TransportFuture<'_, ()>;
+    fn register_actor(&self, name: String, actor_id: ActorId) -> TransportFuture<'_, ()>;
 
     /// Register an actor with synchronous confirmation from peers
     fn register_actor_sync(
@@ -123,16 +118,10 @@ pub trait RemoteTransport: Send + Sync + 'static {
     }
 
     /// Unregister an actor
-    fn unregister_actor(
-        &self,
-        name: &str,
-    ) -> TransportFuture<'_, ()>;
+    fn unregister_actor(&self, name: &str) -> TransportFuture<'_, ()>;
 
     /// Lookup a remote actor by name
-    fn lookup_actor(
-        &self,
-        name: &str,
-    ) -> TransportFuture<'_, Option<RemoteActorLocation>>;
+    fn lookup_actor(&self, name: &str) -> TransportFuture<'_, Option<RemoteActorLocation>>;
 
     /// Send a tell message to a remote actor
     fn send_tell<M>(
@@ -317,7 +306,7 @@ pub struct PeerConfig {
     /// Network address where the peer listens for remote actor traffic.
     pub addr: SocketAddr,
     /// Stable cryptographic peer identifier required by kameo_remote.
-   pub peer_id: kameo_remote::PeerId,
+    pub peer_id: kameo_remote::PeerId,
 }
 
 impl Default for TransportConfig {

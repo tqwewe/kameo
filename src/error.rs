@@ -9,18 +9,17 @@ use std::{
     cmp, error, fmt,
     hash::{Hash, Hasher},
     sync::{
-        atomic::{AtomicPtr, Ordering},
         Arc, Mutex,
+        atomic::{AtomicPtr, Ordering},
     },
 };
 
-use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use tokio::{
     sync::{mpsc, oneshot},
     time::error::Elapsed,
 };
 
-use crate::{actor::ActorId, mailbox::Signal, reply::ReplyError, Actor};
+use crate::{Actor, actor::ActorId, mailbox::Signal, reply::ReplyError};
 
 type ErrorHookFn = fn(&PanicError);
 
@@ -543,108 +542,8 @@ impl fmt::Debug for PanicError {
 
 impl error::Error for PanicError {}
 
-impl Serialize for PanicError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut ser = serializer.serialize_struct("PanicError", 2)?;
-        ser.serialize_field("err", &self.to_string())?;
-        ser.serialize_field("reason", &self.reason)?;
-        ser.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for PanicError {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        enum Field {
-            Err,
-            Reason,
-        }
-
-        impl<'de> Deserialize<'de> for Field {
-            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct FieldVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for FieldVisitor {
-                    type Value = Field;
-
-                    fn expecting(
-                        &self,
-                        formatter: &mut std::fmt::Formatter<'_>,
-                    ) -> std::fmt::Result {
-                        formatter.write_str("`err` or `reason`")
-                    }
-
-                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "err" => Ok(Field::Err),
-                            "reason" => Ok(Field::Reason),
-                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-
-                deserializer.deserialize_identifier(FieldVisitor)
-            }
-        }
-
-        struct PanicErrorVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for PanicErrorVisitor {
-            type Value = PanicError;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct PanicError")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<PanicError, V::Error>
-            where
-                V: serde::de::MapAccess<'de>,
-            {
-                let mut err: Option<String> = None;
-                let mut reason = None;
-
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Err => {
-                            if err.is_some() {
-                                return Err(serde::de::Error::duplicate_field("err"));
-                            }
-                            err = Some(map.next_value()?);
-                        }
-                        Field::Reason => {
-                            if reason.is_some() {
-                                return Err(serde::de::Error::duplicate_field("reason"));
-                            }
-                            reason = Some(map.next_value()?);
-                        }
-                    }
-                }
-
-                let err = err.ok_or_else(|| serde::de::Error::missing_field("err"))?;
-                let reason = reason.ok_or_else(|| serde::de::Error::missing_field("reason"))?;
-
-                Ok(PanicError::new(Box::new(err), reason))
-            }
-        }
-
-        const FIELDS: &[&str] = &["err", "reason"];
-        deserializer.deserialize_struct("PanicError", FIELDS, PanicErrorVisitor)
-    }
-}
-
 /// Describes why an actor panicked or returned a fatal error.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PanicReason {
     /// A message handler panicked during execution.
     HandlerPanic,
@@ -752,10 +651,6 @@ impl Hash for Infallible {
 /// An error that can occur when registering & looking up actors by name.
 #[derive(Debug)]
 pub enum RegistryError {
-    /// Transport not available - actor system no longer manages transport/registry.
-    /// Use external transport/registry provided by the application.
-    #[cfg(feature = "remote")]
-    SwarmNotBootstrapped,
     /// The remote actor was found given the ID, but was not the correct type.
     BadActorType,
     /// An actor has already been registered under the name.
@@ -766,6 +661,9 @@ pub enum RegistryError {
         /// Required quorum.
         quorum: std::num::NonZero<usize>,
     },
+    /// Remote transport not bootstrapped on this node.
+    #[cfg(feature = "remote")]
+    TransportNotBootstrapped,
     /// Timeout.
     #[cfg(feature = "remote")]
     Timeout,
@@ -774,16 +672,15 @@ pub enum RegistryError {
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            #[cfg(feature = "remote")]
-            RegistryError::SwarmNotBootstrapped => write!(
-                f,
-                "transport not available - use external transport/registry"
-            ),
             RegistryError::NameAlreadyRegistered => write!(f, "name already registered"),
             RegistryError::BadActorType => write!(f, "bad actor type"),
             #[cfg(feature = "remote")]
             RegistryError::QuorumFailed { quorum } => {
                 write!(f, "the quorum failed; needed {quorum} peers")
+            }
+            #[cfg(feature = "remote")]
+            RegistryError::TransportNotBootstrapped => {
+                write!(f, "transport not bootstrapped")
             }
             #[cfg(feature = "remote")]
             RegistryError::Timeout => write!(f, "the request timed out"),
@@ -834,7 +731,7 @@ pub enum RemoteSendError<E = Infallible> {
 
     /// Transport not available - actor system no longer manages transport/registry.
     /// Use external transport/registry provided by the application.
-    SwarmNotBootstrapped,
+    TransportNotBootstrapped,
     /// The request could not be sent because a dialing attempt failed.
     DialFailure,
     /// The request timed out before a response was received.
@@ -886,7 +783,7 @@ impl<E> RemoteSendError<E> {
             RemoteSendError::DeserializeHandlerError(err) => {
                 RemoteSendError::DeserializeHandlerError(err)
             }
-            RemoteSendError::SwarmNotBootstrapped => RemoteSendError::SwarmNotBootstrapped,
+            RemoteSendError::TransportNotBootstrapped => RemoteSendError::TransportNotBootstrapped,
             RemoteSendError::DialFailure => RemoteSendError::DialFailure,
             RemoteSendError::NetworkTimeout => RemoteSendError::NetworkTimeout,
             RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
@@ -933,7 +830,9 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
             DeserializeHandlerError(err) | HandlerError(DeserializeHandlerError(err)) => {
                 RemoteSendError::DeserializeHandlerError(err)
             }
-            SwarmNotBootstrapped | HandlerError(SwarmNotBootstrapped) => SwarmNotBootstrapped,
+            TransportNotBootstrapped | HandlerError(TransportNotBootstrapped) => {
+                TransportNotBootstrapped
+            }
             DialFailure | HandlerError(DialFailure) => DialFailure,
             NetworkTimeout | HandlerError(NetworkTimeout) => NetworkTimeout,
             ConnectionClosed | HandlerError(ConnectionClosed) => ConnectionClosed,
@@ -994,7 +893,7 @@ where
             RemoteSendError::DeserializeHandlerError(err) => {
                 write!(f, "failed to deserialize handler error: {err}")
             }
-            RemoteSendError::SwarmNotBootstrapped => write!(
+            RemoteSendError::TransportNotBootstrapped => write!(
                 f,
                 "transport not available - use external transport/registry"
             ),
@@ -1014,14 +913,14 @@ impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {
 /// An error returned when the remote system has already been bootstrapped.
 #[cfg(feature = "remote")]
 #[derive(Clone, Copy, Debug)]
-pub struct SwarmAlreadyBootstrappedError;
+pub struct TransportAlreadyBootstrappedError;
 
 #[cfg(feature = "remote")]
-impl fmt::Display for SwarmAlreadyBootstrappedError {
+impl fmt::Display for TransportAlreadyBootstrappedError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "swarm already bootstrapped")
+        write!(f, "transport already bootstrapped")
     }
 }
 
 #[cfg(feature = "remote")]
-impl error::Error for SwarmAlreadyBootstrappedError {}
+impl error::Error for TransportAlreadyBootstrappedError {}

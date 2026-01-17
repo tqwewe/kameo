@@ -48,11 +48,7 @@ impl MessageHandler for RemoteMessageHandler {
         let msg_type = message_type.to_string();
         let _ = (actor_id, payload);
         Box::pin(async move {
-            Err(format!(
-                "String message types are not supported (got: {})",
-                msg_type
-            )
-            .into())
+            Err(format!("String message types are not supported (got: {})", msg_type).into())
         })
     }
 
@@ -65,11 +61,7 @@ impl MessageHandler for RemoteMessageHandler {
         let msg_type = message_type.to_string();
         let _ = (actor_id, payload);
         Box::pin(async move {
-            Err(format!(
-                "String message types are not supported (got: {})",
-                msg_type
-            )
-            .into())
+            Err(format!("String message types are not supported (got: {})", msg_type).into())
         })
     }
 

@@ -3,8 +3,8 @@
 //! Run after starting the server:
 //! cargo run --example ask_concrete_client --features remote
 
-use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
+use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 // We need to define the same actor and message types to get the type hashes
@@ -146,7 +146,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n📡 Connecting to server at 127.0.0.1:9330 with TLS...");
     if let Some(handle) = transport.handle() {
         // Add the server as a trusted peer using its keypair-based PeerId
-        let server_peer_id = kameo_remote::KeyPair::new_for_testing("ask_server_test_key").peer_id();
+        let server_peer_id =
+            kameo_remote::KeyPair::new_for_testing("ask_server_test_key").peer_id();
 
         let peer = handle.add_peer(&server_peer_id).await;
         peer.connect(&"127.0.0.1:9330".parse()?).await?;

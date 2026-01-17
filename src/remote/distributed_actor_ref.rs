@@ -16,7 +16,7 @@ use crate::message::Message;
 
 use super::transport::{RemoteActorLocation, RemoteTransport, TransportError};
 use super::type_hash::HasTypeHash;
-use kameo_remote::connection_pool::ConnectionHandle;
+use kameo_remote::{connection_pool::ConnectionHandle, registry::RegistryMessage};
 
 /// A reference to a remote distributed actor
 ///
@@ -180,9 +180,10 @@ where
                     rkyv::rancor::Error,
                 >,
             >,
-        for<'b> <<A as Message<M>>::Reply as Archive>::Archived:
-            RDeserialize<<A as Message<M>>::Reply, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>
-            + rkyv::bytecheck::CheckBytes<
+        for<'b> <<A as Message<M>>::Reply as Archive>::Archived: RDeserialize<
+                <A as Message<M>>::Reply,
+                rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+            > + rkyv::bytecheck::CheckBytes<
                 rkyv::rancor::Strategy<
                     rkyv::validation::Validator<
                         rkyv::validation::archive::ArchiveValidator<'b>,
@@ -379,7 +380,11 @@ where
         );
 
         if payload.len() > threshold {
-            println!("🚀 [FALLBACK STREAMING MODE] Message size {} > threshold {}, using transport layer STREAMING", payload.len(), threshold);
+            println!(
+                "🚀 [FALLBACK STREAMING MODE] Message size {} > threshold {}, using transport layer STREAMING",
+                payload.len(),
+                threshold
+            );
             // Use transport layer for streaming large messages
             return self
                 .actor_ref
@@ -415,8 +420,7 @@ where
 /// This struct is monomorphized for each message type M and reply type R,
 /// generating specialized code with no runtime overhead.
 #[derive(Debug)]
-pub struct DistributedAskRequest<'a, A: Actor, M, T = Box<super::kameo_transport::KameoTransport>>
-{
+pub struct DistributedAskRequest<'a, A: Actor, M, T = Box<super::kameo_transport::KameoTransport>> {
     actor_ref: &'a DistributedActorRef<A, T>,
     message: M,
     timeout: Option<Duration>,
@@ -451,17 +455,18 @@ where
                 rkyv::rancor::Error,
             >,
         >,
-    for<'b> <<A as Message<M>>::Reply as Archive>::Archived:
-        RDeserialize<<A as Message<M>>::Reply, rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>>
-            + rkyv::bytecheck::CheckBytes<
-                rkyv::rancor::Strategy<
-                    rkyv::validation::Validator<
-                        rkyv::validation::archive::ArchiveValidator<'b>,
-                        rkyv::validation::shared::SharedValidator,
-                    >,
-                    rkyv::rancor::Error,
+    for<'b> <<A as Message<M>>::Reply as Archive>::Archived: RDeserialize<
+            <A as Message<M>>::Reply,
+            rkyv::rancor::Strategy<rkyv::de::Pool, rkyv::rancor::Error>,
+        > + rkyv::bytecheck::CheckBytes<
+            rkyv::rancor::Strategy<
+                rkyv::validation::Validator<
+                    rkyv::validation::archive::ArchiveValidator<'b>,
+                    rkyv::validation::shared::SharedValidator,
                 >,
+                rkyv::rancor::Error,
             >,
+        >,
     T: RemoteTransport,
 {
     /// Set a timeout for the ask operation
@@ -479,14 +484,13 @@ where
         let reply_bytes = self.send_raw().await?;
 
         // Deserialize the reply using rkyv - monomorphized for reply type R
-        let reply = match rkyv::from_bytes::<<A as Message<M>>::Reply, rkyv::rancor::Error>(
-            &reply_bytes,
-        ) {
-            Ok(r) => r,
-            Err(_e) => {
-                return Err(SendError::ActorStopped);
-            }
-        };
+        let reply =
+            match rkyv::from_bytes::<<A as Message<M>>::Reply, rkyv::rancor::Error>(&reply_bytes) {
+                Ok(r) => r,
+                Err(_e) => {
+                    return Err(SendError::ActorStopped);
+                }
+            };
 
         Ok(reply)
     }
@@ -535,25 +539,42 @@ where
             return Ok(reply_bytes);
         }
 
-        // For ask operations, we need to go through the transport layer
-        // which handles correlation IDs and reply routing
-        let reply_bytes = {
-            // Use regular transport for small messages - still optimized per message type
-            self.actor_ref
-                .transport
-                .send_ask_typed(
-                    self.actor_ref.actor_id,
-                    &self.actor_ref.location,
-                    type_hash,                       // Compile-time constant
-                    Bytes::from(payload.into_vec()), // Zero-copy transfer of ownership
-                    timeout,
-                )
-                .await
-                .map_err(|e| match e {
-                    TransportError::Timeout => SendError::Timeout(None),
-                    _ => SendError::ActorStopped,
-                })?
-        };
+        if let Some(conn) = self.actor_ref.connection.as_ref() {
+            let actor_message = RegistryMessage::ActorMessage {
+                actor_id: self.actor_ref.actor_id.into_u64().to_string(),
+                type_hash,
+                payload: payload.to_vec(),
+                correlation_id: None,
+            };
+
+            let serialized_msg = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message)
+                .map_err(|_e| SendError::ActorStopped)?;
+
+            let reply = match tokio::time::timeout(timeout, conn.ask(&serialized_msg)).await {
+                Ok(Ok(bytes)) => bytes,
+                Ok(Err(_)) => return Err(SendError::ActorStopped),
+                Err(_) => return Err(SendError::Timeout(None)),
+            };
+
+            return Ok(Bytes::from(reply));
+        }
+
+        // For ask operations without a cached connection, fall back to the transport layer
+        let reply_bytes = self
+            .actor_ref
+            .transport
+            .send_ask_typed(
+                self.actor_ref.actor_id,
+                &self.actor_ref.location,
+                type_hash,                       // Compile-time constant
+                Bytes::from(payload.into_vec()), // Zero-copy transfer of ownership
+                timeout,
+            )
+            .await
+            .map_err(|e| match e {
+                TransportError::Timeout => SendError::Timeout(None),
+                _ => SendError::ActorStopped,
+            })?;
 
         Ok(reply_bytes)
     }

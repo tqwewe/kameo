@@ -1,4 +1,4 @@
-use futures::{future::BoxFuture, FutureExt};
+use futures::{FutureExt, future::BoxFuture};
 use std::{
     fmt,
     future::{Future, IntoFuture},
@@ -6,10 +6,10 @@ use std::{
 };
 
 use crate::{
+    Actor,
     actor::{ActorRef, Recipient},
     error::SendError,
     message::Message,
-    Actor,
 };
 
 use super::{WithRequestTimeout, WithoutRequestTimeout};
@@ -119,7 +119,11 @@ where
     pub async fn send(self) -> Result<(), SendError<M>> {
         #[cfg(all(debug_assertions, feature = "tracing"))]
         {
-            warn_deadlock(self.actor_ref, "telling an actor risks deadlocking if the actor's mailbox is bounded and is sending a message to the current actor that also uses `send()`.", self.called_at);
+            warn_deadlock(
+                self.actor_ref,
+                "telling an actor risks deadlocking if the actor's mailbox is bounded and is sending a message to the current actor that also uses `send()`.",
+                self.called_at,
+            );
         }
 
         self.actor_ref

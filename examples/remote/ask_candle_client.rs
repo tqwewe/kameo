@@ -1,9 +1,9 @@
 //! Client that sends FuturesOHLCVCandle ask requests and receives analysis results
 //! Tests ask/reply performance with real-world trading data structures
 
+use kameo::RemoteMessage;
 use kameo::remote::distributed_actor_ref::DistributedActorRef;
 use kameo::remote::transport::RemoteTransport;
-use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -175,16 +175,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up the remote candle analyzer actor
     println!("\n🔍 Looking up remote CandleAnalyzerActor...");
-    let candle_analyzer = match DistributedActorRef::<CandleAnalyzerActor>::lookup("candle_analyzer").await? {
-        Some(ref_) => {
-            println!("✅ Found CandleAnalyzerActor on server");
-            ref_
-        }
-        None => {
-            println!("❌ CandleAnalyzerActor not found on server");
-            return Err("Actor not found".into());
-        }
-    };
+    let candle_analyzer =
+        match DistributedActorRef::<CandleAnalyzerActor>::lookup("candle_analyzer").await? {
+            Some(ref_) => {
+                println!("✅ Found CandleAnalyzerActor on server");
+                ref_
+            }
+            None => {
+                println!("❌ CandleAnalyzerActor not found on server");
+                return Err("Actor not found".into());
+            }
+        };
 
     // Warm-up requests
     println!("\n🔥 Warming up with 10 requests...");

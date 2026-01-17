@@ -1,6 +1,7 @@
 //! Test server using MAPPING syntax in distributed_actor! macro
 //! This reproduces the issue with PreBacktestMessage
 
+use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;

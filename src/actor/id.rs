@@ -3,7 +3,6 @@ use std::hash::Hash;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicUsize};
 
-
 #[cfg(feature = "remote")]
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
@@ -21,9 +20,9 @@ pub struct ActorId {
 }
 
 impl ActorId {
-    /// Creates a new `ActorId` with the given `sequence_id`, using the local actor swarm.
+    /// Creates a new `ActorId` with the given `sequence_id`, using the local actor system.
     ///
-    /// If the local actor swarm hasn't been bootstrapped, no `peer_id` will be associated,
+    /// If the local actor system hasn't been bootstrapped, no `peer_id` will be associated,
     /// but the actor is still considered to be running locally.
     ///
     /// # Arguments
@@ -34,21 +33,6 @@ impl ActorId {
     ///
     /// A new `ActorId` instance.
     pub fn new(sequence_id: u64) -> Self {
-        ActorId { sequence_id }
-    }
-
-    /// Creates a new `ActorId` with a specific `sequence_id` and `peer_id`.
-    ///
-    /// # Arguments
-    ///
-    /// * `sequence_id` - The sequential identifier for the actor.
-    /// * `peer_id` - The `PeerId` associated with this actor.
-    ///
-    /// # Returns
-    ///
-    /// A new `ActorId` instance.
-    #[cfg(feature = "remote")]
-    pub fn new_with_peer_id(sequence_id: u64, _peer_id: String) -> Self {
         ActorId { sequence_id }
     }
 
@@ -90,16 +74,6 @@ impl ActorId {
     #[cfg(feature = "remote")]
     pub fn from_u64(id: u64) -> Self {
         Self::new(id)
-    }
-
-    /// Returns the `PeerId` associated with the `ActorId`, if any.
-    ///
-    /// # Returns
-    ///
-    /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no actor swarm has been bootstrapped.
-    #[cfg(feature = "remote")]
-    pub fn peer_id(&self) -> Option<String> {
-        None
     }
 
     /// Serializes the `ActorId` into a byte vector.

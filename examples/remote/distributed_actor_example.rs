@@ -5,11 +5,12 @@
 //! 2. Messages with #[derive(RemoteMessage)]
 //! 3. distributed_actor! macro for registering handlers
 
+use kameo::RemoteMessage;
+use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
 use kameo::remote::transport::RemoteTransport;
-use kameo::RemoteMessage;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 // Step 1: Define your actor normally

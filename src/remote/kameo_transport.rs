@@ -135,7 +135,7 @@ impl KameoTransport {
                 );
                 return Err(TransportError::Other(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
-                    "No global transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) first"
+                    "No global transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) first",
                 ))));
             }
             tracing::info!("✅ [TRANSPORT] Global transport validated for '{}'", name);
@@ -274,7 +274,7 @@ impl KameoTransport {
             if global.is_none() {
                 return Err(TransportError::Other(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotConnected,
-                    "No global transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) first"
+                    "No global transport configured - call bootstrap_with_keypair() or bootstrap_with_config() (with keypair) first",
                 ))));
             }
         }
@@ -386,16 +386,16 @@ impl RemoteTransport for KameoTransport {
 
             if !self.config.enable_encryption {
                 return Err(TransportError::Other(
-                    "TLS is required for remote transport; enable_encryption must be true"
-                        .into(),
+                    "TLS is required for remote transport; enable_encryption must be true".into(),
                 ));
             }
 
             kameo_remote::tls::ensure_crypto_provider();
             let secret_key = keypair.to_secret_key();
-            let handle = GossipRegistryHandle::new_with_tls(bind_addr, secret_key, Some(gossip_config))
-                .await
-                .map_err(|e| TransportError::Other(Box::new(e)))?;
+            let handle =
+                GossipRegistryHandle::new_with_tls(bind_addr, secret_key, Some(gossip_config))
+                    .await
+                    .map_err(|e| TransportError::Other(Box::new(e)))?;
 
             self.handle = Some(Arc::new(handle));
             Ok(())

@@ -1,7 +1,7 @@
 //! Tests to verify the registration system fixes work correctly
 //! These tests ensure local registration works with the remote feature enabled
 
-use kameo::actor::{Actor, ActorRef};
+use kameo::actor::{ActorRef, Spawn};
 use kameo::error::RegistryError;
 use kameo::prelude::*;
 
@@ -20,7 +20,7 @@ impl TestActor {
 async fn test_local_registration_with_remote_feature() {
     let actor = TestActor::spawn(TestActor::new());
 
-    // Should succeed without returning SwarmNotBootstrapped error
+    // Should succeed without returning error
     actor.register_local("test_actor").unwrap();
 
     // Should be able to find the actor via local lookup

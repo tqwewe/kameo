@@ -5,6 +5,7 @@ use std::{net::SocketAddr, time::Duration};
 
 use bytes::Bytes;
 use kameo::{
+    RemoteMessage,
     actor::{Actor, ActorId, ActorRef},
     distributed_actor,
     message::{Context, Message},
@@ -14,7 +15,6 @@ use kameo::{
             MessageHandler, RemoteActorLocation, RemoteTransport, TransportError, TransportFuture,
         },
     },
-    RemoteMessage,
 };
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 

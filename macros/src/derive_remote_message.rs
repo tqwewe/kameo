@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{
-    parse::{Parse, ParseStream},
     Attribute, Data, DeriveInput, Lit, Meta, MetaNameValue,
+    parse::{Parse, ParseStream},
 };
 
 pub struct DeriveRemoteMessage {

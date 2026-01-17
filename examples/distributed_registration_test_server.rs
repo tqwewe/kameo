@@ -1,5 +1,6 @@
 //! Minimal test server that demonstrates distributed actor registration/lookup issue
 
+use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;
@@ -66,8 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Add client as known peer for TLS authentication
     if let Some(handle) = transport.handle() {
-        let client_peer_id =
-            kameo_remote::KeyPair::new_for_testing("test_client_key").peer_id();
+        let client_peer_id = kameo_remote::KeyPair::new_for_testing("test_client_key").peer_id();
         let _client_peer = handle.add_peer(&client_peer_id).await;
         println!("✅ Server registered client as known peer for TLS authentication");
     }

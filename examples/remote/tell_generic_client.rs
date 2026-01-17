@@ -3,8 +3,8 @@
 //! Run after starting the server:
 //! cargo run --example tell_generic_client --features remote
 
-use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
+use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 // We need to define the same actor and message types to get the type hashes
@@ -131,17 +131,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor
     println!("\n🔍 Looking up remote StorageActor...");
-    let storage_ref =
-        match DistributedActorRef::<StorageActor>::lookup("storage").await? {
-            Some(ref_) => {
-                println!("✅ Found StorageActor on server");
-                ref_
-            }
-            None => {
-                println!("❌ StorageActor not found on server");
-                return Err("Storage actor not found".into());
-            }
-        };
+    let storage_ref = match DistributedActorRef::<StorageActor>::lookup("storage").await? {
+        Some(ref_) => {
+            println!("✅ Found StorageActor on server");
+            ref_
+        }
+        None => {
+            println!("❌ StorageActor not found on server");
+            return Err("Storage actor not found".into());
+        }
+    };
 
     // Send tell messages
     println!("\n📤 Sending tell messages to remote actor...");

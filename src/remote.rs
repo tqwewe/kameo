@@ -34,7 +34,7 @@
 
 use std::error;
 
-use crate::{actor::ActorRef, error::RegistryError, Actor};
+use crate::{Actor, actor::ActorRef, error::RegistryError};
 
 #[doc(hidden)]
 pub mod _internal;
@@ -121,8 +121,7 @@ impl LookupStream {
     }
 }
 
-impl futures::Stream for LookupStream
-{
+impl futures::Stream for LookupStream {
     type Item = Result<dynamic_distributed_actor_ref::DynamicDistributedActorRef, RegistryError>;
 
     fn poll_next(
@@ -130,6 +129,6 @@ impl futures::Stream for LookupStream
         _cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         // Always return an error indicating the transport is not available
-        std::task::Poll::Ready(Some(Err(RegistryError::SwarmNotBootstrapped)))
+        std::task::Poll::Ready(Some(Err(RegistryError::TransportNotBootstrapped)))
     }
 }

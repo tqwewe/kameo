@@ -1,14 +1,8 @@
-use std::{
-    convert,
-    ops::ControlFlow,
-    panic::AssertUnwindSafe,
-    sync::Arc,
-    thread,
-};
+use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread};
 
 use futures::{
-    stream::{AbortHandle, AbortRegistration, Abortable, FuturesUnordered},
     FutureExt, StreamExt,
+    stream::{AbortHandle, AbortRegistration, Abortable, FuturesUnordered},
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -19,11 +13,8 @@ use tokio::{
 use tracing::{error, trace};
 
 use crate::{
-    actor::{
-        kind::ActorBehaviour,
-        Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
-    },
-    error::{invoke_actor_error_hook, ActorStopReason, PanicError, PanicReason, SendError},
+    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, Link, Links, kind::ActorBehaviour},
+    error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
     mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -89,7 +80,7 @@ impl<A: Actor> PreparedActor<A> {
     ///
     /// ```no_run
     /// # use kameo::Actor;
-    /// # use kameo::actor::PreparedActor;
+    /// # use kameo::actor::{PreparedActor, Spawn};
     /// # use kameo::message::{Context, Message};
     ///
     /// # #[derive(Actor)]
@@ -177,9 +168,7 @@ where
     let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
         .catch_unwind()
         .await
-        .map(|res| {
-            res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart))
-        })
+        .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart)))
         .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
         .and_then(convert::identity);
     match &start_res {
@@ -253,11 +242,7 @@ where
                         }
                         .boxed(),
                     );
-                } // #[cfg(feature = "remote")]
-                  // Link::Remote(_notified_actor_remote_id) => {
-                  //     // TODO: Implement remote link notification without ActorSwarm
-                  //     // This functionality will be added back when remote links are reimplemented
-                  // }
+            }
             }
         }
     }

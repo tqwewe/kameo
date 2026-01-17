@@ -40,6 +40,7 @@
 //! cargo run --example tell_concrete_client_bad_key --features remote
 
 use kameo::actor::{Actor, ActorRef};
+use kameo::actor::Spawn;
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 

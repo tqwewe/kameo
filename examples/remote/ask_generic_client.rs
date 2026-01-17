@@ -3,8 +3,8 @@
 //! Run after starting the server:
 //! cargo run --example ask_generic_client --features remote
 
-use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
+use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 // We need to define the same actor and message types to get the type hashes
@@ -155,17 +155,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor
     println!("\n🔍 Looking up remote CalculatorActor...");
-    let calc_ref =
-        match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
-            Some(ref_) => {
-                println!("✅ Found CalculatorActor on server");
-                ref_
-            }
-            None => {
-                println!("❌ CalculatorActor not found on server");
-                return Err("Calculator not found".into());
-            }
-        };
+    let calc_ref = match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
+        Some(ref_) => {
+            println!("✅ Found CalculatorActor on server");
+            ref_
+        }
+        None => {
+            println!("❌ CalculatorActor not found on server");
+            return Err("Calculator not found".into());
+        }
+    };
 
     // Send ask messages and verify responses
     println!("\n📤 Sending ask messages to remote actor...");

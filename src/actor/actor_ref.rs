@@ -10,7 +10,7 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::{future::BoxFuture, stream::AbortHandle, FutureExt, Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt, future::BoxFuture, stream::AbortHandle};
 use tokio::{
     sync::{Mutex, SetOnce},
     task::JoinHandle,
@@ -18,12 +18,12 @@ use tokio::{
 };
 
 use crate::{
+    Actor, Reply,
     error::{self, HookError, Infallible, PanicError, SendError},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
     reply::ReplyError,
     request::{AskRequest, ReplyRecipientAskRequest, TellRequest, WithoutRequestTimeout},
-    Actor, Reply,
 };
 
 use super::id::ActorId;
@@ -247,7 +247,7 @@ where
     /// ```
     /// use std::time::Duration;
     ///
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     /// use kameo::error::Infallible;
     /// use tokio::time::sleep;
     ///
@@ -288,7 +288,7 @@ where
     /// ```
     /// use std::num::ParseIntError;
     ///
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// struct MyActor;
     ///
@@ -331,7 +331,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// struct MyActor;
     ///
@@ -406,7 +406,7 @@ where
     /// ```
     /// use std::num::ParseIntError;
     ///
-    /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
     /// use kameo::error::ActorStopReason;
     ///
     /// struct MyActor;
@@ -460,7 +460,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef, WeakActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
     /// use kameo::error::ActorStopReason;
     ///
     /// struct MyActor;
@@ -521,7 +521,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -567,7 +567,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
     ///
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -607,7 +607,7 @@ where
     /// # Example
     ///
     /// ```
-    /// # use kameo::Actor;
+    /// # use kameo::{actor::Spawn, Actor};
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -657,7 +657,7 @@ where
     /// ```
     /// use std::thread;
     ///
-    /// # use kameo::Actor;
+    /// # use kameo::{actor::Spawn, Actor};
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -705,7 +705,7 @@ where
     /// # Example
     ///
     /// ```
-    /// # use kameo::Actor;
+    /// # use kameo::{actor::Spawn, Actor};
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -750,7 +750,7 @@ where
     /// ```
     /// # use std::thread;
     /// #
-    /// # use kameo::Actor;
+    /// # use kameo::{actor::Spawn, Actor};
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -797,7 +797,7 @@ where
     /// # Example
     ///
     /// ```
-    /// use kameo::Actor;
+    /// use kameo::{actor::Spawn, Actor};
     /// use kameo::message::{Context, Message, StreamMessage};
     ///
     /// #[derive(kameo::Actor)]

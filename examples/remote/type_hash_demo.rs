@@ -4,6 +4,7 @@
 //! Run with: cargo run --example type_hash_demo --features remote
 
 use kameo::actor::{Actor, ActorRef};
+use kameo::actor::Spawn;
 use kameo::message::{Context, Message};
 use kameo::remote::type_hash::{HasTypeHash, TypeHash};
 

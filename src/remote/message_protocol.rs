@@ -180,5 +180,4 @@ mod tests {
         assert!(flags.contains(MessageFlags::PRIORITY));
         assert!(!flags.contains(MessageFlags::COMPRESSED));
     }
-
 }

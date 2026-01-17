@@ -5,6 +5,7 @@
 //! cargo run --example test_valid_keypair_auth --features remote
 
 use kameo::actor::{Actor, ActorRef};
+use kameo::actor::Spawn;
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 

@@ -3,8 +3,8 @@
 //! Run after starting the server:
 //! cargo run --example ask_client_simple_match --features remote
 
-use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
+use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 use std::time::Instant;
 

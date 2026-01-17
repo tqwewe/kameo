@@ -49,11 +49,7 @@ impl MessageHandler for DistributedMessageHandler {
         let msg_type = message_type.to_string();
         let _ = (actor_id, payload);
         Box::pin(async move {
-            Err(format!(
-                "String message types are not supported (got: {})",
-                msg_type
-            )
-            .into())
+            Err(format!("String message types are not supported (got: {})", msg_type).into())
         })
     }
 
@@ -66,11 +62,7 @@ impl MessageHandler for DistributedMessageHandler {
         let msg_type = message_type.to_string();
         let _ = (actor_id, payload);
         Box::pin(async move {
-            Err(format!(
-                "String message types are not supported (got: {})",
-                msg_type
-            )
-            .into())
+            Err(format!("String message types are not supported (got: {})", msg_type).into())
         })
     }
 
@@ -80,8 +72,7 @@ impl MessageHandler for DistributedMessageHandler {
         type_hash: u32,
         payload: Bytes,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
-        self.handler
-            .handle_tell_typed(actor_id, type_hash, payload)
+        self.handler.handle_tell_typed(actor_id, type_hash, payload)
     }
 
     fn handle_ask_typed(
@@ -92,8 +83,6 @@ impl MessageHandler for DistributedMessageHandler {
     ) -> Pin<Box<dyn Future<Output = Result<Bytes, BoxError>> + Send + '_>> {
         let handler = self.handler.clone();
 
-        Box::pin(async move {
-            handler.handle_ask_typed(actor_id, type_hash, payload).await
-        })
+        Box::pin(async move { handler.handle_ask_typed(actor_id, type_hash, payload).await })
     }
 }

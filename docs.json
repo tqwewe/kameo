@@ -69,8 +69,8 @@
           "icon": "network-wired"
         },
         {
-          "title": "Bootstrapping the Actor Swarm",
-          "href": "/distributed-actors/bootstrapping-actor-swarm",
+          "title": "Bootstrapping",
+          "href": "/distributed-actors/bootstrapping",
           "icon": "play-circle"
         },
         {

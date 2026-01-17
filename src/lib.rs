@@ -23,7 +23,7 @@ pub mod request;
 pub use crate::remote::RemoteMessage;
 pub use actor::Actor;
 #[cfg(feature = "macros")]
-pub use kameo_macros::{messages, remote_message_derive, Actor, RemoteMessage, Reply};
+pub use kameo_macros::{Actor, RemoteMessage, Reply, messages, remote_message_derive};
 pub use reply::Reply;
 
 /// Commonly used types and functions that can be imported with a single use statement.
@@ -36,11 +36,11 @@ pub use reply::Reply;
 /// and traits needed for typical actor system usage.
 pub mod prelude {
     #[cfg(feature = "macros")]
-    pub use kameo_macros::{messages, remote_message_derive, Actor, RemoteMessage, Reply};
+    pub use kameo_macros::{Actor, RemoteMessage, Reply, messages, remote_message_derive};
 
     pub use crate::actor::{
         Actor, ActorId, ActorRef, ActorRegistration, PreparedActor, Recipient, ReplyRecipient,
-        WeakActorRef, WeakRecipient, WeakReplyRecipient,
+        Spawn, WeakActorRef, WeakRecipient, WeakReplyRecipient,
     };
     #[cfg(feature = "remote")]
     pub use crate::error::RemoteSendError;

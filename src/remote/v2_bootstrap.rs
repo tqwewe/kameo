@@ -127,7 +127,9 @@ fn set_v2_transport_env_var() {
         }
         _ => {}
     }
-    std::env::set_var(ENV_VAR_NAME, "true");
+    unsafe {
+        std::env::set_var(ENV_VAR_NAME, "true");
+    }
 }
 
 /// Bootstrap a kameo_remote transport with a specific keypair for TLS authentication

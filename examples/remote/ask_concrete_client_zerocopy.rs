@@ -5,8 +5,8 @@
 
 #![allow(dead_code, unused_variables)]
 
-use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use kameo::RemoteMessage;
+use kameo::remote::{distributed_actor_ref::DistributedActorRef, transport::RemoteTransport};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 // We need to define the same actor and message types to get the type hashes
@@ -161,17 +161,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Look up remote actor with connection caching
     println!("\n🔍 Looking up remote CalculatorActor with connection caching...");
-    let calc_ref =
-        match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
-            Some(ref_) => {
-                println!("✅ Found CalculatorActor on server with cached connection");
-                ref_
-            }
-            None => {
-                println!("❌ CalculatorActor not found on server");
-                return Err("Actor not found".into());
-            }
-        };
+    let calc_ref = match DistributedActorRef::<CalculatorActor>::lookup("calculator").await? {
+        Some(ref_) => {
+            println!("✅ Found CalculatorActor on server with cached connection");
+            ref_
+        }
+        None => {
+            println!("❌ CalculatorActor not found on server");
+            return Err("Actor not found".into());
+        }
+    };
 
     // Send ask messages and verify responses
     println!("\n📤 Sending ask messages to remote actor...");
@@ -236,10 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let start = std::time::Instant::now();
 
         // Get raw bytes response
-        let reply_bytes = calc_ref
-            .ask(Add { a: i, b: i * 10 })
-            .send_raw()
-            .await?;
+        let reply_bytes = calc_ref.ask(Add { a: i, b: i * 10 }).send_raw().await?;
 
         // Access archived reply directly - TRUE ZERO-COPY!
         let archived_result =

@@ -5,14 +5,11 @@
 //! use the regular protocol and maintain performance characteristics.
 
 use kameo::remote::{
-    transport::RemoteTransport,
-    type_hash::HasTypeHash,
-    type_registry,
-    DistributedActorRef,
+    DistributedActorRef, transport::RemoteTransport, type_hash::HasTypeHash, type_registry,
 };
-use kameo::{distributed_actor, Actor};
+use kameo::{Actor, distributed_actor};
 use std::time::Instant;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 // Test message structure for small messages
 #[derive(kameo::RemoteMessage, Debug, Clone, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
@@ -74,8 +71,7 @@ distributed_actor! {
 
 fn assert_type_registered<M: HasTypeHash>(actor_id: kameo::actor::ActorId) {
     let type_hash = <M as HasTypeHash>::TYPE_HASH.as_u32();
-    let entry = type_registry::lookup_handler(type_hash)
-        .expect("type hash not registered");
+    let entry = type_registry::lookup_handler(type_hash).expect("type hash not registered");
     assert_eq!(entry.actor_id, actor_id);
 }
 
@@ -92,15 +88,19 @@ async fn test_small_tell_messages_100kb() {
     let server_peer_id = server_keypair.peer_id();
     let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9401);
 
-    let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9400".parse().unwrap(), server_keypair)
-            .await
-            .expect("Server bootstrap failed");
+    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9400".parse().unwrap(),
+        server_keypair,
+    )
+    .await
+    .expect("Server bootstrap failed");
 
-    let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9401".parse().unwrap(), client_keypair)
-            .await
-            .expect("Client bootstrap failed");
+    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9401".parse().unwrap(),
+        client_keypair,
+    )
+    .await
+    .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
@@ -164,15 +164,19 @@ async fn test_small_ask_messages_500kb() {
     let server_peer_id = server_keypair.peer_id();
     let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9411);
 
-    let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9410".parse().unwrap(), server_keypair)
-            .await
-            .expect("Server bootstrap failed");
+    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9410".parse().unwrap(),
+        server_keypair,
+    )
+    .await
+    .expect("Server bootstrap failed");
 
-    let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9411".parse().unwrap(), client_keypair)
-            .await
-            .expect("Client bootstrap failed");
+    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9411".parse().unwrap(),
+        client_keypair,
+    )
+    .await
+    .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
@@ -243,15 +247,19 @@ async fn test_boundary_condition_999kb() {
     let server_peer_id = server_keypair.peer_id();
     let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9421);
 
-    let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9420".parse().unwrap(), server_keypair)
-            .await
-            .expect("Server bootstrap failed");
+    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9420".parse().unwrap(),
+        server_keypair,
+    )
+    .await
+    .expect("Server bootstrap failed");
 
-    let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9421".parse().unwrap(), client_keypair)
-            .await
-            .expect("Client bootstrap failed");
+    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9421".parse().unwrap(),
+        client_keypair,
+    )
+    .await
+    .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
@@ -324,15 +332,19 @@ async fn test_performance_baseline_small_messages() {
     let server_peer_id = server_keypair.peer_id();
     let client_keypair = kameo::remote::v2_bootstrap::test_keypair(9431);
 
-    let mut server_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9430".parse().unwrap(), server_keypair)
-            .await
-            .expect("Server bootstrap failed");
+    let mut server_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9430".parse().unwrap(),
+        server_keypair,
+    )
+    .await
+    .expect("Server bootstrap failed");
 
-    let mut client_transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9431".parse().unwrap(), client_keypair)
-            .await
-            .expect("Client bootstrap failed");
+    let mut client_transport = kameo::remote::v2_bootstrap::bootstrap_on(
+        "127.0.0.1:9431".parse().unwrap(),
+        client_keypair,
+    )
+    .await
+    .expect("Client bootstrap failed");
 
     // Register test actor
     let actor_ref = SmallMessageTestActor::spawn(SmallMessageTestActor);
@@ -342,12 +354,11 @@ async fn test_performance_baseline_small_messages() {
         .expect("Actor registration failed");
     assert_type_registered::<SmallTestMessage>(actor_ref.id());
 
-fn assert_type_registered<M: HasTypeHash>(actor_id: kameo::actor::ActorId) {
-    let type_hash = <M as HasTypeHash>::TYPE_HASH.as_u32();
-    let entry = type_registry::lookup_handler(type_hash)
-        .expect("type hash not registered");
-    assert_eq!(entry.actor_id, actor_id);
-}
+    fn assert_type_registered<M: HasTypeHash>(actor_id: kameo::actor::ActorId) {
+        let type_hash = <M as HasTypeHash>::TYPE_HASH.as_u32();
+        let entry = type_registry::lookup_handler(type_hash).expect("type hash not registered");
+        assert_eq!(entry.actor_id, actor_id);
+    }
 
     // Connect client to server
     if let Some(handle) = client_transport.handle() {
