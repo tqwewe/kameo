@@ -122,18 +122,7 @@ impl<A: Actor> PreparedActor<A> {
     ///
     /// See [`Actor::spawn`] for more information.
     pub fn spawn(self, args: A::Args) -> JoinHandle<Result<(A, ActorStopReason), PanicError>> {
-        #[cfg(not(all(tokio_unstable, feature = "tracing")))]
-        {
-            tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(args)))
-        }
-
-        #[cfg(all(tokio_unstable, feature = "tracing"))]
-        {
-            tokio::task::Builder::new()
-                .name(A::name())
-                .spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(args)))
-                .unwrap()
-        }
+        tokio::spawn(CURRENT_ACTOR_ID.scope(self.actor_ref.id(), self.run(args)))
     }
 
     /// Spawns the actor in a new background thread, returning the `JoinHandle`.
