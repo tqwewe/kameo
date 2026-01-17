@@ -296,6 +296,43 @@ pub trait Actor: Sized + Send + 'static {
     ) -> impl Future<Output = Option<Signal<Self>>> + Send {
         mailbox_rx.recv()
     }
+
+    /// Spawns the actor in a Tokio task with a default bounded mailbox.
+    ///
+    /// This is a convenience method that delegates to [`Spawn::spawn`]. For full documentation
+    /// and more spawn options, see the [`Spawn`] trait.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use kameo::Actor;
+    ///
+    /// #[derive(Actor)]
+    /// struct MyActor;
+    ///
+    /// # tokio_test::block_on(async {
+    /// let actor_ref = MyActor::spawn(MyActor);
+    /// # })
+    /// ```
+    #[inline]
+    fn spawn(args: Self::Args) -> ActorRef<Self>
+    where
+        Self: Spawn,
+    {
+        <Self as Spawn>::spawn(args)
+    }
+
+    /// Spawns the actor with default initialization.
+    ///
+    /// This is a convenience method that delegates to [`Spawn::spawn_default`].
+    #[inline]
+    fn spawn_default() -> ActorRef<Self>
+    where
+        Self: Spawn,
+        Self::Args: Default,
+    {
+        <Self as Spawn>::spawn_default()
+    }
 }
 
 /// Provides methods for spawning actors with various configurations.
