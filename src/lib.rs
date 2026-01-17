@@ -21,7 +21,7 @@ pub mod request;
 
 #[cfg(all(feature = "remote", feature = "macros"))]
 pub use crate::remote::RemoteMessage;
-pub use actor::Actor;
+pub use actor::{Actor, Spawn};
 #[cfg(feature = "macros")]
 pub use kameo_macros::{Actor, RemoteMessage, Reply, messages, remote_message_derive};
 pub use reply::Reply;
