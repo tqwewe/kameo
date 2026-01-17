@@ -1,7 +1,7 @@
 use kameo::prelude::*;
 use kameo_actors::{
-    broker::{Broker, Publish, Subscribe},
     DeliveryStrategy,
+    broker::{Broker, Publish, Subscribe},
 };
 
 #[derive(Actor)]

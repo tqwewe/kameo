@@ -14,6 +14,7 @@ use std::{
     },
 };
 
+use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use tokio::{
     sync::{mpsc, oneshot},
     time::error::Elapsed,
@@ -436,22 +437,33 @@ impl<E> error::Error for HookError<E> where E: error::Error {}
 
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
-pub struct PanicError(pub(crate) Arc<Mutex<Box<dyn ReplyError>>>);
+pub struct PanicError {
+    pub(crate) err: Arc<Mutex<Box<dyn ReplyError>>>,
+    reason: PanicReason,
+}
 
 impl PanicError {
     /// Creates a new PanicError from a generic boxed reply error.
-    pub fn new(err: Box<dyn ReplyError>) -> Self {
-        PanicError(Arc::new(Mutex::new(err)))
+    pub fn new(err: Box<dyn ReplyError>, reason: PanicReason) -> Self {
+        PanicError {
+            err: Arc::new(Mutex::new(err)),
+            reason,
+        }
     }
 
-    pub(crate) fn new_from_panic_any(err: Box<dyn any::Any + Send>) -> Self {
+    pub(crate) fn new_from_panic_any(err: Box<dyn any::Any + Send>, reason: PanicReason) -> Self {
         err.downcast::<&'static str>()
-            .map(|s| PanicError::new(Box::new(*s)))
+            .map(|s| PanicError::new(Box::new(*s), reason))
             .or_else(|err| {
                 err.downcast::<String>()
-                    .map(|s| PanicError::new(Box::new(*s)))
+                    .map(|s| PanicError::new(Box::new(*s), reason))
             })
-            .unwrap_or_else(|err| PanicError::new(Box::new(err)))
+            .unwrap_or_else(|err| PanicError::new(Box::new(err), reason))
+    }
+
+    /// Returns the reason for the panic.
+    pub fn reason(&self) -> PanicReason {
+        self.reason
     }
 
     /// Calls the passed closure `f` with an option containing the boxed any type downcast into a string,
@@ -482,7 +494,7 @@ impl PanicError {
         T: ReplyError,
         F: FnOnce(&T) -> R,
     {
-        match self.0.lock() {
+        match self.err.lock() {
             Ok(lock) => lock.downcast_ref().map(f),
             Err(err) => err.get_ref().downcast_ref().map(f),
         }
@@ -493,7 +505,7 @@ impl PanicError {
     where
         F: FnOnce(&Box<dyn ReplyError>) -> R,
     {
-        match self.0.lock() {
+        match self.err.lock() {
             Ok(lock) => f(&lock),
             Err(err) => f(err.get_ref()),
         }
@@ -511,8 +523,8 @@ impl PanicError {
 
 impl fmt::Display for PanicError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.with_str(|s| write!(f, "panicked: {s}"))
-            .unwrap_or_else(|| write!(f, "panicked"))
+        self.with_str(|s| write!(f, "{}: {s}", self.reason))
+            .unwrap_or_else(|| write!(f, "{}", self.reason))
     }
 }
 
@@ -522,6 +534,7 @@ impl fmt::Debug for PanicError {
 
         self.with_debug_inner(|err| {
             dbg_struct.field("err", err);
+            dbg_struct.field("reason", &self.reason);
         });
 
         dbg_struct.finish()
@@ -530,7 +543,153 @@ impl fmt::Debug for PanicError {
 
 impl error::Error for PanicError {}
 
-// Serde implementations removed - error types no longer serializable for maximum performance
+impl Serialize for PanicError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut ser = serializer.serialize_struct("PanicError", 2)?;
+        ser.serialize_field("err", &self.to_string())?;
+        ser.serialize_field("reason", &self.reason)?;
+        ser.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for PanicError {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        enum Field {
+            Err,
+            Reason,
+        }
+
+        impl<'de> Deserialize<'de> for Field {
+            fn deserialize<D>(deserializer: D) -> Result<Field, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct FieldVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for FieldVisitor {
+                    type Value = Field;
+
+                    fn expecting(
+                        &self,
+                        formatter: &mut std::fmt::Formatter<'_>,
+                    ) -> std::fmt::Result {
+                        formatter.write_str("`err` or `reason`")
+                    }
+
+                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "err" => Ok(Field::Err),
+                            "reason" => Ok(Field::Reason),
+                            _ => Err(serde::de::Error::unknown_field(value, FIELDS)),
+                        }
+                    }
+                }
+
+                deserializer.deserialize_identifier(FieldVisitor)
+            }
+        }
+
+        struct PanicErrorVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for PanicErrorVisitor {
+            type Value = PanicError;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct PanicError")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<PanicError, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut err: Option<String> = None;
+                let mut reason = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Err => {
+                            if err.is_some() {
+                                return Err(serde::de::Error::duplicate_field("err"));
+                            }
+                            err = Some(map.next_value()?);
+                        }
+                        Field::Reason => {
+                            if reason.is_some() {
+                                return Err(serde::de::Error::duplicate_field("reason"));
+                            }
+                            reason = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let err = err.ok_or_else(|| serde::de::Error::missing_field("err"))?;
+                let reason = reason.ok_or_else(|| serde::de::Error::missing_field("reason"))?;
+
+                Ok(PanicError::new(Box::new(err), reason))
+            }
+        }
+
+        const FIELDS: &[&str] = &["err", "reason"];
+        deserializer.deserialize_struct("PanicError", FIELDS, PanicErrorVisitor)
+    }
+}
+
+/// Describes why an actor panicked or returned a fatal error.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum PanicReason {
+    /// A message handler panicked during execution.
+    HandlerPanic,
+    /// The `on_message` hook returned an error.
+    OnMessage,
+    /// The `on_start` lifecycle hook returned an error.
+    OnStart,
+    /// The `on_panic` lifecycle hook returned an error.
+    OnPanic,
+    /// The `on_link_died` lifecycle hook returned an error.
+    OnLinkDied,
+    /// The `on_stop` lifecycle hook returned an error.
+    OnStop,
+}
+
+impl PanicReason {
+    /// Returns true if the panic originated from a lifecycle hook.
+    pub fn is_lifecycle_hook(&self) -> bool {
+        matches!(
+            self,
+            PanicReason::OnStart
+                | PanicReason::OnPanic
+                | PanicReason::OnLinkDied
+                | PanicReason::OnStop
+        )
+    }
+
+    /// Returns true if the panic occurred while processing messages.
+    pub fn is_message_processing(&self) -> bool {
+        matches!(self, PanicReason::HandlerPanic | PanicReason::OnMessage)
+    }
+}
+
+impl fmt::Display for PanicReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PanicReason::HandlerPanic => write!(f, "message handler panicked"),
+            PanicReason::OnMessage => write!(f, "on_message returned error"),
+            PanicReason::OnStart => write!(f, "on_start returned error"),
+            PanicReason::OnPanic => write!(f, "on_panic returned error"),
+            PanicReason::OnLinkDied => write!(f, "on_link_died returned error"),
+            PanicReason::OnStop => write!(f, "on_stop returned error"),
+        }
+    }
+}
 
 /// An infallible error type, similar to [std::convert::Infallible].
 ///

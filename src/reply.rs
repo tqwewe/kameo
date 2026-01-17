@@ -28,31 +28,32 @@ use std::{
     fmt,
     marker::PhantomData,
     num::{
-        NonZeroI128, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI8, NonZeroIsize, NonZeroU128,
-        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU8, NonZeroUsize,
+        NonZeroI8, NonZeroI16, NonZeroI32, NonZeroI64, NonZeroI128, NonZeroIsize, NonZeroU8,
+        NonZeroU16, NonZeroU32, NonZeroU64, NonZeroU128, NonZeroUsize,
     },
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize},
         Arc, Mutex, Once, RwLock,
+        atomic::{AtomicBool, AtomicIsize, AtomicPtr, AtomicUsize},
     },
     thread::Thread,
 };
 
+#[cfg(target_has_atomic = "8")]
+use std::sync::atomic::{AtomicI8, AtomicU8};
 #[cfg(target_has_atomic = "16")]
 use std::sync::atomic::{AtomicI16, AtomicU16};
 #[cfg(target_has_atomic = "32")]
 use std::sync::atomic::{AtomicI32, AtomicU32};
 #[cfg(target_has_atomic = "64")]
 use std::sync::atomic::{AtomicI64, AtomicU64};
-#[cfg(target_has_atomic = "8")]
-use std::sync::atomic::{AtomicI8, AtomicU8};
 
-use downcast_rs::{impl_downcast, DowncastSend};
+use downcast_rs::{DowncastSend, impl_downcast};
 use futures::Future;
 use tokio::sync::oneshot;
 
 use crate::{
+    Actor,
     actor::{
         ActorId, ActorRef, PreparedActor, Recipient, ReplyRecipient, WeakActorRef, WeakRecipient,
         WeakReplyRecipient,
@@ -60,7 +61,6 @@ use crate::{
     error::{ActorStopReason, BoxSendError, Infallible, PanicError, SendError},
     mailbox::{MailboxReceiver, MailboxSender},
     message::{BoxReply, Context},
-    Actor,
 };
 
 /// A boxed reply sender which will be downcast to the correct type when receiving a reply.
@@ -635,6 +635,7 @@ macro_rules! impl_infallible_reply {
 }
 
 impl_infallible_reply!([
+    // Kameo types
     ActorId,
     {A: Actor} ActorRef<A>,
     {A: Actor} PreparedActor<A>,
@@ -651,6 +652,7 @@ impl_infallible_reply!([
     {A: Actor, R: Reply} Context<A, R>,
     {R: Reply} ReplySender<R>,
     Infallible,
+    // Std lib types
     (),
     usize,
     u8,
@@ -711,6 +713,7 @@ impl_infallible_reply!([
     {T: 'static + Send} std::cell::OnceCell<T>,
     {T: 'static + Send} std::sync::mpsc::Sender<T>,
     {T: 'static + Send} std::sync::mpsc::Receiver<T>,
+    // Tokio types
     {T: 'static + Send + Future<Output = O>, O: Send} futures::stream::FuturesOrdered<T>,
     {T: 'static + Send} futures::stream::FuturesUnordered<T>,
     {T: 'static + Send} tokio::sync::OnceCell<T>,
@@ -728,6 +731,8 @@ impl_infallible_reply!([
     {T: 'static + Send} tokio::sync::oneshot::Receiver<T>,
     {T: 'static + Send} tokio::sync::Mutex<T>,
     {T: 'static + Send} tokio::sync::RwLock<T>,
+    tokio::task::AbortHandle,
+    // Tuple types
     {A: 'static + Send} (A,),
     {A: 'static + Send, B: 'static + Send} (A, B),
     {A: 'static + Send, B: 'static + Send, C: 'static + Send} (A, B, C),
@@ -774,6 +779,7 @@ impl_infallible_reply!([AtomicI64, AtomicU64]);
 mod tests {
     use std::{error, fmt};
 
+    use crate::actor::Spawn;
     use crate::error::Infallible;
     use crate::{
         actor::Actor,

@@ -1,10 +1,9 @@
-use quote::{quote, ToTokens};
+use quote::{ToTokens, quote};
 use syn::{
-    custom_keyword,
+    DeriveInput, Generics, Ident, LitStr, Token, custom_keyword,
     parse::{Parse, ParseStream},
     punctuated::Punctuated,
     spanned::Spanned,
-    DeriveInput, Generics, Ident, LitStr, Token,
 };
 
 pub struct DeriveActor {

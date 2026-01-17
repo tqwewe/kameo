@@ -4,7 +4,7 @@ on:
   push:
   pull_request:
 
-env: 
+env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
   CARGO_TERM_VERBOSE: true
@@ -27,11 +27,27 @@ jobs:
           - package: "kameo"
             features: "--no-default-features --features remote"
           - package: "kameo"
+            features: "--no-default-features --features metrics"
+          - package: "kameo"
             features: "--no-default-features --features macros,tracing"
           - package: "kameo"
             features: "--no-default-features --features macros,remote"
           - package: "kameo"
             features: "--no-default-features --features tracing,remote"
+          - package: "kameo"
+            features: "--no-default-features --features macros,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,metrics"
           - package: "kameo"
             features: "--all-features"
           # kameo_actors crate (no additional features)
@@ -42,13 +58,13 @@ jobs:
             features: ""
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
           override: true
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -58,10 +74,10 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
-      
+
       - name: Standard build
         run: cargo build -p ${{ matrix.package }} ${{ matrix.features }}
-        
+
       - name: Tokio unstable build
         if: matrix.package == 'kameo'
         run: RUSTFLAGS="--cfg tokio_unstable" cargo build -p ${{ matrix.package }} ${{ matrix.features }}
@@ -83,11 +99,27 @@ jobs:
           - package: "kameo"
             features: "--no-default-features --features remote"
           - package: "kameo"
+            features: "--no-default-features --features metrics"
+          - package: "kameo"
             features: "--no-default-features --features macros,tracing"
           - package: "kameo"
             features: "--no-default-features --features macros,remote"
           - package: "kameo"
             features: "--no-default-features --features tracing,remote"
+          - package: "kameo"
+            features: "--no-default-features --features macros,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,metrics"
           - package: "kameo"
             features: "--all-features"
           # kameo_actors crate (no additional features)
@@ -98,13 +130,13 @@ jobs:
             features: ""
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.toolchain }}
           override: true
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -114,7 +146,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-${{ matrix.toolchain }}-
-      
+
       - name: Run tests
         run: cargo test -p ${{ matrix.package }} ${{ matrix.features }}
 
@@ -134,11 +166,27 @@ jobs:
           - package: "kameo"
             features: "--no-default-features --features remote"
           - package: "kameo"
+            features: "--no-default-features --features metrics"
+          - package: "kameo"
             features: "--no-default-features --features macros,tracing"
           - package: "kameo"
             features: "--no-default-features --features macros,remote"
           - package: "kameo"
             features: "--no-default-features --features tracing,remote"
+          - package: "kameo"
+            features: "--no-default-features --features macros,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,metrics"
           - package: "kameo"
             features: "--all-features"
           # kameo_actors crate (no additional features)
@@ -149,14 +197,14 @@ jobs:
             features: ""
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: clippy
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -166,24 +214,23 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-stable-
-      
+
       - name: Run clippy
         run: cargo clippy -p ${{ matrix.package }} ${{ matrix.features }}
 
-  # Additional job to run workspace-wide checks
   workspace:
     name: Workspace checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
           components: clippy, rustfmt
-      
+
       - name: Cache dependencies
         uses: actions/cache@v3
         with:
@@ -193,13 +240,13 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-stable-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-stable-
-      
+
       - name: Check formatting
         run: cargo fmt --all -- --check
-      
+
       - name: Run clippy on workspace
         run: cargo clippy --workspace --all-features
-      
+
       - name: Run tests on workspace
         run: cargo test --workspace --all-features
 

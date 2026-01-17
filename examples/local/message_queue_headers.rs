@@ -1,10 +1,10 @@
 use kameo::prelude::*;
 use kameo_actors::{
+    DeliveryStrategy,
     message_queue::{
         BasicConsume, BasicPublish, ExchangeDeclare, ExchangeType, MessageProperties, MessageQueue,
         QueueBind, QueueDeclare,
     },
-    DeliveryStrategy,
 };
 use std::collections::HashMap;
 

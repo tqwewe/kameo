@@ -15,11 +15,14 @@
 //! # Example
 //!
 //! ```
-//! use kameo::Actor;
-//! use kameo_actors::message_queue::{MessageQueue, ExchangeDeclare, QueueDeclare, QueueBind, BasicPublish, BasicConsume, ExchangeType};
-//! use kameo_actors::{DeliveryStrategy};
 //! use std::collections::HashMap;
-//! # use kameo::message::{Context, Message};
+//!
+//! use kameo::prelude::*;
+//! use kameo_actors::DeliveryStrategy;
+//! use kameo_actors::message_queue::{
+//!     BasicConsume, BasicPublish, ExchangeDeclare, ExchangeType, MessageQueue, QueueBind,
+//!     QueueDeclare,
+//! };
 //!
 //! #[derive(Clone)]
 //! struct OrderEvent {
@@ -84,9 +87,10 @@ use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
 };
 
-use crate::DeliveryStrategy;
 use glob::{MatchOptions, Pattern};
 use kameo::prelude::*;
+
+use crate::DeliveryStrategy;
 
 pub type FilterFn = fn(&HashMap<String, String>) -> bool;
 
@@ -721,10 +725,10 @@ where
                     .ok_or(AmqpError::HeadersRequired)?;
 
                 for binding in &exchange.bindings {
-                    if let Some(header_match) = &binding.header_match {
-                        if header_match.matches(message_headers) {
-                            target_queues.insert(binding.queue_name.clone());
-                        }
+                    if let Some(header_match) = &binding.header_match
+                        && header_match.matches(message_headers)
+                    {
+                        target_queues.insert(binding.queue_name.clone());
                     }
                 }
             }

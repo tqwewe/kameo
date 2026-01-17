@@ -55,7 +55,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Here's a full example showing how to bootstrap and immediately start using distributed actors:
 
+
 ```rust
+use futures::TryStreamExt;
 use kameo::prelude::*;
 use kameo::remote;
 use kameo_remote::KeyPair;
@@ -74,12 +76,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let greeter = GreeterActor::spawn_default();
     greeter.register("greeter")?;
     println!("Greeter actor registered");
-    
+
     // Look up all greeter actors in the network
     if let Some(remote_greeter) = DistributedActorRef::<GreeterActor>::lookup("greeter").await? {
         println!("Found greeter on remote node");
     }
-    
+
     // Keep the application running
     tokio::signal::ctrl_c().await?;
     Ok(())
@@ -117,6 +119,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+> Be sure to enable the `remote` feature flag for kameo when using the distributed actor runtime.
 
 ## What Bootstrap Includes
 

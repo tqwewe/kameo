@@ -1,4 +1,4 @@
-use futures::{future::BoxFuture, FutureExt};
+use futures::{FutureExt, future::BoxFuture};
 use std::{
     future::{Future, IntoFuture},
     pin, task,
@@ -7,12 +7,12 @@ use std::{
 use tokio::sync::oneshot;
 
 use crate::{
+    Actor, Reply,
     actor::{ActorRef, ReplyRecipient},
     error::{self, SendError},
-    mailbox::{MailboxSender, Signal},
+    mailbox::Signal,
     message::Message,
     reply::{ReplyError, ReplySender},
-    Actor, Reply,
 };
 
 use super::{WithRequestTimeout, WithoutRequestTimeout};
@@ -109,7 +109,11 @@ where
         Tr: Into<Option<Duration>>,
     {
         #[cfg(all(debug_assertions, feature = "tracing"))]
-        warn_deadlock(self.actor_ref, "An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.", self.called_at);
+        warn_deadlock(
+            self.actor_ref,
+            "An actor is sending an `ask` request to itself, which will likely lead to a deadlock. To avoid this, use a `tell` request instead.",
+            self.called_at,
+        );
 
         let (reply, rx) = oneshot::channel();
         let signal = Signal::Message {
@@ -119,37 +123,23 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                match self.mailbox_timeout.into() {
-                    Some(timeout) => {
-                        tx.send_timeout(signal, timeout).await?;
-                    }
-                    None => {
-                        tx.send(signal).await?;
-                    }
-                }
-                let reply = match self.reply_timeout.into() {
-                    Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                    None => rx.await?,
-                };
-                match reply {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                }
+        let tx = self.actor_ref.mailbox_sender();
+        match self.mailbox_timeout.into() {
+            Some(timeout) => {
+                tx.send_timeout(signal, timeout).await?;
             }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
+            None => {
+                tx.send(signal).await?;
+            }
+        }
 
-                let reply = match self.reply_timeout.into() {
-                    Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                    None => rx.await?,
-                };
-                match reply {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                }
-            }
+        let reply = match self.reply_timeout.into() {
+            Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+            None => rx.await?,
+        };
+        match reply {
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 
@@ -162,6 +152,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -195,45 +186,27 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        let fut = match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                match self.mailbox_timeout.into() {
-                    Some(timeout) => {
-                        tx.send_timeout(signal, timeout).await?;
-                    }
-                    None => {
-                        tx.send(signal).await?;
-                    }
-                }
-
-                async move {
-                    let reply = match self.reply_timeout.into() {
-                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                        None => rx.await?,
-                    };
-                    match reply {
-                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                    }
-                }
-                .boxed()
+        let tx = self.actor_ref.mailbox_sender();
+        match self.mailbox_timeout.into() {
+            Some(timeout) => {
+                tx.send_timeout(signal, timeout).await?;
             }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-
-                async move {
-                    let reply = match self.reply_timeout.into() {
-                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                        None => rx.await?,
-                    };
-                    match reply {
-                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                    }
-                }
-                .boxed()
+            None => {
+                tx.send(signal).await?;
             }
-        };
+        }
+
+        let fut = async move {
+            let reply = match self.reply_timeout.into() {
+                Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+                None => rx.await?,
+            };
+            match reply {
+                Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+            }
+        }
+        .boxed();
 
         Ok(PendingReply { fut })
     }
@@ -262,23 +235,17 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                match self.mailbox_timeout.into() {
-                    Some(timeout) => {
-                        tx.send_timeout(signal, timeout).await?;
-                    }
-                    None => {
-                        tx.send(signal).await?;
-                    }
-                }
-                Ok(())
+        let tx = self.actor_ref.mailbox_sender();
+        match self.mailbox_timeout.into() {
+            Some(timeout) => {
+                tx.send_timeout(signal, timeout).await?;
             }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-                Ok(())
+            None => {
+                tx.send(signal).await?;
             }
         }
+
+        Ok(())
     }
 }
 
@@ -304,16 +271,10 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                tx.try_send(signal)?;
-                Ok(())
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-                Ok(())
-            }
-        }
+        let tx = self.actor_ref.mailbox_sender();
+        tx.try_send(signal)?;
+
+        Ok(())
     }
 }
 
@@ -337,31 +298,16 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                tx.try_send(signal)?;
+        let tx = self.actor_ref.mailbox_sender();
+        tx.try_send(signal)?;
 
-                let reply = match self.reply_timeout.into() {
-                    Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                    None => rx.await?,
-                };
-                match reply {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                }
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-
-                let reply = match self.reply_timeout.into() {
-                    Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                    None => rx.await?,
-                };
-                match reply {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                }
-            }
+        let reply = match self.reply_timeout.into() {
+            Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+            None => rx.await?,
+        };
+        match reply {
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 
@@ -375,6 +321,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -407,38 +354,20 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        let fut = match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                tx.try_send(signal)?;
+        let tx = self.actor_ref.mailbox_sender();
+        tx.try_send(signal)?;
 
-                async move {
-                    let reply = match self.reply_timeout.into() {
-                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                        None => rx.await?,
-                    };
-                    match reply {
-                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                    }
-                }
-                .boxed()
+        let fut = async move {
+            let reply = match self.reply_timeout.into() {
+                Some(timeout) => tokio::time::timeout(timeout, rx).await??,
+                None => rx.await?,
+            };
+            match reply {
+                Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+                Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
             }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-
-                async move {
-                    let reply = match self.reply_timeout.into() {
-                        Some(timeout) => tokio::time::timeout(timeout, rx).await??,
-                        None => rx.await?,
-                    };
-                    match reply {
-                        Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                        Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                    }
-                }
-                .boxed()
-            }
-        };
+        }
+        .boxed();
 
         Ok(PendingReply { fut })
     }
@@ -462,23 +391,12 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                tx.blocking_send(signal)?;
+        let tx = self.actor_ref.mailbox_sender();
+        tx.blocking_send(signal)?;
 
-                match rx.blocking_recv()? {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                }
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-
-                match rx.blocking_recv()? {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                }
-            }
+        match rx.blocking_recv()? {
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
         }
     }
 
@@ -498,16 +416,10 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                tx.blocking_send(signal)?;
-                Ok(())
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-                Ok(())
-            }
-        }
+        let tx = self.actor_ref.mailbox_sender();
+        tx.blocking_send(signal)?;
+
+        Ok(())
     }
 
     /// Enqueues the message into the actors mailbox in a blocking context,
@@ -520,6 +432,7 @@ where
     ///
     /// ```
     /// # use kameo::Actor;
+    /// # use kameo::actor::Spawn;
     /// #
     /// # #[derive(kameo::Actor)]
     /// # struct MyActor;
@@ -554,26 +467,14 @@ where
             sent_within_actor: self.actor_ref.is_current(),
         };
 
-        match self.actor_ref.mailbox_sender() {
-            MailboxSender::Bounded(tx) => {
-                tx.blocking_send(signal)?;
+        let tx = self.actor_ref.mailbox_sender();
+        tx.blocking_send(signal)?;
 
-                let f = Box::new(move || match rx.blocking_recv()? {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                });
-                Ok(BlockingPendingReply { f })
-            }
-            MailboxSender::Unbounded(tx) => {
-                tx.send(signal)?;
-
-                let f = Box::new(move || match rx.blocking_recv()? {
-                    Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
-                    Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
-                });
-                Ok(BlockingPendingReply { f })
-            }
-        }
+        let f = Box::new(move || match rx.blocking_recv()? {
+            Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
+            Err(err) => Err(<A::Reply as Reply>::downcast_err(err)),
+        });
+        Ok(BlockingPendingReply { f })
     }
 }
 
@@ -769,11 +670,11 @@ mod tests {
     use std::time::Duration;
 
     use crate::{
-        actor::ActorRef,
+        Actor,
+        actor::{ActorRef, Spawn},
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
-        Actor,
     };
 
     #[tokio::test]
@@ -1063,15 +964,21 @@ mod tests {
                 .await,
             Ok(())
         );
-        // Mailbox still empty, this will add one message to it
-        assert_eq!(
-            actor_ref
-                .tell(Sleep(Duration::from_millis(100)))
-                .mailbox_timeout(Duration::from_millis(10))
-                .send()
-                .await,
-            Ok(())
-        );
+        // Mailbox is empty, this will make there be one item in the mailbox
+        #[cfg(not(feature = "hotpath"))]
+        let fill_count = 1;
+        #[cfg(feature = "hotpath")]
+        let fill_count = 5;
+        for _ in 0..fill_count {
+            assert_eq!(
+                actor_ref
+                    .tell(Sleep(Duration::from_millis(100)))
+                    .mailbox_timeout(Duration::from_millis(10))
+                    .send()
+                    .await,
+                Ok(())
+            );
+        }
         // Mailbox has one item, this will fail
         assert_eq!(
             actor_ref

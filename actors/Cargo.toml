@@ -1,8 +1,8 @@
 [package]
 name = "kameo_actors"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
-rust-version = "1.85.1"
+rust-version = "1.88.0"
 description = "Utility actors for kameo"
 readme = "../README.md"
 repository = "https://github.com/tqwewe/kameo"

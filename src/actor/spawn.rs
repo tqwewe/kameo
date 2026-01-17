@@ -23,7 +23,7 @@ use crate::{
         kind::ActorBehaviour,
         Actor, ActorRef, Link, Links, CURRENT_ACTOR_ID,
     },
-    error::{invoke_actor_error_hook, ActorStopReason, PanicError, SendError},
+    error::{invoke_actor_error_hook, ActorStopReason, PanicError, PanicReason, SendError},
     mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -177,8 +177,10 @@ where
     let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
         .catch_unwind()
         .await
-        .map(|res| res.map_err(|err| PanicError::new(Box::new(err))))
-        .map_err(PanicError::new_from_panic_any)
+        .map(|res| {
+            res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart))
+        })
+        .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
         .and_then(convert::identity);
     match &start_res {
         Ok(actor) => {
@@ -279,7 +281,7 @@ where
             }
         }
         Err(err) => {
-            let err = PanicError::new(Box::new(err));
+            let err = PanicError::new(Box::new(err), PanicReason::OnStop);
             invoke_actor_error_hook(&err);
             if let Some(actor_ref) = actor_ref.upgrade() {
                 actor_ref

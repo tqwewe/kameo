@@ -17,9 +17,11 @@
 //! # Example
 //!
 //! ```
-//! use kameo::Actor;
-//! use kameo_actors::{DeliveryStrategy, pubsub::{PubSub, Publish, Subscribe}};
-//! # use kameo::message::{Context, Message};
+//! use kameo::prelude::*;
+//! use kameo_actors::{
+//!     DeliveryStrategy,
+//!     pubsub::{PubSub, Publish, Subscribe},
+//! };
 //!
 //! #[derive(Actor)]
 //! struct MyActor;
@@ -153,9 +155,11 @@ impl<M> PubSub<M> {
     /// # Example
     ///
     /// ```
-    /// # use kameo::Actor;
-    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
-    /// # use kameo::message::{Context, Message};
+    /// # use kameo::prelude::*;
+    /// use kameo_actors::{
+    ///     DeliveryStrategy,
+    ///     pubsub::PubSub,
+    /// };
     ///
     /// # #[derive(Actor)]
     /// # struct MyActor;
@@ -195,9 +199,11 @@ impl<M> PubSub<M> {
     /// # Example
     ///
     /// ```
-    /// # use kameo::Actor;
-    /// use kameo_actors::{DeliveryStrategy, pubsub::PubSub};
-    /// # use kameo::message::{Context, Message};
+    /// # use kameo::prelude::*;
+    /// use kameo_actors::{
+    ///     DeliveryStrategy,
+    ///     pubsub::PubSub,
+    /// };
     ///
     /// # #[derive(Actor)]
     /// # struct MyActor;

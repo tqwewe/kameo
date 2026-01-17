@@ -29,6 +29,11 @@ impl MyActor {
     {
         println!("{msg}");
     }
+
+    #[message(ctx)]
+    fn stop(&self, ctx: &mut Context<Self, ()>) {
+        ctx.stop();
+    }
 }
 
 #[tokio::main]

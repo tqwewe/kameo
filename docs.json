@@ -89,6 +89,11 @@
       "group": "Additional Resources",
       "pages": [
         {
+          "title": "Observability",
+          "href": "/observability",
+          "icon": "eye"
+        },
+        {
           "title": "FAQ",
           "href": "/faq",
           "icon": "question-circle"

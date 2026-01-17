@@ -14,10 +14,9 @@
 //! # Example
 //!
 //! ```
-//! use kameo::Actor;
+//! use kameo::prelude::*;
 //! use kameo_actors::message_bus::{MessageBus, Register, Publish};
 //! use kameo_actors::DeliveryStrategy;
-//! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Clone)]
 //! struct TemperatureUpdate(f32);

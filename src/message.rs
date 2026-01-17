@@ -16,13 +16,13 @@
 
 use std::{any, fmt};
 
-use futures::{future::BoxFuture, Future, FutureExt};
+use futures::{Future, FutureExt, future::BoxFuture};
 
 use crate::{
-    actor::ActorRef,
-    error::{self, PanicError, SendError},
-    reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
     Actor,
+    actor::ActorRef,
+    error::{self, PanicError, PanicReason, SendError},
+    reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
 };
 
 /// A boxed dynamic message type for the actor `A`.
@@ -230,7 +230,10 @@ where
                 }
                 None => {
                     if let Some(err) = reply.into_any_err() {
-                        error::invoke_actor_error_hook(&PanicError::new(err));
+                        error::invoke_actor_error_hook(&PanicError::new(
+                            err,
+                            PanicReason::OnMessage,
+                        ));
                     }
                 }
             }

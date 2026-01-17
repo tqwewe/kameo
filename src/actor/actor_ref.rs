@@ -364,7 +364,7 @@ where
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.0.lock() {
+            Err(err) => match err.err.lock() {
                 Ok(lock) => match lock.downcast_ref() {
                     Some(err) => f(Err(HookError::Error(err))),
                     None => f(Err(HookError::Panicked(err.clone()))),
@@ -500,7 +500,7 @@ where
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.0.lock() {
+            Err(err) => match err.err.lock() {
                 Ok(lock) => match lock.downcast_ref() {
                     Some(err) => f(Err(HookError::Error(err))),
                     None => f(Err(HookError::Panicked(err.clone()))),
@@ -900,16 +900,13 @@ where
             sent_within_actor: self.is_current(),
         };
 
-        match &self.mailbox_sender {
-            MailboxSender::Bounded(tx) => match mailbox_timeout {
-                Some(timeout) => match tokio::time::timeout(timeout, tx.send(signal)).await {
-                    Ok(Ok(())) => Ok(()),
-                    Ok(Err(err)) => Err(err.into()),
-                    Err(_) => Err(SendError::Timeout(None)),
-                },
-                None => tx.send(signal).await.map_err(Into::into),
-            },
-            MailboxSender::Unbounded(tx) => tx.send(signal).map_err(Into::into),
+        match mailbox_timeout {
+            Some(timeout) => self
+                .mailbox_sender
+                .send_timeout(signal, timeout)
+                .await
+                .map_err(Into::into),
+            None => self.mailbox_sender.send(signal).await.map_err(Into::into),
         }
     }
 
@@ -927,10 +924,7 @@ where
             sent_within_actor: self.is_current(),
         };
 
-        match &self.mailbox_sender {
-            MailboxSender::Bounded(tx) => tx.try_send(signal).map_err(Into::into),
-            MailboxSender::Unbounded(tx) => tx.send(signal).map_err(Into::into),
-        }
+        self.mailbox_sender.try_send(signal).map_err(Into::into)
     }
 
     #[inline]

@@ -17,9 +17,8 @@
 //! # Example
 //!
 //! ```
-//! use kameo::Actor;
+//! use kameo::prelude::*;
 //! use kameo_actors::pool::{ActorPool, Broadcast, Dispatch};
-//! # use kameo::message::{Context, Message};
 //!
 //! #[derive(Actor)]
 //! struct MyWorker;
@@ -105,9 +104,9 @@ where
                 let worker = Worker {
                     actor_ref: factory(),
                 };
-                let mailbox = match worker.actor_ref.mailbox_sender() {
-                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
-                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
+                    Some(capacity) => mailbox::bounded(capacity),
+                    None => mailbox::unbounded(),
                 };
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             })
@@ -134,9 +133,9 @@ where
         let workers = join_all((0..size).map(|_| {
             FutureExt::map(factory(), |actor_ref| {
                 let worker = Worker { actor_ref };
-                let mailbox = match worker.actor_ref.mailbox_sender() {
-                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
-                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
+                    Some(capacity) => mailbox::bounded(capacity),
+                    None => mailbox::unbounded(),
                 };
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             })
@@ -202,9 +201,9 @@ where
         self.workers[i] = match &mut self.factory {
             Factory::Sync(f) => {
                 let worker = Worker { actor_ref: f() };
-                let mailbox = match worker.actor_ref.mailbox_sender() {
-                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
-                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
+                    Some(capacity) => mailbox::bounded(capacity),
+                    None => mailbox::unbounded(),
                 };
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             }
@@ -212,9 +211,9 @@ where
                 let worker = Worker {
                     actor_ref: f().await,
                 };
-                let mailbox = match worker.actor_ref.mailbox_sender() {
-                    MailboxSender::Bounded(tx) => mailbox::bounded(tx.capacity()),
-                    MailboxSender::Unbounded(_) => mailbox::unbounded(),
+                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
+                    Some(capacity) => mailbox::bounded(capacity),
+                    None => mailbox::unbounded(),
                 };
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             }

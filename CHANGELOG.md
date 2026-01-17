@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2025-11-17
+
+### <!-- 0 -->Added
+
+- Add support for `channels-console` (#261) [</>](https://github.com/tqwewe/kameo/commit/e639ca6c1fbc75c6306736b132a8a43e088749a9)
+
+### <!-- 3 -->Fixed
+
+- Metrics counter names (#260) [</>](https://github.com/tqwewe/kameo/commit/ab24787527435a0fdd2174ce9ba5153a231c15cc)
+
+## [0.19.1] - 2025-11-13
+
+### <!-- 3 -->Fixed
+
+- Docs.rs builds failing due to now unsupported `doc_auto_cfg` feature [</>](https://github.com/tqwewe/kameo/commit/cc934e59483d32527336748eb010bbf26130ef98)
+
+### <!-- 4 -->Documentation
+
+- Add 0.19.0 link to CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/8670c85f672eb41dd054a4b736e73baaaab9c2f0)
+
+### <!-- 5 -->Misc
+
+- Add ignore_tags regex to cliff.toml [</>](https://github.com/tqwewe/kameo/commit/e4577f7e3ebda92cdc98013be56e356139c86ede)
+- Bump kameo to version 0.19.1 [</>](https://github.com/tqwewe/kameo/commit/2d6033a1c3ad9003f338e4fb40070125c27cfa86)
+
+## [0.19.1] - 2025-11-13
+
+### <!-- 3 -->Fixed
+
+- Docs.rs builds failing due to now unsupported `doc_auto_cfg` feature [</>](https://github.com/tqwewe/kameo/commit/cc934e59483d32527336748eb010bbf26130ef98)
+
+### <!-- 4 -->Documentation
+
+- Add 0.19.0 link to CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/8670c85f672eb41dd054a4b736e73baaaab9c2f0)
+
+### <!-- 5 -->Misc
+
+- Add ignore_tags regex to cliff.toml [</>](https://github.com/tqwewe/kameo/commit/e4577f7e3ebda92cdc98013be56e356139c86ede)
+- Bump kameo to version 0.19.1 [</>](https://github.com/tqwewe/kameo/commit/2d6033a1c3ad9003f338e4fb40070125c27cfa86)
+
+## [0.19.1] - 2025-11-13
+
+### <!-- 5 -->Misc
+
+- Bump kameo_actors to version 0.4.0 [</>](https://github.com/tqwewe/kameo/commit/fcfaf75ee574a5be3f8fc6911a7f757930c53ad6)
+
+## [0.19.0] - 2025-11-10
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add `metrics` feature flag for mailbox sent/received metrics (#250)
+- Add ctx attribute (#240)
+- Add scheduler actor (#251)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Hide MailboxSender internal variants (#248)
+- **BREAKING:** Move spawn methods to new `Spawn` trait (#253)
+
+### <!-- 3 -->Fixed
+
+- **BREAKING:** Actors not being unregistered on stop (#254)
+
+### <!-- 4 -->Documentation
+
+- Fix bootstrapping actor swarm complete code example [</>](https://github.com/tqwewe/kameo/commit/8e128361aee5eda1dd50e6fe09d8f1a242a9ed53)
+
+### <!-- 5 -->Misc
+
+- Update const-str requirement from 0.6.4 to 0.7.0 (#236)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#237)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#241)
+- Update const-str requirement from 0.6.4 to 0.7.0 (#243)
+- Upgrade `const-str` to `0.7.0` [</>](https://github.com/tqwewe/kameo/commit/865c9eba374af7f09fce88cc8fc1820ce148f774)
+- Fix ci [</>](https://github.com/tqwewe/kameo/commit/bfa329903abd0a8d39be5926d5c160929f7fb205)
+- Bump kameo_macros to version 0.19.0 [</>](https://github.com/tqwewe/kameo/commit/985514a046bdbc5e5d4e7404bbe29c418ad0a3ee)
+
 ## [0.18.0] - 2025-09-11
 
 * @LVivona made their first contribution in #204
@@ -689,6 +766,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.19.2]: https://github.com/tqwewe/kameo/compare/v0.19.1..v0.19.2
+[0.19.1]: https://github.com/tqwewe/kameo/compare/v0.19.0..v0.19.1
+[0.19.0]: https://github.com/tqwewe/kameo/compare/v0.18.0..v0.19.0
 [0.18.0]: https://github.com/tqwewe/kameo/compare/v0.17.2..v0.18.0
 [0.17.2]: https://github.com/tqwewe/kameo/compare/v0.17.1..v0.17.2
 [0.17.1]: https://github.com/tqwewe/kameo/compare/v0.17.0..v0.17.1
