@@ -38,13 +38,13 @@ thread_local! {
         std::cell::RefCell::new(MessageBufferPool::new(16, 4096));
 }
 
-/// Stack-allocated message header (28 bytes)
+/// Stack-allocated message header (32 bytes, 8-byte aligned)
 #[repr(C, packed)]
 pub struct MessageHeader {
     pub length: [u8; 4],
     pub msg_type: u8,
     pub correlation_id: [u8; 2],
-    pub reserved: [u8; 5],
+    pub reserved: [u8; 9],  // 9 bytes for 32-byte alignment
     pub actor_id: [u8; 8],
     pub type_hash: [u8; 4],
     pub payload_len: [u8; 4],
@@ -54,13 +54,14 @@ impl MessageHeader {
     /// Create a new message header on the stack
     #[inline(always)]
     pub fn new_tell(actor_id: u64, type_hash: u32, payload_len: u32) -> Self {
-        let inner_size = 8 + 16 + payload_len; // header + actor fields + payload
-        
+        // Header (after length prefix): type(1) + corr(2) + reserved(9) + actor_id(8) + type_hash(4) + payload_len(4) = 28 bytes
+        let inner_size = 28 + payload_len; // header fields + payload
+
         Self {
             length: (inner_size as u32).to_be_bytes(),
             msg_type: 3, // ActorTell
             correlation_id: 0u16.to_be_bytes(),
-            reserved: [0u8; 5],
+            reserved: [0u8; 9],  // 9 bytes for 32-byte alignment
             actor_id: actor_id.to_be_bytes(),
             type_hash: type_hash.to_be_bytes(),
             payload_len: payload_len.to_be_bytes(),
