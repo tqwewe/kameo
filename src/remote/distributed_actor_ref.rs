@@ -341,16 +341,16 @@ where
 
             // Small message - use ring buffer
             // ZERO-COPY: Use BytesMut for efficient message building
-            let inner_size = 8 + 16 + payload.len(); // header + actor fields + payload
+            let inner_size = 12 + 16 + payload.len(); // header (type+corr+reserved=12) + actor fields + payload
             let mut message = bytes::BytesMut::with_capacity(4 + inner_size);
 
             // All constants - compiler can optimize these away completely
             message.put_u32(inner_size as u32);
 
-            // Header: [type:1][correlation_id:2][reserved:5]
+            // Header: [type:1][correlation_id:2][reserved:9]
             message.put_u8(3); // MessageType::ActorTell - compile-time constant
             message.put_u16(0); // No correlation for tell
-            message.put_slice(&[0u8; 5]); // Reserved
+            message.put_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
 
             // Actor message: [actor_id:8][type_hash:4][payload_len:4][payload:N]
             message.put_u64(self.actor_ref.actor_id.into_u64());

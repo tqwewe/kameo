@@ -212,13 +212,13 @@ where
         };
 
         let header_bytes = header.to_bytes();
-        let frame_size = 8 + header_bytes.len(); // Header + payload
+        let frame_size = 12 + header_bytes.len(); // Header (type+corr+reserved=12) + payload
 
         let mut frame = BytesMut::with_capacity(4 + frame_size);
         frame.put_u32(frame_size as u32);
         frame.put_u8(0x12); // MessageType::StreamEnd
         frame.put_u16(0); // Correlation ID (none for streaming)
-        frame.put_slice(&[0u8; 5]); // Reserved
+        frame.put_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
         frame.put_slice(&header_bytes);
 
         self.connection
@@ -270,13 +270,13 @@ where
         };
 
         let header_bytes = header.to_bytes();
-        let frame_size = 8 + header_bytes.len(); // Protocol header + StreamHeader (no payload copy needed)
+        let frame_size = 12 + header_bytes.len(); // Protocol header (type+corr+reserved=12) + StreamHeader (no payload copy needed)
 
         let mut frame_header = BytesMut::with_capacity(4 + frame_size);
         frame_header.put_u32((frame_size + data.len()) as u32); // Total size including payload
         frame_header.put_u8(0x11); // MessageType::StreamData
         frame_header.put_u16(0); // Correlation ID (none for streaming)
-        frame_header.put_slice(&[0u8; 5]); // Reserved
+        frame_header.put_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
         frame_header.put_slice(&header_bytes);
 
         // Use vectored write to avoid copying payload
@@ -308,11 +308,11 @@ where
         };
 
         let header_bytes = start_header.to_bytes();
-        let mut start_frame = BytesMut::with_capacity(4 + 8 + header_bytes.len());
-        start_frame.put_u32((8 + header_bytes.len()) as u32);
+        let mut start_frame = BytesMut::with_capacity(4 + 12 + header_bytes.len());
+        start_frame.put_u32((12 + header_bytes.len()) as u32);
         start_frame.put_u8(0x10); // MessageType::StreamStart
         start_frame.put_u16(0); // Correlation ID
-        start_frame.put_slice(&[0u8; 5]); // Reserved
+        start_frame.put_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
         start_frame.put_slice(&header_bytes);
 
         self.connection
@@ -343,11 +343,11 @@ where
                 };
 
                 let header_bytes = chunk_header.to_bytes();
-                let mut frame_header = BytesMut::with_capacity(4 + 8 + header_bytes.len());
-                frame_header.put_u32((8 + header_bytes.len() + chunk_size) as u32);
+                let mut frame_header = BytesMut::with_capacity(4 + 12 + header_bytes.len());
+                frame_header.put_u32((12 + header_bytes.len() + chunk_size) as u32);
                 frame_header.put_u8(0x11); // MessageType::StreamData
                 frame_header.put_u16(0); // Correlation ID
-                frame_header.put_slice(&[0u8; 5]); // Reserved
+                frame_header.put_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
                 frame_header.put_slice(&header_bytes);
 
                 batch_frames.push(frame_header.freeze());
@@ -373,11 +373,11 @@ where
         };
 
         let header_bytes = end_header.to_bytes();
-        let mut end_frame = BytesMut::with_capacity(4 + 8 + header_bytes.len());
-        end_frame.put_u32((8 + header_bytes.len()) as u32);
+        let mut end_frame = BytesMut::with_capacity(4 + 12 + header_bytes.len());
+        end_frame.put_u32((12 + header_bytes.len()) as u32);
         end_frame.put_u8(0x12); // MessageType::StreamEnd
         end_frame.put_u16(0); // Correlation ID
-        end_frame.put_slice(&[0u8; 5]); // Reserved
+        end_frame.put_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
         end_frame.put_slice(&header_bytes);
 
         self.connection

@@ -175,18 +175,18 @@ where
         // Try to use cached connection first if available
         if let Some(ref conn) = self.actor_ref.connection {
             // Direct binary protocol - no wrapper object, no double serialization!
-            // Format: [length:4][type:1][correlation_id:2][reserved:5][actor_id:8][type_hash:4][payload_len:4][payload:N]
+            // Format: [length:4][type:1][correlation_id:2][reserved:9][actor_id:8][type_hash:4][payload_len:4][payload:N]
 
-            let inner_size = 8 + 16 + payload.len(); // header + actor fields + payload
+            let inner_size = 12 + 16 + payload.len(); // header (type+corr+reserved=12) + actor fields + payload
             let mut message = Vec::with_capacity(4 + inner_size);
 
             // Length prefix (4 bytes) - this is the size AFTER the length prefix
             message.extend_from_slice(&(inner_size as u32).to_be_bytes());
 
-            // Header: [type:1][correlation_id:2][reserved:5]
+            // Header: [type:1][correlation_id:2][reserved:9]
             message.push(3u8); // MessageType::ActorTell
             message.extend_from_slice(&0u16.to_be_bytes()); // No correlation for tell
-            message.extend_from_slice(&[0u8; 5]); // Reserved
+            message.extend_from_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
 
             // Actor message: [actor_id:8][type_hash:4][payload_len:4][payload:N]
             message.extend_from_slice(&self.actor_ref.actor_id.into_u64().to_be_bytes());
