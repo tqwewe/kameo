@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 1: Local registration works with remote feature
     println!("Test 1: Local registration with remote feature enabled");
-    let actor1 = TestActor::spawn(TestActor);
+    let actor1 = <TestActor as kameo::Actor>::spawn(TestActor);
     match actor1.register_local("test_actor_1") {
         Ok(()) => println!("✅ Registration succeeded"),
         Err(e) => {
@@ -44,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 3: Duplicate registration fails correctly
     println!("\nTest 3: Duplicate registration prevention");
-    let actor2 = TestActor::spawn(TestActor);
+    let actor2 = <TestActor as kameo::Actor>::spawn(TestActor);
     match actor2.register_local("test_actor_1") {
         Ok(()) => {
             println!("❌ Duplicate registration succeeded (should have failed)");

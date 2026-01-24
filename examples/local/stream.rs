@@ -54,7 +54,7 @@ impl Message<StreamMessage<i64, &'static str, &'static str>> for MyActor {
 
 #[tokio::main]
 async fn main() {
-    let actor_ref = MyActor::spawn(MyActor::default());
+    let actor_ref = <MyActor as kameo::Actor>::spawn(MyActor::default());
 
     actor_ref.wait_for_shutdown().await;
 }

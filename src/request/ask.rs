@@ -165,7 +165,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let actor_ref = MyActor::spawn(MyActor);
+    /// # let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// # let msg = Msg;
     /// let pending = actor_ref.ask(Msg).enqueue().await?;
     /// // Do some other tasks
@@ -334,7 +334,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let actor_ref = MyActor::spawn(MyActor);
+    /// # let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// # let msg = Msg;
     /// let pending = actor_ref.ask(Msg).try_enqueue()?;
     /// // Do some other tasks
@@ -445,7 +445,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let actor_ref = MyActor::spawn(MyActor);
+    /// # let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// # let msg = Msg;
     /// # std::thread::spawn(move || {
     /// # let f = move || {

@@ -14,9 +14,9 @@ use crate::actor::{Actor, ActorId};
 use crate::error::SendError;
 use crate::message::Message;
 
-use super::transport::{RemoteActorLocation, RemoteTransport, TransportError};
+use super::transport::{RemoteActorLocation, RemoteTransport};
 use super::type_hash::HasTypeHash;
-use kameo_remote::{connection_pool::ConnectionHandle, registry::RegistryMessage};
+use kameo_remote::{connection_pool::ConnectionHandle, registry::RegistryMessage, GossipError};
 
 /// A reference to a remote distributed actor
 ///
@@ -318,26 +318,10 @@ where
 
             // Use streaming for large messages
             if payload.len() > threshold {
-                println!(
-                    "🚀 [STREAMING MODE] Message size {} > threshold {}, using STREAMING path",
-                    payload.len(),
-                    threshold
-                );
-                match conn
+                return conn
                     .stream_large_message(&payload, type_hash, self.actor_ref.actor_id.into_u64())
                     .await
-                {
-                    Ok(_) => return Ok(()),
-                    Err(_e) => {
-                        return Err(SendError::ActorStopped); // Don't fall through to normal path for large messages!
-                    }
-                }
-            } else {
-                // println!(
-                //     "📦 [RING BUFFER MODE] Message size {} <= threshold {}, using RING BUFFER path",
-                //     payload.len(),
-                //     threshold
-                // );
+                    .map_err(|_| SendError::ActorStopped);
             }
 
             // Small message - use ring buffer
@@ -369,49 +353,7 @@ where
                 .map_err(|_| SendError::ActorStopped);
         }
 
-        // No cached connection available - fall back to transport layer
-        // Use safe default threshold for streaming decision
-        let threshold = 1024 * 1024 - 1024; // 1MB - 1KB safe fallback
-
-        println!(
-            "🔬 [FALLBACK STREAMING DECISION] Message size: {} bytes, fallback threshold: {} bytes",
-            payload.len(),
-            threshold
-        );
-
-        if payload.len() > threshold {
-            println!(
-                "🚀 [FALLBACK STREAMING MODE] Message size {} > threshold {}, using transport layer STREAMING",
-                payload.len(),
-                threshold
-            );
-            // Use transport layer for streaming large messages
-            return self
-                .actor_ref
-                .transport
-                .send_tell_typed(
-                    self.actor_ref.actor_id,
-                    &self.actor_ref.location,
-                    type_hash,
-                    Bytes::from(payload.into_vec()),
-                )
-                .await
-                .map_err(|_| SendError::ActorStopped);
-        } else {
-            // println!("📦 [FALLBACK RING BUFFER MODE] Message size {} <= threshold {}, using transport layer RING BUFFER", payload.len(), threshold);
-            // Use transport layer for normal messages
-            return self
-                .actor_ref
-                .transport
-                .send_tell_typed(
-                    self.actor_ref.actor_id,
-                    &self.actor_ref.location,
-                    type_hash,
-                    Bytes::from(payload.into_vec()),
-                )
-                .await
-                .map_err(|_| SendError::ActorStopped);
-        }
+        Err(SendError::MissingConnection)
     }
 }
 
@@ -498,7 +440,6 @@ where
     /// Send the ask message and wait for reply - returns raw bytes for zero-copy access.
     ///
     /// This method is fully monomorphized and optimized for the specific message type M.
-    /// Large messages (>1MB) automatically use streaming protocol for optimal performance.
     pub async fn send_raw(self) -> Result<bytes::Bytes, SendError> {
         // Compile-time constant - no runtime lookup!
         let type_hash = M::TYPE_HASH.as_u32();
@@ -510,36 +451,25 @@ where
         // Default timeout if not specified
         let timeout = self.timeout.unwrap_or(Duration::from_secs(2));
 
-        // ✅ STREAMING THRESHOLD CHECK - Use streaming for large messages
-        // Get threshold from connection if available, otherwise use safe default
-        let threshold = self
-            .actor_ref
-            .connection
-            .as_ref()
-            .map(|conn| conn.streaming_threshold())
-            .unwrap_or(1024 * 1024 - 1024); // Safe fallback: 1MB - 1KB
-
-        if payload.len() > threshold {
-            // For large ask messages, use streaming protocol
-            let reply_bytes = self
-                .actor_ref
-                .transport
-                .send_ask_streaming(
-                    self.actor_ref.actor_id,
-                    &self.actor_ref.location,
-                    type_hash,                       // Compile-time constant
-                    Bytes::from(payload.into_vec()), // Zero-copy transfer of ownership
-                    timeout,
-                )
-                .await
-                .map_err(|e| match e {
-                    TransportError::Timeout => SendError::Timeout(None),
-                    _ => SendError::ActorStopped,
-                })?;
-            return Ok(reply_bytes);
-        }
-
         if let Some(conn) = self.actor_ref.connection.as_ref() {
+            let threshold = conn.streaming_threshold();
+            if payload.len() > threshold {
+                let reply = conn
+                    .ask_streaming(
+                        payload.as_slice(),
+                        type_hash,
+                        self.actor_ref.actor_id.into_u64(),
+                        timeout,
+                    )
+                    .await
+                    .map_err(|e| match e {
+                        GossipError::Timeout => SendError::Timeout(None),
+                        _ => SendError::ActorStopped,
+                    })?;
+
+                return Ok(reply);
+            }
+
             let actor_message = RegistryMessage::ActorMessage {
                 actor_id: self.actor_ref.actor_id.into_u64().to_string(),
                 type_hash,
@@ -559,23 +489,6 @@ where
             return Ok(Bytes::from(reply));
         }
 
-        // For ask operations without a cached connection, fall back to the transport layer
-        let reply_bytes = self
-            .actor_ref
-            .transport
-            .send_ask_typed(
-                self.actor_ref.actor_id,
-                &self.actor_ref.location,
-                type_hash,                       // Compile-time constant
-                Bytes::from(payload.into_vec()), // Zero-copy transfer of ownership
-                timeout,
-            )
-            .await
-            .map_err(|e| match e {
-                TransportError::Timeout => SendError::Timeout(None),
-                _ => SendError::ActorStopped,
-            })?;
-
-        Ok(reply_bytes)
+        Err(SendError::MissingConnection)
     }
 }

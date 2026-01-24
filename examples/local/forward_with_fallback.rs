@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Forward with Fallback Demo ===\n");
 
     // Create gateway actor (no primary actor initially)
-    let gateway = GatewayActor::spawn(GatewayActor::default());
+    let gateway = <GatewayActor as kameo::Actor>::spawn(GatewayActor::default());
 
     // Test 1: Gateway without primary actor (fallback mode)
     println!("1. Testing fallback computation (no primary actor):");
@@ -140,7 +140,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test 2: Configure gateway with primary actor
     println!("2. Configuring primary compute actor...");
-    let primary = PrimaryComputeActor::spawn(PrimaryComputeActor);
+    let primary = <PrimaryComputeActor as kameo::Actor>::spawn(PrimaryComputeActor);
     gateway.tell(SetPrimaryActor(Some(primary))).await?;
 
     println!("3. Testing forwarded computation (with primary actor):");

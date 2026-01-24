@@ -311,7 +311,7 @@ pub trait Actor: Sized + Send + 'static {
     /// struct MyActor;
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// # })
     /// ```
     #[inline]
@@ -367,7 +367,7 @@ pub trait Actor: Sized + Send + 'static {
 ///
 /// # tokio_test::block_on(async {
 /// // Spawn with explicit initialization
-/// let actor_ref = Counter::spawn(Counter { count: 0 });
+/// let actor_ref = <Counter as Spawn>::spawn(Counter { count: 0 });
 /// # })
 /// ```
 ///
@@ -384,7 +384,7 @@ pub trait Actor: Sized + Send + 'static {
 ///
 /// # tokio_test::block_on(async {
 /// // Spawn with default initialization
-/// let actor_ref = Counter::spawn_default();
+/// let actor_ref = <Counter as Spawn>::spawn_default();
 /// # })
 /// ```
 ///
@@ -438,9 +438,9 @@ pub trait Actor: Sized + Send + 'static {
 /// struct Worker;
 ///
 /// # tokio_test::block_on(async {
-/// let supervisor = Supervisor::spawn(Supervisor);
+/// let supervisor = <Supervisor as Spawn>::spawn(Supervisor);
 /// // Link worker to supervisor before spawning
-/// let worker = Worker::spawn_link(&supervisor, Worker).await;
+/// let worker = <Worker as Spawn>::spawn_link(&supervisor, Worker).await;
 /// # })
 /// ```
 ///
@@ -475,7 +475,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///
     /// # tokio_test::block_on(async {
     /// // Spawns with a default bounded mailbox (capacity 64)
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Spawn>::spawn(MyActor);
     /// # })
     /// ```
     ///
@@ -507,7 +507,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///
     /// # tokio_test::block_on(async {
     /// // Spawns with default state and bounded mailbox (capacity 64)
-    /// let actor_ref = MyActor::spawn_default();
+    /// let actor_ref = <MyActor as Spawn>::spawn_default();
     /// # })
     /// ```
     ///
@@ -576,9 +576,9 @@ pub trait Spawn: Actor + private::Sealed {
     /// struct BarActor;
     ///
     /// # tokio_test::block_on(async {
-    /// let link_ref = FooActor::spawn(FooActor);
+    /// let link_ref = <FooActor as Spawn>::spawn(FooActor);
     /// // Spawns with default bounded mailbox (capacity 64)
-    /// let actor_ref = BarActor::spawn_link(&link_ref, BarActor).await;
+    /// let actor_ref = <BarActor as Spawn>::spawn_link(&link_ref, BarActor).await;
     /// # })
     /// ```
     fn spawn_link<L>(
@@ -614,9 +614,9 @@ pub trait Spawn: Actor + private::Sealed {
     /// struct BarActor;
     ///
     /// # tokio_test::block_on(async {
-    /// let link_ref = FooActor::spawn(FooActor);
+    /// let link_ref = <FooActor as Spawn>::spawn(FooActor);
     /// // Using a custom mailbox
-    /// let actor_ref = BarActor::spawn_link_with_mailbox(&link_ref, BarActor, mailbox::unbounded()).await;
+    /// let actor_ref = <BarActor as Spawn>::spawn_link_with_mailbox(&link_ref, BarActor, mailbox::unbounded()).await;
     /// # })
     /// ```
     fn spawn_link_with_mailbox<L>(
@@ -741,7 +741,7 @@ pub trait Spawn: Actor + private::Sealed {
     /// struct MyActor;
     ///
     /// # tokio_test::block_on(async {
-    /// let other_actor = MyActor::spawn(MyActor);
+    /// let other_actor = <MyActor as Spawn>::spawn(MyActor);
     /// let prepared_actor = MyActor::prepare();
     /// prepared_actor.actor_ref().link(&other_actor).await;
     /// let actor_ref = prepared_actor.spawn(MyActor);
@@ -768,7 +768,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///  struct MyActor;
     ///
     /// # tokio_test::block_on(async {
-    /// let other_actor = MyActor::spawn(MyActor);
+    /// let other_actor = <MyActor as Spawn>::spawn(MyActor);
     /// let prepared_actor = MyActor::prepare_with_mailbox(mailbox::unbounded());
     /// prepared_actor.actor_ref().link(&other_actor).await;
     /// let actor_ref = prepared_actor.spawn(MyActor);

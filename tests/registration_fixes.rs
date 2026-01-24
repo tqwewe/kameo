@@ -1,7 +1,7 @@
 //! Tests to verify the registration system fixes work correctly
 //! These tests ensure local registration works with the remote feature enabled
 
-use kameo::actor::{ActorRef, Spawn};
+use kameo::actor::ActorRef;
 use kameo::error::RegistryError;
 use kameo::prelude::*;
 
@@ -18,7 +18,7 @@ impl TestActor {
 /// This verifies that actors can register and be looked up locally even when remote feature is enabled
 #[tokio::test]
 async fn test_local_registration_with_remote_feature() {
-    let actor = TestActor::spawn(TestActor::new());
+    let actor = <TestActor as kameo::Actor>::spawn(TestActor::new());
 
     // Should succeed without returning error
     actor.register_local("test_actor").unwrap();
@@ -37,8 +37,8 @@ async fn test_local_registration_with_remote_feature() {
 /// This verifies that attempting to register an actor with the same name twice fails
 #[tokio::test]
 async fn test_no_duplicate_local_registration() {
-    let actor1 = TestActor::spawn(TestActor::new());
-    let actor2 = TestActor::spawn(TestActor::new());
+    let actor1 = <TestActor as kameo::Actor>::spawn(TestActor::new());
+    let actor2 = <TestActor as kameo::Actor>::spawn(TestActor::new());
 
     // First registration should succeed
     actor1.register_local("duplicate_test").unwrap();
@@ -64,9 +64,9 @@ async fn test_no_duplicate_local_registration() {
 /// This verifies that multiple actors with different names can be registered successfully
 #[tokio::test]
 async fn test_multiple_actor_registration() {
-    let actor1 = TestActor::spawn(TestActor::new());
-    let actor2 = TestActor::spawn(TestActor::new());
-    let actor3 = TestActor::spawn(TestActor::new());
+    let actor1 = <TestActor as kameo::Actor>::spawn(TestActor::new());
+    let actor2 = <TestActor as kameo::Actor>::spawn(TestActor::new());
+    let actor3 = <TestActor as kameo::Actor>::spawn(TestActor::new());
 
     // Register all actors with different names
     actor1.register_local("actor_1").unwrap();
@@ -110,7 +110,7 @@ async fn test_lookup_nonexistent_actor() {
 /// This verifies that the registry is properly cleaned up when actors stop
 #[tokio::test]
 async fn test_registration_cleanup_after_stop() {
-    let actor = TestActor::spawn(TestActor::new());
+    let actor = <TestActor as kameo::Actor>::spawn(TestActor::new());
     actor.register_local("cleanup_test").unwrap();
 
     // Verify actor is registered

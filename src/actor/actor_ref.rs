@@ -267,7 +267,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// actor_ref.wait_for_startup().await;
     /// println!("Actor ready to handle messages!");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -305,7 +305,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// let startup_result = actor_ref.wait_for_startup_result().await;
     /// assert!(startup_result.is_err());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -351,7 +351,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// actor_ref.wait_for_startup_with_result(|res| {
     ///     assert!(res.is_err());
     /// }).await;
@@ -428,7 +428,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// actor_ref.stop_gracefully().await;
     /// let shutdown_result = actor_ref.wait_for_shutdown_result().await;
     /// assert!(shutdown_result.is_err());
@@ -485,7 +485,7 @@ where
     /// }
     ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// actor_ref.stop_gracefully().await;
     /// actor_ref.wait_for_shutdown_with_result(|res| {
     ///     assert!(res.is_err());
@@ -534,7 +534,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// # let msg = Msg;
     /// let reply = actor_ref.ask(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -580,7 +580,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// # let msg = Msg;
     /// actor_ref.tell(msg).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -613,8 +613,8 @@ where
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
+    /// let sibbling_ref = <MyActor as Actor>::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -663,8 +663,8 @@ where
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
+    /// let sibbling_ref = <MyActor as Actor>::spawn(MyActor);
     ///
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
@@ -711,8 +711,8 @@ where
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
+    /// let sibbling_ref = <MyActor as Actor>::spawn(MyActor);
     ///
     /// actor_ref.link(&sibbling_ref).await;
     /// actor_ref.unlink(&sibbling_ref).await;
@@ -756,8 +756,8 @@ where
     /// # struct MyActor;
     /// #
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
+    /// let sibbling_ref = <MyActor as Actor>::spawn(MyActor);
     ///
     /// thread::spawn(move || {
     ///     actor_ref.blocking_link(&sibbling_ref);
@@ -824,7 +824,7 @@ where
     /// # tokio_test::block_on(async {
     /// let stream = futures::stream::iter(vec![17, 19, 24]);
     ///
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// let actor_ref = <MyActor as Actor>::spawn(MyActor);
     /// actor_ref.attach_stream(stream, (), ()).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });

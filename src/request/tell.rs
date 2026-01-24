@@ -110,7 +110,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let counter_ref = Counter::spawn(Counter::default());
+    /// # let counter_ref = <Counter as kameo::Actor>::spawn(Counter::default());
     /// let count = 42;
     /// counter_ref.tell(count).send().await?;
     /// # Ok::<(), SendError<i64>>(())
@@ -162,7 +162,7 @@ where
     /// # }
     /// #
     /// # tokio_test::block_on(async {
-    /// # let counter_ref = Counter::spawn(Counter::default());
+    /// # let counter_ref = <Counter as kameo::Actor>::spawn(Counter::default());
     /// let count = 42;
     /// counter_ref.tell(count).try_send()?;
     /// # Ok::<(), SendError<i64>>(())

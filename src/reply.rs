@@ -779,7 +779,6 @@ impl_infallible_reply!([AtomicI64, AtomicU64]);
 mod tests {
     use std::{error, fmt};
 
-    use crate::actor::Spawn;
     use crate::error::Infallible;
     use crate::{
         actor::Actor,
@@ -821,7 +820,7 @@ mod tests {
             }
         }
 
-        let actor_ref = TestActor::spawn(TestActor);
+        let actor_ref = <TestActor as Actor>::spawn(TestActor);
         let response = actor_ref.ask(TestMessage).await.unwrap();
         assert_eq!(response, "Direct response");
     }
@@ -874,7 +873,7 @@ mod tests {
             }
         }
 
-        let actor_ref = TestActor::spawn(TestActor);
+        let actor_ref = <TestActor as Actor>::spawn(TestActor);
         let response = actor_ref.ask(TestMessage).await;
 
         match response {
@@ -948,7 +947,7 @@ mod tests {
             }
         }
 
-        let actor_ref = TestActor::spawn(TestActor);
+        let actor_ref = <TestActor as Actor>::spawn(TestActor);
 
         // Test success case
         let response = actor_ref

@@ -13,9 +13,9 @@ use rkyv::{Archive, Serialize as RSerialize};
 use crate::actor::ActorId;
 use crate::error::SendError;
 
-use super::transport::{RemoteActorLocation, RemoteTransport, TransportError};
+use super::transport::{RemoteActorLocation, RemoteTransport};
 use super::type_hash::HasTypeHash;
-use kameo_remote::connection_pool::ConnectionHandle;
+use kameo_remote::{connection_pool::ConnectionHandle, GossipError};
 
 /// A reference to a remote distributed actor (dynamic version)
 ///
@@ -44,26 +44,6 @@ where
             location,
             transport,
             connection: None,
-        }
-    }
-
-    /// Look up a distributed actor by name (without connection caching)
-    ///
-    /// WARNING: This method does not cache the connection, which means every tell/ask
-    /// will fall back to the lock-based transport method. For better performance,
-    /// use `lookup_with_connection_cache()` instead.
-    #[deprecated(
-        since = "0.17.3",
-        note = "Use lookup_with_connection_cache() for better performance"
-    )]
-    pub async fn uncached_lookup(
-        name: &str,
-        transport: T,
-    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(location) = transport.lookup_actor(name).await? {
-            Ok(Some(Self::new(location.actor_id, location, transport)))
-        } else {
-            Ok(None)
         }
     }
 
@@ -116,13 +96,18 @@ impl DynamicDistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(location) = transport.lookup_actor(name).await? {
             // Try to get the connection for caching
-            let connection = transport.get_connection_for_location(&location).await.ok();
+            let connection = match transport.get_connection_for_location(&location).await {
+                Ok(conn) => conn,
+                Err(_) => {
+                    return Ok(None);
+                }
+            };
 
             Ok(Some(Self {
                 actor_id: location.actor_id,
                 location,
                 transport,
-                connection,
+                connection: Some(connection),
             }))
         } else {
             Ok(None)
@@ -195,29 +180,13 @@ where
             message.extend_from_slice(payload.as_slice());
 
             // Try to send using cached connection - direct ring buffer access!
-            match conn.send_binary_message(&message).await {
-                Ok(_) => {
-                    return Ok(());
-                }
-                Err(_e) => {
-                    // Fall through to transport method
-                }
-            }
+            return conn
+                .send_binary_message(&message)
+                .await
+                .map_err(|_| SendError::ActorStopped);
         }
 
-        // Fallback: use transport's tell method (which will lock)
-        self.actor_ref
-            .transport
-            .send_tell_typed(
-                self.actor_ref.actor_id,
-                &self.actor_ref.location,
-                type_hash,
-                Bytes::copy_from_slice(payload.as_slice()),
-            )
-            .await
-            .map_err(|_| SendError::ActorStopped)?;
-
-        Ok(())
+        Err(SendError::MissingConnection)
     }
 }
 
@@ -305,6 +274,23 @@ where
         let timeout = self.timeout.unwrap_or(Duration::from_secs(2));
 
         let reply_bytes = if let Some(ref conn) = self.actor_ref.connection {
+            let threshold = conn.streaming_threshold();
+            if payload.len() > threshold {
+                let reply = conn
+                    .ask_streaming(
+                        payload.as_slice(),
+                        type_hash,
+                        self.actor_ref.actor_id.into_u64(),
+                        timeout,
+                    )
+                    .await
+                    .map_err(|e| match e {
+                        GossipError::Timeout => SendError::Timeout(None),
+                        _ => SendError::ActorStopped,
+                    })?;
+                return Ok(reply);
+            }
+
             // Try to use cached connection first - no locks!
             let actor_message = kameo_remote::registry::RegistryMessage::ActorMessage {
                 actor_id: self.actor_ref.actor_id.into_u64().to_string(),
@@ -318,60 +304,14 @@ where
                 // Try to send using cached connection - direct ring buffer access!
                 match tokio::time::timeout(timeout, conn.ask(&message_bytes)).await {
                     Ok(Ok(reply)) => Bytes::from(reply),
-                    Ok(Err(_e)) => {
-                        // Fall through to transport method
-                        self.actor_ref
-                            .transport
-                            .send_ask_typed(
-                                self.actor_ref.actor_id,
-                                &self.actor_ref.location,
-                                type_hash,
-                                Bytes::copy_from_slice(payload.as_slice()),
-                                timeout,
-                            )
-                            .await
-                            .map_err(|e| match e {
-                                TransportError::Timeout => SendError::Timeout(None),
-                                _ => SendError::ActorStopped,
-                            })?
-                    }
-                    Err(_) => {
-                        return Err(SendError::Timeout(None));
-                    }
+                    Ok(Err(_e)) => return Err(SendError::ActorStopped),
+                    Err(_) => return Err(SendError::Timeout(None)),
                 }
             } else {
-                // Serialization failed, use transport
-                self.actor_ref
-                    .transport
-                    .send_ask_typed(
-                        self.actor_ref.actor_id,
-                        &self.actor_ref.location,
-                        type_hash,
-                        Bytes::copy_from_slice(payload.as_slice()),
-                        timeout,
-                    )
-                    .await
-                    .map_err(|e| match e {
-                        TransportError::Timeout => SendError::Timeout(None),
-                        _ => SendError::ActorStopped,
-                    })?
+                return Err(SendError::ActorStopped);
             }
         } else {
-            // No cached connection, use transport
-            self.actor_ref
-                .transport
-                .send_ask_typed(
-                    self.actor_ref.actor_id,
-                    &self.actor_ref.location,
-                    type_hash,
-                    Bytes::copy_from_slice(payload.as_slice()),
-                    timeout,
-                )
-                .await
-                .map_err(|e| match e {
-                    TransportError::Timeout => SendError::Timeout(None),
-                    _ => SendError::ActorStopped,
-                })?
+            return Err(SendError::MissingConnection);
         };
 
         Ok(reply_bytes)

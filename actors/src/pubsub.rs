@@ -137,7 +137,9 @@ impl<M> PubSub<M> {
         for (id, result) in results.into_iter() {
             match result {
                 Ok(_) => {}
-                Err(SendError::ActorNotRunning(_)) | Err(SendError::ActorStopped) => {
+                Err(SendError::ActorNotRunning(_))
+                | Err(SendError::ActorStopped)
+                | Err(SendError::MissingConnection) => {
                     self.subscribers.remove(&id);
                 }
                 Err(SendError::MailboxFull(_))

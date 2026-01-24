@@ -90,6 +90,8 @@ pub enum SendError<M = (), E = Infallible> {
     ActorNotRunning(M),
     /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
+    /// Missing cached connection for remote actor refs.
+    MissingConnection,
     /// The actors mailbox is full.
     MailboxFull(M),
     /// An error returned by the actor's message handler.
@@ -107,6 +109,7 @@ impl<M, E> SendError<M, E> {
         match self {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(f(msg)),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MissingConnection => SendError::MissingConnection,
             SendError::MailboxFull(msg) => SendError::MailboxFull(f(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(err),
             SendError::Timeout(msg) => SendError::Timeout(msg.map(f)),
@@ -121,6 +124,7 @@ impl<M, E> SendError<M, E> {
         match self {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(msg),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MissingConnection => SendError::MissingConnection,
             SendError::MailboxFull(msg) => SendError::MailboxFull(msg),
             SendError::HandlerError(err) => SendError::HandlerError(op(err)),
             SendError::Timeout(msg) => SendError::Timeout(msg),
@@ -136,6 +140,7 @@ impl<M, E> SendError<M, E> {
         match self {
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(Box::new(err)),
             SendError::ActorStopped => SendError::ActorStopped,
+            SendError::MissingConnection => SendError::MissingConnection,
             SendError::MailboxFull(msg) => SendError::MailboxFull(Box::new(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
             SendError::Timeout(msg) => {
@@ -202,6 +207,10 @@ impl<M, E> SendError<M, SendError<M, E>> {
             SendError::ActorStopped | SendError::HandlerError(SendError::ActorStopped) => {
                 SendError::ActorStopped
             }
+            SendError::MissingConnection
+            | SendError::HandlerError(SendError::MissingConnection) => {
+                SendError::MissingConnection
+            }
             SendError::MailboxFull(msg) | SendError::HandlerError(SendError::MailboxFull(msg)) => {
                 SendError::MailboxFull(msg)
             }
@@ -234,6 +243,7 @@ impl BoxSendError {
                 *err.downcast::<M>().map_err(SendError::ActorNotRunning)?,
             )),
             SendError::ActorStopped => Ok(SendError::ActorStopped),
+            SendError::MissingConnection => Ok(SendError::MissingConnection),
             SendError::MailboxFull(err) => Ok(SendError::MailboxFull(
                 *err.downcast().map_err(SendError::MailboxFull)?,
             )),
@@ -260,6 +270,7 @@ where
         match self {
             SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
+            SendError::MissingConnection => write!(f, "MissingConnection"),
             SendError::MailboxFull(_) => write!(f, "MailboxFull"),
             SendError::HandlerError(err) => err.fmt(f),
             SendError::Timeout(_) => write!(f, "Timeout"),
@@ -275,6 +286,7 @@ where
         match self {
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
+            SendError::MissingConnection => write!(f, "missing cached connection"),
             SendError::MailboxFull(_) => write!(f, "mailbox full"),
             SendError::HandlerError(err) => err.fmt(f),
             SendError::Timeout(_) => write!(f, "timeout"),
@@ -698,6 +710,8 @@ pub enum RemoteSendError<E = Infallible> {
     ActorNotRunning,
     /// The actor panicked or was stopped before a reply could be received.
     ActorStopped,
+    /// Missing cached connection for remote actor refs.
+    MissingConnection,
     /// The actor's remote ID was not found.
     UnknownActor {
         /// The remote ID of the actor.
@@ -760,6 +774,7 @@ impl<E> RemoteSendError<E> {
         match self {
             RemoteSendError::ActorNotRunning => RemoteSendError::ActorNotRunning,
             RemoteSendError::ActorStopped => RemoteSendError::ActorStopped,
+            RemoteSendError::MissingConnection => RemoteSendError::MissingConnection,
             RemoteSendError::UnknownActor { actor_remote_id } => {
                 RemoteSendError::UnknownActor { actor_remote_id }
             }
@@ -801,6 +816,7 @@ impl<E> RemoteSendError<RemoteSendError<E>> {
         match self {
             ActorNotRunning | HandlerError(ActorNotRunning) => ActorNotRunning,
             ActorStopped | HandlerError(ActorStopped) => ActorStopped,
+            MissingConnection | HandlerError(MissingConnection) => MissingConnection,
             UnknownActor { actor_remote_id } | HandlerError(UnknownActor { actor_remote_id }) => {
                 UnknownActor { actor_remote_id }
             }
@@ -848,6 +864,7 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
         match err {
             SendError::ActorNotRunning(_) => RemoteSendError::ActorNotRunning,
             SendError::ActorStopped => RemoteSendError::ActorStopped,
+            SendError::MissingConnection => RemoteSendError::MissingConnection,
             SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
             SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
             SendError::Timeout(_) => RemoteSendError::ReplyTimeout,
@@ -864,6 +881,7 @@ where
         match self {
             RemoteSendError::ActorNotRunning => write!(f, "actor not running"),
             RemoteSendError::ActorStopped => write!(f, "actor stopped"),
+            RemoteSendError::MissingConnection => write!(f, "missing cached connection"),
             RemoteSendError::UnknownActor { actor_remote_id } => {
                 write!(f, "unknown actor '{actor_remote_id}'")
             }
