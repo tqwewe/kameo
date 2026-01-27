@@ -278,8 +278,8 @@ where
             let threshold = conn.streaming_threshold();
             if payload.len() > threshold {
                 let reply = conn
-                    .ask_streaming(
-                        payload.as_slice(),
+                    .ask_streaming_bytes(
+                        bytes::Bytes::from(payload.into_vec()),
                         type_hash,
                         self.actor_ref.actor_id.into_u64(),
                         timeout,
