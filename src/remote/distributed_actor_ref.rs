@@ -454,12 +454,12 @@ where
         if let Some(conn) = self.actor_ref.connection.as_ref() {
             let threshold = conn.streaming_threshold();
             if payload.len() > threshold {
-                // NOTE: One copy is unavoidable - rkyv's AlignedVec uses 16-byte alignment
-                // which cannot be transferred to Bytes without copying. The streaming
-                // protocol itself uses zero-copy chunking via Bytes::slice().
+                // NOTE: One copy occurs here via into_vec() because rkyv's AlignedVec
+                // uses a custom aligned allocator incompatible with Vec's global allocator.
+                // After this, streaming uses zero-copy chunking via Bytes::slice().
                 let reply = conn
                     .ask_streaming_bytes(
-                        bytes::Bytes::copy_from_slice(payload.as_slice()),
+                        bytes::Bytes::from(payload.into_vec()),
                         type_hash,
                         self.actor_ref.actor_id.into_u64(),
                         timeout,
