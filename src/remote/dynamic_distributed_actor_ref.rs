@@ -27,7 +27,8 @@ pub struct DynamicDistributedActorRef<T = Box<super::kameo_transport::KameoTrans
     pub(crate) actor_id: ActorId,
     /// The actor's location
     pub(crate) location: RemoteActorLocation,
-    /// The transport to use for communication
+    /// The transport to use for communication (stored for future use)
+    #[allow(dead_code)]
     pub(crate) transport: T,
     /// Cached connection handle for lock-free access (only for KameoTransport)
     pub(crate) connection: Option<ConnectionHandle>,
