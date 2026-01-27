@@ -449,17 +449,28 @@ where
             .map_err(|_e| SendError::ActorStopped)?;
 
         // Default timeout if not specified
-        let timeout = self.timeout.unwrap_or(Duration::from_secs(2));
+        let default_timeout = Duration::from_secs(2);
 
         if let Some(conn) = self.actor_ref.connection.as_ref() {
             let threshold = conn.streaming_threshold();
             if payload.len() > threshold {
+                // For streaming, scale timeout based on payload size if not explicitly set.
+                // Use at least 30s base + 1s per MB to handle large payloads over the network.
+                let streaming_timeout = self.timeout.unwrap_or_else(|| {
+                    let payload_mb = payload.len() as u64 / (1024 * 1024);
+                    Duration::from_secs(30 + payload_mb)
+                });
+
+                // NOTE: One O(n) copy occurs here. rkyv's AlignedVec uses a 16-byte aligned
+                // custom allocator that cannot transfer ownership to Vec's global allocator.
+                // Both into_vec() and copy_from_slice() require this copy - it's unavoidable
+                // with rkyv 0.8. After this point, Bytes enables zero-copy chunking via slice().
                 let reply = conn
-                    .ask_streaming(
-                        payload.as_slice(),
+                    .ask_streaming_bytes(
+                        bytes::Bytes::from(payload.into_vec()),
                         type_hash,
                         self.actor_ref.actor_id.into_u64(),
-                        timeout,
+                        streaming_timeout,
                     )
                     .await
                     .map_err(|e| match e {
@@ -480,6 +491,7 @@ where
             let serialized_msg = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message)
                 .map_err(|_e| SendError::ActorStopped)?;
 
+            let timeout = self.timeout.unwrap_or(default_timeout);
             let reply = match tokio::time::timeout(timeout, conn.ask(&serialized_msg)).await {
                 Ok(Ok(bytes)) => bytes,
                 Ok(Err(_)) => return Err(SendError::ActorStopped),

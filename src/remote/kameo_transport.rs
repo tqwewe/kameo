@@ -874,7 +874,7 @@ impl RemoteTransport for KameoTransport {
             } else {
                 // Large message: use zero-copy streaming ask protocol
                 match conn
-                    .ask_streaming_bytes(payload.clone(), type_hash, actor_id.into_u64(), timeout)
+                    .ask_streaming_bytes(payload, type_hash, actor_id.into_u64(), timeout)
                     .await
                 {
                     Ok(reply_bytes) => Ok(reply_bytes),
