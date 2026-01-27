@@ -18,9 +18,6 @@ use super::transport::{
     TransportResult,
 };
 
-// Constants for streaming - must match kameo_remote
-const STREAM_THRESHOLD: usize = 1024 * 1024 - 1024; // 1MB - 1KB to account for serialization overhead
-
 /// kameo_remote-based transport implementation
 #[derive(Clone)]
 pub struct KameoTransport {
@@ -844,9 +841,9 @@ impl RemoteTransport for KameoTransport {
 
     fn send_ask_streaming(
         &self,
-        _actor_id: ActorId,
+        actor_id: ActorId,
         location: &RemoteActorLocation,
-        _type_hash: u32,
+        type_hash: u32,
         payload: Bytes,
         timeout: Duration,
     ) -> Pin<Box<dyn Future<Output = TransportResult<Bytes>> + Send + '_>> {
@@ -858,22 +855,15 @@ impl RemoteTransport for KameoTransport {
                 .as_ref()
                 .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
 
-            // Get connection pool from registry
             let mut pool = handle.registry.connection_pool.lock().await;
-
-            // Get or create connection to peer
             let conn = pool.get_connection(peer_addr).await.map_err(|e| {
-                TransportError::ConnectionFailed(format!(
-                    "Failed to get connection for streaming: {}",
-                    e
-                ))
+                TransportError::ConnectionFailed(format!("Failed to get connection for streaming: {}", e))
             })?;
 
-            // For streaming ask operations, use the connection's streaming capability with ask
-            // This builds a proper ask message with streaming protocol support
+            let threshold = conn.streaming_threshold();
 
-            if payload.len() <= STREAM_THRESHOLD {
-                // Small message, use regular ask path
+            if payload.len() <= threshold {
+                // Small message: use regular ask path
                 match tokio::time::timeout(timeout, conn.ask(&payload)).await {
                     Ok(Ok(reply_bytes)) => Ok(Bytes::from(reply_bytes)),
                     Ok(Err(e)) => Err(TransportError::Other(
@@ -882,40 +872,16 @@ impl RemoteTransport for KameoTransport {
                     Err(_) => Err(TransportError::Timeout),
                 }
             } else {
-                // Large message requires streaming protocol
-                // Since kameo_remote doesn't have native ask_streaming yet, implement chunked approach
-
-                // CRITICAL FIX: The previous implementation only sent the first chunk
-                // This implementation uses a chunked protocol for large ask messages
-
-                const CHUNK_SIZE: usize = 256 * 1024; // 256KB chunks to stay under threshold
-                let chunks: Vec<&[u8]> = payload.chunks(CHUNK_SIZE).collect();
-                let total_chunks = chunks.len();
-
-                if total_chunks == 1 {
-                    // Single chunk, but still large - try regular ask
-                    // Note: this may fail if the message is too large for ring buffer
-                    match tokio::time::timeout(timeout, conn.ask(&payload)).await {
-                        Ok(Ok(reply_bytes)) => Ok(Bytes::from(reply_bytes)),
-                        Ok(Err(e)) => Err(TransportError::Other(
-                            format!("Failed to send large ask message: {}", e).into(),
-                        )),
-                        Err(_) => Err(TransportError::Timeout),
-                    }
-                } else {
-                    // Multiple chunks - implement chunked ask protocol
-                    // This is a workaround until native streaming ask is available
-
-                    // For now, this is a limitation - we can only handle single large messages
-                    // Multi-chunk ask operations require protocol-level support
-                    let error_msg = format!(
-                        "Ask message too large for current implementation: {} bytes in {} chunks. Maximum supported size: {} bytes.",
-                        payload.len(),
-                        total_chunks,
-                        STREAM_THRESHOLD
-                    );
-
-                    Err(TransportError::Other(error_msg.into()))
+                // Large message: use streaming ask protocol
+                match conn
+                    .ask_streaming(payload.as_ref(), type_hash, actor_id.into_u64(), timeout)
+                    .await
+                {
+                    Ok(reply_bytes) => Ok(reply_bytes),
+                    Err(kameo_remote::GossipError::Timeout) => Err(TransportError::Timeout),
+                    Err(e) => Err(TransportError::Other(
+                        format!("Failed to send streaming ask: {}", e).into(),
+                    )),
                 }
             }
         })

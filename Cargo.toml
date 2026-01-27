@@ -74,7 +74,7 @@ dyn-clone = "1.0"
 either = { version = "1.15.0", optional = true }
 futures.workspace = true
 hotpath = { version = "0.7", optional = true, features = ["tokio"] }
-kameo_remote = { git = "https://github.com/moofone/kameo_remote", optional = true }
+kameo_remote = { git = "https://github.com/siqueiraa/kameo_remote", branch = "feat/ask-streaming-method", optional = true }
 linkme = { version = "0.3.28", optional = true }
 metrics = { version = "0.24.2", optional = true }
 rkyv = { version = "0.8", features = ["bytecheck", "std"], optional = true }
