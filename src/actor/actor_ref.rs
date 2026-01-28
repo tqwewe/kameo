@@ -645,36 +645,36 @@ where
     /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let sibling_ref = MyActor::spawn(MyActor);
     ///
-    /// actor_ref.link(&sibbling_ref).await;
+    /// actor_ref.link(&sibling_ref).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     #[inline]
-    pub async fn link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
+    pub async fn link<B: Actor>(&self, sibling_ref: &ActorRef<B>) {
+        if self.id == sibling_ref.id {
             return;
         }
 
-        if self.id < sibbling_ref.id {
+        if self.id < sibling_ref.id {
             let mut this_links = self.links.lock().await;
-            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut sibling_links = sibling_ref.links.lock().await;
 
             this_links.insert(
-                sibbling_ref.id,
-                Link::Local(sibbling_ref.weak_signal_mailbox()),
+                sibling_ref.id,
+                Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
         } else {
-            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut sibling_links = sibling_ref.links.lock().await;
             let mut this_links = self.links.lock().await;
 
             this_links.insert(
-                sibbling_ref.id,
-                Link::Local(sibbling_ref.weak_signal_mailbox()),
+                sibling_ref.id,
+                Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
         }
     }
 
@@ -696,39 +696,39 @@ where
     /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let sibling_ref = MyActor::spawn(MyActor);
     ///
     /// thread::spawn(move || {
-    ///     actor_ref.blocking_link(&sibbling_ref);
+    ///     actor_ref.blocking_link(&sibling_ref);
     /// });
     /// # });
     /// ```
     ///
     /// [`link`]: ActorRef::link
     #[inline]
-    pub fn blocking_link<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
+    pub fn blocking_link<B: Actor>(&self, sibling_ref: &ActorRef<B>) {
+        if self.id == sibling_ref.id {
             return;
         }
 
-        if self.id < sibbling_ref.id {
+        if self.id < sibling_ref.id {
             let mut this_links = self.links.blocking_lock();
-            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut sibling_links = sibling_ref.links.blocking_lock();
 
             this_links.insert(
-                sibbling_ref.id,
-                Link::Local(sibbling_ref.weak_signal_mailbox()),
+                sibling_ref.id,
+                Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
         } else {
-            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut sibling_links = sibling_ref.links.blocking_lock();
             let mut this_links = self.links.blocking_lock();
 
             this_links.insert(
-                sibbling_ref.id,
-                Link::Local(sibbling_ref.weak_signal_mailbox()),
+                sibling_ref.id,
+                Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibbling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
         }
     }
 
@@ -748,22 +748,22 @@ where
     /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
+    /// let sibling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
     ///
-    /// actor_ref.link_remote(&sibbling_ref).await?;
+    /// actor_ref.link_remote(&sibling_ref).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     #[cfg(feature = "remote")]
     pub async fn link_remote<B>(
         &self,
-        sibbling_ref: &RemoteActorRef<B>,
+        sibling_ref: &RemoteActorRef<B>,
     ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
     {
-        if self.id == sibbling_ref.id {
+        if self.id == sibling_ref.id {
             return Ok(());
         }
 
@@ -774,12 +774,12 @@ where
             .or_insert_with(|| remote::RemoteRegistryActorRef::new(self.clone(), None));
 
         self.links.lock().await.insert(
-            sibbling_ref.id,
+            sibling_ref.id,
             Link::Remote(std::borrow::Cow::Borrowed(B::REMOTE_ID)),
         );
         remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(self.id, sibbling_ref.id)
+            .link::<A, B>(self.id, sibling_ref.id)
             .await
     }
 
@@ -796,30 +796,30 @@ where
     /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let sibling_ref = MyActor::spawn(MyActor);
     ///
-    /// actor_ref.link(&sibbling_ref).await;
-    /// actor_ref.unlink(&sibbling_ref).await;
+    /// actor_ref.link(&sibling_ref).await;
+    /// actor_ref.unlink(&sibling_ref).await;
     /// # });
     /// ```
     #[inline]
-    pub async fn unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
+    pub async fn unlink<B: Actor>(&self, sibling_ref: &ActorRef<B>) {
+        if self.id == sibling_ref.id {
             return;
         }
 
-        if self.id < sibbling_ref.id {
+        if self.id < sibling_ref.id {
             let mut this_links = self.links.lock().await;
-            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut sibling_links = sibling_ref.links.lock().await;
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         } else {
-            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut sibling_links = sibling_ref.links.lock().await;
             let mut this_links = self.links.lock().await;
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         }
     }
 
@@ -842,34 +842,34 @@ where
     /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = MyActor::spawn(MyActor);
+    /// let sibling_ref = MyActor::spawn(MyActor);
     ///
     /// thread::spawn(move || {
-    ///     actor_ref.blocking_link(&sibbling_ref);
-    ///     actor_ref.blocking_unlink(&sibbling_ref);
+    ///     actor_ref.blocking_link(&sibling_ref);
+    ///     actor_ref.blocking_unlink(&sibling_ref);
     /// });
     /// # });
     /// ```
     ///
     /// [`unlink`]: ActorRef::unlink
     #[inline]
-    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
+    pub fn blocking_unlink<B: Actor>(&self, sibling_ref: &ActorRef<B>) {
+        if self.id == sibling_ref.id {
             return;
         }
 
-        if self.id < sibbling_ref.id {
+        if self.id < sibling_ref.id {
             let mut this_links = self.links.blocking_lock();
-            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut sibling_links = sibling_ref.links.blocking_lock();
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         } else {
-            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut sibling_links = sibling_ref.links.blocking_lock();
             let mut this_links = self.links.blocking_lock();
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         }
     }
 
@@ -889,29 +889,29 @@ where
     /// #
     /// # tokio_test::block_on(async {
     /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibbling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
+    /// let sibling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
     ///
-    /// actor_ref.unlink_remote(&sibbling_ref).await?;
+    /// actor_ref.unlink_remote(&sibling_ref).await?;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     #[cfg(feature = "remote")]
     pub async fn unlink_remote<B>(
         &self,
-        sibbling_ref: &RemoteActorRef<B>,
+        sibling_ref: &RemoteActorRef<B>,
     ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
     {
-        if self.id == sibbling_ref.id {
+        if self.id == sibling_ref.id {
             return Ok(());
         }
 
-        self.links.lock().await.remove(&sibbling_ref.id);
+        self.links.lock().await.remove(&sibling_ref.id);
         remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibbling_ref.id)
+            .unlink::<B>(self.id, sibling_ref.id)
             .await
     }
 
@@ -1628,22 +1628,22 @@ where
     /// ```
     pub async fn link_remote<B>(
         &self,
-        sibbling_ref: &RemoteActorRef<B>,
+        sibling_ref: &RemoteActorRef<B>,
     ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
     {
-        if self.id == sibbling_ref.id {
+        if self.id == sibling_ref.id {
             return Ok(());
         }
 
         let fut_a = remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(self.id, sibbling_ref.id);
+            .link::<A, B>(self.id, sibling_ref.id);
         let fut_b = remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<B, A>(sibbling_ref.id, self.id);
+            .link::<B, A>(sibling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
 
@@ -1673,22 +1673,22 @@ where
     /// ```
     pub async fn unlink_remote<B>(
         &self,
-        sibbling_ref: &RemoteActorRef<B>,
+        sibling_ref: &RemoteActorRef<B>,
     ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
     {
-        if self.id == sibbling_ref.id {
+        if self.id == sibling_ref.id {
             return Ok(());
         }
 
         let fut_a = remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibbling_ref.id);
+            .unlink::<B>(self.id, sibling_ref.id);
         let fut_b = remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<A>(sibbling_ref.id, self.id);
+            .unlink::<A>(sibling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
 
@@ -1997,23 +1997,23 @@ impl<A: Actor> WeakActorRef<A> {
     ///
     /// See [`ActorRef::unlink`] for full details and examples.
     #[inline]
-    pub async fn unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
+    pub async fn unlink<B: Actor>(&self, sibling_ref: &ActorRef<B>) {
+        if self.id == sibling_ref.id {
             return;
         }
 
-        if self.id < sibbling_ref.id {
+        if self.id < sibling_ref.id {
             let mut this_links = self.links.lock().await;
-            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut sibling_links = sibling_ref.links.lock().await;
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         } else {
-            let mut sibbling_links = sibbling_ref.links.lock().await;
+            let mut sibling_links = sibling_ref.links.lock().await;
             let mut this_links = self.links.lock().await;
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         }
     }
 
@@ -2021,23 +2021,23 @@ impl<A: Actor> WeakActorRef<A> {
     ///
     /// See [`ActorRef::blocking_unlink`] for full details and examples.
     #[inline]
-    pub fn blocking_unlink<B: Actor>(&self, sibbling_ref: &ActorRef<B>) {
-        if self.id == sibbling_ref.id {
+    pub fn blocking_unlink<B: Actor>(&self, sibling_ref: &ActorRef<B>) {
+        if self.id == sibling_ref.id {
             return;
         }
 
-        if self.id < sibbling_ref.id {
+        if self.id < sibling_ref.id {
             let mut this_links = self.links.blocking_lock();
-            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut sibling_links = sibling_ref.links.blocking_lock();
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         } else {
-            let mut sibbling_links = sibbling_ref.links.blocking_lock();
+            let mut sibling_links = sibling_ref.links.blocking_lock();
             let mut this_links = self.links.blocking_lock();
 
-            this_links.remove(&sibbling_ref.id);
-            sibbling_links.remove(&self.id);
+            this_links.remove(&sibling_ref.id);
+            sibling_links.remove(&self.id);
         }
     }
 
@@ -2047,20 +2047,20 @@ impl<A: Actor> WeakActorRef<A> {
     #[cfg(feature = "remote")]
     pub async fn unlink_remote<B>(
         &self,
-        sibbling_ref: &RemoteActorRef<B>,
+        sibling_ref: &RemoteActorRef<B>,
     ) -> Result<(), error::RemoteSendError<error::Infallible>>
     where
         A: remote::RemoteActor,
         B: Actor + remote::RemoteActor,
     {
-        if self.id == sibbling_ref.id {
+        if self.id == sibling_ref.id {
             return Ok(());
         }
 
-        self.links.lock().await.remove(&sibbling_ref.id);
+        self.links.lock().await.remove(&sibling_ref.id);
         remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibbling_ref.id)
+            .unlink::<B>(self.id, sibling_ref.id)
             .await
     }
 
