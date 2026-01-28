@@ -203,13 +203,13 @@ impl ActorSwarm {
     pub(crate) fn link<A: Actor + RemoteActor, B: Actor + RemoteActor>(
         &self,
         actor_id: ActorId,
-        sibbling_id: ActorId,
+        sibling_id: ActorId,
     ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
         let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Link {
             actor_id,
             actor_remote_id: Cow::Borrowed(A::REMOTE_ID),
-            sibbling_id,
-            sibbling_remote_id: Cow::Borrowed(B::REMOTE_ID),
+            sibling_id,
+            sibling_remote_id: Cow::Borrowed(B::REMOTE_ID),
             reply,
         });
 
@@ -225,12 +225,12 @@ impl ActorSwarm {
     pub(crate) fn unlink<B: Actor + RemoteActor>(
         &self,
         actor_id: ActorId,
-        sibbling_id: ActorId,
+        sibling_id: ActorId,
     ) -> impl Future<Output = Result<(), RemoteSendError<Infallible>>> {
         let reply_rx = self.swarm_tx.send_with_reply(|reply| SwarmCommand::Unlink {
             actor_id,
-            sibbling_id,
-            sibbling_remote_id: Cow::Borrowed(B::REMOTE_ID),
+            sibling_id,
+            sibling_remote_id: Cow::Borrowed(B::REMOTE_ID),
             reply,
         });
 
@@ -472,9 +472,9 @@ pub(crate) enum SwarmCommand {
         /// Actor A remote ID.
         actor_remote_id: Cow<'static, str>,
         /// Actor B ID.
-        sibbling_id: ActorId,
+        sibling_id: ActorId,
         /// Actor B remote ID.
-        sibbling_remote_id: Cow<'static, str>,
+        sibling_remote_id: Cow<'static, str>,
         /// Reply sender.
         reply: oneshot::Sender<SwarmResponse>,
     },
@@ -483,9 +483,9 @@ pub(crate) enum SwarmCommand {
         /// Actor A ID.
         actor_id: ActorId,
         /// Actor B ID.
-        sibbling_id: ActorId,
+        sibling_id: ActorId,
         /// Actor B remote ID.
-        sibbling_remote_id: Cow<'static, str>,
+        sibling_remote_id: Cow<'static, str>,
         /// Reply sender.
         reply: oneshot::Sender<SwarmResponse>,
     },

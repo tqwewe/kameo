@@ -47,27 +47,27 @@ impl ToTokens for DeriveRemoteActor {
                         link: (
                             |
                               actor_id: ::kameo::actor::ActorId,
-                              sibbling_id: ::kameo::actor::ActorId,
-                              sibbling_remote_id: ::std::borrow::Cow<'static, str>,
+                              sibling_id: ::kameo::actor::ActorId,
+                              sibling_remote_id: ::std::borrow::Cow<'static, str>,
                             | {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::link::<
                                     #ident #ty_generics,
                                 >(
                                     actor_id,
-                                    sibbling_id,
-                                    sibbling_remote_id,
+                                    sibling_id,
+                                    sibling_remote_id,
                                 ))
                             }) as ::kameo::remote::_internal::RemoteLinkFn,
                         unlink: (
                             |
                               actor_id: ::kameo::actor::ActorId,
-                              sibbling_id: ::kameo::actor::ActorId,
+                              sibling_id: ::kameo::actor::ActorId,
                             | {
                                 ::std::boxed::Box::pin(::kameo::remote::_internal::unlink::<
                                     #ident #ty_generics,
                                 >(
                                     actor_id,
-                                    sibbling_id,
+                                    sibling_id,
                                 ))
                             }) as ::kameo::remote::_internal::RemoteUnlinkFn,
                         signal_link_died: (

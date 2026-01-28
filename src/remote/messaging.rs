@@ -190,10 +190,10 @@ pub enum SwarmRequest {
         actor_id: ActorId,
         /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
-        /// Sibbling ID.
-        sibbling_id: ActorId,
-        /// Sibbling remote ID.
-        sibbling_remote_id: Cow<'static, str>,
+        /// Sibling ID.
+        sibling_id: ActorId,
+        /// Sibling remote ID.
+        sibling_remote_id: Cow<'static, str>,
     },
     /// A request to unlink two actors.
     Unlink {
@@ -201,8 +201,8 @@ pub enum SwarmRequest {
         actor_id: ActorId,
         /// Actor remote ID.
         actor_remote_id: Cow<'static, str>,
-        /// Sibbling ID.
-        sibbling_id: ActorId,
+        /// Sibling ID.
+        sibling_id: ActorId,
     },
     /// A signal notifying a linked actor has died.
     SignalLinkDied {
@@ -544,8 +544,8 @@ impl Behaviour {
     ///
     /// * `actor_id` - The first actor's ID
     /// * `actor_remote_id` - The first actor's remote type ID  
-    /// * `sibbling_id` - The second actor's ID to link with
-    /// * `sibbling_remote_id` - The second actor's remote type ID
+    /// * `sibling_id` - The second actor's ID to link with
+    /// * `sibling_remote_id` - The second actor's remote type ID
     ///
     /// # Returns
     ///
@@ -557,15 +557,15 @@ impl Behaviour {
         // Actor A remote ID.
         actor_remote_id: Cow<'static, str>,
         // Actor B ID.
-        sibbling_id: ActorId,
+        sibling_id: ActorId,
         // Actor B remote ID.
-        sibbling_remote_id: Cow<'static, str>,
+        sibling_remote_id: Cow<'static, str>,
     ) -> RequestId {
         self.link_with_reply(
             actor_id,
             actor_remote_id,
-            sibbling_id,
-            sibbling_remote_id,
+            sibling_id,
+            sibling_remote_id,
             None,
         )
         .unwrap()
@@ -581,7 +581,7 @@ impl Behaviour {
     ///
     /// * `actor_id` - The first actor's ID
     /// * `actor_remote_id` - The first actor's remote type ID
-    /// * `sibbling_id` - The second actor's ID to unlink from
+    /// * `sibling_id` - The second actor's ID to unlink from
     ///
     /// # Returns
     ///
@@ -592,10 +592,10 @@ impl Behaviour {
         actor_id: ActorId,
         // Actor remote ID.
         actor_remote_id: Cow<'static, str>,
-        // Sibbling ID.
-        sibbling_id: ActorId,
+        // Sibling ID.
+        sibling_id: ActorId,
     ) -> RequestId {
-        self.unlink_with_reply(actor_id, actor_remote_id, sibbling_id, None)
+        self.unlink_with_reply(actor_id, actor_remote_id, sibling_id, None)
             .unwrap()
     }
 
@@ -764,26 +764,24 @@ impl Behaviour {
         &mut self,
         actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorId,
-        sibbling_remote_id: Cow<'static, str>,
+        sibling_id: ActorId,
+        sibling_remote_id: Cow<'static, str>,
         reply: Option<oneshot::Sender<SwarmResponse>>,
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
             peer_id,
             reply,
-            (actor_id, actor_remote_id, sibbling_id, sibbling_remote_id),
-            |(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)| {
-                link(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)
+            (actor_id, actor_remote_id, sibling_id, sibling_remote_id),
+            |(actor_id, actor_remote_id, sibling_id, sibling_remote_id)| {
+                link(actor_id, actor_remote_id, sibling_id, sibling_remote_id)
                     .map(SwarmResponse::Link)
             },
-            move |(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)| {
-                SwarmRequest::Link {
-                    actor_id,
-                    actor_remote_id,
-                    sibbling_id,
-                    sibbling_remote_id,
-                }
+            move |(actor_id, actor_remote_id, sibling_id, sibling_remote_id)| SwarmRequest::Link {
+                actor_id,
+                actor_remote_id,
+                sibling_id,
+                sibling_remote_id,
             },
         )
     }
@@ -792,21 +790,21 @@ impl Behaviour {
         &mut self,
         actor_id: ActorId,
         actor_remote_id: Cow<'static, str>,
-        sibbling_id: ActorId,
+        sibling_id: ActorId,
         reply: Option<oneshot::Sender<SwarmResponse>>,
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
             peer_id,
             reply,
-            (actor_id, actor_remote_id, sibbling_id),
-            |(actor_id, actor_remote_id, sibbling_id)| {
-                unlink(actor_id, actor_remote_id, sibbling_id).map(SwarmResponse::Unlink)
+            (actor_id, actor_remote_id, sibling_id),
+            |(actor_id, actor_remote_id, sibling_id)| {
+                unlink(actor_id, actor_remote_id, sibling_id).map(SwarmResponse::Unlink)
             },
-            move |(actor_id, actor_remote_id, sibbling_id)| SwarmRequest::Unlink {
+            move |(actor_id, actor_remote_id, sibling_id)| SwarmRequest::Unlink {
                 actor_id,
                 actor_remote_id,
-                sibbling_id,
+                sibling_id,
             },
         )
     }
@@ -1021,21 +1019,21 @@ impl Behaviour {
             SwarmRequest::Link {
                 actor_id,
                 actor_remote_id,
-                sibbling_id,
-                sibbling_remote_id,
+                sibling_id,
+                sibling_remote_id,
             } => {
                 self.join_set.spawn(
-                    link(actor_id, actor_remote_id, sibbling_id, sibbling_remote_id)
+                    link(actor_id, actor_remote_id, sibling_id, sibling_remote_id)
                         .map(|res| (channel, SwarmResponse::Link(res))),
                 );
             }
             SwarmRequest::Unlink {
                 actor_id,
                 actor_remote_id,
-                sibbling_id,
+                sibling_id,
             } => {
                 self.join_set.spawn(
-                    unlink(actor_id, actor_remote_id, sibbling_id)
+                    unlink(actor_id, actor_remote_id, sibling_id)
                         .map(|res| (channel, SwarmResponse::Unlink(res))),
                 );
             }
@@ -1364,26 +1362,26 @@ async fn tell(
 async fn link(
     actor_id: ActorId,
     actor_remote_id: Cow<'static, str>,
-    sibbling_id: ActorId,
-    sibbling_remote_id: Cow<'static, str>,
+    sibling_id: ActorId,
+    sibling_remote_id: Cow<'static, str>,
 ) -> Result<(), RemoteSendError<Infallible>> {
     let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
         return Err(RemoteSendError::UnknownActor { actor_remote_id });
     };
 
-    (fns.link)(actor_id, sibbling_id, sibbling_remote_id).await
+    (fns.link)(actor_id, sibling_id, sibling_remote_id).await
 }
 
 async fn unlink(
     actor_id: ActorId,
     actor_remote_id: Cow<'static, str>,
-    sibbling_id: ActorId,
+    sibling_id: ActorId,
 ) -> Result<(), RemoteSendError<Infallible>> {
     let Some(fns) = REMOTE_ACTORS_MAP.get(&*actor_remote_id) else {
         return Err(RemoteSendError::UnknownActor { actor_remote_id });
     };
 
-    (fns.unlink)(actor_id, sibbling_id).await
+    (fns.unlink)(actor_id, sibling_id).await
 }
 
 async fn signal_link_died(

@@ -60,13 +60,13 @@ pub type RemoteTryTellFn =
 
 pub type RemoteLinkFn = fn(
     actor_id: ActorId,
-    sibbling_id: ActorId,
-    sibbling_remote_id: Cow<'static, str>,
+    sibling_id: ActorId,
+    sibling_remote_id: Cow<'static, str>,
 ) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
 
 pub type RemoteUnlinkFn = fn(
     actor_id: ActorId,
-    sibbling_id: ActorId,
+    sibling_id: ActorId,
 ) -> BoxFuture<'static, Result<(), RemoteSendError<Infallible>>>;
 
 pub type RemoteSignalLinkDiedFn = fn(
@@ -214,8 +214,8 @@ where
 
 pub async fn link<A>(
     actor_id: ActorId,
-    sibbling_id: ActorId,
-    sibbling_remote_id: Cow<'static, str>,
+    sibling_id: ActorId,
+    sibling_remote_id: Cow<'static, str>,
 ) -> Result<(), RemoteSendError<Infallible>>
 where
     A: Actor,
@@ -232,14 +232,14 @@ where
         .links
         .lock()
         .await
-        .insert(sibbling_id, Link::Remote(sibbling_remote_id));
+        .insert(sibling_id, Link::Remote(sibling_remote_id));
 
     Ok(())
 }
 
 pub async fn unlink<A>(
     actor_id: ActorId,
-    sibbling_id: ActorId,
+    sibling_id: ActorId,
 ) -> Result<(), RemoteSendError<Infallible>>
 where
     A: Actor,
@@ -252,7 +252,7 @@ where
             .downcast::<A>()?
     };
 
-    actor_ref.links.lock().await.remove(&sibbling_id);
+    actor_ref.links.lock().await.remove(&sibling_id);
 
     Ok(())
 }

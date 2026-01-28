@@ -203,28 +203,28 @@ impl Behaviour {
             SwarmCommand::Link {
                 actor_id,
                 actor_remote_id,
-                sibbling_id,
-                sibbling_remote_id,
+                sibling_id,
+                sibling_remote_id,
                 reply,
             } => {
                 self.messaging.link_with_reply(
                     actor_id,
                     actor_remote_id,
-                    sibbling_id,
-                    sibbling_remote_id,
+                    sibling_id,
+                    sibling_remote_id,
                     Some(reply),
                 );
                 true
             }
             SwarmCommand::Unlink {
                 actor_id,
-                sibbling_id,
-                sibbling_remote_id,
+                sibling_id,
+                sibling_remote_id,
                 reply,
             } => {
                 self.messaging.unlink_with_reply(
-                    sibbling_id,
-                    sibbling_remote_id,
+                    sibling_id,
+                    sibling_remote_id,
                     actor_id,
                     Some(reply),
                 );
