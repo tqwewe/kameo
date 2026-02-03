@@ -7,7 +7,7 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use bytes::{BufMut, Bytes};
+use bytes::BufMut;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 use crate::actor::{Actor, ActorId};
@@ -498,7 +498,7 @@ where
                 Err(_) => return Err(SendError::Timeout(None)),
             };
 
-            return Ok(Bytes::from(reply));
+            return Ok(reply);
         }
 
         Err(SendError::MissingConnection)
