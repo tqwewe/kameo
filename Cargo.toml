@@ -102,44 +102,8 @@ name = "basic"
 path = "examples/local/basic.rs"
 
 [[example]]
-name = "broker"
-path = "examples/local/broker.rs"
-
-[[example]]
-name = "forward"
-path = "examples/local/forward.rs"
-
-[[example]]
 name = "forward_with_fallback"
 path = "examples/local/forward_with_fallback.rs"
-
-[[example]]
-name = "macro"
-path = "examples/local/macro.rs"
-
-[[example]]
-name = "message_bus"
-path = "examples/local/message_bus.rs"
-
-[[example]]
-name = "message_queue"
-path = "examples/local/message_queue.rs"
-
-[[example]]
-name = "message_queue_headers"
-path = "examples/local/message_queue_headers.rs"
-
-[[example]]
-name = "pool"
-path = "examples/local/pool.rs"
-
-[[example]]
-name = "pubsub"
-path = "examples/local/pubsub.rs"
-
-[[example]]
-name = "pubsub_filter"
-path = "examples/local/pubsub_filter.rs"
 
 [[example]]
 name = "stream"
