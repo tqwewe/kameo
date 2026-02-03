@@ -46,9 +46,7 @@ mod kameo_transport;
 mod message_handler;
 pub mod message_protocol;
 pub mod transport;
-mod transport_factory;
 pub mod type_hash;
-// pub mod v2_actor_ref; // Commented out - depends on removed RemoteActor trait
 pub mod distributed_actor;
 pub mod distributed_actor_messages;
 pub mod distributed_actor_ref;

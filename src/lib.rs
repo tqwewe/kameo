@@ -5,7 +5,6 @@
 #![warn(missing_debug_implementations)]
 #![deny(unused_must_use)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
-// #![cfg_attr(feature = "nightly", feature(hash_extract_if))]
 
 pub mod actor;
 pub mod error;
