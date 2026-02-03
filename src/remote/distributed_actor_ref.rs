@@ -7,7 +7,7 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use bytes::{BufMut, Bytes};
+use bytes::BufMut;
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 use crate::actor::{Actor, ActorId};
@@ -16,7 +16,7 @@ use crate::message::Message;
 
 use super::transport::{RemoteActorLocation, RemoteTransport};
 use super::type_hash::HasTypeHash;
-use kameo_remote::{connection_pool::ConnectionHandle, registry::RegistryMessage, GossipError};
+use kameo_remote::{GossipError, connection_pool::ConnectionHandle, registry::RegistryMessage};
 
 /// A reference to a remote distributed actor
 ///
@@ -498,7 +498,7 @@ where
                 Err(_) => return Err(SendError::Timeout(None)),
             };
 
-            return Ok(Bytes::from(reply));
+            return Ok(reply);
         }
 
         Err(SendError::MissingConnection)

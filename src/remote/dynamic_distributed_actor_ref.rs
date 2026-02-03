@@ -7,7 +7,6 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use bytes::Bytes;
 use rkyv::{Archive, Serialize as RSerialize};
 
 use crate::actor::ActorId;
@@ -15,7 +14,7 @@ use crate::error::SendError;
 
 use super::transport::{RemoteActorLocation, RemoteTransport};
 use super::type_hash::HasTypeHash;
-use kameo_remote::{connection_pool::ConnectionHandle, GossipError};
+use kameo_remote::{GossipError, connection_pool::ConnectionHandle};
 
 /// A reference to a remote distributed actor (dynamic version)
 ///
@@ -316,7 +315,7 @@ where
                 // Try to send using cached connection - direct ring buffer access!
                 let timeout = self.timeout.unwrap_or(default_timeout);
                 match tokio::time::timeout(timeout, conn.ask(&message_bytes)).await {
-                    Ok(Ok(reply)) => Bytes::from(reply),
+                    Ok(Ok(reply)) => reply,
                     Ok(Err(_e)) => return Err(SendError::ActorStopped),
                     Err(_) => return Err(SendError::Timeout(None)),
                 }

@@ -351,15 +351,9 @@ impl KameoTransport {
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
 
-        let remote_ref = handle
-            .lookup_address(peer_addr)
-            .await
-            .map_err(|e| {
-                TransportError::ConnectionFailed(format!(
-                    "Failed to lookup peer {}: {}",
-                    peer_addr, e
-                ))
-            })?;
+        let remote_ref = handle.lookup_address(peer_addr).await.map_err(|e| {
+            TransportError::ConnectionFailed(format!("Failed to lookup peer {}: {}", peer_addr, e))
+        })?;
 
         let conn_arc = remote_ref.connection_ref().ok_or_else(|| {
             TransportError::ConnectionFailed(format!(
@@ -829,7 +823,7 @@ impl RemoteTransport for KameoTransport {
             match tokio::time::timeout(timeout, conn.ask(&serialized_msg)).await {
                 Ok(Ok(reply_bytes)) => {
                     // The reply should be the serialized response from the actor
-                    Ok(Bytes::from(reply_bytes))
+                    Ok(reply_bytes)
                 }
                 Ok(Err(e)) => Err(TransportError::Other(
                     format!("Failed to send typed ask: {}", e).into(),
@@ -857,7 +851,7 @@ impl RemoteTransport for KameoTransport {
             if payload.len() <= threshold {
                 // Small message: use regular ask path
                 match tokio::time::timeout(timeout, conn.ask(&payload)).await {
-                    Ok(Ok(reply_bytes)) => Ok(Bytes::from(reply_bytes)),
+                    Ok(Ok(reply_bytes)) => Ok(reply_bytes),
                     Ok(Err(e)) => Err(TransportError::Other(
                         format!("Failed to send ask: {}", e).into(),
                     )),

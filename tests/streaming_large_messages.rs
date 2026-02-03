@@ -152,12 +152,21 @@ async fn test_large_ask_2mb_streaming() {
     let duration = start.elapsed();
 
     println!("✅ 2MB streaming ask completed in {:?}", duration);
-    println!("   Throughput: {:.2} MB/s", (size as f64 / 1024.0 / 1024.0) / duration.as_secs_f64());
+    println!(
+        "   Throughput: {:.2} MB/s",
+        (size as f64 / 1024.0 / 1024.0) / duration.as_secs_f64()
+    );
 
     // Verify response
-    assert_eq!(response.processed_bytes, size, "Size mismatch - data corruption?");
+    assert_eq!(
+        response.processed_bytes, size,
+        "Size mismatch - data corruption?"
+    );
     assert_eq!(response.id, "test_2mb_streaming");
-    assert_eq!(response.checksum, expected_checksum, "Checksum mismatch - data corruption!");
+    assert_eq!(
+        response.checksum, expected_checksum,
+        "Checksum mismatch - data corruption!"
+    );
     assert!(response.success);
 
     // Cleanup
@@ -237,12 +246,21 @@ async fn test_large_ask_5mb_streaming() {
     let duration = start.elapsed();
 
     println!("✅ 5MB streaming ask completed in {:?}", duration);
-    println!("   Throughput: {:.2} MB/s", (size as f64 / 1024.0 / 1024.0) / duration.as_secs_f64());
+    println!(
+        "   Throughput: {:.2} MB/s",
+        (size as f64 / 1024.0 / 1024.0) / duration.as_secs_f64()
+    );
 
     // Verify response
-    assert_eq!(response.processed_bytes, size, "Size mismatch - data corruption?");
+    assert_eq!(
+        response.processed_bytes, size,
+        "Size mismatch - data corruption?"
+    );
     assert_eq!(response.id, "test_5mb_streaming");
-    assert_eq!(response.checksum, expected_checksum, "Checksum mismatch - data corruption!");
+    assert_eq!(
+        response.checksum, expected_checksum,
+        "Checksum mismatch - data corruption!"
+    );
     assert!(response.success);
 
     // Cleanup

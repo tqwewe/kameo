@@ -208,9 +208,7 @@ impl<M, E> SendError<M, SendError<M, E>> {
                 SendError::ActorStopped
             }
             SendError::MissingConnection
-            | SendError::HandlerError(SendError::MissingConnection) => {
-                SendError::MissingConnection
-            }
+            | SendError::HandlerError(SendError::MissingConnection) => SendError::MissingConnection,
             SendError::MailboxFull(msg) | SendError::HandlerError(SendError::MailboxFull(msg)) => {
                 SendError::MailboxFull(msg)
             }
