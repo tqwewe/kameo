@@ -338,18 +338,37 @@ impl KameoTransport {
         &self,
         location: &RemoteActorLocation,
     ) -> Result<kameo_remote::connection_pool::ConnectionHandle, TransportError> {
+        self.connection_for_peer(location.peer_addr).await
+    }
+
+    /// Helper that returns an active connection handle for the given peer.
+    async fn connection_for_peer(
+        &self,
+        peer_addr: SocketAddr,
+    ) -> Result<kameo_remote::connection_pool::ConnectionHandle, TransportError> {
         let handle = self
             .handle
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
 
-        // This still goes through the mutex, but only once during actor ref creation
-        handle
-            .get_connection(location.peer_addr)
+        let remote_ref = handle
+            .lookup_address(peer_addr)
             .await
             .map_err(|e| {
-                TransportError::ConnectionFailed(format!("Failed to get connection: {}", e))
-            })
+                TransportError::ConnectionFailed(format!(
+                    "Failed to lookup peer {}: {}",
+                    peer_addr, e
+                ))
+            })?;
+
+        let conn_arc = remote_ref.connection_ref().ok_or_else(|| {
+            TransportError::ConnectionFailed(format!(
+                "No active connection available for peer {}",
+                peer_addr,
+            ))
+        })?;
+
+        Ok(Arc::as_ref(conn_arc).clone())
     }
 }
 
@@ -607,14 +626,17 @@ impl RemoteTransport for KameoTransport {
                 .as_ref()
                 .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
 
-            // Lookup via kameo_remote's gossip protocol
+            // Lookup via kameo_remote's gossip protocol (returns RemoteActorRef)
             let location_opt = handle.lookup(&name).await;
 
-            // Convert kameo_remote location to our RemoteActorLocation
-            if let Some(loc) = location_opt {
+            // Convert kameo_remote RemoteActorRef to our RemoteActorLocation
+            if let Some(remote_ref) = location_opt {
+                let location_info = remote_ref.location.clone();
+                let metadata = location_info.metadata.clone();
+
                 // Try to deserialize ActorId from metadata first
-                let actor_id = if !loc.metadata.is_empty() {
-                    match rkyv::from_bytes::<ActorId, rkyv::rancor::Error>(&loc.metadata) {
+                let actor_id = if !metadata.is_empty() {
+                    match rkyv::from_bytes::<ActorId, rkyv::rancor::Error>(&metadata) {
                         Ok(id) => id,
                         Err(_e) => {
                             // Fall back to local registry
@@ -637,12 +659,12 @@ impl RemoteTransport for KameoTransport {
                 };
 
                 let remote_location = RemoteActorLocation {
-                    peer_addr: loc
+                    peer_addr: location_info
                         .address
                         .parse()
                         .unwrap_or_else(|_| "0.0.0.0:0".parse().unwrap()),
                     actor_id,
-                    metadata: loc.metadata.clone(),
+                    metadata,
                 };
 
                 Ok(Some(remote_location))
@@ -735,18 +757,7 @@ impl RemoteTransport for KameoTransport {
         let peer_addr = location.peer_addr;
         let payload = payload.to_vec();
         Box::pin(async move {
-            let handle = self
-                .handle
-                .as_ref()
-                .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
-
-            // Get connection pool from registry
-            let mut pool = handle.registry.connection_pool.lock().await;
-
-            // Get or create connection to peer
-            let conn = pool.get_connection(peer_addr).await.map_err(|e| {
-                TransportError::ConnectionFailed(format!("Failed to get connection: {}", e))
-            })?;
+            let conn = self.connection_for_peer(peer_addr).await?;
 
             // Use direct binary protocol to avoid double serialization
             // Format: [length:4][type:1][correlation_id:2][reserved:9][actor_id:8][type_hash:4][payload_len:4][payload:N]
@@ -788,18 +799,7 @@ impl RemoteTransport for KameoTransport {
         let peer_addr = location.peer_addr;
         let payload = payload.to_vec();
         Box::pin(async move {
-            let handle = self
-                .handle
-                .as_ref()
-                .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
-
-            // Get connection pool from registry
-            let mut pool = handle.registry.connection_pool.lock().await;
-
-            // Get or create connection to peer
-            let conn = pool.get_connection(peer_addr).await.map_err(|e| {
-                TransportError::ConnectionFailed(format!("Failed to get connection: {}", e))
-            })?;
+            let conn = self.connection_for_peer(peer_addr).await?;
 
             // For ask operations, we need to wrap in RegistryMessage::ActorMessage
             // The server expects this format for Ask messages
@@ -850,15 +850,7 @@ impl RemoteTransport for KameoTransport {
         let peer_addr = location.peer_addr;
 
         Box::pin(async move {
-            let handle = self
-                .handle
-                .as_ref()
-                .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
-
-            let mut pool = handle.registry.connection_pool.lock().await;
-            let conn = pool.get_connection(peer_addr).await.map_err(|e| {
-                TransportError::ConnectionFailed(format!("Failed to get connection for streaming: {}", e))
-            })?;
+            let conn = self.connection_for_peer(peer_addr).await?;
 
             let threshold = conn.streaming_threshold();
 
