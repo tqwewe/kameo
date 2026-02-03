@@ -112,16 +112,6 @@ path = "examples/distributed_registration_test_server.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "test_futures_ohlcv_client"
-path = "examples/test_futures_ohlcv_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_futures_ohlcv_server"
-path = "examples/test_futures_ohlcv_server.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "test_list_client"
 path = "examples/test_list_client.rs"
 required-features = ["remote"]
