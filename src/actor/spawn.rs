@@ -231,7 +231,7 @@ where
                         }
                         .boxed(),
                     );
-            }
+                }
             }
         }
     }
@@ -277,9 +277,7 @@ async fn abortable_actor_loop<A>(
 where
     A: Actor,
 {
-    if startup_finished
-        && let ControlFlow::Break(reason) = state.handle_startup_finished().await
-    {
+    if startup_finished && let ControlFlow::Break(reason) = state.handle_startup_finished().await {
         return reason;
     }
     loop {

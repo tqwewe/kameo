@@ -15,7 +15,7 @@ use crate::error::SendError;
 
 use super::transport::{RemoteActorLocation, RemoteTransport};
 use super::type_hash::HasTypeHash;
-use kameo_remote::{connection_pool::ConnectionHandle, GossipError};
+use kameo_remote::{GossipError, connection_pool::ConnectionHandle};
 
 /// A reference to a remote distributed actor (dynamic version)
 ///

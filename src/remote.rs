@@ -41,20 +41,20 @@ pub mod _internal;
 pub mod type_registry;
 
 // New transport system modules
-pub mod generic_type_hash;
-mod kameo_transport;
-mod message_handler;
-pub mod message_protocol;
-pub mod transport;
-pub mod type_hash;
 pub mod distributed_actor;
 pub mod distributed_actor_messages;
 pub mod distributed_actor_ref;
 pub mod distributed_message_handler;
 pub mod dynamic_distributed_actor_ref;
+pub mod generic_type_hash;
+mod kameo_transport;
+mod message_handler;
+pub mod message_protocol;
 pub mod remote_message_trait;
 pub mod simple_distributed_actor;
 pub mod streaming;
+pub mod transport;
+pub mod type_hash;
 pub mod v2_bootstrap;
 
 // Re-export main types

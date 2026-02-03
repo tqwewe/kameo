@@ -351,15 +351,9 @@ impl KameoTransport {
             .as_ref()
             .ok_or_else(|| TransportError::Other("Transport not started".into()))?;
 
-        let remote_ref = handle
-            .lookup_address(peer_addr)
-            .await
-            .map_err(|e| {
-                TransportError::ConnectionFailed(format!(
-                    "Failed to lookup peer {}: {}",
-                    peer_addr, e
-                ))
-            })?;
+        let remote_ref = handle.lookup_address(peer_addr).await.map_err(|e| {
+            TransportError::ConnectionFailed(format!("Failed to lookup peer {}: {}", peer_addr, e))
+        })?;
 
         let conn_arc = remote_ref.connection_ref().ok_or_else(|| {
             TransportError::ConnectionFailed(format!(
