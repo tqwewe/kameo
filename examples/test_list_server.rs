@@ -1,7 +1,6 @@
 //! Test server using LIST syntax in distributed_actor! macro
 //! This should work correctly
 
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
@@ -61,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .await?;
     println!("✅ Server on 127.0.0.1:9330 with TLS");
 
-    let actor_ref = TestActor::spawn(());
+    let actor_ref = <TestActor as Actor>::spawn(());
 
     // Register with transport - automatically handles registration
     transport

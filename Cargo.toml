@@ -50,11 +50,14 @@ remote = [
   "dep:rkyv",
   "tracing",
 ]
+trusted-archived = []
 remote_integration_tests = [] # Opt-in, heavy remote integration scenarios
 tracing = ["dep:tracing", "tokio/tracing"]
 metrics = ["dep:metrics"]
 
 [dependencies]
+blake3 = "1.5"
+rand = "0.8"
 kameo_macros = { version = "0.19.0", path = "./macros", optional = true }
 kameo_type_hash_macros = { path = "./kameo_type_hash_macros", optional = true }
 
@@ -63,7 +66,8 @@ bytes = "1.5"
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
 futures.workspace = true
-kameo_remote = { git = "https://github.com/moofone/kameo_remote", branch = "main", optional = true }
+hex = "0.4"
+kameo_remote = { path = "../kameo_remote", optional = true }
 metrics = { version = "0.24.2", optional = true }
 rkyv = { version = "0.8", features = ["bytecheck", "std"], optional = true }
 thiserror = "2.0"
@@ -130,23 +134,8 @@ path = "examples/test_list_server.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "test_mapping_client"
-path = "examples/test_mapping_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "test_mapping_server"
-path = "examples/test_mapping_server.rs"
-required-features = ["remote"]
-
-[[example]]
 name = "ask_concrete_client"
 path = "examples/remote/ask_concrete_client.rs"
-required-features = ["remote"]
-
-[[example]]
-name = "ask_concrete_client_zerocopy"
-path = "examples/remote/ask_concrete_client_zerocopy.rs"
 required-features = ["remote"]
 
 [[example]]
@@ -215,13 +204,13 @@ path = "examples/remote/tell_messages.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "test_large_only"
-path = "examples/remote/test_large_only.rs"
+name = "min_link_server"
+path = "examples/remote/min_link_server.rs"
 required-features = ["remote"]
 
 [[example]]
-name = "simple_prebacktest_server"
-path = "examples/remote/simple_prebacktest_server.rs"
+name = "min_link_client"
+path = "examples/remote/min_link_client.rs"
 required-features = ["remote"]
 
 [[example]]
@@ -241,4 +230,8 @@ required-features = ["metrics"]
 
 [[bench]]
 name = "overhead"
+harness = false
+
+[[bench]]
+name = "remote_archived_access"
 harness = false

@@ -47,6 +47,9 @@ pub mod distributed_actor_ref;
 pub mod distributed_message_handler;
 pub mod dynamic_distributed_actor_ref;
 pub mod generic_type_hash;
+pub mod archived_access;
+pub(crate) mod location_metadata;
+pub mod exactly_once;
 mod kameo_transport;
 mod message_handler;
 pub mod message_protocol;
@@ -56,12 +59,14 @@ pub mod streaming;
 pub mod transport;
 pub mod type_hash;
 pub mod v2_bootstrap;
+pub(crate) mod remote_link;
 
 // Re-export main types
 pub use distributed_actor_ref::DistributedActorRef;
 pub use dynamic_distributed_actor_ref::DynamicDistributedActorRef;
 pub use remote_message_trait::RemoteMessage;
 pub use type_hash::{HasTypeHash, TypeHash};
+pub use archived_access::{set_trusted_archived, trusted_archived_enabled, trusted_archived_supported};
 
 /// Trait for actors that support distributed messaging
 /// This is automatically implemented by the `distributed_actor!` macro

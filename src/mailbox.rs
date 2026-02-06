@@ -125,6 +125,7 @@ impl<A: Actor> From<&Signal<A>> for SignalKind {
             Signal::Message { .. } => SignalKind::Message,
             Signal::StartupFinished | Signal::Stop => SignalKind::Lifecycle,
             Signal::LinkDied { .. } => SignalKind::LinkDied,
+            Signal::LinkEstablished { .. } => SignalKind::Lifecycle,
         }
     }
 }
@@ -547,7 +548,7 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &signal {
             Some(Signal::Message { .. }) => self.messages_received.increment(1),
-            Some(Signal::StartupFinished | Signal::Stop) => {
+            Some(Signal::StartupFinished | Signal::Stop | Signal::LinkEstablished { .. }) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
@@ -575,7 +576,7 @@ impl<A: Actor> MailboxReceiver<A> {
             for signal in &buffer[len - 1 - count..len - 1] {
                 match signal {
                     Signal::Message { .. } => self.messages_received.increment(1),
-                    Signal::StartupFinished | Signal::Stop => {
+                    Signal::StartupFinished | Signal::Stop | Signal::LinkEstablished { .. } => {
                         self.lifecycle_signals_received.increment(1)
                     }
                     Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
@@ -601,7 +602,7 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &res {
             Ok(Signal::Message { .. }) => self.messages_received.increment(1),
-            Ok(Signal::StartupFinished | Signal::Stop) => {
+            Ok(Signal::StartupFinished | Signal::Stop | Signal::LinkEstablished { .. }) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Ok(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
@@ -626,7 +627,7 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &signal {
             Some(Signal::Message { .. }) => self.messages_received.increment(1),
-            Some(Signal::StartupFinished | Signal::Stop) => {
+            Some(Signal::StartupFinished | Signal::Stop | Signal::LinkEstablished { .. }) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
@@ -654,7 +655,7 @@ impl<A: Actor> MailboxReceiver<A> {
             for signal in &buffer[len - 1 - count..len - 1] {
                 match signal {
                     Signal::Message { .. } => self.messages_received.increment(1),
-                    Signal::StartupFinished | Signal::Stop => {
+                    Signal::StartupFinished | Signal::Stop | Signal::LinkEstablished { .. } => {
                         self.lifecycle_signals_received.increment(1)
                     }
                     Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
@@ -732,7 +733,9 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &poll {
             Poll::Ready(Some(Signal::Message { .. })) => self.messages_received.increment(1),
-            Poll::Ready(Some(Signal::StartupFinished | Signal::Stop)) => {
+            Poll::Ready(Some(
+                Signal::StartupFinished | Signal::Stop | Signal::LinkEstablished { .. },
+            )) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Poll::Ready(Some(Signal::LinkDied { .. })) => {
@@ -768,7 +771,9 @@ impl<A: Actor> MailboxReceiver<A> {
                 for signal in &buffer[len - 1 - count..len - 1] {
                     match signal {
                         Signal::Message { .. } => self.messages_received.increment(1),
-                        Signal::StartupFinished | Signal::Stop => {
+                        Signal::StartupFinished
+                        | Signal::Stop
+                        | Signal::LinkEstablished { .. } => {
                             self.lifecycle_signals_received.increment(1)
                         }
                         Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
@@ -839,6 +844,11 @@ pub enum Signal<A: Actor> {
         /// The reason the actor stopped.
         reason: ActorStopReason,
     },
+    /// A link to an actor has been established.
+    LinkEstablished {
+        /// The linked actor's ID.
+        id: ActorId,
+    },
     /// Signals the actor to stop.
     Stop,
 }
@@ -863,6 +873,7 @@ pub trait SignalMailbox: DynClone + Send + Sync {
         id: ActorId,
         reason: ActorStopReason,
     ) -> BoxFuture<'_, Result<(), SendError>>;
+    fn signal_link_established(&self, id: ActorId) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
 }
 
@@ -905,6 +916,22 @@ where
         }
     }
 
+    fn signal_link_established(&self, id: ActorId) -> BoxFuture<'_, Result<(), SendError>> {
+        match &self.inner {
+            MailboxSenderInner::Bounded(tx) => async move {
+                tx.send(Signal::LinkEstablished { id })
+                    .await
+                    .map_err(|_| SendError::ActorNotRunning(()))
+            }
+            .boxed(),
+            MailboxSenderInner::Unbounded(tx) => async move {
+                tx.send(Signal::LinkEstablished { id })
+                    .map_err(|_| SendError::ActorNotRunning(()))
+            }
+            .boxed(),
+        }
+    }
+
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => async move {
@@ -941,6 +968,16 @@ where
         async move {
             match self.upgrade() {
                 Some(tx) => tx.signal_link_died(id, reason).await,
+                None => Err(SendError::ActorNotRunning(())),
+            }
+        }
+        .boxed()
+    }
+
+    fn signal_link_established(&self, id: ActorId) -> BoxFuture<'_, Result<(), SendError>> {
+        async move {
+            match self.upgrade() {
+                Some(tx) => tx.signal_link_established(id).await,
                 None => Err(SendError::ActorNotRunning(())),
             }
         }

@@ -7,13 +7,19 @@
 use std::marker::PhantomData;
 use std::time::Duration;
 
+use bytes::Bytes;
 use rkyv::{Archive, Serialize as RSerialize};
 
-use crate::actor::ActorId;
+use crate::actor::{Actor, ActorId, ActorRef};
 use crate::error::SendError;
 
 use super::transport::{RemoteActorLocation, RemoteTransport};
 use super::type_hash::HasTypeHash;
+use crate::remote::remote_link;
+
+use super::location_metadata;
+
+type LocationMetadataV1 = location_metadata::LocationMetadataV1;
 use kameo_remote::{GossipError, connection_pool::ConnectionHandle};
 
 /// A reference to a remote distributed actor (dynamic version)
@@ -26,6 +32,8 @@ pub struct DynamicDistributedActorRef<T = Box<super::kameo_transport::KameoTrans
     pub(crate) actor_id: ActorId,
     /// The actor's location
     pub(crate) location: RemoteActorLocation,
+    /// The actor's registered name (if known)
+    pub(crate) name: Option<String>,
     /// The transport to use for communication (stored for future use)
     #[allow(dead_code)]
     pub(crate) transport: T,
@@ -42,6 +50,7 @@ where
         Self {
             actor_id,
             location,
+            name: None,
             transport,
             connection: None,
         }
@@ -55,6 +64,70 @@ where
     /// Get the remote actor location
     pub fn location(&self) -> &RemoteActorLocation {
         &self.location
+    }
+
+    /// Get the actor's registered name (if known)
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+
+    /// Link a local actor to this remote actor. The local actor receives
+    /// `on_link_died` with `PeerDisconnected` when the peer socket disconnects.
+    pub async fn link<B: Actor>(&self, local_actor: &ActorRef<B>) {
+        if let Ok(meta) = location_metadata::decode_v1(&self.location.metadata) {
+            remote_link::link_with_peer_id(
+                &meta.peer_id,
+                self.location.peer_addr,
+                self.location.actor_id,
+                local_actor.id(),
+                local_actor.weak_signal_mailbox(),
+            );
+        } else {
+            remote_link::link(
+                self.location.peer_addr,
+                self.location.actor_id,
+                local_actor.id(),
+                local_actor.weak_signal_mailbox(),
+            );
+        }
+    }
+
+    /// Blockingly link a local actor to this remote actor.
+    pub fn blocking_link<B: Actor>(&self, local_actor: &ActorRef<B>) {
+        if let Ok(meta) = location_metadata::decode_v1(&self.location.metadata) {
+            remote_link::link_with_peer_id(
+                &meta.peer_id,
+                self.location.peer_addr,
+                self.location.actor_id,
+                local_actor.id(),
+                local_actor.weak_signal_mailbox(),
+            );
+        } else {
+            remote_link::link(
+                self.location.peer_addr,
+                self.location.actor_id,
+                local_actor.id(),
+                local_actor.weak_signal_mailbox(),
+            );
+        }
+    }
+
+    /// Unlink a local actor from this remote actor.
+    pub async fn unlink<B: Actor>(&self, local_actor: &ActorRef<B>) {
+        remote_link::unlink(
+            self.location.peer_addr,
+            self.location.actor_id,
+            local_actor.id(),
+        );
+    }
+
+    /// Blockingly unlink a local actor from this remote actor.
+    pub fn blocking_unlink<B: Actor>(&self, local_actor: &ActorRef<B>) {
+        remote_link::unlink(
+            self.location.peer_addr,
+            self.location.actor_id,
+            local_actor.id(),
+        );
     }
 
     /// Send a tell message to the remote actor
@@ -96,22 +169,77 @@ impl DynamicDistributedActorRef<Box<super::kameo_transport::KameoTransport>> {
     ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         if let Some(location) = transport.lookup_actor(name).await? {
             // Try to get the connection for caching
-            let connection = match transport.get_connection_for_location(&location).await {
+            let connection = match transport
+                .get_connection_for_location_fresh(&location, false)
+                .await
+            {
                 Ok(conn) => conn,
                 Err(_) => {
                     return Ok(None);
                 }
             };
 
+            if connection.is_closed() {
+                return Ok(None);
+            }
             Ok(Some(Self {
                 actor_id: location.actor_id,
                 location,
+                name: Some(name.to_string()),
                 transport,
                 connection: Some(connection),
             }))
         } else {
             Ok(None)
         }
+    }
+
+    /// Refresh this reference by re-looking up the actor by name.
+    ///
+    /// Returns `Ok(None)` if the name is unknown or the actor is not reachable.
+    pub async fn refresh(&self) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        self.refresh_inner(false).await
+    }
+
+    /// Refresh and force a new underlying connection before returning the reference.
+    pub async fn refresh_force_new(
+        &self,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        self.refresh_inner(true).await
+    }
+
+    async fn refresh_inner(
+        &self,
+        force_new: bool,
+    ) -> Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        let name = match self.name.as_deref() {
+            Some(name) => name,
+            None => return Ok(None),
+        };
+        let transport = self.transport.clone();
+        let location = transport
+            .lookup_actor(name)
+            .await?
+            .unwrap_or_else(|| self.location.clone());
+
+        let connection = match transport
+            .get_connection_for_location_fresh(&location, force_new)
+            .await
+        {
+            Ok(conn) => conn,
+            Err(_) => return Ok(None),
+        };
+
+        if connection.is_closed() {
+            return Ok(None);
+        }
+        Ok(Some(Self {
+            actor_id: location.actor_id,
+            location,
+            name: Some(name.to_string()),
+            transport,
+            connection: Some(connection),
+        }))
     }
 }
 
@@ -159,31 +287,16 @@ where
 
         // Try to use cached connection first if available
         if let Some(ref conn) = self.actor_ref.connection {
-            // Direct binary protocol - no wrapper object, no double serialization!
-            // Format: [length:4][type:1][correlation_id:2][reserved:9][actor_id:8][type_hash:4][payload_len:4][payload:N]
-
-            let inner_size = 12 + 16 + payload.len(); // header (type+corr+reserved=12) + actor fields + payload
-            let mut message = Vec::with_capacity(4 + inner_size);
-
-            // Length prefix (4 bytes) - this is the size AFTER the length prefix
-            message.extend_from_slice(&(inner_size as u32).to_be_bytes());
-
-            // Header: [type:1][correlation_id:2][reserved:9]
-            message.push(3u8); // MessageType::ActorTell
-            message.extend_from_slice(&0u16.to_be_bytes()); // No correlation for tell
-            message.extend_from_slice(&[0u8; 9]); // 9 reserved bytes for 32-byte alignment
-
-            // Actor message: [actor_id:8][type_hash:4][payload_len:4][payload:N]
-            message.extend_from_slice(&self.actor_ref.actor_id.into_u64().to_be_bytes());
-            message.extend_from_slice(&type_hash.to_be_bytes());
-            message.extend_from_slice(&(payload.len() as u32).to_be_bytes());
-            message.extend_from_slice(payload.as_slice());
-
-            // Try to send using cached connection - direct ring buffer access!
+            let payload_bytes = Bytes::from(payload.into_vec());
             return conn
-                .send_binary_message(&message)
+                .tell_actor_frame(self.actor_ref.actor_id.into_u64(), type_hash, payload_bytes)
                 .await
-                .map_err(|_| SendError::ActorStopped);
+                .map_err(|e| match e {
+                    GossipError::ConnectionClosed(_) | GossipError::Shutdown => {
+                        SendError::ConnectionClosed
+                    }
+                    _ => SendError::ActorStopped,
+                });
         }
 
         Err(SendError::MissingConnection)
@@ -275,11 +388,12 @@ where
 
         let reply_bytes = if let Some(ref conn) = self.actor_ref.connection {
             let threshold = conn.streaming_threshold();
-            if payload.len() > threshold {
+            let payload_len = payload.len();
+            if payload_len > threshold {
                 // For streaming, scale timeout based on payload size if not explicitly set.
                 // Use at least 30s base + 1s per MB to handle large payloads over the network.
                 let streaming_timeout = self.timeout.unwrap_or_else(|| {
-                    let payload_mb = payload.len() as u64 / (1024 * 1024);
+                    let payload_mb = payload_len as u64 / (1024 * 1024);
                     Duration::from_secs(30 + payload_mb)
                 });
 
@@ -289,7 +403,7 @@ where
                 // with rkyv 0.8. After this point, Bytes enables zero-copy chunking via slice().
                 let reply = conn
                     .ask_streaming_bytes(
-                        bytes::Bytes::from(payload.into_vec()),
+                        Bytes::from(payload.into_vec()),
                         type_hash,
                         self.actor_ref.actor_id.into_u64(),
                         streaming_timeout,
@@ -297,30 +411,32 @@ where
                     .await
                     .map_err(|e| match e {
                         GossipError::Timeout => SendError::Timeout(None),
+                        GossipError::ConnectionClosed(_) | GossipError::Shutdown => {
+                            SendError::ConnectionClosed
+                        }
                         _ => SendError::ActorStopped,
                     })?;
                 return Ok(reply);
             }
 
-            // Try to use cached connection first - no locks!
-            let actor_message = kameo_remote::registry::RegistryMessage::ActorMessage {
-                actor_id: self.actor_ref.actor_id.into_u64().to_string(),
-                type_hash,
-                payload: payload.as_slice().into(),
-                correlation_id: None, // conn.ask() will handle correlation ID
-            };
-
-            // Serialize using rkyv
-            if let Ok(message_bytes) = rkyv::to_bytes::<rkyv::rancor::Error>(&actor_message) {
-                // Try to send using cached connection - direct ring buffer access!
-                let timeout = self.timeout.unwrap_or(default_timeout);
-                match tokio::time::timeout(timeout, conn.ask(&message_bytes)).await {
-                    Ok(Ok(reply)) => reply,
-                    Ok(Err(_e)) => return Err(SendError::ActorStopped),
-                    Err(_) => return Err(SendError::Timeout(None)),
+            let payload_bytes = Bytes::from(payload.into_vec());
+            let timeout = self.timeout.unwrap_or(default_timeout);
+            match conn
+                .ask_actor_frame(
+                    self.actor_ref.actor_id.into_u64(),
+                    type_hash,
+                    payload_bytes,
+                    timeout,
+                )
+                .await
+            {
+                Ok(reply) => reply,
+                Err(kameo_remote::GossipError::Timeout) => return Err(SendError::Timeout(None)),
+                Err(kameo_remote::GossipError::ConnectionClosed(_))
+                | Err(kameo_remote::GossipError::Shutdown) => {
+                    return Err(SendError::ConnectionClosed)
                 }
-            } else {
-                return Err(SendError::ActorStopped);
+                Err(_e) => return Err(SendError::ActorStopped),
             }
         } else {
             return Err(SendError::MissingConnection);

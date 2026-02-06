@@ -28,9 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let actor_ref = <HelloWorldActor as Actor>::spawn(HelloWorldActor);
 
     // Send a Greet message to the actor
-    actor_ref
-        .tell(Greet("Hello, world!".to_string()))
-        .await?;
+    actor_ref.tell(Greet("Hello, world!".to_string())).await?;
 
     Ok(())
 }

@@ -3,7 +3,6 @@
 //! Run this first:
 //! cargo run --example tell_concrete_server --features remote
 
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
@@ -307,7 +306,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
 
     // Create and register LoggerActor
-    let actor_ref = LoggerActor::spawn(());
+    let actor_ref = <LoggerActor as Actor>::spawn(());
     let actor_id = actor_ref.id();
 
     // REMOVED FOR LOOKUP FAIL TEST: Do not register the actor to test client lookup failure

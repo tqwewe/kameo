@@ -15,6 +15,22 @@ Kameo's distributed actor system enables actors to communicate seamlessly across
 
 Kameo's distributed actor system is built on a modern architecture that prioritizes performance and simplicity:
 
+## Protocol Version (v3 Only)
+
+Kameo remote messaging uses the **v3-only** wire protocol (`kameo-remote-v3` ALPN). Nodes running older protocol versions (v1/v2) are rejected. Ensure all peers are upgraded together before deploying.
+
+## Trusted Archived Mode (Optional)
+
+By default, archived payloads are **validated** with rkyv before handler access. For closed, schema-locked deployments that want lower overhead, you can explicitly enable trusted mode:
+
+1. Compile with the `trusted-archived` feature.
+2. Call `kameo::remote::set_trusted_archived(true)` at startup.
+
+Trusted mode still enforces alignment guardrails, but skips rkyv validation. For additional safety, configure a shared schema/version hash so mismatched payloads are rejected:
+
+- `TransportConfig.schema_hash` (Kameo)
+- `GossipConfig.schema_hash` (kameo_remote)
+
 ### Bootstrap Approach
 Perfect for getting started quickly:
 ```rust

@@ -6,7 +6,6 @@
 //! Run after starting the server:
 //! cargo run --example tell_concrete_client --features remote
 
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::{DynamicDistributedActorRef, transport::RemoteTransport};
@@ -158,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create and register ClientActor for bidirectional communication
     println!("\n🎬 Creating ClientActor to receive server responses...");
-    let client_actor_ref = ClientActor::spawn(());
+    let client_actor_ref = <ClientActor as Actor>::spawn(());
     let client_actor_id = client_actor_ref.id();
 
     // Use sync registration to wait for peer confirmation (eliminates need for sleep delays)

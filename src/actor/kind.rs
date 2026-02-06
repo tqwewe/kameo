@@ -122,6 +122,25 @@ where
         }
     }
 
+    pub(crate) async fn handle_link_established(
+        &mut self,
+        id: ActorId,
+    ) -> ControlFlow<ActorStopReason> {
+        let res = AssertUnwindSafe(self.state.on_link_established(self.actor_ref.clone(), id))
+            .catch_unwind()
+            .await;
+        match res {
+            Ok(Ok(flow)) => flow,
+            Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
+                Box::new(err),
+                PanicReason::OnLinkEstablished,
+            ))),
+            Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
+                PanicError::new_from_panic_any(err, PanicReason::OnLinkEstablished),
+            )),
+        }
+    }
+
     pub(crate) async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
         match self.handle_startup_finished().await {
             ControlFlow::Continue(_) => ControlFlow::Break(ActorStopReason::Normal),

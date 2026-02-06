@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     remote::bootstrap_with_keypair("127.0.0.1:0".parse()?, keypair).await?;
 
     // Register a local actor as "incrementor"
-    let actor_ref = MyActor::spawn(MyActor { count: 0 });
+    let actor_ref = <MyActor as Actor>::spawn(MyActor { count: 0 });
     actor_ref.register("incrementor").await?;
     info!("registered local actor");
 

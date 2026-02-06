@@ -16,7 +16,6 @@
 //! cargo run --example tell_concrete_client_invalid_keypair --features remote
 
 use kameo::actor::{Actor, ActorRef};
-use kameo::actor::Spawn;
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 
@@ -116,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     // Create and register ClientActor for bidirectional communication (IDENTICAL to real client code)
     println!("\n🎬 Creating ClientActor to receive server responses...");
-    let client_actor_ref = ClientActor::spawn(());
+    let client_actor_ref = <ClientActor as Actor>::spawn(());
     let client_actor_id = client_actor_ref.id();
 
     transport

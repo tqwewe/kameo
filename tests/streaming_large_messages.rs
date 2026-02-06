@@ -8,6 +8,7 @@ use kameo::remote::{
     DistributedActorRef, transport::RemoteTransport, type_hash::HasTypeHash, type_registry,
 };
 use kameo::{Actor, distributed_actor};
+use kameo_remote::MAX_STREAM_SIZE;
 use std::time::Instant;
 use tokio::time::{Duration, timeout};
 
@@ -134,6 +135,7 @@ async fn test_large_ask_2mb_streaming() {
 
     // Test 2MB message - MUST use streaming protocol
     let size = 2 * 1024 * 1024; // 2MB
+    assert!(size < MAX_STREAM_SIZE);
     let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
     let expected_checksum: u64 = data.iter().map(|&b| b as u64).sum();
 
@@ -228,6 +230,7 @@ async fn test_large_ask_5mb_streaming() {
 
     // Test 5MB message - MUST use streaming protocol
     let size = 5 * 1024 * 1024; // 5MB
+    assert!(size < MAX_STREAM_SIZE);
     let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
     let expected_checksum: u64 = data.iter().map(|&b| b as u64).sum();
 
@@ -322,6 +325,7 @@ async fn test_streaming_boundary_1mb_plus_1() {
 
     // Test 1MB + 1 byte message - should trigger streaming
     let size = 1024 * 1024 + 1; // 1MB + 1 byte
+    assert!(size < MAX_STREAM_SIZE);
     let data: Vec<u8> = (0..size).map(|i| (i % 256) as u8).collect();
     let expected_checksum: u64 = data.iter().map(|&b| b as u64).sum();
 

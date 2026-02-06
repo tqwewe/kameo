@@ -9,10 +9,17 @@ use super::transport::{BoxError, MessageHandler};
 
 use super::kameo_transport::KameoTransport;
 use super::transport::{RemoteTransport, TransportConfig};
+use futures::future::BoxFuture;
 use kameo_remote::{GossipConfig, GossipRegistryHandle};
+use kameo_remote::registry::{ActorResponse, GossipRegistry};
 
-type GossipHandlerFuture<'a> =
-    Pin<Box<dyn Future<Output = kameo_remote::Result<Option<Vec<u8>>>> + Send + 'a>>;
+type GossipHandlerFuture<'a> = Pin<
+    Box<
+        dyn Future<Output = kameo_remote::Result<Option<kameo_remote::registry::ActorResponse>>>
+            + Send
+            + 'a,
+    >,
+>;
 
 /// Bridge implementation that connects kameo_remote's ActorMessageHandler to our DistributedMessageHandler
 struct KameoActorMessageHandler {
@@ -27,44 +34,62 @@ impl KameoActorMessageHandler {
     }
 }
 
-/// Create an immediate error future for invalid actor IDs
-///
-/// This helper simplifies error handling in the message handler by providing
-/// a clean way to return parse errors without nested async blocks.
-fn invalid_actor_id_error(
-    actor_id: &str,
-    err: std::num::ParseIntError,
-) -> GossipHandlerFuture<'static> {
-    let msg = format!("Invalid actor_id '{}': {}", actor_id, err);
-    Box::pin(std::future::ready(Err(kameo_remote::GossipError::Network(
-        std::io::Error::new(std::io::ErrorKind::InvalidData, msg),
-    ))))
+struct RemoteLinkDisconnectHandler {
+    registry: Arc<GossipRegistry>,
+}
+
+struct RemoteLinkConnectHandler;
+
+impl kameo_remote::registry::PeerDisconnectHandler for RemoteLinkDisconnectHandler {
+    fn handle_peer_disconnect(
+        &self,
+        peer_addr: SocketAddr,
+        peer_id: Option<kameo_remote::PeerId>,
+    ) -> BoxFuture<'_, ()> {
+        let registry = self.registry.clone();
+        Box::pin(async move {
+            let resolved = peer_id
+                .or_else(|| registry.connection_pool.get_peer_id_by_addr(&peer_addr));
+            if let Some(peer_id) = resolved.as_ref() {
+                super::remote_link::notify_peer_disconnected_by_id(peer_id).await;
+                return;
+            }
+            tracing::warn!(
+                peer_addr = %peer_addr,
+                "peer disconnect without peer_id; remote link notifications skipped"
+            );
+        })
+    }
+}
+
+impl kameo_remote::registry::PeerConnectHandler for RemoteLinkConnectHandler {
+    fn handle_peer_connect(
+        &self,
+        peer_addr: SocketAddr,
+        peer_id: Option<kameo_remote::PeerId>,
+    ) -> BoxFuture<'_, ()> {
+        Box::pin(async move {
+            if let Some(peer_id) = peer_id.as_ref() {
+                super::remote_link::auto_link_peer(peer_addr, peer_id);
+            }
+        })
+    }
 }
 
 impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
     fn handle_actor_message(
         &self,
-        actor_id: &str,
+        actor_id: u64,
         type_hash: u32,
-        payload: &[u8],
+        payload: kameo_remote::AlignedBytes,
         correlation_id: Option<u16>,
     ) -> GossipHandlerFuture<'_> {
         let distributed_handler = self.distributed_handler.clone();
-        // OPTIMIZATION: Parse actor_id directly without string allocation
-        let actor_id_u64 = match actor_id.parse::<u64>() {
-            Ok(id) => id,
-            Err(e) => {
-                return invalid_actor_id_error(actor_id, e);
-            }
-        };
-
-        // OPTIMIZATION: Use Bytes for zero-copy payload
-        let payload = bytes::Bytes::copy_from_slice(payload);
 
         Box::pin(async move {
-            // Use the pre-parsed actor_id
-            let actor_id = crate::actor::ActorId::from_u64(actor_id_u64);
+            let actor_id = crate::actor::ActorId::from_u64(actor_id);
 
+            // CRITICAL_PATH: bridge aligned payloads into kameo message handlers.
             match (correlation_id, payload) {
                 (Some(_), payload) => {
                     match MessageHandler::handle_ask_typed(
@@ -75,10 +100,7 @@ impl kameo_remote::registry::ActorMessageHandler for KameoActorMessageHandler {
                     )
                     .await
                     {
-                        Ok(reply) => {
-                            // OPTIMIZATION: reply is already Bytes, convert to Vec without clone
-                            Ok(Some(reply.into()))
-                        }
+                        Ok(reply) => Ok(Some(ActorResponse::Bytes(reply))),
                         Err(e) => Err(kameo_remote::GossipError::Network(std::io::Error::other(
                             format!("Ask handler error: {:?}", e),
                         ))),
@@ -190,10 +212,47 @@ pub async fn bootstrap_with_keypair(
     // Convert the keypair to a secret key for TLS
     let secret_key = keypair.to_secret_key();
 
-    // Create and start the gossip registry with TLS enabled using new_with_tls
-    let handle = GossipRegistryHandle::new_with_tls(addr, secret_key, Some(gossip_config))
-        .await
-        .map_err(BoxError::from)?;
+    // Create and start the gossip registry with TLS enabled using new_with_tls.
+    //
+    // In some sandboxed macOS environments, socket syscalls can fail transiently with EPERM
+    // ("Operation not permitted") under load. Retry only for that specific error so our
+    // integration tests are deterministic without masking real failures.
+    let handle = {
+        // NOTE: `kameo_remote` already has a short in-function retry for EPERM during bind().
+        // Keep this outer loop small so we don't multiply the retry windows.
+        const MAX_EPERM_RETRIES: usize = 5;
+        const EPERM_RETRY_SLEEP_MS: u64 = 10;
+
+        let mut attempt = 0usize;
+        loop {
+            match GossipRegistryHandle::new_with_tls(
+                addr,
+                secret_key.clone(),
+                Some(gossip_config.clone()),
+            )
+            .await
+            {
+                Ok(h) => break h,
+                Err(e) => {
+                    let is_eperm = matches!(
+                        e,
+                        kameo_remote::GossipError::Network(ref io)
+                            if io.kind() == std::io::ErrorKind::PermissionDenied
+                                || io.raw_os_error() == Some(1)
+                    );
+                    if is_eperm && attempt < MAX_EPERM_RETRIES {
+                        attempt += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            EPERM_RETRY_SLEEP_MS,
+                        ))
+                        .await;
+                        continue;
+                    }
+                    return Err(BoxError::from(e));
+                }
+            }
+        }
+    };
 
     // Use the set_handle method if available, or we need to add it
     transport.set_handle(Arc::new(handle));
@@ -206,6 +265,18 @@ pub async fn bootstrap_with_keypair(
         handle
             .registry
             .set_actor_message_handler(bridge_handler)
+            .await;
+        let disconnect_handler = Arc::new(RemoteLinkDisconnectHandler {
+            registry: handle.registry.clone(),
+        });
+        handle
+            .registry
+            .set_peer_disconnect_handler(disconnect_handler)
+            .await;
+        let connect_handler = Arc::new(RemoteLinkConnectHandler);
+        handle
+            .registry
+            .set_peer_connect_handler(connect_handler)
             .await;
         tracing::debug!("Distributed message handler registered successfully");
     } else {

@@ -2,7 +2,6 @@
 //! Demonstrates ask/reply with real-world trading data structures and zero-copy potential
 
 use kameo::RemoteMessage;
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
@@ -193,7 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     );
 
     // Spawn the candle analyzer actor
-    let candle_analyzer = CandleAnalyzerActor::spawn(());
+    let candle_analyzer = <CandleAnalyzerActor as Actor>::spawn(());
 
     // Register with transport - automatically handles distributed ask/reply
     transport

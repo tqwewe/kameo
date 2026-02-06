@@ -263,7 +263,7 @@ pub trait MessageHandler: Send + Sync {
         &self,
         actor_id: ActorId,
         type_hash: u32,
-        payload: Bytes,
+        payload: kameo_remote::AlignedBytes,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
         // Typed messages are required; string-based routing is no longer supported.
         let _ = (actor_id, type_hash, payload);
@@ -275,7 +275,7 @@ pub trait MessageHandler: Send + Sync {
         &self,
         actor_id: ActorId,
         type_hash: u32,
-        payload: Bytes,
+        payload: kameo_remote::AlignedBytes,
     ) -> Pin<Box<dyn Future<Output = Result<Bytes, BoxError>> + Send + '_>> {
         // Typed messages are required; string-based routing is no longer supported.
         let _ = (actor_id, type_hash, payload);
@@ -298,6 +298,9 @@ pub struct TransportConfig {
     pub keypair: Option<kameo_remote::KeyPair>,
     /// Peers to connect to (must include cryptographic PeerId)
     pub peers: Vec<PeerConfig>,
+    /// Optional schema/version hash to include in protocol headers.
+    /// When set, inbound actor payloads with mismatched or missing hashes are rejected.
+    pub schema_hash: Option<u64>,
 }
 
 /// Peer configuration with cryptographic PeerId.
@@ -318,6 +321,7 @@ impl Default for TransportConfig {
             enable_encryption: true,
             keypair: None,
             peers: Vec::new(),
+            schema_hash: None,
         }
     }
 }

@@ -1,6 +1,5 @@
 //! Minimal test server that demonstrates distributed actor registration/lookup issue
 
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::remote::transport::RemoteTransport;
@@ -61,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("Server transport ready on {}", transport.local_addr());
 
     // Create and spawn the test actor using macro-generated spawn
-    let actor_ref = TestActor::spawn(());
+    let actor_ref = <TestActor as Actor>::spawn(());
 
     println!("Actor spawned with ID: {}", actor_ref.id());
 

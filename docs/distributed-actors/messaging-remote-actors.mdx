@@ -81,6 +81,28 @@ distributed_actor! {
 
 The `distributed_actor!` macro ensures that the message is properly registered and routed to the correct actor across the network using type hashes.
 
+## Protocol Guardrails (Schema Hash + Trusted Mode)
+
+Kameo uses the **v3-only** wire protocol for remote messaging. You can add extra guardrails by configuring a shared schema/version hash so mismatched payloads are rejected:
+
+```rust
+use kameo::remote::transport::TransportConfig;
+
+const SCHEMA_HASH: u64 = kameo::remote::type_hash::compute_hash_fnv1a(b"kameo.example.v1");
+
+let config = TransportConfig {
+    schema_hash: Some(SCHEMA_HASH),
+    ..Default::default()
+};
+```
+
+For closed systems that want maximum speed, you can explicitly enable trusted archived access (skips rkyv validation but keeps alignment guards):
+
+```rust
+// Requires `features = ["remote", "trusted-archived"]`
+kameo::remote::set_trusted_archived(true);
+```
+
 ### How Distributed Actor Registration Works
 
 Unlike actor systems that use a traditional enum for message types, Kameo allows actors to handle a variety of message types without defining a centralized enum for all possible messages. This flexibility introduces a challenge when deserializing incoming messages—because we don't know the exact message type at the time of deserialization.

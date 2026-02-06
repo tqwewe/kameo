@@ -9,6 +9,7 @@ use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
+use kameo_remote::AlignedBytes;
 
 use crate::actor::ActorId;
 use crate::error::RemoteSendError;
@@ -18,7 +19,7 @@ use super::_internal::RemoteMessageFns;
 /// Type alias for a message handler function
 pub type MessageHandlerFn = fn(
     actor_id: ActorId,
-    payload: Bytes,
+    payload: AlignedBytes,
 ) -> Pin<Box<dyn Future<Output = Result<Option<Bytes>, RemoteSendError<(), ()>>> + Send>>;
 
 /// Global registry for actor message handlers
@@ -58,7 +59,7 @@ pub fn create_tell_fns(
         tell: Box::new(move |aid, payload, _timeout| {
             Box::pin(async move {
                 if let Some(handler) = get_message_handler(aid, type_hash) {
-                    match handler(aid, Bytes::from(payload)).await {
+                    match handler(aid, payload).await {
                         Ok(_) => Ok(()),
                         Err(e) => Err(e),
                     }
@@ -73,7 +74,7 @@ pub fn create_tell_fns(
         try_tell: Box::new(move |aid, payload, timeout| {
             Box::pin(async move {
                 if let Some(handler) = get_message_handler(aid, type_hash) {
-                    match handler(aid, Bytes::from(payload)).await {
+                    match handler(aid, payload).await {
                         Ok(_) => Ok(()),
                         Err(e) => Err(e),
                     }

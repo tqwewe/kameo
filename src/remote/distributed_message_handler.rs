@@ -6,6 +6,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use bytes::Bytes;
+use kameo_remote::AlignedBytes;
 
 use super::message_handler::RemoteMessageHandler;
 use super::transport::BoxError;
@@ -70,7 +71,7 @@ impl MessageHandler for DistributedMessageHandler {
         &self,
         actor_id: ActorId,
         type_hash: u32,
-        payload: Bytes,
+        payload: AlignedBytes,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxError>> + Send + '_>> {
         self.handler.handle_tell_typed(actor_id, type_hash, payload)
     }
@@ -79,7 +80,7 @@ impl MessageHandler for DistributedMessageHandler {
         &self,
         actor_id: ActorId,
         type_hash: u32,
-        payload: Bytes,
+        payload: AlignedBytes,
     ) -> Pin<Box<dyn Future<Output = Result<Bytes, BoxError>> + Send + '_>> {
         let handler = self.handler.clone();
 

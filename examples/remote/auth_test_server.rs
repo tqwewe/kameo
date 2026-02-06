@@ -4,7 +4,6 @@
 //! cargo run --example auth_test_server --features remote
 
 use kameo::actor::{Actor, ActorRef};
-use kameo::actor::Spawn;
 use kameo::remote::{transport::RemoteTransport, DistributedActor};
 use kameo::remote::v2_bootstrap;
 use std::time::Duration;
@@ -46,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     transport.start().await?;
     
     // Create and register test actor
-    let test_actor_ref = TestActor::spawn(());
+    let test_actor_ref = <TestActor as Actor>::spawn(());
     transport.register_actor("test_actor".to_string(), test_actor_ref.id()).await?;
     println!("✅ TestActor registered");
     

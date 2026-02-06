@@ -92,6 +92,8 @@ pub enum SendError<M = (), E = Infallible> {
     ActorStopped,
     /// Missing cached connection for remote actor refs.
     MissingConnection,
+    /// Connection closed before the request could be sent.
+    ConnectionClosed,
     /// The actors mailbox is full.
     MailboxFull(M),
     /// An error returned by the actor's message handler.
@@ -110,6 +112,7 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(f(msg)),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::MissingConnection => SendError::MissingConnection,
+            SendError::ConnectionClosed => SendError::ConnectionClosed,
             SendError::MailboxFull(msg) => SendError::MailboxFull(f(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(err),
             SendError::Timeout(msg) => SendError::Timeout(msg.map(f)),
@@ -125,6 +128,7 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(msg) => SendError::ActorNotRunning(msg),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::MissingConnection => SendError::MissingConnection,
+            SendError::ConnectionClosed => SendError::ConnectionClosed,
             SendError::MailboxFull(msg) => SendError::MailboxFull(msg),
             SendError::HandlerError(err) => SendError::HandlerError(op(err)),
             SendError::Timeout(msg) => SendError::Timeout(msg),
@@ -141,6 +145,7 @@ impl<M, E> SendError<M, E> {
             SendError::ActorNotRunning(err) => SendError::ActorNotRunning(Box::new(err)),
             SendError::ActorStopped => SendError::ActorStopped,
             SendError::MissingConnection => SendError::MissingConnection,
+            SendError::ConnectionClosed => SendError::ConnectionClosed,
             SendError::MailboxFull(msg) => SendError::MailboxFull(Box::new(msg)),
             SendError::HandlerError(err) => SendError::HandlerError(Box::new(err)),
             SendError::Timeout(msg) => {
@@ -209,6 +214,8 @@ impl<M, E> SendError<M, SendError<M, E>> {
             }
             SendError::MissingConnection
             | SendError::HandlerError(SendError::MissingConnection) => SendError::MissingConnection,
+            SendError::ConnectionClosed
+            | SendError::HandlerError(SendError::ConnectionClosed) => SendError::ConnectionClosed,
             SendError::MailboxFull(msg) | SendError::HandlerError(SendError::MailboxFull(msg)) => {
                 SendError::MailboxFull(msg)
             }
@@ -242,6 +249,7 @@ impl BoxSendError {
             )),
             SendError::ActorStopped => Ok(SendError::ActorStopped),
             SendError::MissingConnection => Ok(SendError::MissingConnection),
+            SendError::ConnectionClosed => Ok(SendError::ConnectionClosed),
             SendError::MailboxFull(err) => Ok(SendError::MailboxFull(
                 *err.downcast().map_err(SendError::MailboxFull)?,
             )),
@@ -269,6 +277,7 @@ where
             SendError::ActorNotRunning(_) => write!(f, "ActorNotRunning"),
             SendError::ActorStopped => write!(f, "ActorStopped"),
             SendError::MissingConnection => write!(f, "MissingConnection"),
+            SendError::ConnectionClosed => write!(f, "ConnectionClosed"),
             SendError::MailboxFull(_) => write!(f, "MailboxFull"),
             SendError::HandlerError(err) => err.fmt(f),
             SendError::Timeout(_) => write!(f, "Timeout"),
@@ -285,6 +294,7 @@ where
             SendError::ActorNotRunning(_) => write!(f, "actor not running"),
             SendError::ActorStopped => write!(f, "actor stopped"),
             SendError::MissingConnection => write!(f, "missing cached connection"),
+            SendError::ConnectionClosed => write!(f, "connection closed"),
             SendError::MailboxFull(_) => write!(f, "mailbox full"),
             SendError::HandlerError(err) => err.fmt(f),
             SendError::Timeout(_) => write!(f, "timeout"),
@@ -565,6 +575,8 @@ pub enum PanicReason {
     OnPanic,
     /// The `on_link_died` lifecycle hook returned an error.
     OnLinkDied,
+    /// The `on_link_established` lifecycle hook returned an error.
+    OnLinkEstablished,
     /// The `on_stop` lifecycle hook returned an error.
     OnStop,
 }
@@ -577,6 +589,7 @@ impl PanicReason {
             PanicReason::OnStart
                 | PanicReason::OnPanic
                 | PanicReason::OnLinkDied
+                | PanicReason::OnLinkEstablished
                 | PanicReason::OnStop
         )
     }
@@ -595,6 +608,7 @@ impl fmt::Display for PanicReason {
             PanicReason::OnStart => write!(f, "on_start returned error"),
             PanicReason::OnPanic => write!(f, "on_panic returned error"),
             PanicReason::OnLinkDied => write!(f, "on_link_died returned error"),
+            PanicReason::OnLinkEstablished => write!(f, "on_link_established returned error"),
             PanicReason::OnStop => write!(f, "on_stop returned error"),
         }
     }
@@ -863,6 +877,7 @@ impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
             SendError::ActorNotRunning(_) => RemoteSendError::ActorNotRunning,
             SendError::ActorStopped => RemoteSendError::ActorStopped,
             SendError::MissingConnection => RemoteSendError::MissingConnection,
+            SendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
             SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
             SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
             SendError::Timeout(_) => RemoteSendError::ReplyTimeout,

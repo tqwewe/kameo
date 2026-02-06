@@ -4,7 +4,6 @@
 //! cargo run --example ask_server_simple_match --features remote
 
 use kameo::RemoteMessage;
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
@@ -138,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("✅ Server listening on {}", transport.local_addr());
 
     // Create actor using regular spawn
-    let actor_ref = CalculatorActor::spawn(());
+    let actor_ref = <CalculatorActor as Actor>::spawn(());
 
     // Register with transport - automatically handles distributed ask/reply
     transport

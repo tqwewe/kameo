@@ -8,6 +8,7 @@ use kameo::remote::{
     DistributedActorRef, transport::RemoteTransport, type_hash::HasTypeHash, type_registry,
 };
 use kameo::{Actor, distributed_actor};
+use kameo_remote::MAX_STREAM_SIZE;
 use std::time::Instant;
 use tokio::time::{Duration, timeout};
 
@@ -129,6 +130,7 @@ async fn test_small_tell_messages_100kb() {
 
     // Test 100KB message - should use regular protocol
     let data_100kb = vec![0u8; 100_000]; // 100KB
+    assert!(data_100kb.len() < MAX_STREAM_SIZE);
     let message = SmallTestMessage {
         data: data_100kb.clone(),
         id: "test_100kb".to_string(),
@@ -205,6 +207,7 @@ async fn test_small_ask_messages_500kb() {
 
     // Test 500KB ask message - should use regular protocol
     let data_500kb = vec![42u8; 500_000]; // 500KB
+    assert!(data_500kb.len() < MAX_STREAM_SIZE);
     let message = SmallTestMessage {
         data: data_500kb.clone(),
         id: "test_500kb".to_string(),

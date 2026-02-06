@@ -40,7 +40,6 @@
 //! cargo run --example tell_concrete_client_bad_key --features remote
 
 use kameo::actor::{Actor, ActorRef};
-use kameo::actor::Spawn;
 use kameo::distributed_actor;
 use kameo::remote::{transport::RemoteTransport, DynamicDistributedActorRef};
 
@@ -162,7 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🧪 Testing actor registration with unauthorized key...");
 
     // Create and register BadClientActor
-    let client_actor_ref = BadClientActor::spawn(());
+    let client_actor_ref = <BadClientActor as Actor>::spawn(());
     let client_actor_id = client_actor_ref.id();
 
     match transport.register_actor("bad_client".to_string(), client_actor_id).await {

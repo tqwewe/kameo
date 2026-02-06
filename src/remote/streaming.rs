@@ -89,9 +89,9 @@ impl<M, E> From<StreamError> for CoreSendError<M, E> {
     fn from(err: StreamError) -> Self {
         match err {
             StreamError::SerializationFailed => CoreSendError::ActorStopped,
-            StreamError::ConnectionClosed => CoreSendError::ActorStopped,
-            StreamError::NotConnected => CoreSendError::ActorStopped,
-            StreamError::StreamClosed => CoreSendError::ActorStopped,
+            StreamError::ConnectionClosed => CoreSendError::ConnectionClosed,
+            StreamError::NotConnected => CoreSendError::MissingConnection,
+            StreamError::StreamClosed => CoreSendError::ConnectionClosed,
             StreamError::InvalidFrame => CoreSendError::ActorStopped,
         }
     }
@@ -282,6 +282,7 @@ where
         // Use vectored write to avoid copying payload
         self.connection
             .write_bytes_vectored(frame_header.freeze(), data)
+            .await
             .map_err(|_| StreamError::ConnectionClosed)?;
 
         Ok(())

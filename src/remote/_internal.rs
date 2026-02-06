@@ -5,7 +5,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
 use futures::future::BoxFuture;
+use kameo_remote::AlignedBytes;
 
 use crate::actor::ActorId;
 use crate::error::RemoteSendError;
@@ -26,24 +28,24 @@ impl std::fmt::Debug for RemoteMessageFns {
 
 pub type RemoteAskFn = dyn Fn(
         ActorId,
-        Vec<u8>,
+        AlignedBytes,
         Option<Duration>,
         Option<Duration>,
-    ) -> BoxFuture<'static, Result<Vec<u8>, RemoteSendError<Vec<u8>>>>
+    ) -> BoxFuture<'static, Result<Bytes, RemoteSendError<Bytes>>>
     + Send
     + Sync;
 
 pub type RemoteTryAskFn = dyn Fn(
         ActorId,
-        Vec<u8>,
+        AlignedBytes,
         Option<Duration>,
-    ) -> BoxFuture<'static, Result<Vec<u8>, RemoteSendError<Vec<u8>>>>
+    ) -> BoxFuture<'static, Result<Bytes, RemoteSendError<Bytes>>>
     + Send
     + Sync;
 
-pub type RemoteTellFn = dyn Fn(ActorId, Vec<u8>, Option<Duration>) -> BoxFuture<'static, Result<(), RemoteSendError>>
+pub type RemoteTellFn = dyn Fn(ActorId, AlignedBytes, Option<Duration>) -> BoxFuture<'static, Result<(), RemoteSendError>>
     + Send
     + Sync;
 
 pub type RemoteTryTellFn =
-    dyn Fn(ActorId, Vec<u8>) -> BoxFuture<'static, Result<(), RemoteSendError>> + Send + Sync;
+    dyn Fn(ActorId, AlignedBytes) -> BoxFuture<'static, Result<(), RemoteSendError>> + Send + Sync;

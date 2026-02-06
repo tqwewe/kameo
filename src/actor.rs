@@ -267,6 +267,22 @@ pub trait Actor: Sized + Send + 'static {
         }
     }
 
+    /// Called when a link to an actor is established.
+    ///
+    /// By default, this hook does nothing and the actor continues processing messages.
+    ///
+    /// # Returns
+    /// Whether the actor should stop or continue processing messages.
+    #[allow(unused_variables)]
+    #[inline]
+    fn on_link_established(
+        &mut self,
+        actor_ref: WeakActorRef<Self>,
+        id: ActorId,
+    ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
+        async move { Ok(ControlFlow::Continue(())) }
+    }
+
     /// Called before the actor stops.
     ///
     /// This allows the actor to perform any necessary cleanup or release resources before being fully stopped.

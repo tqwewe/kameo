@@ -97,7 +97,9 @@ macro_rules! distributed_actor {
                 msg: $crate::remote::simple_distributed_actor::DistributedMessage,
                 _ctx: &mut $crate::message::Context<Self, Self::Reply>,
             ) -> Self::Reply {
-                self.__handle_distributed_message(msg.type_hash, &msg.payload).await
+                let aligned = kameo_remote::AlignedBytes::from_bytes(msg.payload)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+                self.__handle_distributed_message(msg.type_hash, aligned).await
             }
         }
 
@@ -192,7 +194,7 @@ macro_rules! distributed_actor {
                                     // Create DistributedMessage and send to actor
                                     let msg = $crate::remote::simple_distributed_actor::DistributedMessage {
                                         type_hash: type_hash.as_u32(),
-                                        payload: payload.to_vec(),
+                                        payload: ::bytes::Bytes::from(payload),
                                     };
 
                                     match actor_ref.tell(msg).send().await {
@@ -213,7 +215,7 @@ macro_rules! distributed_actor {
                                     // Create DistributedMessage and send to actor with priority
                                     let msg = $crate::remote::simple_distributed_actor::DistributedMessage {
                                         type_hash: type_hash.as_u32(),
-                                        payload: payload.to_vec(),
+                                        payload: ::bytes::Bytes::from(payload),
                                     };
 
                                     // Note: Priority is handled by Kameo's request system
@@ -235,7 +237,7 @@ macro_rules! distributed_actor {
                                     // Create DistributedMessage and send as ask
                                     let msg = $crate::remote::simple_distributed_actor::DistributedMessage {
                                         type_hash: type_hash.as_u32(),
-                                        payload: payload.to_vec(),
+                                        payload: ::bytes::Bytes::from(payload),
                                     };
 
                                     // Note: Timeout would need to be implemented via reply_timeout/mailbox_timeout
@@ -243,7 +245,7 @@ macro_rules! distributed_actor {
                                     let result = actor_ref.ask(msg).send().await;
 
                                     match result {
-                                        Ok(reply) => Ok(reply),
+                                        Ok(reply) => Ok(::bytes::Bytes::from(reply)),
                                         Err($crate::error::SendError::HandlerError(_)) => {
                                             Err($crate::error::RemoteSendError::ActorStopped)
                                         }
@@ -263,14 +265,14 @@ macro_rules! distributed_actor {
                                     // Create DistributedMessage and send as ask with priority
                                     let msg = $crate::remote::simple_distributed_actor::DistributedMessage {
                                         type_hash: type_hash.as_u32(),
-                                        payload: payload.to_vec(),
+                                        payload: ::bytes::Bytes::from(payload),
                                     };
 
                                     // Note: We don't apply timeout here, would need reply_timeout/mailbox_timeout
                                     let result = actor_ref.ask(msg).send().await;
 
                                     match result {
-                                        Ok(reply) => Ok(reply),
+                                        Ok(reply) => Ok(::bytes::Bytes::from(reply)),
                                         Err($crate::error::SendError::HandlerError(_)) => {
                                             Err($crate::error::RemoteSendError::ActorStopped)
                                         }
@@ -291,16 +293,16 @@ macro_rules! distributed_actor {
             pub async fn __handle_distributed_message(
                 &mut self,
                 type_hash: u32,
-                payload: &[u8],
+                payload: kameo_remote::AlignedBytes,
             ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
                 use $crate::remote::type_hash::HasTypeHash;
 
                 $(
                     if type_hash == <$msg_ty as HasTypeHash>::TYPE_HASH.as_u32() {
                         // Access the message in archived form (zero-copy)
-                        let archived = unsafe {
-                            ::rkyv::access_unchecked::<::rkyv::Archived<$msg_ty>>(payload)
-                        };
+                        // CRITICAL_PATH: validated/trusted archived access with alignment guard.
+                        let archived = $crate::remote::archived_access::access_archived::<::rkyv::Archived<$msg_ty>>(&payload)
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
 
                         // Call the handler with archived message
                         let result = self.$handler(archived).await;
@@ -427,7 +429,7 @@ macro_rules! distributed_actor {
                                     }
 
                                     // Deserialize the message
-                                    let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(&payload)
+                                    let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(payload.as_ref())
                                         .map_err(|_| $crate::error::RemoteSendError::ActorStopped)?;
 
                                     // Send as tell through the actor's mailbox
@@ -456,7 +458,7 @@ macro_rules! distributed_actor {
                                         }
 
                                         // Deserialize the message
-                                        let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(&payload)
+                                        let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(payload.as_ref())
                                             .map_err(|_| $crate::error::RemoteSendError::ActorStopped)?;
 
                                         // Try to send without blocking
@@ -477,7 +479,7 @@ macro_rules! distributed_actor {
                                     }
 
                                     // Deserialize the message
-                                    let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(&payload)
+                                    let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(payload.as_ref())
                                         .map_err(|_| $crate::error::RemoteSendError::ActorStopped)?;
 
                                     // Send ask request through the actor's mailbox
@@ -512,7 +514,7 @@ macro_rules! distributed_actor {
                                             // Serialize the reply
                                             let reply_bytes = ::rkyv::to_bytes::<rkyv::rancor::Error>(&reply)
                                                 .map_err(|_| $crate::error::RemoteSendError::ActorStopped)?;
-                                            Ok(reply_bytes.to_vec())
+                                            Ok(::bytes::Bytes::from(reply_bytes.into_vec()))
                                         },
                                         Err(_) => Err($crate::error::RemoteSendError::ActorStopped),
                                     }
@@ -530,7 +532,7 @@ macro_rules! distributed_actor {
                                         }
 
                                         // Deserialize the message
-                                        let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(&payload)
+                                        let msg: $msg_ty = ::rkyv::from_bytes::<$msg_ty, rkyv::rancor::Error>(payload.as_ref())
                                             .map_err(|_| $crate::error::RemoteSendError::ActorStopped)?;
 
                                         // Try ask without blocking on mailbox
@@ -548,7 +550,7 @@ macro_rules! distributed_actor {
                                                 // Serialize the reply (reply is Reply::Ok type)
                                                 let reply_bytes = ::rkyv::to_bytes::<rkyv::rancor::Error>(&reply)
                                                     .map_err(|_| $crate::error::RemoteSendError::ActorStopped)?;
-                                                Ok(reply_bytes.to_vec())
+                                                Ok(::bytes::Bytes::from(reply_bytes.into_vec()))
                                             },
                                             Err(_) => Err($crate::error::RemoteSendError::ActorNotRunning),
                                         }

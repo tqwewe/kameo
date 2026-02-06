@@ -6,11 +6,10 @@
 //! 3. distributed_actor! macro for registering handlers
 
 use kameo::RemoteMessage;
-use kameo::actor::Spawn;
 use kameo::actor::{Actor, ActorRef};
 use kameo::distributed_actor;
 use kameo::message::{Context, Message};
-use kameo::remote::transport::RemoteTransport;
+use kameo::remote::transport::{RemoteTransport, TransportConfig};
 use rkyv::{Archive, Deserialize as RDeserialize, Serialize as RSerialize};
 
 // Step 1: Define your actor normally
@@ -90,14 +89,28 @@ distributed_actor! {
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!("\n🚀 === DISTRIBUTED ACTOR EXAMPLE ===");
 
-    // Initialize transport for remote communication with explicit keypair
+    // Optional: enable trusted archived access for closed, schema-locked deployments.
+    #[cfg(feature = "trusted-archived")]
+    {
+        kameo::remote::set_trusted_archived(true);
+        println!("⚠️ Trusted archived mode enabled (alignment guards still enforced).");
+    }
+
+    // Initialize transport for remote communication with explicit keypair.
+    // Note: the remote protocol is v3-only; ensure all peers are upgraded together.
+    const SCHEMA_HASH: u64 = kameo::remote::type_hash::compute_hash_fnv1a(b"kameo.example.v1");
     let keypair = kameo::remote::v2_bootstrap::test_keypair(9340);
-    let transport =
-        kameo::remote::v2_bootstrap::bootstrap_on("127.0.0.1:9340".parse()?, keypair).await?;
+    let config = TransportConfig {
+        bind_addr: "127.0.0.1:9340".parse()?,
+        keypair: Some(keypair),
+        schema_hash: Some(SCHEMA_HASH),
+        ..Default::default()
+    };
+    let transport = kameo::remote::v2_bootstrap::bootstrap_with_config(config).await?;
     println!("✅ Transport listening on {}", transport.local_addr());
 
-    // Step 5: Spawn actor using regular Actor::spawn()
-    let actor_ref = CalculatorActor::spawn(());
+    // Step 5: Spawn actor using regular <Actor as Actor>::spawn()
+    let actor_ref = <CalculatorActor as Actor>::spawn(());
 
     // Step 6: Register with transport for remote discovery
     // This automatically registers handlers and makes the actor discoverable

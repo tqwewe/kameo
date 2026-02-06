@@ -320,6 +320,11 @@ where
                     return reason;
                 }
             }
+            Some(Signal::LinkEstablished { id }) => {
+                if let ControlFlow::Break(reason) = state.handle_link_established(id).await {
+                    return reason;
+                }
+            }
             Some(Signal::Stop) | None => {
                 if let ControlFlow::Break(reason) = state.handle_stop().await {
                     return reason;
