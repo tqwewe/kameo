@@ -779,7 +779,7 @@ where
     }
 
     /// Enqueues the message into the remote actors mailbox, returning a pending reply which needs to be awaited.
-    pub fn enqueue(self) -> Result<RemotePendingReply<A::Reply>, remote::codec::RemoteCodecError>
+    pub fn enqueue(self) -> Result<RemotePendingReply<A::Reply>, remote::codec::RemoteCodecError<<M as remote::codec::RemoteEncode>::CodecError>>
     where
         M: remote::codec::RemoteEncode,
         Tm: Into<Option<Duration>>,
@@ -826,7 +826,7 @@ where
     /// returning a pending reply which needs to be awaited.
     pub fn try_enqueue(
         self,
-    ) -> Result<RemotePendingReply<A::Reply>, remote::codec::RemoteCodecError>
+    ) -> Result<RemotePendingReply<A::Reply>, remote::codec::RemoteCodecError<<M as remote::codec::RemoteEncode>::CodecError>>
     where
         M: remote::codec::RemoteEncode,
         Tr: Into<Option<Duration>>,
@@ -869,7 +869,7 @@ fn remote_ask_enqueue<'a, A, M>(
     mailbox_timeout: Option<Duration>,
     reply_timeout: Option<Duration>,
     immediate: bool,
-) -> Result<RemotePendingReply<A::Reply>, remote::codec::RemoteCodecError>
+) -> Result<RemotePendingReply<A::Reply>, remote::codec::RemoteCodecError<<M as remote::codec::RemoteEncode>::CodecError>>
 where
     A: Actor + Message<M> + remote::RemoteActor + remote::RemoteMessage<M>,
     M: remote::codec::RemoteEncode + Send + 'static,
@@ -897,12 +897,12 @@ where
             match reply_rx.await.unwrap() {
                 messaging::SwarmResponse::Ask(res) => match res {
                     Ok(payload) => Ok(<A::Reply as Reply>::Ok::remote_decode(&payload)
-                        .map_err(|err| error::RemoteSendError::DeserializeMessage(err.0))?),
+                        .map_err(|err| error::RemoteSendError::DeserializeMessage(err.to_string()))?),
                     Err(err) => Err(err
                         .map_err(
                             |err| match <A::Reply as Reply>::Error::remote_decode(&err) {
                                 Ok(err) => error::RemoteSendError::HandlerError(err),
-                                Err(err) => error::RemoteSendError::DeserializeHandlerError(err.0),
+                                Err(err) => error::RemoteSendError::DeserializeHandlerError(err.to_string()),
                             },
                         )
                         .flatten()),
@@ -941,7 +941,7 @@ where
         message_remote_id: Cow::Borrowed(<A as remote::RemoteMessage<M>>::REMOTE_ID),
         payload: msg
             .remote_encode()
-            .map_err(|err| error::RemoteSendError::SerializeMessage(err.0))?,
+            .map_err(|err| error::RemoteSendError::SerializeMessage(err.to_string()))?,
         mailbox_timeout,
         reply_timeout,
         immediate,
@@ -951,12 +951,12 @@ where
     match reply_rx.await.unwrap() {
         messaging::SwarmResponse::Ask(res) => match res {
             Ok(payload) => Ok(<A::Reply as Reply>::Ok::remote_decode(&payload)
-                .map_err(|err| error::RemoteSendError::DeserializeMessage(err.0))?),
+                .map_err(|err| error::RemoteSendError::DeserializeMessage(err.to_string()))?),
             Err(err) => Err(err
                 .map_err(
                     |err| match <A::Reply as Reply>::Error::remote_decode(&err) {
                         Ok(err) => error::RemoteSendError::HandlerError(err),
-                        Err(err) => error::RemoteSendError::DeserializeHandlerError(err.0),
+                        Err(err) => error::RemoteSendError::DeserializeHandlerError(err.to_string()),
                     },
                 )
                 .flatten()),

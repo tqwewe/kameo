@@ -497,7 +497,7 @@ mod remote {
             message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
             payload: msg
                 .remote_encode()
-                .map_err(|err| RemoteSendError::SerializeMessage(err.0))?,
+                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
             mailbox_timeout,
             immediate,
             reply: None,
@@ -524,7 +524,7 @@ mod remote {
             message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
             payload: msg
                 .remote_encode()
-                .map_err(|err| RemoteSendError::SerializeMessage(err.0))?,
+                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
             mailbox_timeout,
             immediate,
             reply: Some(reply_tx),

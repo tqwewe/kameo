@@ -868,7 +868,9 @@ impl<D: rkyv::rancor::Fallible + ?Sized> rkyv::Deserialize<Infallible, D> for In
     not(feature = "rkyv-codec")
 ))]
 impl crate::remote::codec::RemoteEncode for Infallible {
-    fn remote_encode(&self) -> Result<Vec<u8>, crate::remote::codec::RemoteCodecError> {
+    type CodecError = crate::remote::codec::CodecMessage;
+
+    fn remote_encode(&self) -> Result<Vec<u8>, crate::remote::codec::RemoteCodecError<Self::CodecError>> {
         match *self {}
     }
 }
@@ -879,9 +881,11 @@ impl crate::remote::codec::RemoteEncode for Infallible {
     not(feature = "rkyv-codec")
 ))]
 impl crate::remote::codec::RemoteDecode for Infallible {
-    fn remote_decode(_bytes: &[u8]) -> Result<Self, crate::remote::codec::RemoteCodecError> {
+    type CodecError = crate::remote::codec::CodecMessage;
+
+    fn remote_decode(_bytes: &[u8]) -> Result<Self, crate::remote::codec::RemoteCodecError<Self::CodecError>> {
         Err(crate::remote::codec::RemoteCodecError(
-            "cannot decode Infallible".to_string(),
+            crate::remote::codec::CodecMessage("cannot decode Infallible".to_string()),
         ))
     }
 }

@@ -397,11 +397,17 @@ where
             Err(err) => {
                 let mut f = Some(f);
                 let result = err.with_downcast_ref(|e: &A::Error| {
-                    (f.take().unwrap())(Err(HookError::Error(e)))
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
                 });
                 match result {
                     Some(r) => r,
-                    None => (f.take().unwrap())(Err(HookError::Panicked(err.clone()))),
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
                 }
             }
         }
@@ -533,11 +539,17 @@ where
             Err(err) => {
                 let mut f = Some(f);
                 let result = err.with_downcast_ref(|e: &A::Error| {
-                    (f.take().unwrap())(Err(HookError::Error(e)))
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
                 });
                 match result {
                     Some(r) => r,
-                    None => (f.take().unwrap())(Err(HookError::Panicked(err.clone()))),
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
                 }
             }
         }
@@ -1938,11 +1950,17 @@ impl<A: Actor> WeakActorRef<A> {
             Err(err) => {
                 let mut f = Some(f);
                 let result = err.with_downcast_ref(|e: &A::Error| {
-                    (f.take().unwrap())(Err(HookError::Error(e)))
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
                 });
                 match result {
                     Some(r) => r,
-                    None => (f.take().unwrap())(Err(HookError::Panicked(err.clone()))),
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
                 }
             }
         }
@@ -1983,11 +2001,17 @@ impl<A: Actor> WeakActorRef<A> {
             Err(err) => {
                 let mut f = Some(f);
                 let result = err.with_downcast_ref(|e: &A::Error| {
-                    (f.take().unwrap())(Err(HookError::Error(e)))
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
                 });
                 match result {
                     Some(r) => r,
-                    None => (f.take().unwrap())(Err(HookError::Panicked(err.clone()))),
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
                 }
             }
         }

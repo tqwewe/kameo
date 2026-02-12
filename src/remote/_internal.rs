@@ -101,7 +101,7 @@ where
             .downcast::<A>()?
     };
     let msg: M =
-        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.0))?;
+        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
 
     let res = actor_ref
         .ask(msg)
@@ -112,11 +112,11 @@ where
     match res {
         Ok(reply) => Ok(reply
             .remote_encode()
-            .map_err(|err| RemoteSendError::SerializeReply(err.0))?),
+            .map_err(|err| RemoteSendError::SerializeReply(err.to_string()))?),
         Err(err) => Err(RemoteSendError::from(err)
             .map_err(|err| match err.remote_encode() {
                 Ok(payload) => RemoteSendError::HandlerError(payload),
-                Err(err) => RemoteSendError::SerializeHandlerError(err.0),
+                Err(err) => RemoteSendError::SerializeHandlerError(err.to_string()),
             })
             .flatten()),
     }
@@ -141,7 +141,7 @@ where
             .downcast::<A>()?
     };
     let msg: M =
-        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.0))?;
+        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
 
     let res = actor_ref
         .ask(msg)
@@ -151,11 +151,11 @@ where
     match res {
         Ok(reply) => Ok(reply
             .remote_encode()
-            .map_err(|err| RemoteSendError::SerializeReply(err.0))?),
+            .map_err(|err| RemoteSendError::SerializeReply(err.to_string()))?),
         Err(err) => Err(RemoteSendError::from(err)
             .map_err(|err| match err.remote_encode() {
                 Ok(payload) => RemoteSendError::HandlerError(payload),
-                Err(err) => RemoteSendError::SerializeHandlerError(err.0),
+                Err(err) => RemoteSendError::SerializeHandlerError(err.to_string()),
             })
             .flatten()),
     }
@@ -178,7 +178,7 @@ where
             .downcast::<A>()?
     };
     let msg: M =
-        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.0))?;
+        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
 
     let res = actor_ref
         .tell(msg)
@@ -204,7 +204,7 @@ where
             .downcast::<A>()?
     };
     let msg: M =
-        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.0))?;
+        M::remote_decode(&msg).map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
 
     let res = actor_ref.tell(msg).try_send();
     match res {
