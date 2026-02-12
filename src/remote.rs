@@ -78,9 +78,11 @@ use crate::{
 #[doc(hidden)]
 pub mod _internal;
 mod behaviour;
+pub mod codec;
 pub mod messaging;
 pub mod registry;
 mod swarm;
+pub(crate) mod transport_codec;
 
 pub use behaviour::*;
 pub use swarm::*;
