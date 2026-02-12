@@ -286,6 +286,63 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
     Ok(local_peer_id)
 }
 
+/// Clear all entries from the local actor registry.
+///
+/// Useful for test isolation when multiple tests run in the same process
+/// and share the global registry. After clearing, any previously registered
+/// actors will no longer be found by incoming remote messages or
+/// [`RemoteActorRef::for_peer()`] lookups until they are re-registered.
+pub async fn clear_registry() {
+    REMOTE_REGISTRY.lock().await.clear();
+}
+
+/// Register an actor in the local actor registry under a specific [`ActorId`],
+/// bypassing Kademlia DHT.
+///
+/// This is useful when you want to use a well-known `ActorId` convention
+/// (e.g., `ActorId::new_with_peer_id(0, local_peer_id)`) so that remote peers
+/// can construct a `RemoteActorRef` directly via [`RemoteActorRef::for_peer()`]
+/// without performing a slow DHT lookup.
+///
+/// Must be called from within a tokio runtime context.
+pub async fn register_actor_local<A: Actor>(actor_ref: &ActorRef<A>, id: ActorId) {
+    REMOTE_REGISTRY
+        .lock()
+        .await
+        .insert(id, RemoteRegistryActorRef::new(actor_ref.clone(), None));
+}
+
+/// Synchronous version of [`register_actor_local`].
+///
+/// Spins on [`Mutex::try_lock`] with [`std::thread::yield_now`] until the lock
+/// is acquired. Intended for pre-run hooks that execute outside an async context
+/// (e.g., before the network actor starts blocking).
+pub fn register_actor_local_sync<A: Actor>(actor_ref: &ActorRef<A>, well_known_id: ActorId) {
+    loop {
+        match REMOTE_REGISTRY.try_lock() {
+            Ok(mut registry) => {
+                registry.insert(
+                    well_known_id,
+                    RemoteRegistryActorRef::new(actor_ref.clone(), None),
+                );
+                return;
+            }
+            Err(_) => std::thread::yield_now(),
+        }
+    }
+}
+
+/// Check whether an actor with the given ID is registered in the local registry.
+///
+/// Uses [`Mutex::try_lock`] to avoid blocking. Returns `false` if the lock is
+/// contended (conservative: caller should fall back to swarm routing).
+pub fn is_registered_locally(actor_id: ActorId) -> bool {
+    match REMOTE_REGISTRY.try_lock() {
+        Ok(registry) => registry.contains_key(&actor_id),
+        Err(_) => false,
+    }
+}
+
 /// Unregisters an actor within the swarm.
 ///
 /// This will only unregister an actor previously registered by the current node.
