@@ -3,7 +3,10 @@ use std::{
     borrow::Cow,
     marker::PhantomData,
     pin, str,
-    sync::{Arc, OnceLock},
+    sync::{
+        Arc,
+        atomic::{AtomicPtr, Ordering},
+    },
     task::Poll,
     time::Duration,
 };
@@ -27,7 +30,7 @@ use super::{
     },
 };
 
-static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
+static ACTOR_SWARM: AtomicPtr<ActorSwarm> = AtomicPtr::new(std::ptr::null_mut());
 
 /// `ActorSwarm` is the core component for remote actors within Kameo.
 ///
@@ -56,20 +59,40 @@ impl ActorSwarm {
     /// This function is useful for getting access to the swarm after initialization without
     /// needing to store the reference manually.
     ///
+    /// The returned reference is `&'static` and remains valid for the lifetime of the process.
+    /// If [`set`](Self::set) is called again, new calls to `get` will return the new swarm,
+    /// but existing references continue to point at the previous (now stale) instance.
+    ///
     /// ## Returns
     /// An optional reference to the `ActorSwarm`, or `None` if it has not been bootstrapped.
     pub fn get() -> Option<&'static Self> {
-        ACTOR_SWARM.get()
+        let ptr = ACTOR_SWARM.load(Ordering::Acquire);
+        if ptr.is_null() {
+            None
+        } else {
+            // SAFETY: `set` only stores pointers produced by `Box::into_raw`,
+            // and we never deallocate them, so the pointer is always valid.
+            Some(unsafe { &*ptr })
+        }
     }
 
+    /// Sets (or replaces) the global `ActorSwarm`.
+    ///
+    /// When replacing an existing swarm, the previous allocation is intentionally
+    /// leaked so that any outstanding `&'static Self` references remain valid.
+    /// The old swarm's channel sender will be closed, so messages sent through
+    /// stale references will be silently dropped.
     pub(crate) fn set(
         swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
         local_peer_id: PeerId,
     ) -> Result<(), Self> {
-        ACTOR_SWARM.set(ActorSwarm {
+        let swarm = Box::new(ActorSwarm {
             swarm_tx: SwarmSender(swarm_tx),
             local_peer_id,
-        })
+        });
+        // Intentionally leak: old pointer stays valid for existing &'static refs.
+        ACTOR_SWARM.store(Box::into_raw(swarm), Ordering::Release);
+        Ok(())
     }
 
     /// Returns the local peer ID, which uniquely identifies this node in the libp2p network.
@@ -269,7 +292,8 @@ impl ActorSwarm {
         }
     }
 
-    pub(crate) fn sender(&self) -> &SwarmSender {
+    /// Returns a reference to the swarm command sender.
+    pub fn sender(&self) -> &SwarmSender {
         &self.swarm_tx
     }
 }
@@ -375,7 +399,8 @@ impl<A: Actor + RemoteActor> Stream for LookupStream<A> {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
+/// Channel sender for dispatching commands to the swarm event loop.
+pub struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
 
 impl SwarmSender {
     pub(crate) fn send(&self, cmd: SwarmCommand) {
