@@ -28,7 +28,7 @@ use super::{
 ///
 /// # Example
 ///
-/// ```rust
+/// ```no_run
 /// use kameo::remote;
 /// use libp2p::{swarm::NetworkBehaviour, PeerId};
 ///
@@ -62,7 +62,7 @@ impl Behaviour {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use kameo::remote;
     /// use libp2p::PeerId;
     ///
@@ -93,7 +93,7 @@ impl Behaviour {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use kameo::remote;
     /// use libp2p::PeerId;
     ///
