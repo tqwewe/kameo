@@ -46,7 +46,6 @@ use libp2p::{
         THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
 };
-use serde::{Deserialize, Serialize};
 use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{
@@ -146,7 +145,8 @@ enum ReplyChannel {
 }
 
 /// Represents different types of requests that can be made within the swarm.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SwarmRequest {
     /// Represents a request to ask a peer for some data or action.
     ///
@@ -218,7 +218,8 @@ pub enum SwarmRequest {
 }
 
 /// Represents different types of responses that can be sent within the swarm.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SwarmResponse {
     /// Represents the response to an `Ask` request.
     ///
@@ -392,6 +393,16 @@ impl Config {
         self.response_size_maximum = bytes;
         self
     }
+
+    /// Returns the request size maximum.
+    pub fn request_size_maximum(&self) -> u64 {
+        self.request_size_maximum
+    }
+
+    /// Returns the response size maximum.
+    pub fn response_size_maximum(&self) -> u64 {
+        self.response_size_maximum
+    }
 }
 
 impl From<Config> for request_response::Config {
@@ -402,19 +413,11 @@ impl From<Config> for request_response::Config {
     }
 }
 
-impl<Req, Resp> From<Config> for request_response::cbor::codec::Codec<Req, Resp> {
-    fn from(config: Config) -> Self {
-        request_response::cbor::codec::Codec::default()
-            .set_request_size_maximum(config.request_size_maximum)
-            .set_response_size_maximum(config.response_size_maximum)
-    }
-}
-
 /// `Behaviour` is a `NetworkBehaviour` that implements the kameo messaging behaviour
 /// on top of the request response protocol.
 #[allow(missing_debug_implementations)]
 pub struct Behaviour {
-    request_response: request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>,
+    request_response: request_response::Behaviour<super::transport_codec::TransportCodec>,
     local_peer_id: PeerId,
     next_id: u64,
     requests: HashMap<RequestId, (PeerId, Option<oneshot::Sender<SwarmResponse>>)>,
@@ -423,9 +426,13 @@ pub struct Behaviour {
 
 impl Behaviour {
     /// Creates a new messaging behaviour.
-    pub fn new(local_peer_id: PeerId, config: Config) -> Self {
-        let request_response = request_response::cbor::Behaviour::with_codec(
-            config.into(),
+    pub fn new(
+        local_peer_id: PeerId,
+        config: Config,
+        codec: super::transport_codec::SwarmCodecFns,
+    ) -> Self {
+        let request_response = request_response::Behaviour::with_codec(
+            super::transport_codec::TransportCodec::new(config, codec),
             [(PROTO_NAME, request_response::ProtocolSupport::Full)],
             config.into(),
         );
@@ -1090,7 +1097,7 @@ impl Behaviour {
 
 impl NetworkBehaviour for Behaviour {
     type ConnectionHandler =
-        THandler<request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>>;
+        THandler<request_response::Behaviour<super::transport_codec::TransportCodec>>;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(

@@ -22,7 +22,7 @@
 //!
 //! For quick prototyping and development:
 //!
-//! ```
+//! ```no_run
 //! use kameo::remote;
 //!
 //! #[tokio::main]
@@ -78,12 +78,15 @@ use crate::{
 #[doc(hidden)]
 pub mod _internal;
 mod behaviour;
+pub mod codec;
 pub mod messaging;
 pub mod registry;
 mod swarm;
+pub mod transport_codec;
 
 pub use behaviour::*;
 pub use swarm::*;
+pub use transport_codec::SwarmCodecFns;
 
 pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -210,7 +213,7 @@ pub trait RemoteMessage<M> {
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     // One line to get started!
-///     remote::bootstrap()?;
+///     remote::bootstrap(my_codec)?;
 ///     
 ///     // Now use remote actors normally
 ///     let actor_ref = MyActor::spawn_default();
@@ -218,12 +221,15 @@ pub trait RemoteMessage<M> {
 ///     Ok(())
 /// }
 /// ```
-pub fn bootstrap() -> Result<PeerId, Box<dyn error::Error>> {
-    bootstrap_on("/ip4/0.0.0.0/tcp/0")
+pub fn bootstrap(codec: SwarmCodecFns) -> Result<PeerId, Box<dyn error::Error>> {
+    bootstrap_on("/ip4/0.0.0.0/tcp/0", codec)
 }
 
 /// Bootstrap with a specific listen address.
-pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
+pub fn bootstrap_on(
+    addr: &str,
+    codec: SwarmCodecFns,
+) -> Result<PeerId, Box<dyn error::Error>> {
     #[derive(NetworkBehaviour)]
     struct BootstrapBehaviour {
         kameo: Behaviour,
@@ -240,7 +246,7 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
         .with_quic()
         .with_behaviour(|key| {
             let local_peer_id = key.public().to_peer_id();
-            let kameo = Behaviour::new(local_peer_id, messaging::Config::default());
+            let kameo = Behaviour::new(local_peer_id, messaging::Config::default(), codec);
             let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), local_peer_id)?;
 
             Ok(BootstrapBehaviour { kameo, mdns })

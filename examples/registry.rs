@@ -36,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let actors = kameo::remote::Behaviour::new(
                 key.public().to_peer_id(),
                 messaging::Config::default(),
+                todo!("provide SwarmCodecFns"),
             );
 
             Ok(actors)
