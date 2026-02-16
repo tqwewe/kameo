@@ -1,17 +1,16 @@
 use std::borrow::Cow;
 use std::time::Duration;
 
-pub use const_fnv1a_hash;
-pub use const_str;
-use futures::future::BoxFuture;
-pub use linkme;
-use serde::Serialize;
-use serde::de::DeserializeOwned;
-
 use crate::actor::{ActorId, Link};
 use crate::error::{ActorStopReason, Infallible, RemoteSendError};
 use crate::message::Message;
 use crate::{Actor, Reply};
+pub use const_fnv1a_hash;
+pub use const_str;
+use futures::future::BoxFuture;
+pub use linkme;
+
+use super::codec::{Decode, Encode};
 
 use super::REMOTE_REGISTRY;
 
@@ -90,9 +89,9 @@ pub async fn ask<A, M>(
 ) -> Result<Vec<u8>, RemoteSendError<Vec<u8>>>
 where
     A: Actor + Message<M>,
-    M: DeserializeOwned + Send + 'static,
-    <A::Reply as Reply>::Ok: Serialize,
-    <A::Reply as Reply>::Error: Serialize,
+    M: Decode,
+    <A::Reply as Reply>::Ok: Encode,
+    <A::Reply as Reply>::Error: Encode,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -101,8 +100,7 @@ where
             .ok_or(RemoteSendError::ActorNotRunning)?
             .downcast::<A>()?
     };
-    let msg: M = rmp_serde::decode::from_slice(&msg)
-        .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
+    let msg: M = M::decode(&msg).map_err(RemoteSendError::DeserializeMessage)?;
 
     let res = actor_ref
         .ask(msg)
@@ -111,12 +109,11 @@ where
         .send()
         .await;
     match res {
-        Ok(reply) => Ok(rmp_serde::to_vec_named(&reply)
-            .map_err(|err| RemoteSendError::SerializeReply(err.to_string()))?),
+        Ok(reply) => Ok(reply.encode().map_err(RemoteSendError::SerializeReply)?),
         Err(err) => Err(RemoteSendError::from(err)
-            .map_err(|err| match rmp_serde::to_vec_named(&err) {
+            .map_err(|err| match err.encode() {
                 Ok(payload) => RemoteSendError::HandlerError(payload),
-                Err(err) => RemoteSendError::SerializeHandlerError(err.to_string()),
+                Err(err) => RemoteSendError::SerializeHandlerError(err),
             })
             .flatten()),
     }
@@ -129,9 +126,9 @@ pub async fn try_ask<A, M>(
 ) -> Result<Vec<u8>, RemoteSendError<Vec<u8>>>
 where
     A: Actor + Message<M>,
-    M: DeserializeOwned + Send + 'static,
-    <A::Reply as Reply>::Ok: Serialize,
-    <A::Reply as Reply>::Error: Serialize,
+    M: Decode,
+    <A::Reply as Reply>::Ok: Encode,
+    <A::Reply as Reply>::Error: Encode,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -140,8 +137,7 @@ where
             .ok_or(RemoteSendError::ActorNotRunning)?
             .downcast::<A>()?
     };
-    let msg: M = rmp_serde::decode::from_slice(&msg)
-        .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
+    let msg: M = M::decode(&msg).map_err(RemoteSendError::DeserializeMessage)?;
 
     let res = actor_ref
         .ask(msg)
@@ -149,12 +145,11 @@ where
         .try_send()
         .await;
     match res {
-        Ok(reply) => Ok(rmp_serde::to_vec_named(&reply)
-            .map_err(|err| RemoteSendError::SerializeReply(err.to_string()))?),
+        Ok(reply) => Ok(reply.encode().map_err(RemoteSendError::SerializeReply)?),
         Err(err) => Err(RemoteSendError::from(err)
-            .map_err(|err| match rmp_serde::to_vec_named(&err) {
+            .map_err(|err| match err.encode() {
                 Ok(payload) => RemoteSendError::HandlerError(payload),
-                Err(err) => RemoteSendError::SerializeHandlerError(err.to_string()),
+                Err(err) => RemoteSendError::SerializeHandlerError(err),
             })
             .flatten()),
     }
@@ -167,7 +162,7 @@ pub async fn tell<A, M>(
 ) -> Result<(), RemoteSendError>
 where
     A: Actor + Message<M>,
-    M: DeserializeOwned + Send + 'static,
+    M: Decode,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -176,8 +171,7 @@ where
             .ok_or(RemoteSendError::ActorNotRunning)?
             .downcast::<A>()?
     };
-    let msg: M = rmp_serde::decode::from_slice(&msg)
-        .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
+    let msg: M = M::decode(&msg).map_err(RemoteSendError::DeserializeMessage)?;
 
     let res = actor_ref
         .tell(msg)
@@ -193,7 +187,7 @@ where
 pub async fn try_tell<A, M>(actor_id: ActorId, msg: Vec<u8>) -> Result<(), RemoteSendError>
 where
     A: Actor + Message<M>,
-    M: DeserializeOwned + Send + 'static,
+    M: Decode,
 {
     let actor_ref = {
         let remote_actors = REMOTE_REGISTRY.lock().await;
@@ -202,8 +196,7 @@ where
             .ok_or(RemoteSendError::ActorNotRunning)?
             .downcast::<A>()?
     };
-    let msg: M = rmp_serde::decode::from_slice(&msg)
-        .map_err(|err| RemoteSendError::DeserializeMessage(err.to_string()))?;
+    let msg: M = M::decode(&msg).map_err(RemoteSendError::DeserializeMessage)?;
 
     let res = actor_ref.tell(msg).try_send();
     match res {

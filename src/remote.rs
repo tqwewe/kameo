@@ -22,7 +22,7 @@
 //!
 //! For quick prototyping and development:
 //!
-//! ```
+//! ```no_run
 //! use kameo::remote;
 //!
 //! #[tokio::main]
@@ -78,12 +78,15 @@ use crate::{
 #[doc(hidden)]
 pub mod _internal;
 mod behaviour;
+pub mod codec;
 pub mod messaging;
 pub mod registry;
 mod swarm;
+pub mod transport_codec;
 
 pub use behaviour::*;
 pub use swarm::*;
+pub use transport_codec::{SWARM_CODEC, SwarmCodecFns};
 
 pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
