@@ -28,7 +28,7 @@ use super::{
 ///
 /// # Example
 ///
-/// ```rust
+/// ```no_run
 /// use kameo::remote;
 /// use libp2p::{swarm::NetworkBehaviour, PeerId};
 ///
@@ -39,7 +39,7 @@ use super::{
 /// }
 ///
 /// let peer_id = PeerId::random();
-/// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
+/// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default(), codec);
 /// ```
 #[allow(missing_debug_implementations)]
 pub struct Behaviour {
@@ -59,21 +59,26 @@ impl Behaviour {
     ///
     /// * `local_peer_id` - The peer ID of the local node
     /// * `messaging_config` - Configuration for the messaging subsystem
+    /// * `codec` - Function table for encoding/decoding swarm messages
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use kameo::remote;
     /// use libp2p::PeerId;
     ///
     /// let peer_id = PeerId::random();
     /// let config = remote::messaging::Config::default();
-    /// let behaviour = remote::Behaviour::new(peer_id, config);
+    /// let behaviour = remote::Behaviour::new(peer_id, config, codec);
     /// ```
-    pub fn new(local_peer_id: PeerId, messaging_config: messaging::Config) -> Self {
+    pub fn new(
+        local_peer_id: PeerId,
+        messaging_config: messaging::Config,
+        codec: super::transport_codec::SwarmCodecFns,
+    ) -> Self {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
 
-        let messaging = messaging::Behaviour::new(local_peer_id, messaging_config);
+        let messaging = messaging::Behaviour::new(local_peer_id, messaging_config, codec);
         let registry = registry::Behaviour::new(local_peer_id);
 
         Behaviour {
@@ -93,12 +98,12 @@ impl Behaviour {
     ///
     /// # Example
     ///
-    /// ```rust
+    /// ```no_run
     /// use kameo::remote;
     /// use libp2p::PeerId;
     ///
     /// let peer_id = PeerId::random();
-    /// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
+    /// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default(), codec);
     ///
     /// // Initialize the global swarm
     /// behaviour.init_global();

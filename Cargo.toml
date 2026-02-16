@@ -33,14 +33,16 @@ include = ["/src"]
 default = ["macros", "tracing"]
 macros = ["dep:kameo_macros"]
 remote = [
+  "dep:async-trait",
   "dep:const-fnv1a-hash",
   "dep:const-str",
   "dep:either",
   "dep:libp2p",
   "dep:libp2p-identity",
   "dep:linkme",
-  "dep:rmp-serde",
 ]
+serde = ["dep:serde"]
+serde-codec = ["serde", "dep:rmp-serde"]
 tracing = ["dep:tracing", "tokio/tracing"]
 metrics = ["dep:metrics"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
@@ -48,16 +50,18 @@ hotpath = ["dep:hotpath", "hotpath/hotpath"]
 [dependencies]
 kameo_macros = { version = "0.19.0", path = "./macros", optional = true }
 
+async-trait = { version = "0.1", optional = true }
 const-fnv1a-hash = { version = "1.1.0", optional = true }
 const-str = { version = "1.1", features = ["proc"], optional = true }
+anyhow = "1"
 downcast-rs = "2.0.1"
 dyn-clone = "1.0"
 either = { version = "1.15.0", optional = true }
 futures.workspace = true
 hotpath = { version = "0.11", optional = true, features = ["tokio"] }
 libp2p = { version = "0.56.0", features = [
-  "cbor",
   "kad",
+  "macros",
   "noise",
   "mdns",
   "quic",
@@ -70,7 +74,8 @@ libp2p-identity = { version = "0.2.9", optional = true }
 linkme = { version = "0.3.28", optional = true }
 metrics = { version = "0.24.2", optional = true }
 rmp-serde = { version = "1.3.0", optional = true }
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"], optional = true }
+thiserror = "2.0"
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 tracing = { version = "0.1", optional = true }
 
@@ -93,11 +98,11 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
 name = "remote"
-required-features = ["remote"]
+required-features = ["remote", "serde-codec"]
 
 [[example]]
 name = "custom_swarm"
-required-features = ["remote"]
+required-features = ["remote", "serde-codec"]
 
 [[example]]
 name = "prometheus_metrics"
@@ -108,4 +113,6 @@ name = "overhead"
 harness = false
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(tokio_unstable)',
+] }

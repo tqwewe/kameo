@@ -5,8 +5,6 @@ use std::hash::Hasher;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicUsize};
 
-use serde::{Deserialize, Serialize};
-
 #[cfg(feature = "remote")]
 use crate::remote::ActorSwarm;
 
@@ -187,7 +185,8 @@ impl fmt::Debug for ActorId {
     }
 }
 
-impl Serialize for ActorId {
+#[cfg(feature = "serde")]
+impl serde::Serialize for ActorId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -196,7 +195,8 @@ impl Serialize for ActorId {
     }
 }
 
-impl<'de> Deserialize<'de> for ActorId {
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ActorId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

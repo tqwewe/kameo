@@ -76,6 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 remote::messaging::Config::default()
                     .with_request_timeout(Duration::from_secs(30))
                     .with_max_concurrent_streams(100),
+                todo!("provide SwarmCodecFns"),
             );
 
             // Create mDNS behaviour for local discovery

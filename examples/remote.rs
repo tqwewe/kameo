@@ -41,7 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     // Starts the swarm, and listens on an OS assigned IP and port.
-    let local_peer_id = remote::bootstrap()?;
+    let local_peer_id = remote::bootstrap(todo!("provide SwarmCodecFns"))?;
 
     // Register a local actor as "incrementor"
     let actor_ref = MyActor::spawn(MyActor { count: 0 });

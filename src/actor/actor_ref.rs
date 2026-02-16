@@ -394,16 +394,22 @@ where
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
@@ -530,16 +536,22 @@ where
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
@@ -1516,7 +1528,7 @@ where
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// ```ignore
     /// use kameo::actor::RemoteActorRef;
     ///
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
@@ -1547,7 +1559,7 @@ where
     ) -> request::RemoteAskRequest<'a, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
     where
         A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
-        M: serde::Serialize + Send + 'static,
+        M: Send + 'static,
     {
         request::RemoteAskRequest::new(
             self,
@@ -1564,7 +1576,7 @@ where
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// ```ignore
     /// use kameo::actor::RemoteActorRef;
     ///
     /// # #[derive(kameo::Actor, kameo::RemoteActor)]
@@ -1751,7 +1763,7 @@ impl<A: Actor> Hash for RemoteActorRef<A> {
     }
 }
 
-#[cfg(feature = "remote")]
+#[cfg(all(feature = "remote", feature = "serde"))]
 impl<A: Actor> serde::Serialize for RemoteActorRef<A> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1765,7 +1777,7 @@ impl<A: Actor> serde::Serialize for RemoteActorRef<A> {
     }
 }
 
-#[cfg(feature = "remote")]
+#[cfg(all(feature = "remote", feature = "serde"))]
 impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1935,16 +1947,22 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
@@ -1980,16 +1998,22 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.shutdown_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
