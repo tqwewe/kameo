@@ -1278,7 +1278,7 @@ mod tests {
         #[cfg(not(feature = "hotpath"))]
         let fill_count = 1;
         #[cfg(feature = "hotpath")]
-        let fill_count = 5;
+        let fill_count = 3; // Sadly, hotpath adds some proxy layers, causing the fill count to be 3 instead of 1
         for _ in 0..fill_count {
             assert_eq!(
                 actor_ref
