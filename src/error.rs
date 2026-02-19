@@ -719,6 +719,7 @@ impl fmt::Display for PanicReason {
             PanicReason::OnPanic => write!(f, "on_panic returned error"),
             PanicReason::OnLinkDied => write!(f, "on_link_died returned error"),
             PanicReason::OnStop => write!(f, "on_stop returned error"),
+            PanicReason::Next => write!(f, "next returned error"),
         }
     }
 }
