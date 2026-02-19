@@ -33,8 +33,20 @@ where
         }
     }
 
-    pub(crate) async fn next(&mut self, mailbox_rx: &mut MailboxReceiver<A>) -> Option<Signal<A>> {
-        self.state.next(self.actor_ref.clone(), mailbox_rx).await
+    pub(crate) async fn next(
+        &mut self,
+        mailbox_rx: &mut MailboxReceiver<A>,
+    ) -> ControlFlow<ActorStopReason, Signal<A>> {
+        let res = AssertUnwindSafe(self.state.next(self.actor_ref.clone(), mailbox_rx))
+            .catch_unwind()
+            .await;
+        match res {
+            Ok(Some(signal)) => ControlFlow::Continue(signal),
+            Ok(None) => ControlFlow::Break(ActorStopReason::Normal),
+            Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
+                PanicError::new_from_panic_any(err, PanicReason::HandlerPanic),
+            )), // The handler panicked
+        }
     }
 
     pub(crate) async fn handle_startup_finished(&mut self) -> ControlFlow<ActorStopReason> {
@@ -137,13 +149,19 @@ where
             ActorStopReason::Normal => ControlFlow::Break(ActorStopReason::Normal),
             ActorStopReason::Killed => ControlFlow::Break(ActorStopReason::Killed),
             ActorStopReason::Panicked(err) => {
-                match self.state.on_panic(self.actor_ref.clone(), err).await {
-                    Ok(ControlFlow::Continue(())) => ControlFlow::Continue(()),
-                    Ok(ControlFlow::Break(reason)) => ControlFlow::Break(reason),
-                    Err(err) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
+                match AssertUnwindSafe(self.state.on_panic(self.actor_ref.clone(), err))
+                    .catch_unwind()
+                    .await
+                {
+                    Ok(Ok(ControlFlow::Continue(()))) => ControlFlow::Continue(()),
+                    Ok(Ok(ControlFlow::Break(reason))) => ControlFlow::Break(reason),
+                    Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
                         Box::new(err),
-                        PanicReason::OnPanic,
+                        PanicReason::OnMessage,
                     ))),
+                    Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
+                        PanicError::new_from_panic_any(err, PanicReason::OnPanic),
+                    )),
                 }
             }
             ActorStopReason::LinkDied { id, reason } => {

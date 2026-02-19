@@ -286,7 +286,7 @@ where
 {
     loop {
         match state.next(mailbox_rx).await {
-            Some(Signal::StartupFinished) => {
+            ControlFlow::Continue(Signal::StartupFinished) => {
                 if startup_result.set(Ok(())).is_err() {
                     #[cfg(feature = "tracing")]
                     error!("received startup finished signal after already being started up");
@@ -295,7 +295,7 @@ where
                     return reason;
                 }
             }
-            Some(Signal::Message {
+            ControlFlow::Continue(Signal::Message {
                 message,
                 actor_ref,
                 reply,
@@ -308,16 +308,17 @@ where
                     return reason;
                 }
             }
-            Some(Signal::LinkDied { id, reason }) => {
+            ControlFlow::Continue(Signal::LinkDied { id, reason }) => {
                 if let ControlFlow::Break(reason) = state.handle_link_died(id, reason).await {
                     return reason;
                 }
             }
-            Some(Signal::Stop) | None => {
+            ControlFlow::Continue(Signal::Stop) => {
                 if let ControlFlow::Break(reason) = state.handle_stop().await {
                     return reason;
                 }
             }
+            ControlFlow::Break(reason) => return reason,
         }
     }
 }
