@@ -662,6 +662,8 @@ pub enum PanicReason {
     OnLinkDied,
     /// The [`on_stop`](Actor::on_stop) lifecycle hook returned an error.
     OnStop,
+    /// The [`next`](Actor::next) lifecycle hook returned an error.
+    Next,
 }
 
 impl PanicReason {

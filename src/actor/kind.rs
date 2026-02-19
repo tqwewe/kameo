@@ -44,7 +44,7 @@ where
             Ok(Some(signal)) => ControlFlow::Continue(signal),
             Ok(None) => ControlFlow::Break(ActorStopReason::Normal),
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
-                PanicError::new_from_panic_any(err, PanicReason::HandlerPanic),
+                PanicError::new_from_panic_any(err, PanicReason::Next),
             )), // The handler panicked
         }
     }
@@ -157,7 +157,7 @@ where
                     Ok(Ok(ControlFlow::Break(reason))) => ControlFlow::Break(reason),
                     Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
                         Box::new(err),
-                        PanicReason::OnMessage,
+                        PanicReason::OnPanic,
                     ))),
                     Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
                         PanicError::new_from_panic_any(err, PanicReason::OnPanic),
