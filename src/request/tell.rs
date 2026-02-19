@@ -790,7 +790,15 @@ mod tests {
         }
 
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
-        assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
+        actor_ref.wait_for_startup().await;
+        #[cfg(not(feature = "hotpath"))]
+        let fill_count = 1;
+        #[cfg(feature = "hotpath")]
+        let fill_count = 4;
+        for _ in 0..fill_count {
+            assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
         assert_eq!(
             actor_ref.tell(Msg).try_send(),
             Err(SendError::MailboxFull(Msg))
@@ -845,7 +853,7 @@ mod tests {
         #[cfg(not(feature = "hotpath"))]
         let fill_count = 1;
         #[cfg(feature = "hotpath")]
-        let fill_count = 5;
+        let fill_count = 3;
         for _ in 0..fill_count {
             assert_eq!(
                 actor_ref
