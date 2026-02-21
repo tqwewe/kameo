@@ -378,6 +378,9 @@ where
         stop: &'a mut bool,
     ) -> BoxFuture<'a, Result<(), Box<dyn ReplyError>>>;
 
+    /// Returns the type name of this message, for tracing/observability.
+    fn message_name(&self) -> &'static str;
+
     /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
 }
@@ -411,6 +414,11 @@ where
             }
         }
         .boxed()
+    }
+
+    fn message_name(&self) -> &'static str {
+        let full = any::type_name::<T>();
+        full.rsplit("::").next().unwrap_or(full)
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {

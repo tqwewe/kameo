@@ -11,7 +11,7 @@ use tokio::{
     task::JoinHandle,
 };
 #[cfg(feature = "tracing")]
-use tracing::{error, trace};
+use tracing::{Instrument, error, trace};
 
 #[cfg(feature = "remote")]
 use crate::remote;
@@ -186,6 +186,24 @@ where
         Ok(actor) => {
             let mut state = ActorBehaviour::new_from_actor(actor, actor_ref.clone());
 
+            #[cfg(feature = "tracing")]
+            let actor_span = tracing::info_span!("actor", actor.name = name, actor.id = %id);
+
+            #[cfg(feature = "tracing")]
+            let reason = Abortable::new(
+                abortable_actor_loop(
+                    &mut state,
+                    mailbox_rx,
+                    &actor_ref.startup_result,
+                    startup_finished,
+                )
+                .instrument(actor_span),
+                abort_registration,
+            )
+            .await
+            .unwrap_or(ActorStopReason::Killed);
+
+            #[cfg(not(feature = "tracing"))]
             let reason = Abortable::new(
                 abortable_actor_loop(
                     &mut state,
@@ -300,9 +318,18 @@ where
                 actor_ref,
                 reply,
                 sent_within_actor,
+                #[cfg(feature = "tracing")]
+                caller_span,
             }) => {
                 if let ControlFlow::Break(reason) = state
-                    .handle_message(message, actor_ref, reply, sent_within_actor)
+                    .handle_message(
+                        message,
+                        actor_ref,
+                        reply,
+                        sent_within_actor,
+                        #[cfg(feature = "tracing")]
+                        caller_span,
+                    )
                     .await
                 {
                     return reason;
