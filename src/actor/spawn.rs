@@ -187,7 +187,7 @@ where
             let mut state = ActorBehaviour::new_from_actor(actor, actor_ref.clone());
 
             #[cfg(feature = "tracing")]
-            let actor_span = tracing::info_span!("actor", actor.name = name, actor.id = %id);
+            let actor_span = tracing::info_span!("actor.lifecycle", actor.name = name, actor.id = %id);
 
             #[cfg(feature = "tracing")]
             let reason = Abortable::new(
