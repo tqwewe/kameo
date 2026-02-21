@@ -104,13 +104,33 @@ where
         #[cfg(feature = "tracing")]
         let handler_span = {
             let actor_id = self.actor_ref.id();
-            tracing::info_span!(
+            let actor_short = {
+                let full = A::name();
+                let base = full.split('<').next().unwrap_or(full);
+                base.rsplit("::").next().unwrap_or(base)
+            };
+            let msg_name = message.message_name();
+            let span_name = format!("{}.{}", actor_short, msg_name);
+            let span = tracing::info_span!(
                 parent: &caller_span,
                 "actor.handle_message",
+                otel.name = %span_name,
                 actor.name = A::name(),
                 actor.id = %actor_id,
-                message = message.message_name(),
-            )
+                message = msg_name,
+            );
+
+            #[cfg(feature = "otel")]
+            {
+                use opentelemetry::trace::TraceContextExt;
+                use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+                let actor_span_ctx =
+                    tracing::Span::current().context().span().span_context().clone();
+                span.add_link(actor_span_ctx);
+            }
+
+            span
         };
 
         let mut stop = false;
