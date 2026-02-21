@@ -104,20 +104,14 @@ where
         #[cfg(feature = "tracing")]
         let handler_span = {
             let actor_id = self.actor_ref.id();
-            let actor_short = {
-                let full = A::name();
-                let base = full.split('<').next().unwrap_or(full);
-                base.rsplit("::").next().unwrap_or(base)
-            };
-            let msg_name = message.message_name();
-            let span_name = format!("{}.{}", actor_short, msg_name);
+            let span_name = format!("{}.{}", A::short_name(), message.short_message_name());
             let span = tracing::info_span!(
                 parent: &caller_span,
                 "actor.handle_message",
                 otel.name = %span_name,
                 actor.name = A::name(),
                 actor.id = %actor_id,
-                message = msg_name,
+                message = message.message_name(),
             );
 
             #[cfg(feature = "otel")]

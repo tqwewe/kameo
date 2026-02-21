@@ -134,6 +134,20 @@ pub trait Actor: Sized + Send + 'static {
         any::type_name::<Self>()
     }
 
+    /// A short, human-readable name for the actor.
+    ///
+    /// Strips module paths and generic parameters from [`Actor::name`].
+    /// Used in tracing span names for readability.
+    ///
+    /// # Default Implementation
+    /// `my_crate::actors::MyActor<Backend>` → `MyActor`
+    #[inline]
+    fn short_name() -> &'static str {
+        let full = Self::name();
+        let base = full.split('<').next().unwrap_or(full);
+        base.rsplit("::").next().unwrap_or(base)
+    }
+
     /// Called when the actor starts, before it processes any messages.
     ///
     /// Messages sent internally by the actor during `on_start` are prioritized and processed
