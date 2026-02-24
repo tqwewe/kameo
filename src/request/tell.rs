@@ -370,7 +370,6 @@ pub use remote::RemoteTellRequest;
 mod remote {
     use std::{borrow::Cow, time::Duration};
 
-    use serde::Serialize;
     use tokio::sync::oneshot;
 
     use crate::{
@@ -378,7 +377,7 @@ mod remote {
         actor::RemoteActorRef,
         error::RemoteSendError,
         message::Message,
-        remote::{RemoteActor, RemoteMessage, SwarmCommand, messaging},
+        remote::{RemoteActor, RemoteMessage, SwarmCommand, codec::Encode, messaging},
         request::{WithRequestTimeout, WithoutRequestTimeout},
     };
 
@@ -424,7 +423,7 @@ mod remote {
     impl<'a, A, M, Tm> RemoteTellRequest<'a, A, M, Tm>
     where
         A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-        M: Serialize + Send + 'static,
+        M: Encode,
     {
         /// Sets the timeout for waiting for the actors mailbox to have capacity.
         pub fn mailbox_timeout(
@@ -451,7 +450,7 @@ mod remote {
     impl<A, M, Tm> RemoteTellRequest<'_, A, M, Tm>
     where
         A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-        M: Serialize + Send + 'static,
+        M: Encode,
         Tm: Into<Option<Duration>>,
     {
         /// Sends the message fire-and-forget style (fast, no delivery confirmation).
@@ -468,7 +467,7 @@ mod remote {
     impl<A, M> RemoteTellRequest<'_, A, M, WithoutRequestTimeout>
     where
         A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-        M: serde::Serialize + Send + 'static,
+        M: Encode,
     {
         /// Tries to send the message fire-and-forget style, failing immediately if mailbox is full.
         pub async fn try_send(self) -> Result<(), RemoteSendError> {
@@ -489,15 +488,14 @@ mod remote {
     ) -> Result<(), RemoteSendError>
     where
         A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-        M: Serialize + Send + 'static,
+        M: Encode,
     {
         let actor_id = actor_ref.id();
         actor_ref.send_to_swarm(SwarmCommand::Tell {
             actor_id,
             actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
             message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
-            payload: rmp_serde::to_vec_named(msg)
-                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
+            payload: msg.encode().map_err(RemoteSendError::SerializeMessage)?,
             mailbox_timeout,
             immediate,
             reply: None,
@@ -514,7 +512,7 @@ mod remote {
     ) -> Result<(), RemoteSendError>
     where
         A: Actor + Message<M> + RemoteActor + RemoteMessage<M>,
-        M: Serialize + Send + 'static,
+        M: Encode,
     {
         let actor_id = actor_ref.id();
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -522,8 +520,7 @@ mod remote {
             actor_id,
             actor_remote_id: Cow::Borrowed(<A as RemoteActor>::REMOTE_ID),
             message_remote_id: Cow::Borrowed(<A as RemoteMessage<M>>::REMOTE_ID),
-            payload: rmp_serde::to_vec_named(msg)
-                .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?,
+            payload: msg.encode().map_err(RemoteSendError::SerializeMessage)?,
             mailbox_timeout,
             immediate,
             reply: Some(reply_tx),
@@ -532,12 +529,11 @@ mod remote {
         match reply_rx.await.unwrap() {
             messaging::SwarmResponse::Tell(res) => match res {
                 Ok(()) => Ok(()),
-                Err(err) => Err(err),
+                Err(err) => Err(err.into_infallible()),
             },
-            messaging::SwarmResponse::OutboundFailure(err) => {
-                Err(err
-                    .map_err(|_| unreachable!("outbound failure doesn't contain handler errors")))
-            }
+            messaging::SwarmResponse::OutboundFailure(err) => Err(err
+                .into_infallible()
+                .map_err(|_| unreachable!("outbound failure doesn't contain handler errors"))),
             _ => panic!("unexpected response"),
         }
     }

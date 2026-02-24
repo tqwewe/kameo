@@ -46,13 +46,14 @@ use libp2p::{
         THandlerInEvent, THandlerOutEvent, ToSwarm,
     },
 };
-use serde::{Deserialize, Serialize};
 use tokio::{sync::oneshot, task::JoinSet};
 
 use crate::{
     actor::ActorId,
     error::{ActorStopReason, Infallible, RemoteSendError},
 };
+
+use super::wire::{WireActorId, WireActorStopReason, WireRemoteSendError};
 
 use super::_internal::{
     REMOTE_ACTORS, REMOTE_MESSAGES, RemoteActorFns, RemoteMessageFns, RemoteMessageRegistrationID,
@@ -146,18 +147,23 @@ enum ReplyChannel {
 }
 
 /// Represents different types of requests that can be made within the swarm.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "rkyv",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 pub enum SwarmRequest {
     /// Represents a request to ask a peer for some data or action.
     ///
     /// This variant includes information about the actor, the message, payload, and timeout settings.
     Ask {
         /// Identifier of the actor initiating the request.
-        actor_id: ActorId,
-        /// Remote identifier of the actor as a static string.
-        actor_remote_id: Cow<'static, str>,
-        /// Remote identifier of the message as a static string.
-        message_remote_id: Cow<'static, str>,
+        actor_id: WireActorId,
+        /// Remote identifier of the actor.
+        actor_remote_id: String,
+        /// Remote identifier of the message.
+        message_remote_id: String,
         /// The payload data to be sent with the request.
         payload: Vec<u8>,
         /// Optional timeout duration for the mailbox to receive the request.
@@ -172,11 +178,11 @@ pub enum SwarmRequest {
     /// This variant includes information about the actor, the message, payload, and timeout settings.
     Tell {
         /// Identifier of the actor initiating the message.
-        actor_id: ActorId,
-        /// Remote identifier of the actor as a static string.
-        actor_remote_id: Cow<'static, str>,
-        /// Remote identifier of the message as a static string.
-        message_remote_id: Cow<'static, str>,
+        actor_id: WireActorId,
+        /// Remote identifier of the actor.
+        actor_remote_id: String,
+        /// Remote identifier of the message.
+        message_remote_id: String,
         /// The payload data to be sent with the message.
         payload: Vec<u8>,
         /// Optional timeout duration for the mailbox to receive the message.
@@ -187,62 +193,62 @@ pub enum SwarmRequest {
     /// A request to link two actors together.
     Link {
         /// Actor ID.
-        actor_id: ActorId,
+        actor_id: WireActorId,
         /// Actor remote ID.
-        actor_remote_id: Cow<'static, str>,
+        actor_remote_id: String,
         /// Sibling ID.
-        sibling_id: ActorId,
+        sibling_id: WireActorId,
         /// Sibling remote ID.
-        sibling_remote_id: Cow<'static, str>,
+        sibling_remote_id: String,
     },
     /// A request to unlink two actors.
     Unlink {
         /// Actor ID.
-        actor_id: ActorId,
+        actor_id: WireActorId,
         /// Actor remote ID.
-        actor_remote_id: Cow<'static, str>,
+        actor_remote_id: String,
         /// Sibling ID.
-        sibling_id: ActorId,
+        sibling_id: WireActorId,
     },
     /// A signal notifying a linked actor has died.
     SignalLinkDied {
         /// The actor which died.
-        dead_actor_id: ActorId,
+        dead_actor_id: WireActorId,
         /// The actor to notify.
-        notified_actor_id: ActorId,
+        notified_actor_id: WireActorId,
         /// The actor to notify.
-        notified_actor_remote_id: Cow<'static, str>,
+        notified_actor_remote_id: String,
         /// The reason the actor died.
-        stop_reason: ActorStopReason,
+        stop_reason: WireActorStopReason,
     },
 }
 
 /// Represents different types of responses that can be sent within the swarm.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "rkyv",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 pub enum SwarmResponse {
     /// Represents the response to an `Ask` request.
     ///
     /// Contains either the successful payload data or an error indicating why the send failed.
-    Ask(Result<Vec<u8>, RemoteSendError<Vec<u8>>>),
-
+    Ask(Result<Vec<u8>, WireRemoteSendError>),
     /// Represents the response to a `Tell` request.
     ///
     /// Contains either a successful acknowledgment or an error indicating why the send failed.
-    Tell(Result<(), RemoteSendError>),
-
+    Tell(Result<(), WireRemoteSendError>),
     /// Represents the response to a link request.
-    Link(Result<(), RemoteSendError>),
-
-    /// Represents the response to a link request.
-    Unlink(Result<(), RemoteSendError>),
-
+    Link(Result<(), WireRemoteSendError>),
+    /// Represents the response to an unlink request.
+    Unlink(Result<(), WireRemoteSendError>),
     /// Represents the response to a link died signal.
-    SignalLinkDied(Result<(), RemoteSendError>),
-
+    SignalLinkDied(Result<(), WireRemoteSendError>),
     /// Represents a failure that occurred while attempting to send an outbound request.
     ///
     /// Contains the error that caused the outbound request to fail.
-    OutboundFailure(RemoteSendError),
+    OutboundFailure(WireRemoteSendError),
 }
 
 /// The events produced by the `Messaging` behaviour.
@@ -392,6 +398,16 @@ impl Config {
         self.response_size_maximum = bytes;
         self
     }
+
+    /// Returns the request size limit in bytes.
+    pub fn request_size_maximum(&self) -> u64 {
+        self.request_size_maximum
+    }
+
+    /// Returns the response size limit in bytes.
+    pub fn response_size_maximum(&self) -> u64 {
+        self.response_size_maximum
+    }
 }
 
 impl From<Config> for request_response::Config {
@@ -402,6 +418,7 @@ impl From<Config> for request_response::Config {
     }
 }
 
+#[cfg(feature = "serde-codec")]
 impl<Req, Resp> From<Config> for request_response::cbor::codec::Codec<Req, Resp> {
     fn from(config: Config) -> Self {
         request_response::cbor::codec::Codec::default()
@@ -410,22 +427,66 @@ impl<Req, Resp> From<Config> for request_response::cbor::codec::Codec<Req, Resp>
     }
 }
 
+/// The default codec used when no custom codec is specified.
+///
+/// Only available with the `serde-codec` feature.
+#[cfg(feature = "serde-codec")]
+pub type DefaultCodec = request_response::cbor::codec::Codec<SwarmRequest, SwarmResponse>;
+
 /// `Behaviour` is a `NetworkBehaviour` that implements the kameo messaging behaviour
 /// on top of the request response protocol.
+///
+/// When the `serde-codec` feature is enabled, the codec type parameter `C` defaults
+/// to CBOR (via libp2p's built-in serde codec). Otherwise, a custom codec must be
+/// specified explicitly via [`Behaviour::with_codec`].
 #[allow(missing_debug_implementations)]
-pub struct Behaviour {
-    request_response: request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>,
+#[cfg(feature = "serde-codec")]
+pub struct Behaviour<C: request_response::Codec + Clone + Send + 'static = DefaultCodec> {
+    request_response: request_response::Behaviour<C>,
     local_peer_id: PeerId,
     next_id: u64,
     requests: HashMap<RequestId, (PeerId, Option<oneshot::Sender<SwarmResponse>>)>,
     join_set: JoinSet<(ReplyChannel, SwarmResponse)>,
 }
 
-impl Behaviour {
-    /// Creates a new messaging behaviour.
+/// `Behaviour` is a `NetworkBehaviour` that implements the kameo messaging behaviour
+/// on top of the request response protocol.
+///
+/// Supply a codec implementing [`request_response::Codec`] via [`Behaviour::with_codec`].
+/// Enable the `serde-codec` feature for a default CBOR codec.
+#[allow(missing_debug_implementations)]
+#[cfg(not(feature = "serde-codec"))]
+pub struct Behaviour<C: request_response::Codec + Clone + Send + 'static> {
+    request_response: request_response::Behaviour<C>,
+    local_peer_id: PeerId,
+    next_id: u64,
+    requests: HashMap<RequestId, (PeerId, Option<oneshot::Sender<SwarmResponse>>)>,
+    join_set: JoinSet<(ReplyChannel, SwarmResponse)>,
+}
+
+#[cfg(feature = "serde-codec")]
+impl Behaviour<DefaultCodec> {
+    /// Creates a new messaging behaviour with the default CBOR codec.
     pub fn new(local_peer_id: PeerId, config: Config) -> Self {
-        let request_response = request_response::cbor::Behaviour::with_codec(
-            config.into(),
+        let codec: DefaultCodec = config.into();
+        Self::with_codec(local_peer_id, config, codec)
+    }
+}
+
+impl<C> Behaviour<C>
+where
+    C: request_response::Codec<
+            Protocol = StreamProtocol,
+            Request = SwarmRequest,
+            Response = SwarmResponse,
+        > + Clone
+        + Send
+        + 'static,
+{
+    /// Creates a new messaging behaviour with a custom codec.
+    pub fn with_codec(local_peer_id: PeerId, config: Config, codec: C) -> Self {
+        let request_response = request_response::Behaviour::with_codec(
+            codec,
             [(PROTO_NAME, request_response::ProtocolSupport::Full)],
             config.into(),
         );
@@ -650,7 +711,7 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (
                 actor_id,
@@ -679,7 +740,9 @@ impl Behaviour {
                     reply_timeout,
                     immediate,
                 )
-                .map(SwarmResponse::Ask)
+                .map(|r| {
+                    SwarmResponse::Ask(r.map_err(|e| WireRemoteSendError::from_bytes_error(&e)))
+                })
             },
             move |(
                 actor_id,
@@ -690,9 +753,9 @@ impl Behaviour {
                 reply_timeout,
                 immediate,
             )| SwarmRequest::Ask {
-                actor_id,
-                actor_remote_id,
-                message_remote_id,
+                actor_id: WireActorId::from_runtime(&actor_id),
+                actor_remote_id: actor_remote_id.to_string(),
+                message_remote_id: message_remote_id.to_string(),
                 payload,
                 mailbox_timeout,
                 reply_timeout,
@@ -714,7 +777,7 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (
                 actor_id,
@@ -740,7 +803,9 @@ impl Behaviour {
                     mailbox_timeout,
                     immediate,
                 )
-                .map(SwarmResponse::Tell)
+                .map(|r| {
+                    SwarmResponse::Tell(r.map_err(|e| WireRemoteSendError::from_infallible(&e)))
+                })
             },
             move |(
                 actor_id,
@@ -750,9 +815,9 @@ impl Behaviour {
                 mailbox_timeout,
                 immediate,
             )| SwarmRequest::Tell {
-                actor_id,
-                actor_remote_id,
-                message_remote_id,
+                actor_id: WireActorId::from_runtime(&actor_id),
+                actor_remote_id: actor_remote_id.to_string(),
+                message_remote_id: message_remote_id.to_string(),
                 payload,
                 mailbox_timeout,
                 immediate,
@@ -770,18 +835,19 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (actor_id, actor_remote_id, sibling_id, sibling_remote_id),
             |(actor_id, actor_remote_id, sibling_id, sibling_remote_id)| {
-                link(actor_id, actor_remote_id, sibling_id, sibling_remote_id)
-                    .map(SwarmResponse::Link)
+                link(actor_id, actor_remote_id, sibling_id, sibling_remote_id).map(|r| {
+                    SwarmResponse::Link(r.map_err(|e| WireRemoteSendError::from_infallible(&e)))
+                })
             },
             move |(actor_id, actor_remote_id, sibling_id, sibling_remote_id)| SwarmRequest::Link {
-                actor_id,
-                actor_remote_id,
-                sibling_id,
-                sibling_remote_id,
+                actor_id: WireActorId::from_runtime(&actor_id),
+                actor_remote_id: actor_remote_id.to_string(),
+                sibling_id: WireActorId::from_runtime(&sibling_id),
+                sibling_remote_id: sibling_remote_id.to_string(),
             },
         )
     }
@@ -795,16 +861,18 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (actor_id, actor_remote_id, sibling_id),
             |(actor_id, actor_remote_id, sibling_id)| {
-                unlink(actor_id, actor_remote_id, sibling_id).map(SwarmResponse::Unlink)
+                unlink(actor_id, actor_remote_id, sibling_id).map(|r| {
+                    SwarmResponse::Unlink(r.map_err(|e| WireRemoteSendError::from_infallible(&e)))
+                })
             },
             move |(actor_id, actor_remote_id, sibling_id)| SwarmRequest::Unlink {
-                actor_id,
-                actor_remote_id,
-                sibling_id,
+                actor_id: WireActorId::from_runtime(&actor_id),
+                actor_remote_id: actor_remote_id.to_string(),
+                sibling_id: WireActorId::from_runtime(&sibling_id),
             },
         )
     }
@@ -821,7 +889,7 @@ impl Behaviour {
             .peer_id()
             .expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (
                 dead_actor_id,
@@ -836,14 +904,18 @@ impl Behaviour {
                     notified_actor_remote_id,
                     stop_reason,
                 )
-                .map(SwarmResponse::SignalLinkDied)
+                .map(|r| {
+                    SwarmResponse::SignalLinkDied(
+                        r.map_err(|e| WireRemoteSendError::from_infallible(&e)),
+                    )
+                })
             },
             move |(dead_actor_id, notified_actor_id, notified_actor_remote_id, stop_reason)| {
                 SwarmRequest::SignalLinkDied {
-                    dead_actor_id,
-                    notified_actor_id,
-                    notified_actor_remote_id,
-                    stop_reason,
+                    dead_actor_id: WireActorId::from_runtime(&dead_actor_id),
+                    notified_actor_id: WireActorId::from_runtime(&notified_actor_id),
+                    notified_actor_remote_id: notified_actor_remote_id.to_string(),
+                    stop_reason: WireActorStopReason::from_runtime(&stop_reason),
                 }
             },
         )
@@ -923,21 +995,26 @@ impl Behaviour {
                 connection_id,
                 request_id,
                 error,
-            } => match self.requests.remove(&RequestId::Outbound(request_id)) {
-                Some((_, Some(tx))) => {
-                    let _ = tx.send(SwarmResponse::OutboundFailure(error.into()));
-                    (false, None)
+            } => {
+                let remote_err: RemoteSendError = error.into();
+                match self.requests.remove(&RequestId::Outbound(request_id)) {
+                    Some((_, Some(tx))) => {
+                        let _ = tx.send(SwarmResponse::OutboundFailure(
+                            WireRemoteSendError::from_infallible(&remote_err),
+                        ));
+                        (false, None)
+                    }
+                    Some((_, None)) | None => (
+                        false,
+                        Some(Event::OutboundFailure {
+                            peer,
+                            connection_id,
+                            request_id,
+                            error: remote_err,
+                        }),
+                    ),
                 }
-                Some((_, None)) | None => (
-                    false,
-                    Some(Event::OutboundFailure {
-                        peer,
-                        connection_id,
-                        request_id,
-                        error: error.into(),
-                    }),
-                ),
-            },
+            }
             request_response::Event::InboundFailure {
                 peer,
                 connection_id,
@@ -983,18 +1060,30 @@ impl Behaviour {
                 reply_timeout,
                 immediate,
             } => {
-                self.join_set.spawn(
-                    ask(
+                self.join_set.spawn(async move {
+                    let Ok(actor_id) = actor_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::Ask(Err(WireRemoteSendError::ActorNotRunning)),
+                        );
+                    };
+                    let r = ask(
                         actor_id,
-                        actor_remote_id,
-                        message_remote_id,
+                        Cow::Owned(actor_remote_id),
+                        Cow::Owned(message_remote_id),
                         payload,
                         mailbox_timeout,
                         reply_timeout,
                         immediate,
                     )
-                    .map(|res| (channel, SwarmResponse::Ask(res))),
-                );
+                    .await;
+                    (
+                        channel,
+                        SwarmResponse::Ask(
+                            r.map_err(|e| WireRemoteSendError::from_bytes_error(&e)),
+                        ),
+                    )
+                });
             }
             SwarmRequest::Tell {
                 actor_id,
@@ -1004,17 +1093,29 @@ impl Behaviour {
                 mailbox_timeout,
                 immediate,
             } => {
-                self.join_set.spawn(
-                    tell(
+                self.join_set.spawn(async move {
+                    let Ok(actor_id) = actor_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::Tell(Err(WireRemoteSendError::ActorNotRunning)),
+                        );
+                    };
+                    let r = tell(
                         actor_id,
-                        actor_remote_id,
-                        message_remote_id,
+                        Cow::Owned(actor_remote_id),
+                        Cow::Owned(message_remote_id),
                         payload,
                         mailbox_timeout,
                         immediate,
                     )
-                    .map(|res| (channel, SwarmResponse::Tell(res))),
-                );
+                    .await;
+                    (
+                        channel,
+                        SwarmResponse::Tell(
+                            r.map_err(|e| WireRemoteSendError::from_infallible(&e)),
+                        ),
+                    )
+                });
             }
             SwarmRequest::Link {
                 actor_id,
@@ -1022,20 +1123,60 @@ impl Behaviour {
                 sibling_id,
                 sibling_remote_id,
             } => {
-                self.join_set.spawn(
-                    link(actor_id, actor_remote_id, sibling_id, sibling_remote_id)
-                        .map(|res| (channel, SwarmResponse::Link(res))),
-                );
+                self.join_set.spawn(async move {
+                    let Ok(actor_id) = actor_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::Link(Err(WireRemoteSendError::ActorNotRunning)),
+                        );
+                    };
+                    let Ok(sibling_id) = sibling_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::Link(Err(WireRemoteSendError::ActorNotRunning)),
+                        );
+                    };
+                    let r = link(
+                        actor_id,
+                        Cow::Owned(actor_remote_id),
+                        sibling_id,
+                        Cow::Owned(sibling_remote_id),
+                    )
+                    .await;
+                    (
+                        channel,
+                        SwarmResponse::Link(
+                            r.map_err(|e| WireRemoteSendError::from_infallible(&e)),
+                        ),
+                    )
+                });
             }
             SwarmRequest::Unlink {
                 actor_id,
                 actor_remote_id,
                 sibling_id,
             } => {
-                self.join_set.spawn(
-                    unlink(actor_id, actor_remote_id, sibling_id)
-                        .map(|res| (channel, SwarmResponse::Unlink(res))),
-                );
+                self.join_set.spawn(async move {
+                    let Ok(actor_id) = actor_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::Unlink(Err(WireRemoteSendError::ActorNotRunning)),
+                        );
+                    };
+                    let Ok(sibling_id) = sibling_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::Unlink(Err(WireRemoteSendError::ActorNotRunning)),
+                        );
+                    };
+                    let r = unlink(actor_id, Cow::Owned(actor_remote_id), sibling_id).await;
+                    (
+                        channel,
+                        SwarmResponse::Unlink(
+                            r.map_err(|e| WireRemoteSendError::from_infallible(&e)),
+                        ),
+                    )
+                });
             }
             SwarmRequest::SignalLinkDied {
                 dead_actor_id,
@@ -1043,15 +1184,45 @@ impl Behaviour {
                 notified_actor_remote_id,
                 stop_reason,
             } => {
-                self.join_set.spawn(
-                    signal_link_died(
+                self.join_set.spawn(async move {
+                    let Ok(dead_actor_id) = dead_actor_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::SignalLinkDied(Err(
+                                WireRemoteSendError::ActorNotRunning,
+                            )),
+                        );
+                    };
+                    let Ok(notified_actor_id) = notified_actor_id.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::SignalLinkDied(Err(
+                                WireRemoteSendError::ActorNotRunning,
+                            )),
+                        );
+                    };
+                    let Ok(stop_reason) = stop_reason.into_runtime() else {
+                        return (
+                            channel,
+                            SwarmResponse::SignalLinkDied(Err(
+                                WireRemoteSendError::ActorNotRunning,
+                            )),
+                        );
+                    };
+                    let r = signal_link_died(
                         dead_actor_id,
                         notified_actor_id,
-                        notified_actor_remote_id,
+                        Cow::Owned(notified_actor_remote_id),
                         stop_reason,
                     )
-                    .map(|res| (channel, SwarmResponse::SignalLinkDied(res))),
-                );
+                    .await;
+                    (
+                        channel,
+                        SwarmResponse::SignalLinkDied(
+                            r.map_err(|e| WireRemoteSendError::from_infallible(&e)),
+                        ),
+                    )
+                });
             }
         }
     }
@@ -1088,9 +1259,17 @@ impl Behaviour {
     }
 }
 
-impl NetworkBehaviour for Behaviour {
-    type ConnectionHandler =
-        THandler<request_response::cbor::Behaviour<SwarmRequest, SwarmResponse>>;
+impl<C> NetworkBehaviour for Behaviour<C>
+where
+    C: request_response::Codec<
+            Protocol = StreamProtocol,
+            Request = SwarmRequest,
+            Response = SwarmResponse,
+        > + Clone
+        + Send
+        + 'static,
+{
+    type ConnectionHandler = THandler<request_response::Behaviour<C>>;
     type ToSwarm = Event;
 
     fn handle_established_inbound_connection(
@@ -1138,7 +1317,9 @@ impl NetworkBehaviour for Behaviour {
                 .extract_if(|_, (req_peer_id, _)| req_peer_id == &peer_id);
             for (_, (_, reply)) in dead_requests {
                 if let Some(tx) = reply {
-                    let _ = tx.send(SwarmResponse::OutboundFailure(RemoteSendError::DialFailure));
+                    let _ = tx.send(SwarmResponse::OutboundFailure(
+                        WireRemoteSendError::DialFailure,
+                    ));
                 }
             }
         }
@@ -1274,37 +1455,37 @@ impl Event {
                 peer,
                 connection_id,
                 request_id,
-                result,
+                result: result.map_err(|e| e.into_bytes_error()),
             },
             SwarmResponse::Tell(result) => Event::TellResult {
                 peer,
                 connection_id,
                 request_id,
-                result,
+                result: result.map_err(|e| e.into_infallible()),
             },
             SwarmResponse::Link(result) => Event::LinkResult {
                 peer,
                 connection_id,
                 request_id,
-                result,
+                result: result.map_err(|e| e.into_infallible()),
             },
             SwarmResponse::Unlink(result) => Event::UnlinkResult {
                 peer,
                 connection_id,
                 request_id,
-                result,
+                result: result.map_err(|e| e.into_infallible()),
             },
             SwarmResponse::SignalLinkDied(result) => Event::SignalLinkDiedResult {
                 peer,
                 connection_id,
                 request_id,
-                result,
+                result: result.map_err(|e| e.into_infallible()),
             },
             SwarmResponse::OutboundFailure(error) => Event::OutboundFailure {
                 peer,
                 connection_id: connection_id.unwrap(),
                 request_id: request_id.unwrap_outbound(),
-                error,
+                error: error.into_infallible(),
             },
         }
     }
@@ -1397,4 +1578,181 @@ async fn signal_link_died(
     };
 
     (fns.signal_link_died)(dead_actor_id, notified_actor_id, stop_reason).await
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+#[cfg(feature = "rkyv-codec")]
+mod rkyv_tests {
+    use std::time::Duration;
+
+    use crate::remote::codec::{Decode, Encode};
+    use crate::remote::wire::{
+        WireActorId, WireActorStopReason, WireRemoteSendError, WireStopReasonLeaf,
+    };
+
+    use super::{SwarmRequest, SwarmResponse};
+
+    fn test_actor_id() -> WireActorId {
+        WireActorId {
+            sequence_id: 1,
+            peer_id_bytes: vec![0xAB, 0xCD],
+        }
+    }
+
+    #[test]
+    fn swarm_request_ask_roundtrip() {
+        let original = SwarmRequest::Ask {
+            actor_id: test_actor_id(),
+            actor_remote_id: "my_actor".into(),
+            message_remote_id: "my_message".into(),
+            payload: vec![1, 2, 3],
+            mailbox_timeout: Some(Duration::from_secs(5)),
+            reply_timeout: None,
+            immediate: true,
+        };
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmRequest::decode(&bytes).unwrap();
+        match decoded {
+            SwarmRequest::Ask {
+                actor_id,
+                actor_remote_id,
+                message_remote_id,
+                payload,
+                mailbox_timeout,
+                reply_timeout,
+                immediate,
+            } => {
+                assert_eq!(actor_id.sequence_id, 1);
+                assert_eq!(actor_remote_id, "my_actor");
+                assert_eq!(message_remote_id, "my_message");
+                assert_eq!(payload, vec![1, 2, 3]);
+                assert_eq!(mailbox_timeout, Some(Duration::from_secs(5)));
+                assert_eq!(reply_timeout, None);
+                assert!(immediate);
+            }
+            other => panic!("expected Ask, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swarm_request_tell_roundtrip() {
+        let original = SwarmRequest::Tell {
+            actor_id: test_actor_id(),
+            actor_remote_id: "actor".into(),
+            message_remote_id: "msg".into(),
+            payload: vec![],
+            mailbox_timeout: None,
+            immediate: false,
+        };
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmRequest::decode(&bytes).unwrap();
+        match decoded {
+            SwarmRequest::Tell {
+                mailbox_timeout,
+                immediate,
+                ..
+            } => {
+                assert_eq!(mailbox_timeout, None);
+                assert!(!immediate);
+            }
+            other => panic!("expected Tell, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swarm_request_link_roundtrip() {
+        let original = SwarmRequest::Link {
+            actor_id: WireActorId {
+                sequence_id: 1,
+                peer_id_bytes: vec![10],
+            },
+            actor_remote_id: "actor_a".into(),
+            sibling_id: WireActorId {
+                sequence_id: 2,
+                peer_id_bytes: vec![20],
+            },
+            sibling_remote_id: "actor_b".into(),
+        };
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmRequest::decode(&bytes).unwrap();
+        match decoded {
+            SwarmRequest::Link {
+                actor_id,
+                sibling_id,
+                sibling_remote_id,
+                ..
+            } => {
+                assert_eq!(actor_id.sequence_id, 1);
+                assert_eq!(sibling_id.sequence_id, 2);
+                assert_eq!(sibling_remote_id, "actor_b");
+            }
+            other => panic!("expected Link, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swarm_request_signal_link_died_roundtrip() {
+        let original = SwarmRequest::SignalLinkDied {
+            dead_actor_id: test_actor_id(),
+            notified_actor_id: WireActorId {
+                sequence_id: 99,
+                peer_id_bytes: vec![0xFF],
+            },
+            notified_actor_remote_id: "notified".into(),
+            stop_reason: WireActorStopReason {
+                link_chain: vec![],
+                leaf: WireStopReasonLeaf::Killed,
+            },
+        };
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmRequest::decode(&bytes).unwrap();
+        match decoded {
+            SwarmRequest::SignalLinkDied {
+                notified_actor_id,
+                stop_reason,
+                ..
+            } => {
+                assert_eq!(notified_actor_id.sequence_id, 99);
+                assert!(matches!(stop_reason.leaf, WireStopReasonLeaf::Killed));
+            }
+            other => panic!("expected SignalLinkDied, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swarm_response_ask_ok_roundtrip() {
+        let original = SwarmResponse::Ask(Ok(vec![42, 43]));
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmResponse::decode(&bytes).unwrap();
+        match decoded {
+            SwarmResponse::Ask(Ok(payload)) => assert_eq!(payload, vec![42, 43]),
+            other => panic!("expected Ask(Ok), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swarm_response_ask_err_roundtrip() {
+        let original = SwarmResponse::Ask(Err(WireRemoteSendError::MailboxFull));
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmResponse::decode(&bytes).unwrap();
+        match decoded {
+            SwarmResponse::Ask(Err(WireRemoteSendError::MailboxFull)) => {}
+            other => panic!("expected Ask(Err(MailboxFull)), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn swarm_response_outbound_failure_roundtrip() {
+        let original = SwarmResponse::OutboundFailure(WireRemoteSendError::NetworkTimeout);
+        let bytes = original.encode().unwrap();
+        let decoded = SwarmResponse::decode(&bytes).unwrap();
+        match decoded {
+            SwarmResponse::OutboundFailure(WireRemoteSendError::NetworkTimeout) => {}
+            other => panic!("expected OutboundFailure(NetworkTimeout), got {other:?}"),
+        }
+    }
 }

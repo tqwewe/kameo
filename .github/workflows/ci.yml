@@ -17,7 +17,7 @@ jobs:
       matrix:
         toolchain: [stable, beta]
         include:
-          # kameo crate with different feature combinations
+          # kameo crate — non-remote feature combinations
           - package: "kameo"
             features: "--no-default-features"
           - package: "kameo"
@@ -25,35 +25,42 @@ jobs:
           - package: "kameo"
             features: "--no-default-features --features tracing"
           - package: "kameo"
-            features: "--no-default-features --features remote"
-          - package: "kameo"
             features: "--no-default-features --features metrics"
           - package: "kameo"
             features: "--no-default-features --features macros,tracing"
-          - package: "kameo"
-            features: "--no-default-features --features macros,remote"
-          - package: "kameo"
-            features: "--no-default-features --features tracing,remote"
           - package: "kameo"
             features: "--no-default-features --features macros,metrics"
           - package: "kameo"
             features: "--no-default-features --features tracing,metrics"
           - package: "kameo"
-            features: "--no-default-features --features remote,metrics"
-          - package: "kameo"
             features: "--no-default-features --features macros,tracing,metrics"
+          # kameo crate — remote requires exactly one codec
+          # serde-codec combinations
           - package: "kameo"
-            features: "--no-default-features --features macros,remote,metrics"
+            features: "--no-default-features --features remote,serde-codec"
           - package: "kameo"
-            features: "--no-default-features --features tracing,remote,metrics"
+            features: "--no-default-features --features macros,remote,serde-codec"
           - package: "kameo"
-            features: "--no-default-features --features macros,tracing,remote,metrics"
+            features: "--no-default-features --features tracing,remote,serde-codec"
           - package: "kameo"
-            features: "--all-features"
-          # kameo_actors crate (no additional features)
+            features: "--no-default-features --features remote,serde-codec,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,serde-codec,metrics"
+          # rkyv-codec combinations
+          - package: "kameo"
+            features: "--no-default-features --features remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features remote,rkyv-codec,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,rkyv-codec,metrics"
+          # kameo_actors crate
           - package: "kameo_actors"
             features: ""
-          # kameo_macros crate (no additional features)
+          # kameo_macros crate
           - package: "kameo_macros"
             features: ""
     steps:
@@ -89,7 +96,7 @@ jobs:
       matrix:
         toolchain: [stable, beta]
         include:
-          # kameo crate with different feature combinations
+          # kameo crate — non-remote feature combinations
           - package: "kameo"
             features: "--no-default-features"
           - package: "kameo"
@@ -97,35 +104,41 @@ jobs:
           - package: "kameo"
             features: "--no-default-features --features tracing"
           - package: "kameo"
-            features: "--no-default-features --features remote"
-          - package: "kameo"
             features: "--no-default-features --features metrics"
           - package: "kameo"
             features: "--no-default-features --features macros,tracing"
-          - package: "kameo"
-            features: "--no-default-features --features macros,remote"
-          - package: "kameo"
-            features: "--no-default-features --features tracing,remote"
           - package: "kameo"
             features: "--no-default-features --features macros,metrics"
           - package: "kameo"
             features: "--no-default-features --features tracing,metrics"
           - package: "kameo"
-            features: "--no-default-features --features remote,metrics"
-          - package: "kameo"
             features: "--no-default-features --features macros,tracing,metrics"
+          # serde-codec combinations
           - package: "kameo"
-            features: "--no-default-features --features macros,remote,metrics"
+            features: "--no-default-features --features remote,serde-codec"
           - package: "kameo"
-            features: "--no-default-features --features tracing,remote,metrics"
+            features: "--no-default-features --features macros,remote,serde-codec"
           - package: "kameo"
-            features: "--no-default-features --features macros,tracing,remote,metrics"
+            features: "--no-default-features --features tracing,remote,serde-codec"
           - package: "kameo"
-            features: "--all-features"
-          # kameo_actors crate (no additional features)
+            features: "--no-default-features --features remote,serde-codec,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,serde-codec,metrics"
+          # rkyv-codec combinations
+          - package: "kameo"
+            features: "--no-default-features --features remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features remote,rkyv-codec,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,rkyv-codec,metrics"
+          # kameo_actors crate
           - package: "kameo_actors"
             features: ""
-          # kameo_macros crate (no additional features)
+          # kameo_macros crate
           - package: "kameo_macros"
             features: ""
     steps:
@@ -156,7 +169,7 @@ jobs:
     strategy:
       matrix:
         include:
-          # kameo crate with different feature combinations
+          # kameo crate — non-remote feature combinations
           - package: "kameo"
             features: "--no-default-features"
           - package: "kameo"
@@ -164,35 +177,41 @@ jobs:
           - package: "kameo"
             features: "--no-default-features --features tracing"
           - package: "kameo"
-            features: "--no-default-features --features remote"
-          - package: "kameo"
             features: "--no-default-features --features metrics"
           - package: "kameo"
             features: "--no-default-features --features macros,tracing"
-          - package: "kameo"
-            features: "--no-default-features --features macros,remote"
-          - package: "kameo"
-            features: "--no-default-features --features tracing,remote"
           - package: "kameo"
             features: "--no-default-features --features macros,metrics"
           - package: "kameo"
             features: "--no-default-features --features tracing,metrics"
           - package: "kameo"
-            features: "--no-default-features --features remote,metrics"
-          - package: "kameo"
             features: "--no-default-features --features macros,tracing,metrics"
+          # serde-codec combinations
           - package: "kameo"
-            features: "--no-default-features --features macros,remote,metrics"
+            features: "--no-default-features --features remote,serde-codec"
           - package: "kameo"
-            features: "--no-default-features --features tracing,remote,metrics"
+            features: "--no-default-features --features macros,remote,serde-codec"
           - package: "kameo"
-            features: "--no-default-features --features macros,tracing,remote,metrics"
+            features: "--no-default-features --features tracing,remote,serde-codec"
           - package: "kameo"
-            features: "--all-features"
-          # kameo_actors crate (no additional features)
+            features: "--no-default-features --features remote,serde-codec,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,serde-codec,metrics"
+          # rkyv-codec combinations
+          - package: "kameo"
+            features: "--no-default-features --features remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features macros,remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features tracing,remote,rkyv-codec"
+          - package: "kameo"
+            features: "--no-default-features --features remote,rkyv-codec,metrics"
+          - package: "kameo"
+            features: "--no-default-features --features macros,tracing,remote,rkyv-codec,metrics"
+          # kameo_actors crate
           - package: "kameo_actors"
             features: ""
-          # kameo_macros crate (no additional features)
+          # kameo_macros crate
           - package: "kameo_macros"
             features: ""
     steps:
@@ -244,11 +263,20 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run clippy on workspace
-        run: cargo clippy --workspace --all-features
+      - name: Clippy (serde-codec)
+        run: cargo clippy --workspace --features macros,tracing,remote,serde-codec,metrics
 
-      - name: Run tests on workspace
-        run: cargo test --workspace --all-features
+      - name: Clippy (rkyv-codec)
+        run: cargo clippy --workspace --features macros,tracing,remote,rkyv-codec,metrics
 
-      - name: Build docs on workspace
-        run: cargo doc --workspace --all-features
+      - name: Test (serde-codec)
+        run: cargo test --workspace --features macros,tracing,remote,serde-codec,metrics
+
+      - name: Test (rkyv-codec)
+        run: cargo test --workspace --features macros,tracing,remote,rkyv-codec,metrics
+
+      - name: Docs (serde-codec)
+        run: cargo doc --workspace --features macros,tracing,remote,serde-codec,metrics
+
+      - name: Docs (rkyv-codec)
+        run: cargo doc --workspace --features macros,tracing,remote,rkyv-codec,metrics

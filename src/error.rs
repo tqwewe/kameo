@@ -14,6 +14,7 @@ use std::{
     },
 };
 
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize, ser::SerializeStruct};
 use tokio::{
     sync::{mpsc, oneshot},
@@ -85,7 +86,8 @@ pub(crate) fn invoke_actor_error_hook(err: &PanicError) {
 pub type BoxSendError = SendError<Box<dyn any::Any + Send>, Box<dyn any::Any + Send>>;
 
 /// Error that can occur when sending a message to an actor.
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum SendError<M = (), E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning(M),
@@ -342,7 +344,8 @@ impl<M, E> From<Elapsed> for SendError<M, E> {
 impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {}
 
 /// Reason for an actor being stopped.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum ActorStopReason {
     /// Actor stopped normally.
     Normal,
@@ -401,7 +404,8 @@ impl fmt::Display for ActorStopReason {
 }
 
 /// An error type returned from actor startup/shutdown results.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum HookError<E> {
     /// The hook panic error.
     Panicked(PanicError),
@@ -426,15 +430,34 @@ impl<E> error::Error for HookError<E> where E: error::Error {}
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
 #[derive(Clone)]
 pub struct PanicError {
-    pub(crate) err: Arc<Mutex<Box<dyn ReplyError>>>,
+    kind: PanicErrorKind,
     reason: PanicReason,
+}
+
+#[derive(Clone)]
+enum PanicErrorKind {
+    /// Local actor error — preserves concrete type for downcasting.
+    Dynamic(Arc<Mutex<Box<dyn ReplyError>>>),
+    /// Deserialized from network — just the Display string, no Box.
+    Message(String),
 }
 
 impl PanicError {
     /// Creates a new PanicError from a generic boxed reply error.
     pub fn new(err: Box<dyn ReplyError>, reason: PanicReason) -> Self {
         PanicError {
-            err: Arc::new(Mutex::new(err)),
+            kind: PanicErrorKind::Dynamic(Arc::new(Mutex::new(err))),
+            reason,
+        }
+    }
+
+    /// Creates a [`PanicError`] from a pre-formatted error string.
+    ///
+    /// Useful when deserializing a remote error where the original concrete
+    /// type is unavailable — only the `Display` output was transmitted.
+    pub fn from_wire(err: String, reason: PanicReason) -> Self {
+        PanicError {
+            kind: PanicErrorKind::Message(err),
             reason,
         }
     }
@@ -454,18 +477,24 @@ impl PanicError {
         self.reason
     }
 
-    /// Calls the passed closure `f` with an option containing the boxed any type downcast into a string,
-    /// or `None` if it's not a string type.
+    /// Returns the error message as a string, if available.
     pub fn with_str<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&str) -> R,
     {
-        self.with(|any| {
-            any.downcast_ref::<&str>()
-                .copied()
-                .or_else(|| any.downcast_ref::<String>().map(String::as_str))
-                .map(f)
-        })
+        match &self.kind {
+            PanicErrorKind::Message(s) => Some(f(s)),
+            PanicErrorKind::Dynamic(err) => {
+                let lock = match err.lock() {
+                    Ok(lock) => lock,
+                    Err(poisoned) => poisoned.into_inner(),
+                };
+                lock.downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| lock.downcast_ref::<String>().map(String::as_str))
+                    .map(f)
+            }
+        }
     }
 
     /// Downcasts and clones the inner error, returning `Some` if the panic error matches the type `T`.
@@ -482,9 +511,12 @@ impl PanicError {
         T: ReplyError,
         F: FnOnce(&T) -> R,
     {
-        match self.err.lock() {
-            Ok(lock) => lock.downcast_ref().map(f),
-            Err(err) => err.get_ref().downcast_ref().map(f),
+        match &self.kind {
+            PanicErrorKind::Message(_) => None,
+            PanicErrorKind::Dynamic(err) => match err.lock() {
+                Ok(lock) => lock.downcast_ref().map(f),
+                Err(err) => err.get_ref().downcast_ref().map(f),
+            },
         }
     }
 
@@ -493,9 +525,15 @@ impl PanicError {
     where
         F: FnOnce(&Box<dyn ReplyError>) -> R,
     {
-        match self.err.lock() {
-            Ok(lock) => f(&lock),
-            Err(err) => f(err.get_ref()),
+        match &self.kind {
+            PanicErrorKind::Dynamic(err) => match err.lock() {
+                Ok(lock) => f(&lock),
+                Err(err) => f(err.get_ref()),
+            },
+            PanicErrorKind::Message(s) => {
+                let boxed: Box<dyn ReplyError> = Box::new(s.clone());
+                f(&boxed)
+            }
         }
     }
 
@@ -503,9 +541,14 @@ impl PanicError {
     where
         F: FnMut(&dyn fmt::Debug),
     {
-        self.with_str(|s| f(&s))
-            .or_else(|| self.with_downcast_ref::<Box<dyn ReplyError>, _, _>(|err| f(err)))
-            .unwrap_or_else(|| self.with(|any| f(any)))
+        match &self.kind {
+            PanicErrorKind::Message(s) => f(&s),
+            PanicErrorKind::Dynamic(_) => {
+                self.with_str(|s| f(&s))
+                    .or_else(|| self.with_downcast_ref::<Box<dyn ReplyError>, _, _>(|err| f(err)))
+                    .unwrap_or_else(|| self.with(|any| f(any)));
+            }
+        }
     }
 }
 
@@ -531,6 +574,7 @@ impl fmt::Debug for PanicError {
 
 impl error::Error for PanicError {}
 
+#[cfg(feature = "serde")]
 impl Serialize for PanicError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -543,6 +587,7 @@ impl Serialize for PanicError {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<'de> Deserialize<'de> for PanicError {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -622,7 +667,7 @@ impl<'de> Deserialize<'de> for PanicError {
                 let err = err.ok_or_else(|| serde::de::Error::missing_field("err"))?;
                 let reason = reason.ok_or_else(|| serde::de::Error::missing_field("reason"))?;
 
-                Ok(PanicError::new(Box::new(err), reason))
+                Ok(PanicError::from_wire(err, reason))
             }
         }
 
@@ -636,7 +681,12 @@ impl<'de> Deserialize<'de> for PanicError {
 /// In kameo, several error conditions are treated as panics, triggering the
 /// [`on_panic`](crate::actor::Actor::on_panic) lifecycle hook and potentially
 /// stopping the actor.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "rkyv",
+    derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
+)]
 pub enum PanicReason {
     /// A message handler panicked during execution.
     ///
@@ -727,7 +777,8 @@ impl fmt::Display for PanicReason {
 /// An infallible error type, similar to [std::convert::Infallible].
 ///
 /// Kameo provides its own Infallible type in order to implement Serialize/Deserialize for it.
-#[derive(Copy, Serialize, Deserialize)]
+#[derive(Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum Infallible {}
 
 impl Clone for Infallible {
@@ -779,6 +830,22 @@ impl Ord for Infallible {
 impl Hash for Infallible {
     fn hash<H: Hasher>(&self, _: &mut H) {
         match *self {}
+    }
+}
+
+#[cfg(all(feature = "remote", not(feature = "serde-codec"),))]
+impl crate::remote::codec::Encode for Infallible {
+    fn encode(&self) -> Result<Vec<u8>, crate::remote::codec::CodecError> {
+        match *self {}
+    }
+}
+
+#[cfg(all(feature = "remote", not(feature = "serde-codec"),))]
+impl crate::remote::codec::Decode for Infallible {
+    fn decode(_bytes: &[u8]) -> Result<Self, crate::remote::codec::CodecError> {
+        Err(crate::remote::codec::CodecError::new(
+            "cannot decode Infallible",
+        ))
     }
 }
 
@@ -881,7 +948,8 @@ impl From<libp2p::kad::GetProvidersError> for RegistryError {
 
 /// Error that can occur when sending a message to an actor.
 #[cfg(feature = "remote")]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum RemoteSendError<E = Infallible> {
     /// The actor isn't running.
     ActorNotRunning,
@@ -908,15 +976,15 @@ pub enum RemoteSendError<E = Infallible> {
     /// An error returned by the actor's message handler.
     HandlerError(E),
     /// Failed to serialize the message.
-    SerializeMessage(String),
+    SerializeMessage(crate::remote::codec::CodecError),
     /// Failed to deserialize the incoming message.
-    DeserializeMessage(String),
+    DeserializeMessage(crate::remote::codec::CodecError),
     /// Failed to serialize the reply.
-    SerializeReply(String),
+    SerializeReply(crate::remote::codec::CodecError),
     /// Failed to serialize the handler error.
-    SerializeHandlerError(String),
+    SerializeHandlerError(crate::remote::codec::CodecError),
     /// Failed to deserialize the handler error.
-    DeserializeHandlerError(String),
+    DeserializeHandlerError(crate::remote::codec::CodecError),
 
     /// The actor swarm has not been bootstrapped.
     SwarmNotBootstrapped,
@@ -935,7 +1003,7 @@ pub enum RemoteSendError<E = Infallible> {
     /// The remote supports none of the requested protocols.
     UnsupportedProtocols,
     /// An IO failure happened on an outbound stream.
-    #[serde(skip)]
+    #[cfg_attr(feature = "serde", serde(skip))]
     Io(Option<std::io::Error>),
 }
 

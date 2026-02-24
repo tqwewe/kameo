@@ -11,6 +11,8 @@
 //!   allowing seamless integration with existing libp2p applications and other protocols.
 //! - **Quick Bootstrap**: The [`bootstrap()`] and [`bootstrap_on()`] functions provide one-line
 //!   setup for development and simple deployments.
+//! - **Custom Transport**: The [`run_swarm()`] function accepts a pre-built swarm with any
+//!   transport while handling the event loop for you.
 //! - **Actor Registration & Discovery**: Actors can be registered under unique names and looked up
 //!   across the network using [`RemoteActorRef`](crate::actor::RemoteActorRef).
 //! - **Reliable Messaging**: Ensures reliable message delivery between nodes using a combination
@@ -22,17 +24,17 @@
 //!
 //! For quick prototyping and development:
 //!
-//! ```
+//! ```no_run
 //! use kameo::remote;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // One line to bootstrap a distributed actor system
 //!     let peer_id = remote::bootstrap()?;
-//!     
+//!
 //!     // Now use actors normally
 //!     // actor_ref.register("my_actor").await?;
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -56,16 +58,15 @@
 use std::{
     any,
     collections::HashMap,
-    error, str,
+    str,
     sync::{Arc, LazyLock},
 };
 
+#[cfg(feature = "serde-codec")]
+use std::error;
+
 use futures::StreamExt;
-use libp2p::{
-    PeerId, SwarmBuilder, mdns, noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux,
-};
+use libp2p::{PeerId, Swarm, swarm::NetworkBehaviour};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -75,18 +76,34 @@ use crate::{
     mailbox::SignalMailbox,
 };
 
+#[cfg(all(feature = "serde-codec", feature = "rkyv-codec"))]
+compile_error!("Features `serde-codec` and `rkyv-codec` are mutually exclusive");
+
+#[cfg(not(any(feature = "serde-codec", feature = "rkyv-codec")))]
+compile_error!("The `remote` feature requires either `serde-codec` or `rkyv-codec`");
+
 #[doc(hidden)]
 pub mod _internal;
 mod behaviour;
+pub mod codec;
+#[allow(missing_docs)] // rkyv::Archive derive generates undocumented archived types
 pub mod messaging;
 pub mod registry;
 mod swarm;
+pub mod wire;
 
 pub use behaviour::*;
 pub use swarm::*;
 
 pub(crate) static REMOTE_REGISTRY: LazyLock<Mutex<HashMap<ActorId, RemoteRegistryActorRef>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Register an actor in the local REMOTE_REGISTRY under a well-known ActorId.
+/// This allows `RemoteActorRef::for_peer()` to find the actor without DHT lookup.
+pub async fn register_actor_local<A: Actor>(actor_ref: &ActorRef<A>, id: ActorId) {
+    let entry = RemoteRegistryActorRef::new(actor_ref.clone(), None);
+    REMOTE_REGISTRY.lock().await.insert(id, entry);
+}
 
 pub(crate) struct RemoteRegistryActorRef {
     actor_ref: BoxRegisteredActorRef,
@@ -198,9 +215,11 @@ pub trait RemoteMessage<M> {
 /// Bootstrap a simple actor swarm with mDNS discovery for local development.
 ///
 /// This convenience function creates and runs a libp2p swarm with:
-/// - TCP and QUIC transports  
+/// - TCP and QUIC transports
 /// - mDNS peer discovery (local network only)
 /// - Automatic listening on an OS-assigned port
+///
+/// Requires the `serde-codec` feature (uses CBOR for transport encoding).
 ///
 /// For production use or custom configuration, use `kameo::remote::Behaviour`
 /// with your own libp2p swarm setup.
@@ -211,19 +230,25 @@ pub trait RemoteMessage<M> {
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///     // One line to get started!
 ///     remote::bootstrap()?;
-///     
+///
 ///     // Now use remote actors normally
 ///     let actor_ref = MyActor::spawn_default();
 ///     actor_ref.register("my_actor").await?;
 ///     Ok(())
 /// }
 /// ```
+#[cfg(feature = "serde-codec")]
 pub fn bootstrap() -> Result<PeerId, Box<dyn error::Error>> {
     bootstrap_on("/ip4/0.0.0.0/tcp/0")
 }
 
 /// Bootstrap with a specific listen address.
+///
+/// Requires the `serde-codec` feature.
+#[cfg(feature = "serde-codec")]
 pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
+    use libp2p::{SwarmBuilder, mdns, noise, swarm::SwarmEvent, tcp, yamux};
+
     #[derive(NetworkBehaviour)]
     struct BootstrapBehaviour {
         kameo: Behaviour,
@@ -284,6 +309,69 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
     });
 
     Ok(local_peer_id)
+}
+
+/// Run a pre-built libp2p swarm as the actor swarm event loop.
+///
+/// This is the most flexible way to use kameo's remote actors with custom
+/// transports. You build the `Swarm` yourself (with any transport, encryption,
+/// and multiplexing) and include [`Behaviour`] in your composed `NetworkBehaviour`.
+///
+/// # Prerequisites
+///
+/// Before calling this function, you must:
+/// 1. Build a `Swarm` containing [`Behaviour`] in its `NetworkBehaviour`
+/// 2. Call [`Behaviour::try_init_global()`] on the kameo behaviour
+/// 3. Call `swarm.listen_on(addr)` if you want the swarm to accept connections
+///
+/// # Example
+///
+/// ```no_run
+/// use kameo::remote;
+/// use libp2p::{swarm::NetworkBehaviour, noise, tcp, yamux};
+///
+/// #[derive(NetworkBehaviour)]
+/// struct MyBehaviour {
+///     kameo: remote::Behaviour,
+/// }
+///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut swarm = libp2p::SwarmBuilder::with_new_identity()
+///     .with_tokio()
+///     .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
+///     .with_behaviour(|key| {
+///         let peer_id = key.public().to_peer_id();
+///         Ok(MyBehaviour {
+///             kameo: remote::Behaviour::with_codec(
+///                 peer_id,
+///                 remote::messaging::Config::default(),
+///                 my_codec,
+///             ),
+///         })
+///     })?
+///     .build();
+///
+/// swarm.behaviour().kameo.try_init_global()?;
+/// swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
+///
+/// let peer_id = remote::run_swarm(swarm);
+/// # Ok(())
+/// # }
+/// ```
+pub fn run_swarm<B>(mut swarm: Swarm<B>) -> PeerId
+where
+    B: NetworkBehaviour + Send + 'static,
+    <B as NetworkBehaviour>::ToSwarm: Send,
+{
+    let local_peer_id = *swarm.local_peer_id();
+
+    tokio::spawn(async move {
+        loop {
+            let _event = swarm.select_next_some().await;
+        }
+    });
+
+    local_peer_id
 }
 
 /// Unregisters an actor within the swarm.
