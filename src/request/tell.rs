@@ -791,8 +791,12 @@ mod tests {
 
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
         actor_ref.wait_for_startup().await;
+        // We need enough messages to both (a) occupy the actor (sleeping 10s
+        // in the handler) and (b) fill the bounded channel.  Without hotpath
+        // the channel capacity is 1, so 2 messages suffice: the first is
+        // dequeued by the actor after the 2ms yield, the second stays queued.
         #[cfg(not(feature = "hotpath"))]
-        let fill_count = 1;
+        let fill_count = 2;
         #[cfg(feature = "hotpath")]
         let fill_count = 4;
         for _ in 0..fill_count {
