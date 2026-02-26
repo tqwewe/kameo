@@ -331,11 +331,15 @@ async fn notify_links(
     let futs = FuturesUnordered::new();
     {
         let mut links = links.lock().await;
+        if links.is_empty() {
+            return futs;
+        }
+        let reason = Arc::new(reason.clone()); // Single clone into Arc
         #[allow(unused_variables)]
         for (link_actor_id, link) in links.drain() {
             match link {
                 Link::Local(mailbox) => {
-                    let reason = reason.clone();
+                    let reason = Arc::clone(&reason);
                     futs.push(
                         async move {
                             if let Err(err) = mailbox.signal_link_died(id, reason).await {
@@ -349,7 +353,7 @@ async fn notify_links(
                 #[cfg(feature = "remote")]
                 Link::Remote(notified_actor_remote_id) => {
                     if let Some(swarm) = remote::ActorSwarm::get() {
-                        let reason = reason.clone();
+                        let reason = (*reason).clone(); // Full clone for wire serialization
                         futs.push(
                             async move {
                                 let res = swarm
@@ -413,3 +417,153 @@ fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
 
 #[cfg(not(feature = "tracing"))]
 fn log_actor_stop_reason(_id: ActorId, _name: &str, _reason: &ActorStopReason) {}
+
+// ---------------------------------------------------------------------------
+// Tests — Arc<ActorStopReason> signal chain
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use crate::{
+        Actor,
+        actor::{ActorRef, Spawn, WeakActorRef},
+        error::{ActorStopReason, Infallible},
+        mailbox,
+    };
+
+    /// An actor that records its stop reason via a shared slot.
+    struct ReasonTracker {
+        slot: Arc<Mutex<Option<ActorStopReason>>>,
+    }
+
+    impl Actor for ReasonTracker {
+        type Args = Self;
+        type Error = Infallible;
+
+        async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            Ok(state)
+        }
+
+        fn on_stop(
+            &mut self,
+            _: WeakActorRef<Self>,
+            reason: ActorStopReason,
+        ) -> impl std::future::Future<Output = Result<(), Self::Error>> + Send {
+            let slot = self.slot.clone();
+            async move {
+                *slot.lock().unwrap() = Some(reason);
+                Ok(())
+            }
+        }
+    }
+
+    /// A minimal actor with no tracking, used as the "dying" side of a link.
+    struct SimpleActor;
+
+    impl Actor for SimpleActor {
+        type Args = Self;
+        type Error = Infallible;
+
+        async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            Ok(state)
+        }
+    }
+
+    // ── kill propagation through link ────────────────────────────────
+
+    #[tokio::test]
+    async fn linked_actor_receives_killed_reason() {
+        let reason_slot = Arc::new(Mutex::new(None));
+
+        let actor_a = SimpleActor::spawn(SimpleActor);
+        let actor_b = ReasonTracker::spawn_with_mailbox(
+            ReasonTracker { slot: reason_slot.clone() },
+            mailbox::unbounded(),
+        );
+
+        actor_a.link(&actor_b).await;
+        actor_a.kill();
+        actor_b.wait_for_shutdown().await;
+
+        let reason = reason_slot.lock().unwrap().take()
+            .expect("on_stop should have been called");
+        match reason {
+            ActorStopReason::LinkDied { reason, .. } => {
+                assert!(
+                    matches!(*reason, ActorStopReason::Killed),
+                    "inner reason should be Killed, got {reason:?}",
+                );
+            }
+            other => panic!("expected LinkDied, got {other:?}"),
+        }
+    }
+
+    // ── multiple links all receive death notification ────────────────
+
+    #[tokio::test]
+    async fn multiple_links_all_receive_death_notification() {
+        let slot_b = Arc::new(Mutex::new(None));
+        let slot_c = Arc::new(Mutex::new(None));
+
+        let actor_a = SimpleActor::spawn(SimpleActor);
+        let actor_b = ReasonTracker::spawn_with_mailbox(
+            ReasonTracker { slot: slot_b.clone() },
+            mailbox::unbounded(),
+        );
+        let actor_c = ReasonTracker::spawn_with_mailbox(
+            ReasonTracker { slot: slot_c.clone() },
+            mailbox::unbounded(),
+        );
+
+        actor_a.link(&actor_b).await;
+        actor_a.link(&actor_c).await;
+
+        actor_a.kill();
+        actor_b.wait_for_shutdown().await;
+        actor_c.wait_for_shutdown().await;
+
+        for (name, slot) in [("B", &slot_b), ("C", &slot_c)] {
+            let reason = slot.lock().unwrap().take()
+                .unwrap_or_else(|| panic!("actor {name} on_stop was not called"));
+            assert!(
+                matches!(reason, ActorStopReason::LinkDied { .. }),
+                "actor {name} should stop with LinkDied, got {reason:?}",
+            );
+        }
+    }
+
+    // ── normal stop does NOT propagate through link ──────────────────
+
+    #[tokio::test]
+    async fn normal_stop_does_not_kill_linked_actor() {
+        let slot_b = Arc::new(Mutex::new(None));
+
+        let actor_a = SimpleActor::spawn_with_mailbox(SimpleActor, mailbox::unbounded());
+        let actor_b = ReasonTracker::spawn_with_mailbox(
+            ReasonTracker { slot: slot_b.clone() },
+            mailbox::unbounded(),
+        );
+
+        actor_a.link(&actor_b).await;
+
+        // Graceful stop sends Signal::Stop → on_link_died receives Normal → Continue
+        actor_a.stop_gracefully().await.unwrap();
+        actor_a.wait_for_shutdown().await;
+
+        // Give B a moment to process any signals.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // B should still be alive — on_link_died default for Normal is Continue.
+        assert!(
+            slot_b.lock().unwrap().is_none(),
+            "actor B should NOT have stopped (Normal death does not propagate)",
+        );
+
+        // Clean up: kill B so the test exits.
+        actor_b.kill();
+        actor_b.wait_for_shutdown().await;
+    }
+}

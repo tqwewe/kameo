@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::task;
 
 use either::Either;
@@ -439,6 +440,7 @@ impl NetworkBehaviour for Behaviour {
             let peer_id = *peer_id;
             tokio::spawn(async move {
                 let mut futures = FuturesUnordered::new();
+                let reason = Arc::new(ActorStopReason::PeerDisconnected);
                 for RemoteRegistryActorRef {
                     signal_mailbox,
                     links,
@@ -449,11 +451,12 @@ impl NetworkBehaviour for Behaviour {
                         if linked_actor_id.peer_id() == Some(&peer_id) {
                             let signal_mailbox = signal_mailbox.clone();
                             let linked_actor_id = *linked_actor_id;
+                            let reason = Arc::clone(&reason);
                             futures.push(async move {
                                 signal_mailbox
                                     .signal_link_died(
                                         linked_actor_id,
-                                        ActorStopReason::PeerDisconnected,
+                                        reason,
                                     )
                                     .await
                             });

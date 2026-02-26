@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, mem, ops::ControlFlow, panic::AssertUnwindSafe};
+use std::{collections::VecDeque, mem, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc};
 
 use futures::FutureExt;
 
@@ -112,12 +112,12 @@ where
     pub(crate) async fn handle_link_died(
         &mut self,
         id: ActorId,
-        reason: ActorStopReason,
+        reason: Arc<ActorStopReason>,
     ) -> ControlFlow<ActorStopReason> {
         let res = AssertUnwindSafe(self.state.on_link_died(
             self.actor_ref.clone(),
             id,
-            reason.clone(),
+            Arc::unwrap_or_clone(reason),
         ))
         .catch_unwind()
         .await;

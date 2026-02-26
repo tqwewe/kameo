@@ -4,6 +4,7 @@
 
 use std::{
     fmt,
+    sync::Arc,
     task::{Context, Poll},
     time::Duration,
 };
@@ -362,7 +363,7 @@ impl<A: Actor> MailboxSender<A> {
 impl<A: Actor> Clone for MailboxSender<A> {
     fn clone(&self) -> Self {
         match &self.inner {
-            MailboxSenderInner::Bounded(tx) => MailboxSender {
+            MailboxSenderInner::Bounded(tx) => Self {
                 inner: MailboxSenderInner::Bounded(tx.clone()),
                 #[cfg(feature = "metrics")]
                 messages_sent: self.messages_sent.clone(),
@@ -371,7 +372,7 @@ impl<A: Actor> Clone for MailboxSender<A> {
                 #[cfg(feature = "metrics")]
                 link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
-            MailboxSenderInner::Unbounded(tx) => MailboxSender {
+            MailboxSenderInner::Unbounded(tx) => Self {
                 inner: MailboxSenderInner::Unbounded(tx.clone()),
                 #[cfg(feature = "metrics")]
                 messages_sent: self.messages_sent.clone(),
@@ -478,7 +479,7 @@ impl<A: Actor> WeakMailboxSender<A> {
 impl<A: Actor> Clone for WeakMailboxSender<A> {
     fn clone(&self) -> Self {
         match &self.inner {
-            WeakMailboxSenderInner::Bounded(tx) => WeakMailboxSender {
+            WeakMailboxSenderInner::Bounded(tx) => Self {
                 inner: WeakMailboxSenderInner::Bounded(tx.clone()),
                 #[cfg(feature = "metrics")]
                 messages_sent: self.messages_sent.clone(),
@@ -487,7 +488,7 @@ impl<A: Actor> Clone for WeakMailboxSender<A> {
                 #[cfg(feature = "metrics")]
                 link_died_signals_sent: self.link_died_signals_sent.clone(),
             },
-            WeakMailboxSenderInner::Unbounded(tx) => WeakMailboxSender {
+            WeakMailboxSenderInner::Unbounded(tx) => Self {
                 inner: WeakMailboxSenderInner::Unbounded(tx.clone()),
                 #[cfg(feature = "metrics")]
                 messages_sent: self.messages_sent.clone(),
@@ -834,8 +835,8 @@ pub enum Signal<A: Actor> {
     LinkDied {
         /// The dead actor's ID.
         id: ActorId,
-        /// The reason the actor stopped.
-        reason: ActorStopReason,
+        /// The reason the actor stopped (shared to avoid per-link clones).
+        reason: Arc<ActorStopReason>,
     },
     /// Signals the actor to stop.
     Stop,
@@ -859,7 +860,7 @@ pub trait SignalMailbox: DynClone + Send + Sync {
     fn signal_link_died(
         &self,
         id: ActorId,
-        reason: ActorStopReason,
+        reason: Arc<ActorStopReason>,
     ) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
 }
@@ -886,7 +887,7 @@ where
     fn signal_link_died(
         &self,
         id: ActorId,
-        reason: ActorStopReason,
+        reason: Arc<ActorStopReason>,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => async move {
@@ -934,7 +935,7 @@ where
     fn signal_link_died(
         &self,
         id: ActorId,
-        reason: ActorStopReason,
+        reason: Arc<ActorStopReason>,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {
             match self.upgrade() {

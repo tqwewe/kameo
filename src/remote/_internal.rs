@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use const_fnv1a_hash;
@@ -275,7 +276,7 @@ where
 
     actor_ref
         .weak_signal_mailbox()
-        .signal_link_died(dead_actor_id, stop_reason)
+        .signal_link_died(dead_actor_id, Arc::new(stop_reason))
         .await?;
 
     Ok(())
