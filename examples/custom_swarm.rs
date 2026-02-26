@@ -150,7 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let mut incrementors = RemoteActorRef::<MyActor>::lookup_all("incrementor");
         while let Some(incrementor) = incrementors.try_next().await? {
-            if incrementor.id().peer_id() == Some(&local_peer_id) {
+            if incrementor.id().peer_id() == Some(local_peer_id) {
                 continue;
             }
 

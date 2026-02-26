@@ -16,7 +16,8 @@ use tokio::sync::mpsc;
 use crate::error::{ActorStopReason, SwarmAlreadyBootstrappedError};
 
 use super::{
-    ActorSwarm, REMOTE_REGISTRY, RemoteRegistryActorRef, SwarmCommand, messaging, registry,
+    ActorSwarm, REMOTE_REGISTRY, RemoteRegistryActorRef, SwarmCommand, SwarmSender, messaging,
+    registry,
 };
 
 /// A network behaviour that combines messaging and registry capabilities for remote actor communication.
@@ -126,6 +127,15 @@ impl Behaviour {
         ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id)
             .map_err(|_| SwarmAlreadyBootstrappedError)?;
         Ok(())
+    }
+
+    /// Returns a clone of the swarm command sender.
+    ///
+    /// Use this to propagate the sender explicitly to consumers that need
+    /// to create [`RemoteActorRef`](crate::actor::RemoteActorRef) instances
+    /// without reading the global [`ActorSwarm`].
+    pub fn swarm_sender(&self) -> SwarmSender {
+        SwarmSender(self.cmd_tx.clone())
     }
 
     fn handle_command(&mut self, cmd: SwarmCommand) -> bool {
@@ -446,7 +456,7 @@ impl NetworkBehaviour for Behaviour {
                 } in REMOTE_REGISTRY.lock().await.values()
                 {
                     for linked_actor_id in (*links.lock().await).keys() {
-                        if linked_actor_id.peer_id() == Some(&peer_id) {
+                        if linked_actor_id.peer_id() == Some(peer_id) {
                             let signal_mailbox = signal_mailbox.clone();
                             let linked_actor_id = *linked_actor_id;
                             futures.push(async move {

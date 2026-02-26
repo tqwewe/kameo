@@ -599,10 +599,10 @@ impl Behaviour {
                             // Check if we've already reported this provider to avoid duplicates
                             let should_emit = if let Ok(ref registration) = result {
                                 if let Some(peer_id) = registration.actor_id.peer_id() {
-                                    if lookup_query.reported_providers.contains(peer_id) {
+                                    if lookup_query.reported_providers.contains(&peer_id) {
                                         false // Already reported this provider
                                     } else {
-                                        lookup_query.reported_providers.insert(*peer_id);
+                                        lookup_query.reported_providers.insert(peer_id);
                                         true
                                     }
                                 } else {
