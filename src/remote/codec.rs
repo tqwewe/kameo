@@ -193,7 +193,7 @@ mod rkyv_transport {
 
     impl Clone for KameoRkyvCodec {
         fn clone(&self) -> Self {
-            KameoRkyvCodec {
+            Self {
                 inner: RkyvCodec::new(
                     self.inner.request_size_maximum,
                     self.inner.response_size_maximum,

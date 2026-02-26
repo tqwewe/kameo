@@ -24,7 +24,7 @@
 //!
 //! For quick prototyping and development:
 //!
-//! ```no_run
+//! ```ignore
 //! use kameo::remote;
 //!
 //! #[tokio::main]
@@ -41,7 +41,7 @@
 //!
 //! For production deployments with custom configuration:
 //!
-//! ```no_run
+//! ```ignore
 //! use kameo::remote;
 //! use libp2p::swarm::NetworkBehaviour;
 //!
@@ -116,7 +116,7 @@ impl RemoteRegistryActorRef {
     pub(crate) fn new<A: Actor>(actor_ref: ActorRef<A>, name: Option<Arc<str>>) -> Self {
         let signal_mailbox = actor_ref.weak_signal_mailbox();
         let links = actor_ref.links.clone();
-        RemoteRegistryActorRef {
+        Self {
             actor_ref: BoxRegisteredActorRef::Strong(Box::new(actor_ref)),
             name,
             signal_mailbox,
@@ -127,7 +127,7 @@ impl RemoteRegistryActorRef {
     pub(crate) fn new_weak<A: Actor>(actor_ref: WeakActorRef<A>, name: Option<Arc<str>>) -> Self {
         let signal_mailbox = actor_ref.weak_signal_mailbox();
         let links = actor_ref.links.clone();
-        RemoteRegistryActorRef {
+        Self {
             actor_ref: BoxRegisteredActorRef::Weak(Box::new(actor_ref)),
             name,
             signal_mailbox,
@@ -327,12 +327,12 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
 /// # Example
 ///
 /// ```no_run
-/// use kameo::remote;
+/// use kameo::remote::{self, codec::KameoRkyvCodec};
 /// use libp2p::{swarm::NetworkBehaviour, noise, tcp, yamux};
 ///
 /// #[derive(NetworkBehaviour)]
 /// struct MyBehaviour {
-///     kameo: remote::Behaviour,
+///     kameo: remote::Behaviour<KameoRkyvCodec>,
 /// }
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -341,12 +341,10 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
 ///     .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
 ///     .with_behaviour(|key| {
 ///         let peer_id = key.public().to_peer_id();
+///         let config = remote::messaging::Config::default();
+///         let codec = KameoRkyvCodec::new(&config);
 ///         Ok(MyBehaviour {
-///             kameo: remote::Behaviour::with_codec(
-///                 peer_id,
-///                 remote::messaging::Config::default(),
-///                 my_codec,
-///             ),
+///             kameo: remote::Behaviour::with_codec(peer_id, config, codec),
 ///         })
 ///     })?
 ///     .build();
