@@ -60,6 +60,7 @@ where
                     actor_ref,
                     reply,
                     sent_within_actor,
+                    message_name,
                     #[cfg(feature = "tracing")]
                     caller_span,
                 } => {
@@ -68,6 +69,7 @@ where
                         actor_ref,
                         reply,
                         sent_within_actor,
+                        message_name,
                         #[cfg(feature = "tracing")]
                         caller_span,
                     )
@@ -86,6 +88,7 @@ where
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
+        message_name: &'static str,
         #[cfg(feature = "tracing")] caller_span: tracing::Span,
     ) -> ControlFlow<ActorStopReason> {
         if !sent_within_actor && !self.finished_startup {
@@ -95,6 +98,7 @@ where
                 actor_ref,
                 reply,
                 sent_within_actor,
+                message_name,
                 #[cfg(feature = "tracing")]
                 caller_span,
             });
@@ -104,27 +108,42 @@ where
         #[cfg(feature = "tracing")]
         let handler_span = {
             let actor_id = self.actor_ref.id();
-            let span_name = format!("{}.{}", A::short_name(), message.short_message_name());
-            let span = tracing::info_span!(
-                parent: &caller_span,
-                "actor.handle_message",
-                otel.name = %span_name,
-                actor.name = A::name(),
-                actor.id = %actor_id,
-                message = message.message_name(),
-            );
+            let span_name = format!("{}.{message_name}", A::name());
+
+            #[cfg(not(feature = "otel"))]
+            {
+                tracing::info_span!(
+                    parent: &caller_span,
+                    "actor.handle_message",
+                    actor.name = A::name(),
+                    actor.id = %actor_id,
+                    message = message_name,
+                )
+            }
 
             #[cfg(feature = "otel")]
             {
                 use opentelemetry::trace::TraceContextExt;
                 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-                let actor_span_ctx =
-                    tracing::Span::current().context().span().span_context().clone();
-                span.add_link(actor_span_ctx);
-            }
+                let span = tracing::info_span!(
+                    parent: &caller_span,
+                    "actor.handle_message",
+                    otel.name = %span_name,
+                    actor.name = A::name(),
+                    actor.id = %actor_id,
+                    message = message_name,
+                );
 
-            span
+                let actor_span_ctx = tracing::Span::current()
+                    .context()
+                    .span()
+                    .span_context()
+                    .clone();
+                span.add_link(actor_span_ctx);
+
+                span
+            }
         };
 
         let mut stop = false;

@@ -26,6 +26,7 @@ where
     actor_ref: &'a ActorRef<A>,
     msg: M,
     mailbox_timeout: Tm,
+    message_name: &'static str,
     #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
@@ -49,6 +50,7 @@ where
             actor_ref,
             msg,
             mailbox_timeout: Tm::default(),
+            message_name: <A as Message<M>>::name(),
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
@@ -67,6 +69,7 @@ where
             actor_ref: self.actor_ref,
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(duration),
+            message_name: self.message_name,
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
@@ -82,6 +85,7 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: None,
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
             #[cfg(feature = "tracing")]
             caller_span: tracing::Span::current(),
         };
@@ -115,6 +119,7 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: None,
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
             #[cfg(feature = "tracing")]
             caller_span: tracing::Span::current(),
         };
@@ -129,6 +134,7 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: None,
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
             #[cfg(feature = "tracing")]
             caller_span: tracing::Span::current(),
         };

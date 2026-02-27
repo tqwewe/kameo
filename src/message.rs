@@ -40,6 +40,15 @@ pub trait Message<T: Send + 'static>: Actor {
     /// The reply sent back to the message caller.
     type Reply: Reply;
 
+    /// The name of the message, which can be useful for logging or debugging.
+    ///
+    /// # Default Implementation
+    /// By default, this returns the type name of the message.
+    #[inline]
+    fn name() -> &'static str {
+        any::type_name::<T>()
+    }
+
     /// Handler for this message.
     fn handle(
         &mut self,
@@ -378,15 +387,6 @@ where
         stop: &'a mut bool,
     ) -> BoxFuture<'a, Result<(), Box<dyn ReplyError>>>;
 
-    /// Returns the full type name of this message.
-    fn message_name(&self) -> &'static str;
-
-    /// Returns a short, human-readable message name.
-    ///
-    /// Strips module paths and generic parameters from [`DynMessage::message_name`].
-    /// Used in tracing span names for readability.
-    fn short_message_name(&self) -> &'static str;
-
     /// Casts the type to a `Box<dyn Any>`.
     fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
 }
@@ -420,16 +420,6 @@ where
             }
         }
         .boxed()
-    }
-
-    fn message_name(&self) -> &'static str {
-        any::type_name::<T>()
-    }
-
-    fn short_message_name(&self) -> &'static str {
-        let full = any::type_name::<T>();
-        let base = full.split('<').next().unwrap_or(full);
-        base.rsplit("::").next().unwrap_or(base)
     }
 
     fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
