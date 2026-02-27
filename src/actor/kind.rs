@@ -108,7 +108,6 @@ where
         #[cfg(feature = "tracing")]
         let handler_span = {
             let actor_id = self.actor_ref.id();
-            let span_name = format!("{}.{message_name}", A::name());
 
             #[cfg(not(feature = "otel"))]
             {
@@ -126,6 +125,7 @@ where
                 use opentelemetry::trace::TraceContextExt;
                 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
+                let span_name = format!("{}.{message_name}", A::name());
                 let span = tracing::info_span!(
                     parent: &caller_span,
                     "actor.handle_message",
