@@ -162,12 +162,12 @@ impl ActorId {
 impl fmt::Display for ActorId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[cfg(not(feature = "remote"))]
-        return write!(f, "ActorId({})", self.sequence_id);
+        return write!(f, "#{}", self.sequence_id);
 
         #[cfg(feature = "remote")]
         match self.peer_id.peer_id() {
-            Some(peer_id) => write!(f, "ActorId({}, {peer_id})", self.sequence_id),
-            None => write!(f, "ActorId({}, local)", self.sequence_id),
+            Some(peer_id) => write!(f, "#{}@{peer_id}", self.sequence_id),
+            None => write!(f, "#{}@local", self.sequence_id),
         }
     }
 }

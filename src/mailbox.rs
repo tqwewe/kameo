@@ -829,6 +829,11 @@ pub enum Signal<A: Actor> {
         reply: Option<BoxReplySender>,
         /// If the message sent from within the actor's tokio task/thread
         sent_within_actor: bool,
+        /// The message name.
+        message_name: &'static str,
+        /// The span that was active when the message was sent, for cross-actor span propagation.
+        #[cfg(feature = "tracing")]
+        caller_span: tracing::Span,
     },
     /// A linked actor has died.
     LinkDied {

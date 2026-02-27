@@ -1,6 +1,8 @@
 use std::{collections::VecDeque, mem, ops::ControlFlow, panic::AssertUnwindSafe};
 
 use futures::FutureExt;
+#[cfg(feature = "tracing")]
+use tracing::Instrument;
 
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
@@ -58,9 +60,20 @@ where
                     actor_ref,
                     reply,
                     sent_within_actor,
+                    message_name,
+                    #[cfg(feature = "tracing")]
+                    caller_span,
                 } => {
-                    self.handle_message(message, actor_ref, reply, sent_within_actor)
-                        .await?;
+                    self.handle_message(
+                        message,
+                        actor_ref,
+                        reply,
+                        sent_within_actor,
+                        message_name,
+                        #[cfg(feature = "tracing")]
+                        caller_span,
+                    )
+                    .await?;
                 }
                 _ => unreachable!(),
             }
@@ -75,6 +88,8 @@ where
         actor_ref: ActorRef<A>,
         reply: Option<BoxReplySender>,
         sent_within_actor: bool,
+        message_name: &'static str,
+        #[cfg(feature = "tracing")] caller_span: tracing::Span,
     ) -> ControlFlow<ActorStopReason> {
         if !sent_within_actor && !self.finished_startup {
             // The actor is still starting up, so we'll push this message to a buffer to be processed upon startup
@@ -83,14 +98,70 @@ where
                 actor_ref,
                 reply,
                 sent_within_actor,
+                message_name,
+                #[cfg(feature = "tracing")]
+                caller_span,
             });
             return ControlFlow::Continue(());
         }
 
+        #[cfg(feature = "tracing")]
+        let handler_span = {
+            let actor_id = self.actor_ref.id();
+            let span_name = format!("{}.{message_name}", A::name());
+
+            #[cfg(not(feature = "otel"))]
+            {
+                tracing::info_span!(
+                    parent: &caller_span,
+                    "actor.handle_message",
+                    actor.name = A::name(),
+                    actor.id = %actor_id,
+                    message = message_name,
+                )
+            }
+
+            #[cfg(feature = "otel")]
+            {
+                use opentelemetry::trace::TraceContextExt;
+                use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+                let span = tracing::info_span!(
+                    parent: &caller_span,
+                    "actor.handle_message",
+                    otel.name = %span_name,
+                    actor.name = A::name(),
+                    actor.id = %actor_id,
+                    message = message_name,
+                );
+
+                let actor_span_ctx = tracing::Span::current()
+                    .context()
+                    .span()
+                    .span_context()
+                    .clone();
+                span.add_link(actor_span_ctx);
+
+                span
+            }
+        };
+
         let mut stop = false;
+
+        #[cfg(feature = "tracing")]
+        let res = AssertUnwindSafe(
+            self.state
+                .on_message(message, actor_ref, reply, &mut stop)
+                .instrument(handler_span),
+        )
+        .catch_unwind()
+        .await;
+
+        #[cfg(not(feature = "tracing"))]
         let res = AssertUnwindSafe(self.state.on_message(message, actor_ref, reply, &mut stop))
             .catch_unwind()
             .await;
+
         match res {
             Ok(Ok(())) => {
                 if stop {
