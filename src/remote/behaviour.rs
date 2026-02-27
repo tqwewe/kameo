@@ -26,6 +26,10 @@ use super::{
 /// - Remote message passing between actors across the network
 /// - Automatic lifecycle management for remote connections
 ///
+/// When the `serde-codec` feature is enabled, the codec type parameter `C` defaults
+/// to CBOR. Otherwise, a custom codec must be specified explicitly via
+/// [`Behaviour::with_codec`].
+///
 /// # Example
 ///
 /// ```rust
@@ -42,9 +46,12 @@ use super::{
 /// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
 /// ```
 #[allow(missing_debug_implementations)]
-pub struct Behaviour {
+#[cfg(feature = "serde-codec")]
+pub struct Behaviour<
+    C: libp2p::request_response::Codec + Clone + Send + 'static = messaging::DefaultCodec,
+> {
     /// Messaging behaviour for sending and receiving actor messages.
-    pub messaging: messaging::Behaviour,
+    pub messaging: messaging::Behaviour<C>,
     /// Registry behaviour for actor registration and discovery.
     pub registry: registry::Behaviour,
     local_peer_id: PeerId,
@@ -52,8 +59,25 @@ pub struct Behaviour {
     cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
 }
 
-impl Behaviour {
-    /// Creates a new remote behaviour with the specified peer ID and messaging configuration.
+/// A network behaviour that combines messaging and registry capabilities for remote actor communication.
+///
+/// Supply a codec implementing [`libp2p::request_response::Codec`] via [`Behaviour::with_codec`].
+/// Enable the `serde-codec` feature for a default CBOR codec.
+#[allow(missing_debug_implementations)]
+#[cfg(not(feature = "serde-codec"))]
+pub struct Behaviour<C: libp2p::request_response::Codec + Clone + Send + 'static> {
+    /// Messaging behaviour for sending and receiving actor messages.
+    pub messaging: messaging::Behaviour<C>,
+    /// Registry behaviour for actor registration and discovery.
+    pub registry: registry::Behaviour,
+    local_peer_id: PeerId,
+    cmd_tx: mpsc::UnboundedSender<SwarmCommand>,
+    cmd_rx: mpsc::UnboundedReceiver<SwarmCommand>,
+}
+
+#[cfg(feature = "serde-codec")]
+impl Behaviour<messaging::DefaultCodec> {
+    /// Creates a new remote behaviour with the default CBOR codec.
     ///
     /// # Arguments
     ///
@@ -84,44 +108,44 @@ impl Behaviour {
             cmd_rx,
         }
     }
+}
+
+impl<C> Behaviour<C>
+where
+    C: libp2p::request_response::Codec<
+            Protocol = libp2p::StreamProtocol,
+            Request = messaging::SwarmRequest,
+            Response = messaging::SwarmResponse,
+        > + Clone
+        + Send
+        + 'static,
+{
+    /// Creates a new remote behaviour with a custom codec.
+    pub fn with_codec(
+        local_peer_id: PeerId,
+        messaging_config: messaging::Config,
+        codec: C,
+    ) -> Self {
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+
+        let messaging = messaging::Behaviour::with_codec(local_peer_id, messaging_config, codec);
+        let registry = registry::Behaviour::new(local_peer_id);
+
+        Behaviour {
+            messaging,
+            registry,
+            local_peer_id,
+            cmd_tx,
+            cmd_rx,
+        }
+    }
 
     /// Initializes the global actor swarm for this behaviour, panicking if its already been initialized.
-    ///
-    /// This method sets up the global communication channel that allows local actors
-    /// to interact with the remote system. It must be called before any remote actor
-    /// operations can be performed.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use kameo::remote;
-    /// use libp2p::PeerId;
-    ///
-    /// let peer_id = PeerId::random();
-    /// let behaviour = remote::Behaviour::new(peer_id, remote::messaging::Config::default());
-    ///
-    /// // Initialize the global swarm
-    /// behaviour.init_global();
-    /// ```
-    ///
-    /// # Panics
-    ///
-    /// This method panics if another behaviour has already been initialized.
     pub fn init_global(&self) {
         self.try_init_global().unwrap()
     }
 
     /// Initializes the global actor swarm for this behaviour, returning an error if its already been initialized.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok` if initialization succeeds, or `Err` if the global
-    /// swarm has already been initialized by another behaviour instance.
-    ///
-    /// # Errors
-    ///
-    /// This method will return an error if `init_global()` has already been called
-    /// on another `Behaviour` instance in the same process.
     pub fn try_init_global(&self) -> Result<(), SwarmAlreadyBootstrappedError> {
         ActorSwarm::set(self.cmd_tx.clone(), self.local_peer_id)
             .map_err(|_| SwarmAlreadyBootstrappedError)?;
@@ -290,9 +314,18 @@ pub enum Event {
     Registry(registry::Event),
 }
 
-impl NetworkBehaviour for Behaviour {
+impl<C> NetworkBehaviour for Behaviour<C>
+where
+    C: libp2p::request_response::Codec<
+            Protocol = libp2p::StreamProtocol,
+            Request = messaging::SwarmRequest,
+            Response = messaging::SwarmResponse,
+        > + Clone
+        + Send
+        + 'static,
+{
     type ConnectionHandler =
-        ConnectionHandlerSelect<THandler<messaging::Behaviour>, THandler<registry::Behaviour>>;
+        ConnectionHandlerSelect<THandler<messaging::Behaviour<C>>, THandler<registry::Behaviour>>;
     type ToSwarm = Event;
 
     fn handle_pending_inbound_connection(
@@ -446,7 +479,7 @@ impl NetworkBehaviour for Behaviour {
                 } in REMOTE_REGISTRY.lock().await.values()
                 {
                     for linked_actor_id in (*links.lock().await).keys() {
-                        if linked_actor_id.peer_id() == Some(&peer_id) {
+                        if linked_actor_id.peer_id() == Some(peer_id) {
                             let signal_mailbox = signal_mailbox.clone();
                             let linked_actor_id = *linked_actor_id;
                             futures.push(async move {

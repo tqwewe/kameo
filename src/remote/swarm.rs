@@ -3,7 +3,7 @@ use std::{
     borrow::Cow,
     marker::PhantomData,
     pin, str,
-    sync::{Arc, OnceLock},
+    sync::{Arc, RwLock},
     task::Poll,
     time::Duration,
 };
@@ -27,7 +27,7 @@ use super::{
     },
 };
 
-static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
+static ACTOR_SWARM: RwLock<Option<ActorSwarm>> = RwLock::new(None);
 
 /// `ActorSwarm` is the core component for remote actors within Kameo.
 ///
@@ -51,33 +51,37 @@ pub(crate) struct ActorSwarm {
 }
 
 impl ActorSwarm {
-    /// Retrieves a reference to the current `ActorSwarm` if it has been bootstrapped.
+    /// Retrieves a clone of the current `ActorSwarm` if it has been bootstrapped.
     ///
     /// This function is useful for getting access to the swarm after initialization without
     /// needing to store the reference manually.
     ///
     /// ## Returns
-    /// An optional reference to the `ActorSwarm`, or `None` if it has not been bootstrapped.
-    pub fn get() -> Option<&'static Self> {
-        ACTOR_SWARM.get()
+    /// An optional clone of the `ActorSwarm`, or `None` if it has not been bootstrapped.
+    pub fn get() -> Option<ActorSwarm> {
+        ACTOR_SWARM.read().ok()?.clone()
     }
 
+    /// Replaces the global ActorSwarm. Always succeeds (overwrites previous value).
     pub(crate) fn set(
         swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
         local_peer_id: PeerId,
     ) -> Result<(), Self> {
-        ACTOR_SWARM.set(ActorSwarm {
+        let new = ActorSwarm {
             swarm_tx: SwarmSender(swarm_tx),
             local_peer_id,
-        })
+        };
+        if let Ok(mut guard) = ACTOR_SWARM.write() {
+            *guard = Some(new);
+            Ok(())
+        } else {
+            Err(new)
+        }
     }
 
     /// Returns the local peer ID, which uniquely identifies this node in the libp2p network.
-    ///
-    /// ## Returns
-    /// A reference to the local `PeerId`.
-    pub fn local_peer_id(&self) -> &PeerId {
-        &self.local_peer_id
+    pub fn local_peer_id(&self) -> PeerId {
+        self.local_peer_id
     }
 
     /// Looks up an actor running locally.
@@ -215,8 +219,8 @@ impl ActorSwarm {
 
         async move {
             match reply_rx.await {
-                SwarmResponse::Link(result) => result,
-                SwarmResponse::OutboundFailure(err) => Err(err),
+                SwarmResponse::Link(result) => result.map_err(|e| e.into_infallible()),
+                SwarmResponse::OutboundFailure(err) => Err(err.into_infallible()),
                 _ => panic!("got an unexpected swarm response"),
             }
         }
@@ -236,8 +240,8 @@ impl ActorSwarm {
 
         async move {
             match reply_rx.await {
-                SwarmResponse::Unlink(result) => result,
-                SwarmResponse::OutboundFailure(err) => Err(err),
+                SwarmResponse::Unlink(result) => result.map_err(|e| e.into_infallible()),
+                SwarmResponse::OutboundFailure(err) => Err(err.into_infallible()),
                 _ => panic!("got an unexpected swarm response"),
             }
         }
@@ -262,14 +266,15 @@ impl ActorSwarm {
 
         async move {
             match reply_rx.await {
-                SwarmResponse::SignalLinkDied(result) => result,
-                SwarmResponse::OutboundFailure(err) => Err(err),
+                SwarmResponse::SignalLinkDied(result) => result.map_err(|e| e.into_infallible()),
+                SwarmResponse::OutboundFailure(err) => Err(err.into_infallible()),
                 _ => panic!("got an unexpected swarm response"),
             }
         }
     }
 
-    pub(crate) fn sender(&self) -> &SwarmSender {
+    /// Returns a reference to the swarm command sender.
+    pub fn sender(&self) -> &SwarmSender {
         &self.swarm_tx
     }
 }
@@ -374,14 +379,15 @@ impl<A: Actor + RemoteActor> Stream for LookupStream<A> {
     }
 }
 
+/// A clonable handle for sending commands to the swarm event loop.
 #[derive(Clone, Debug)]
-pub(crate) struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
+pub struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
 
 impl SwarmSender {
     pub(crate) fn send(&self, cmd: SwarmCommand) {
         if self.0.send(cmd).is_err() {
             #[cfg(feature = "tracing")]
-            tracing::warn!("failed to send swarm command: swarm channel closed");
+            tracing::warn!("SwarmSender: swarm channel closed (likely test isolation)");
         }
     }
 

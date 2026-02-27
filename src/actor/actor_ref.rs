@@ -18,6 +18,8 @@ use tokio::{
 };
 
 #[cfg(feature = "remote")]
+use std::borrow::Cow;
+#[cfg(feature = "remote")]
 use std::marker::PhantomData;
 
 #[cfg(feature = "remote")]
@@ -394,16 +396,22 @@ where
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
@@ -530,16 +538,22 @@ where
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
@@ -1467,6 +1481,23 @@ where
         }
     }
 
+    /// Create a `RemoteActorRef` for a known remote peer without DHT lookup.
+    ///
+    /// This bypasses Kademlia discovery and constructs the reference directly.
+    /// The message routing uses the `actor_remote_id` string on the remote side,
+    /// so the `sequence_id` in the `ActorId` is set to 0 (unused for routing).
+    ///
+    /// Returns `None` if the `ActorSwarm` is not initialized.
+    pub fn for_peer(peer_id: libp2p::PeerId) -> Option<Self> {
+        let swarm = remote::ActorSwarm::get()?;
+        let actor_id = ActorId::new_with_peer_id(0, peer_id);
+        Some(RemoteActorRef {
+            id: actor_id,
+            swarm_tx: swarm.sender().clone(),
+            phantom: PhantomData,
+        })
+    }
+
     /// Returns the unique identifier of the remote actor.
     pub fn id(&self) -> ActorId {
         self.id
@@ -1547,7 +1578,7 @@ where
     ) -> request::RemoteAskRequest<'a, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
     where
         A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
-        M: serde::Serialize + Send + 'static,
+        M: Send + 'static,
     {
         request::RemoteAskRequest::new(
             self,
@@ -1605,6 +1636,35 @@ where
         )
     }
 
+    /// Sends a fire-and-forget message to the remote actor synchronously.
+    ///
+    /// Unlike [`tell`](Self::tell), this does not return a future and performs no async work.
+    /// It encodes the message and enqueues it for the swarm in a single synchronous step.
+    /// This is useful when sending from non-async contexts (e.g., Bevy ECS observers).
+    ///
+    /// No delivery guarantee: the message is enqueued but the caller does not wait
+    /// for a network-level acknowledgement.
+    #[inline]
+    pub fn tell_sync<M>(&self, msg: &M) -> Result<(), error::RemoteSendError>
+    where
+        A: Message<M> + remote::RemoteMessage<M>,
+        M: remote::codec::Encode + Send + 'static,
+    {
+        let payload = msg
+            .encode()
+            .map_err(error::RemoteSendError::SerializeMessage)?;
+        self.send_to_swarm(remote::SwarmCommand::Tell {
+            actor_id: self.id,
+            actor_remote_id: Cow::Borrowed(<A as remote::RemoteActor>::REMOTE_ID),
+            message_remote_id: Cow::Borrowed(<A as remote::RemoteMessage<M>>::REMOTE_ID),
+            payload,
+            mailbox_timeout: None,
+            immediate: true,
+            reply: None,
+        });
+        Ok(())
+    }
+
     /// Links two remote actors, ensuring they notify each other if either one dies.
     ///
     /// # Example
@@ -1638,12 +1698,12 @@ where
             return Ok(());
         }
 
-        let fut_a = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(self.id, sibling_ref.id);
-        let fut_b = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<B, A>(sibling_ref.id, self.id);
+        let swarm_a =
+            remote::ActorSwarm::get().ok_or(error::RemoteSendError::SwarmNotBootstrapped)?;
+        let swarm_b =
+            remote::ActorSwarm::get().ok_or(error::RemoteSendError::SwarmNotBootstrapped)?;
+        let fut_a = swarm_a.link::<A, B>(self.id, sibling_ref.id);
+        let fut_b = swarm_b.link::<B, A>(sibling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
 
@@ -1683,12 +1743,12 @@ where
             return Ok(());
         }
 
-        let fut_a = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibling_ref.id);
-        let fut_b = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<A>(sibling_ref.id, self.id);
+        let swarm_a =
+            remote::ActorSwarm::get().ok_or(error::RemoteSendError::SwarmNotBootstrapped)?;
+        let swarm_b =
+            remote::ActorSwarm::get().ok_or(error::RemoteSendError::SwarmNotBootstrapped)?;
+        let fut_a = swarm_a.unlink::<B>(self.id, sibling_ref.id);
+        let fut_b = swarm_b.unlink::<A>(sibling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
 
@@ -1751,7 +1811,7 @@ impl<A: Actor> Hash for RemoteActorRef<A> {
     }
 }
 
-#[cfg(feature = "remote")]
+#[cfg(all(feature = "remote", feature = "serde"))]
 impl<A: Actor> serde::Serialize for RemoteActorRef<A> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -1765,7 +1825,7 @@ impl<A: Actor> serde::Serialize for RemoteActorRef<A> {
     }
 }
 
-#[cfg(feature = "remote")]
+#[cfg(all(feature = "remote", feature = "serde"))]
 impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -1935,16 +1995,22 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 
@@ -1980,16 +2046,22 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.shutdown_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => {
+                let mut f = Some(f);
+                let result = err.with_downcast_ref(|e: &A::Error| {
+                    (f.take().expect("taken exactly once in downcast branch"))(Err(
+                        HookError::Error(e),
+                    ))
+                });
+                match result {
+                    Some(r) => r,
+                    None => (f
+                        .take()
+                        .expect("not taken: downcast branch was not entered"))(
+                        Err(HookError::Panicked(err.clone())),
+                    ),
+                }
+            }
         }
     }
 

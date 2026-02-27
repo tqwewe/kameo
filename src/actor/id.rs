@@ -5,8 +5,6 @@ use std::hash::Hasher;
 use std::sync::atomic::Ordering;
 use std::{fmt, sync::atomic::AtomicUsize};
 
-use serde::{Deserialize, Serialize};
-
 #[cfg(feature = "remote")]
 use crate::remote::ActorSwarm;
 
@@ -96,7 +94,7 @@ impl ActorId {
     ///
     /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no actor swarm has been bootstrapped.
     #[cfg(feature = "remote")]
-    pub fn peer_id(&self) -> Option<&libp2p::PeerId> {
+    pub fn peer_id(&self) -> Option<libp2p::PeerId> {
         self.peer_id.peer_id()
     }
 
@@ -187,7 +185,8 @@ impl fmt::Debug for ActorId {
     }
 }
 
-impl Serialize for ActorId {
+#[cfg(feature = "serde")]
+impl serde::Serialize for ActorId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -196,7 +195,8 @@ impl Serialize for ActorId {
     }
 }
 
-impl<'de> Deserialize<'de> for ActorId {
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ActorId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -274,10 +274,10 @@ enum PeerIdKind {
 
 #[cfg(feature = "remote")]
 impl PeerIdKind {
-    fn peer_id(&self) -> Option<&libp2p::PeerId> {
+    fn peer_id(&self) -> Option<libp2p::PeerId> {
         match self {
-            PeerIdKind::Local => ActorSwarm::get().map(ActorSwarm::local_peer_id),
-            PeerIdKind::PeerId(peer_id) => Some(peer_id),
+            PeerIdKind::Local => ActorSwarm::get().map(|s| s.local_peer_id()),
+            PeerIdKind::PeerId(peer_id) => Some(*peer_id),
         }
     }
 }
@@ -384,8 +384,8 @@ mod tests {
         // Bootstrapped
         let local_peer_id = local_peer_id();
         let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
-        assert_eq!(id1.peer_id(), Some(&local_peer_id));
-        assert_eq!(id2.peer_id(), Some(&local_peer_id));
+        assert_eq!(id1.peer_id(), Some(local_peer_id));
+        assert_eq!(id2.peer_id(), Some(local_peer_id));
 
         // Bootstrapped local ids should equal
         assert_eq!(id1, id2);
@@ -487,8 +487,8 @@ mod tests {
         // Bootstrapped
         let local_peer_id = local_peer_id();
         let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
-        assert_eq!(id1.peer_id(), Some(&local_peer_id));
-        assert_eq!(id2.peer_id(), Some(&local_peer_id));
+        assert_eq!(id1.peer_id(), Some(local_peer_id));
+        assert_eq!(id2.peer_id(), Some(local_peer_id));
 
         // Bootstrapped local ids should equal
         assert_eq!(id1, id2);
