@@ -1016,10 +1016,8 @@ where
     where
         A: remote::RemoteActor,
     {
-        let remote_ref = RemoteActorRef::new(
-            self.id(),
-            remote::ActorSwarm::get().unwrap().sender().clone(),
-        );
+        let swarm_tx = remote::ActorSwarm::with(|s| s.sender().clone()).unwrap();
+        let remote_ref = RemoteActorRef::new(self.id(), swarm_tx);
 
         remote::REMOTE_REGISTRY
             .lock()
@@ -1040,10 +1038,8 @@ where
     where
         A: remote::RemoteActor,
     {
-        let remote_ref = RemoteActorRef::new(
-            self.id(),
-            remote::ActorSwarm::get().unwrap().sender().clone(),
-        );
+        let swarm_tx = remote::ActorSwarm::with(|s| s.sender().clone()).unwrap();
+        let remote_ref = RemoteActorRef::new(self.id(), swarm_tx);
 
         remote::REMOTE_REGISTRY
             .blocking_lock()
@@ -1638,12 +1634,10 @@ where
             return Ok(());
         }
 
-        let fut_a = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(self.id, sibling_ref.id);
-        let fut_b = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<B, A>(sibling_ref.id, self.id);
+        let swarm =
+            remote::ActorSwarm::get().ok_or(error::RemoteSendError::SwarmNotBootstrapped)?;
+        let fut_a = swarm.link::<A, B>(self.id, sibling_ref.id);
+        let fut_b = swarm.link::<B, A>(sibling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
 
@@ -1683,12 +1677,10 @@ where
             return Ok(());
         }
 
-        let fut_a = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibling_ref.id);
-        let fut_b = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<A>(sibling_ref.id, self.id);
+        let swarm =
+            remote::ActorSwarm::get().ok_or(error::RemoteSendError::SwarmNotBootstrapped)?;
+        let fut_a = swarm.unlink::<B>(self.id, sibling_ref.id);
+        let fut_b = swarm.unlink::<A>(sibling_ref.id, self.id);
 
         tokio::try_join!(fut_a, fut_b)?;
 

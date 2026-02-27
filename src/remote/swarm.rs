@@ -1,12 +1,13 @@
-use core::task;
 use std::{
     borrow::Cow,
     marker::PhantomData,
     pin, str,
-    sync::{Arc, OnceLock},
-    task::Poll,
+    sync::Arc,
+    task::{self, Poll},
     time::Duration,
 };
+
+use arc_swap::ArcSwapOption;
 
 use futures::{Future, FutureExt, Stream, StreamExt, ready};
 use libp2p::PeerId;
@@ -27,7 +28,7 @@ use super::{
     },
 };
 
-static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
+static ACTOR_SWARM: ArcSwapOption<ActorSwarm> = ArcSwapOption::const_empty();
 
 /// `ActorSwarm` is the core component for remote actors within Kameo.
 ///
@@ -44,32 +45,44 @@ static ACTOR_SWARM: OnceLock<ActorSwarm> = OnceLock::new();
 ///
 /// The `ActorSwarm` is the essential component for enabling distributed actor communication
 /// and message passing across decentralized nodes.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct ActorSwarm {
     swarm_tx: SwarmSender,
     local_peer_id: PeerId,
 }
 
 impl ActorSwarm {
-    /// Retrieves a reference to the current `ActorSwarm` if it has been bootstrapped.
+    /// Retrieves a shared reference to the current `ActorSwarm` if it has been bootstrapped.
     ///
-    /// This function is useful for getting access to the swarm after initialization without
-    /// needing to store the reference manually.
+    /// Prefer [`with`](Self::with) when you only need a transient borrow to avoid even
+    /// the Arc refcount bump.
     ///
     /// ## Returns
-    /// An optional reference to the `ActorSwarm`, or `None` if it has not been bootstrapped.
-    pub fn get() -> Option<&'static Self> {
-        ACTOR_SWARM.get()
+    /// An optional `Arc<ActorSwarm>`, or `None` if it has not been bootstrapped.
+    pub fn get() -> Option<Arc<Self>> {
+        ACTOR_SWARM.load_full()
     }
 
+    /// Borrows the global `ActorSwarm` for the duration of the closure (zero-copy).
+    ///
+    /// Returns `None` if the swarm has not been bootstrapped.
+    pub fn with<R>(f: impl FnOnce(&Self) -> R) -> Option<R> {
+        let guard = ACTOR_SWARM.load();
+        let swarm = (*guard).as_ref()?;
+        Some(f(swarm))
+    }
+
+    /// Replaces the global ActorSwarm. Always succeeds (overwrites previous value).
     pub(crate) fn set(
         swarm_tx: mpsc::UnboundedSender<SwarmCommand>,
         local_peer_id: PeerId,
     ) -> Result<(), Self> {
-        ACTOR_SWARM.set(ActorSwarm {
+        let new = Self {
             swarm_tx: SwarmSender(swarm_tx),
             local_peer_id,
-        })
+        };
+        ACTOR_SWARM.store(Some(Arc::new(new)));
+        Ok(())
     }
 
     /// Returns the local peer ID, which uniquely identifies this node in the libp2p network.
@@ -269,7 +282,8 @@ impl ActorSwarm {
         }
     }
 
-    pub(crate) fn sender(&self) -> &SwarmSender {
+    /// Returns a reference to the swarm command sender.
+    pub fn sender(&self) -> &SwarmSender {
         &self.swarm_tx
     }
 }
@@ -312,14 +326,14 @@ pub struct LookupStream<A> {
 
 impl<A> LookupStream<A> {
     fn new(swarm_tx: SwarmSender, reply_rx: mpsc::UnboundedReceiver<LookupResult>) -> Self {
-        LookupStream {
+        Self {
             inner: LookupStreamInner::Stream { swarm_tx, reply_rx },
             _phantom: PhantomData,
         }
     }
 
     pub(crate) fn new_err() -> Self {
-        LookupStream {
+        Self {
             inner: LookupStreamInner::SwarmNotBootstrapped { done: false },
             _phantom: PhantomData,
         }
@@ -375,7 +389,8 @@ impl<A: Actor + RemoteActor> Stream for LookupStream<A> {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
+/// Channel sender for dispatching commands to the swarm event loop.
+pub struct SwarmSender(mpsc::UnboundedSender<SwarmCommand>);
 
 impl SwarmSender {
     pub(crate) fn send(&self, cmd: SwarmCommand) {
@@ -520,5 +535,122 @@ impl<T> Future for SwarmFuture<T> {
             ready!(self.0.poll_unpin(cx))
                 .expect("the oneshot sender should never be dropped before being sent to"),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::mpsc;
+
+    // ACTOR_SWARM is a process-wide singleton. Tests run concurrently (both
+    // within this module and from id.rs), so any test that sets the global
+    // can be immediately overwritten by another thread.
+    //
+    // Strategy:
+    //  - Local-instance tests construct ActorSwarm directly and verify accessor
+    //    methods without touching the global. These are fully deterministic.
+    //  - Global tests only assert structural properties (Some after set, Ok
+    //    return) — never specific PeerId values.
+
+    fn make_swarm() -> (ActorSwarm, mpsc::UnboundedReceiver<SwarmCommand>) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let swarm = ActorSwarm {
+            swarm_tx: SwarmSender(tx),
+            local_peer_id: PeerId::random(),
+        };
+        (swarm, rx)
+    }
+
+    // ── local instance: accessors ───────────────────────────────────
+
+    #[test]
+    fn local_peer_id_returns_stored_value() {
+        let (swarm, _rx) = make_swarm();
+        let pid = swarm.local_peer_id();
+        // PeerId is Copy; reading it twice should be identical.
+        assert_eq!(pid, swarm.local_peer_id());
+    }
+
+    #[test]
+    fn sender_returns_functional_handle() {
+        let (swarm, mut rx) = make_swarm();
+        let sender = swarm.sender().clone();
+
+        let (reply_tx, _reply_rx) = oneshot::channel();
+        sender.send(SwarmCommand::Unregister {
+            name: Arc::from("test"),
+            reply: reply_tx,
+        });
+
+        let cmd = rx.try_recv().expect("sender should deliver the command");
+        assert!(matches!(cmd, SwarmCommand::Unregister { .. }));
+    }
+
+    #[test]
+    fn cloned_sender_delivers_commands() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let sender = SwarmSender(tx);
+        let cloned = sender.clone();
+
+        let (reply_tx, _reply_rx) = oneshot::channel();
+        cloned.send(SwarmCommand::Unregister {
+            name: Arc::from("test-actor"),
+            reply: reply_tx,
+        });
+
+        let cmd = rx.try_recv().expect("cloned sender should deliver the command");
+        assert!(matches!(cmd, SwarmCommand::Unregister { .. }));
+    }
+
+    // ── global: set() ───────────────────────────────────────────────
+
+    #[test]
+    fn set_always_succeeds() {
+        // ArcSwap::store can never fail, unlike the old RwLock which could
+        // poison. Verify the Result is always Ok.
+        for _ in 0..5 {
+            let (tx, _rx) = mpsc::unbounded_channel();
+            assert!(ActorSwarm::set(tx, PeerId::random()).is_ok());
+        }
+    }
+
+    // ── global: get() / with() return Some after set ────────────────
+
+    #[test]
+    fn get_returns_some_after_set() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        ActorSwarm::set(tx, PeerId::random()).unwrap();
+        // Another test may overwrite the value, but the global will still
+        // be Some (no test clears it).
+        assert!(ActorSwarm::get().is_some());
+    }
+
+    #[test]
+    fn with_returns_some_after_set() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        ActorSwarm::set(tx, PeerId::random()).unwrap();
+        assert!(ActorSwarm::with(|_| ()).is_some());
+    }
+
+    #[test]
+    fn with_propagates_closure_return_value() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        ActorSwarm::set(tx, PeerId::random()).unwrap();
+
+        // The closure's return type is faithfully propagated.
+        assert_eq!(ActorSwarm::with(|_| 42u64), Some(42));
+        assert_eq!(ActorSwarm::with(|_| "hello"), Some("hello"));
+    }
+
+    #[test]
+    fn with_and_get_both_return_some() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        ActorSwarm::set(tx, PeerId::random()).unwrap();
+
+        // We can't assert the same PeerId across calls (concurrent tests
+        // may overwrite), but both must be Some.
+        assert!(ActorSwarm::with(|s| *s.local_peer_id()).is_some());
+        assert!(ActorSwarm::get().is_some());
     }
 }

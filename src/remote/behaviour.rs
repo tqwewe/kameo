@@ -446,7 +446,7 @@ impl NetworkBehaviour for Behaviour {
                 } in REMOTE_REGISTRY.lock().await.values()
                 {
                     for linked_actor_id in (*links.lock().await).keys() {
-                        if linked_actor_id.peer_id() == Some(&peer_id) {
+                        if linked_actor_id.peer_id() == Some(peer_id) {
                             let signal_mailbox = signal_mailbox.clone();
                             let linked_actor_id = *linked_actor_id;
                             futures.push(async move {

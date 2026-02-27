@@ -650,7 +650,7 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (
                 actor_id,
@@ -714,7 +714,7 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (
                 actor_id,
@@ -770,7 +770,7 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (actor_id, actor_remote_id, sibling_id, sibling_remote_id),
             |(actor_id, actor_remote_id, sibling_id, sibling_remote_id)| {
@@ -795,7 +795,7 @@ impl Behaviour {
     ) -> Option<RequestId> {
         let peer_id = actor_id.peer_id().expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (actor_id, actor_remote_id, sibling_id),
             |(actor_id, actor_remote_id, sibling_id)| {
@@ -821,7 +821,7 @@ impl Behaviour {
             .peer_id()
             .expect("swarm should be bootstrapped");
         self.request_with_reply(
-            peer_id,
+            &peer_id,
             reply,
             (
                 dead_actor_id,

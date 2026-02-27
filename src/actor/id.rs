@@ -96,7 +96,7 @@ impl ActorId {
     ///
     /// An `Option<PeerId>`. `None` is returned if the peer ID is local and no actor swarm has been bootstrapped.
     #[cfg(feature = "remote")]
-    pub fn peer_id(&self) -> Option<&libp2p::PeerId> {
+    pub fn peer_id(&self) -> Option<libp2p::PeerId> {
         self.peer_id.peer_id()
     }
 
@@ -116,7 +116,7 @@ impl ActorId {
             let peer_id_bytes = self
                 .peer_id()
                 .map(|peer_id| peer_id.to_bytes())
-                .or_else(|| ActorSwarm::get().map(|swarm| swarm.local_peer_id().to_bytes()));
+                .or_else(|| ActorSwarm::with(|s| s.local_peer_id().to_bytes()));
 
             if let Some(peer_id_bytes) = peer_id_bytes {
                 bytes.extend(peer_id_bytes);
@@ -274,10 +274,10 @@ enum PeerIdKind {
 
 #[cfg(feature = "remote")]
 impl PeerIdKind {
-    fn peer_id(&self) -> Option<&libp2p::PeerId> {
+    fn peer_id(&self) -> Option<libp2p::PeerId> {
         match self {
-            PeerIdKind::Local => ActorSwarm::get().map(ActorSwarm::local_peer_id),
-            PeerIdKind::PeerId(peer_id) => Some(peer_id),
+            PeerIdKind::Local => ActorSwarm::with(|s| *s.local_peer_id()),
+            PeerIdKind::PeerId(peer_id) => Some(*peer_id),
         }
     }
 }
@@ -384,8 +384,8 @@ mod tests {
         // Bootstrapped
         let local_peer_id = local_peer_id();
         let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
-        assert_eq!(id1.peer_id(), Some(&local_peer_id));
-        assert_eq!(id2.peer_id(), Some(&local_peer_id));
+        assert_eq!(id1.peer_id(), Some(local_peer_id));
+        assert_eq!(id2.peer_id(), Some(local_peer_id));
 
         // Bootstrapped local ids should equal
         assert_eq!(id1, id2);
@@ -487,8 +487,8 @@ mod tests {
         // Bootstrapped
         let local_peer_id = local_peer_id();
         let _ = ActorSwarm::set(mpsc::unbounded_channel().0, local_peer_id);
-        assert_eq!(id1.peer_id(), Some(&local_peer_id));
-        assert_eq!(id2.peer_id(), Some(&local_peer_id));
+        assert_eq!(id1.peer_id(), Some(local_peer_id));
+        assert_eq!(id2.peer_id(), Some(local_peer_id));
 
         // Bootstrapped local ids should equal
         assert_eq!(id1, id2);
