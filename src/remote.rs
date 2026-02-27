@@ -286,6 +286,32 @@ pub fn bootstrap_on(addr: &str) -> Result<PeerId, Box<dyn error::Error>> {
     Ok(local_peer_id)
 }
 
+/// Clear all entries from the local actor registry.
+///
+/// Useful for test isolation when multiple tests run in the same process
+/// and share the global registry. After clearing, any previously registered
+/// actors will no longer be found by incoming remote messages or
+/// [`RemoteActorRef::for_peer()`] lookups until they are re-registered.
+pub async fn clear_registry() {
+    REMOTE_REGISTRY.lock().await.clear();
+}
+
+/// Register an actor in the local actor registry under a specific [`ActorId`],
+/// bypassing Kademlia DHT.
+///
+/// This is useful when you want to use a well-known `ActorId` convention
+/// (e.g., `ActorId::new_with_peer_id(0, local_peer_id)`) so that remote peers
+/// can construct a `RemoteActorRef` directly via [`RemoteActorRef::for_peer()`]
+/// without performing a slow DHT lookup.
+///
+/// Must be called from within a tokio runtime context.
+pub async fn register_actor_local<A: Actor>(actor_ref: &ActorRef<A>, id: ActorId) {
+    REMOTE_REGISTRY
+        .lock()
+        .await
+        .insert(id, RemoteRegistryActorRef::new(actor_ref.clone(), None));
+}
+
 /// Unregisters an actor within the swarm.
 ///
 /// This will only unregister an actor previously registered by the current node.
