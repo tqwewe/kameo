@@ -42,7 +42,7 @@ remote = [
   "dep:rmp-serde",
 ]
 tracing = ["dep:tracing", "tokio/tracing"]
-otel = ["dep:opentelemetry", "dep:tracing-opentelemetry", "tracing"]
+otel = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 metrics = ["dep:metrics"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 
