@@ -21,6 +21,9 @@ pub use actor::Actor;
 pub use kameo_macros::{Actor, RemoteActor, Reply, messages, remote_message};
 pub use reply::Reply;
 
+#[cfg(all(feature = "otel", not(feature = "tracing")))]
+compile_error!("the `otel` feature requires the `tracing` feature to be enabled");
+
 /// Commonly used types and functions that can be imported with a single use statement.
 ///
 /// ```

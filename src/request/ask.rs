@@ -32,6 +32,7 @@ where
     msg: M,
     mailbox_timeout: Tm,
     reply_timeout: Tr,
+    message_name: &'static str,
     #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
@@ -57,6 +58,7 @@ where
             msg,
             mailbox_timeout: Tm::default(),
             reply_timeout: Tr::default(),
+            message_name: <A as Message<M>>::name(),
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
@@ -79,6 +81,7 @@ where
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(duration),
             reply_timeout: self.reply_timeout,
+            message_name: self.message_name,
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
@@ -98,6 +101,7 @@ where
             msg: self.msg,
             mailbox_timeout: self.mailbox_timeout,
             reply_timeout: WithRequestTimeout(duration),
+            message_name: self.message_name,
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
@@ -124,6 +128,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(reply),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -187,6 +194,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(reply),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -236,6 +246,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(sender.boxed()),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -272,6 +285,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(sender.boxed()),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -299,6 +315,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(reply),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -355,6 +374,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(reply),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -392,6 +414,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(reply),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -417,6 +442,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(sender.boxed()),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();
@@ -468,6 +496,9 @@ where
             actor_ref: self.actor_ref.clone(),
             reply: Some(reply),
             sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
         };
 
         let tx = self.actor_ref.mailbox_sender();

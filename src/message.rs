@@ -40,6 +40,15 @@ pub trait Message<T: Send + 'static>: Actor {
     /// The reply sent back to the message caller.
     type Reply: Reply;
 
+    /// The name of the message, which can be useful for logging or debugging.
+    ///
+    /// # Default Implementation
+    /// By default, this returns the type name of the message.
+    #[inline]
+    fn name() -> &'static str {
+        any::type_name::<T>()
+    }
+
     /// Handler for this message.
     fn handle(
         &mut self,

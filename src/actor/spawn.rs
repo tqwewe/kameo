@@ -11,7 +11,7 @@ use tokio::{
     task::JoinHandle,
 };
 #[cfg(feature = "tracing")]
-use tracing::{error, trace};
+use tracing::{Instrument, error, trace};
 
 #[cfg(feature = "remote")]
 use crate::remote;
@@ -153,7 +153,6 @@ impl<A: Actor> PreparedActor<A> {
     }
 }
 
-#[inline]
 async fn run_actor_lifecycle<A>(
     args: A::Args,
     actor_ref: ActorRef<A>,
@@ -166,93 +165,107 @@ where
     #[allow(unused_mut)]
     let mut id = actor_ref.id();
     let name = A::name();
-    #[cfg(feature = "tracing")]
-    trace!(%id, %name, "actor started");
 
-    let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
-        .catch_unwind()
-        .await
-        .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart)))
-        .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
-        .and_then(convert::identity);
-    let startup_finished = matches!(
-        actor_ref.weak_signal_mailbox().signal_startup_finished(),
-        Err(SendError::MailboxFull(()))
-    );
+    let task = async move {
+        #[cfg(feature = "tracing")]
+        trace!(%id, %name, "actor started");
 
-    let actor_ref = actor_ref.into_downgrade();
-
-    match start_res {
-        Ok(actor) => {
-            let mut state = ActorBehaviour::new_from_actor(actor, actor_ref.clone());
-
-            let reason = Abortable::new(
-                abortable_actor_loop(
-                    &mut state,
-                    mailbox_rx,
-                    &actor_ref.startup_result,
-                    startup_finished,
-                ),
-                abort_registration,
-            )
+        let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
+            .catch_unwind()
             .await
-            .unwrap_or(ActorStopReason::Killed);
+            .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart)))
+            .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
+            .and_then(convert::identity);
+        let startup_finished = matches!(
+            actor_ref.weak_signal_mailbox().signal_startup_finished(),
+            Err(SendError::MailboxFull(()))
+        );
 
-            let mut actor = state.shutdown().await;
+        let actor_ref = actor_ref.into_downgrade();
 
-            let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
+        match start_res {
+            Ok(actor) => {
+                let mut state = ActorBehaviour::new_from_actor(actor, actor_ref.clone());
 
-            log_actor_stop_reason(id, name, &reason);
-            let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
-            while let Some(()) = notify_futs.next().await {}
+                let reason = Abortable::new(
+                    abortable_actor_loop(
+                        &mut state,
+                        mailbox_rx,
+                        &actor_ref.startup_result,
+                        startup_finished,
+                    ),
+                    abort_registration,
+                )
+                .await
+                .unwrap_or(ActorStopReason::Killed);
 
-            unregister_actor(&id).await;
+                let mut actor = state.shutdown().await;
 
-            match on_stop_res {
-                Ok(()) => {
-                    actor_ref
-                        .shutdown_result
-                        .set(Ok(()))
-                        .expect("nothing else should set the shutdown result");
+                let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
+
+                log_actor_stop_reason(id, name, &reason);
+                let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
+                while let Some(()) = notify_futs.next().await {}
+
+                unregister_actor(&id).await;
+
+                match on_stop_res {
+                    Ok(()) => {
+                        actor_ref
+                            .shutdown_result
+                            .set(Ok(()))
+                            .expect("nothing else should set the shutdown result");
+                    }
+                    Err(err) => {
+                        let err = PanicError::new(Box::new(err), PanicReason::OnStop);
+                        invoke_actor_error_hook(&err);
+
+                        actor_ref
+                            .shutdown_result
+                            .set(Err(err))
+                            .expect("nothing else should set the shutdown result");
+                    }
                 }
-                Err(err) => {
-                    let err = PanicError::new(Box::new(err), PanicReason::OnStop);
-                    invoke_actor_error_hook(&err);
 
-                    actor_ref
-                        .shutdown_result
-                        .set(Err(err))
-                        .expect("nothing else should set the shutdown result");
-                }
+                Ok((actor, reason))
             }
+            Err(err) => {
+                actor_ref
+                    .startup_result
+                    .set(Err(err.clone()))
+                    .expect("nothing should set the startup result");
 
-            Ok((actor, reason))
+                let reason = ActorStopReason::Panicked(err);
+                log_actor_stop_reason(id, name, &reason);
+
+                let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
+                while let Some(()) = notify_futs.next().await {}
+
+                unregister_actor(&id).await;
+
+                let ActorStopReason::Panicked(err) = reason else {
+                    unreachable!()
+                };
+
+                actor_ref
+                    .shutdown_result
+                    .set(Err(err.clone()))
+                    .expect("nothing should set the startup result");
+
+                Err(err)
+            }
         }
-        Err(err) => {
-            actor_ref
-                .startup_result
-                .set(Err(err.clone()))
-                .expect("nothing should set the startup result");
+    };
 
-            let reason = ActorStopReason::Panicked(err);
-            log_actor_stop_reason(id, name, &reason);
+    #[cfg(not(feature = "tracing"))]
+    {
+        task.await
+    }
 
-            let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
-            while let Some(()) = notify_futs.next().await {}
-
-            unregister_actor(&id).await;
-
-            let ActorStopReason::Panicked(err) = reason else {
-                unreachable!()
-            };
-
-            actor_ref
-                .shutdown_result
-                .set(Err(err.clone()))
-                .expect("nothing should set the startup result");
-
-            Err(err)
-        }
+    #[cfg(feature = "tracing")]
+    {
+        let actor_span = tracing::info_span!("actor.lifecycle", actor.name = name, actor.id = %id);
+        task.instrument(actor_span).await
     }
 }
 
@@ -300,9 +313,20 @@ where
                 actor_ref,
                 reply,
                 sent_within_actor,
+                message_name,
+                #[cfg(feature = "tracing")]
+                caller_span,
             }) => {
                 if let ControlFlow::Break(reason) = state
-                    .handle_message(message, actor_ref, reply, sent_within_actor)
+                    .handle_message(
+                        message,
+                        actor_ref,
+                        reply,
+                        sent_within_actor,
+                        message_name,
+                        #[cfg(feature = "tracing")]
+                        caller_span,
+                    )
                     .await
                 {
                     return reason;
