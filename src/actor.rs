@@ -35,13 +35,14 @@ use crate::{
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
     message::BoxMessage,
     reply::{BoxReplySender, ReplyError},
+    supervision::SupervisionStrategy,
 };
 
 pub use actor_ref::*;
 pub use id::*;
 pub use spawn::*;
 
-const DEFAULT_MAILBOX_CAPACITY: usize = 64;
+pub(crate) const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 
 /// Core behavior of an actor, including its lifecycle events and how it processes messages.
 ///
@@ -132,6 +133,11 @@ pub trait Actor: Sized + Send + 'static {
     #[inline]
     fn name() -> &'static str {
         any::type_name::<Self>()
+    }
+
+    #[inline]
+    fn supervision_strategy() -> SupervisionStrategy {
+        SupervisionStrategy::default()
     }
 
     /// Called when the actor starts, before it processes any messages.
@@ -249,7 +255,9 @@ pub trait Actor: Sized + Send + 'static {
     ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
         async move {
             match &reason {
-                ActorStopReason::Normal => Ok(ControlFlow::Continue(())),
+                ActorStopReason::Normal | ActorStopReason::SupervisorRestart => {
+                    Ok(ControlFlow::Continue(()))
+                }
                 ActorStopReason::Killed
                 | ActorStopReason::Panicked(_)
                 | ActorStopReason::LinkDied { .. } => {

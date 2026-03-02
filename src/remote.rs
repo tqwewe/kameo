@@ -70,8 +70,9 @@ use tokio::sync::Mutex;
 
 use crate::{
     Actor,
-    actor::{ActorId, ActorRef, Links, WeakActorRef},
+    actor::{ActorId, ActorRef, WeakActorRef},
     error::{RegistryError, RemoteSendError},
+    links::Links,
     mailbox::SignalMailbox,
 };
 

@@ -7,6 +7,7 @@
 
 pub mod actor;
 pub mod error;
+pub(crate) mod links;
 pub mod mailbox;
 pub mod message;
 #[cfg(not(feature = "remote"))]
@@ -15,6 +16,7 @@ pub mod registry;
 pub mod remote;
 pub mod reply;
 pub mod request;
+pub mod supervision;
 
 pub use actor::Actor;
 #[cfg(feature = "macros")]

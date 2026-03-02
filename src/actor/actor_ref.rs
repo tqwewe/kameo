@@ -1,21 +1,14 @@
 use std::{
     cell::Cell,
-    cmp,
-    collections::HashMap,
-    fmt,
+    cmp, fmt,
     hash::{Hash, Hasher},
-    ops,
     sync::Arc,
     time::Duration,
 };
 
 use dyn_clone::DynClone;
 use futures::{FutureExt, Stream, StreamExt, TryFutureExt, future::BoxFuture, stream::AbortHandle};
-use tokio::{
-    sync::{Mutex, SetOnce},
-    task::JoinHandle,
-    task_local,
-};
+use tokio::{sync::SetOnce, task::JoinHandle, task_local};
 
 #[cfg(feature = "remote")]
 use std::marker::PhantomData;
@@ -28,6 +21,7 @@ use crate::request;
 use crate::{
     Actor, Reply,
     error::{self, HookError, Infallible, PanicError, SendError},
+    links::{ErasedChildSpec, Link, Links},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
     reply::ReplyError,
@@ -66,6 +60,7 @@ where
 {
     #[inline]
     pub(crate) fn new(
+        id: ActorId,
         mailbox: MailboxSender<A>,
         abort_handle: AbortHandle,
         links: Links,
@@ -73,7 +68,7 @@ where
         shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
     ) -> Self {
         ActorRef {
-            id: ActorId::generate(),
+            id,
             mailbox_sender: mailbox,
             abort_handle,
             links,
@@ -661,20 +656,24 @@ where
             let mut this_links = self.links.lock().await;
             let mut sibling_links = sibling_ref.links.lock().await;
 
-            this_links.insert(
+            this_links.sibblings.insert(
                 sibling_ref.id,
                 Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links
+                .sibblings
+                .insert(self.id, Link::Local(self.weak_signal_mailbox()));
         } else {
             let mut sibling_links = sibling_ref.links.lock().await;
             let mut this_links = self.links.lock().await;
 
-            this_links.insert(
+            this_links.sibblings.insert(
                 sibling_ref.id,
                 Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links
+                .sibblings
+                .insert(self.id, Link::Local(self.weak_signal_mailbox()));
         }
     }
 
@@ -715,20 +714,49 @@ where
             let mut this_links = self.links.blocking_lock();
             let mut sibling_links = sibling_ref.links.blocking_lock();
 
-            this_links.insert(
+            this_links.sibblings.insert(
                 sibling_ref.id,
                 Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links
+                .sibblings
+                .insert(self.id, Link::Local(self.weak_signal_mailbox()));
         } else {
             let mut sibling_links = sibling_ref.links.blocking_lock();
             let mut this_links = self.links.blocking_lock();
 
-            this_links.insert(
+            this_links.sibblings.insert(
                 sibling_ref.id,
                 Link::Local(sibling_ref.weak_signal_mailbox()),
             );
-            sibling_links.insert(self.id, Link::Local(self.weak_signal_mailbox()));
+            sibling_links
+                .sibblings
+                .insert(self.id, Link::Local(self.weak_signal_mailbox()));
+        }
+    }
+
+    pub(crate) async fn link_child(
+        &self,
+        child_id: ActorId,
+        child_links: &Links,
+        spec: ErasedChildSpec,
+    ) {
+        if self.id == child_id {
+            return;
+        }
+
+        if self.id < child_id {
+            let mut this_links = self.links.lock().await;
+            let mut child_links = child_links.lock().await;
+
+            this_links.children.insert(child_id, spec);
+            child_links.parent = Some((self.id, Link::Local(self.weak_signal_mailbox())));
+        } else {
+            let mut child_links = child_links.lock().await;
+            let mut this_links = self.links.lock().await;
+
+            this_links.children.insert(child_id, spec);
+            child_links.parent = Some((self.id, Link::Local(self.weak_signal_mailbox())));
         }
     }
 
@@ -773,7 +801,7 @@ where
             .entry(self.id)
             .or_insert_with(|| remote::RemoteRegistryActorRef::new(self.clone(), None));
 
-        self.links.lock().await.insert(
+        self.links.lock().await.sibblings.insert(
             sibling_ref.id,
             Link::Remote(std::borrow::Cow::Borrowed(B::REMOTE_ID)),
         );
@@ -812,14 +840,14 @@ where
             let mut this_links = self.links.lock().await;
             let mut sibling_links = sibling_ref.links.lock().await;
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         } else {
             let mut sibling_links = sibling_ref.links.lock().await;
             let mut this_links = self.links.lock().await;
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         }
     }
 
@@ -862,14 +890,14 @@ where
             let mut this_links = self.links.blocking_lock();
             let mut sibling_links = sibling_ref.links.blocking_lock();
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         } else {
             let mut sibling_links = sibling_ref.links.blocking_lock();
             let mut this_links = self.links.blocking_lock();
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         }
     }
 
@@ -908,7 +936,7 @@ where
             return Ok(());
         }
 
-        self.links.lock().await.remove(&sibling_ref.id);
+        self.links.lock().await.sibblings.remove(&sibling_ref.id);
         remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<B>(self.id, sibling_ref.id)
@@ -1078,10 +1106,15 @@ impl<A: Actor> fmt::Debug for ActorRef<A> {
         d.field("id", &self.id);
         match self.links.try_lock() {
             Ok(guard) => {
-                d.field("links", &guard.keys());
+                d.field(
+                    "parent",
+                    &guard.parent.as_ref().map(|(parent_id, _)| parent_id),
+                )
+                .field("links", &guard.sibblings.keys());
             }
             Err(_) => {
-                d.field("links", &format_args!("<locked>"));
+                d.field("parent", &format_args!("<locked>"))
+                    .field("links", &format_args!("<locked>"));
             }
         }
         d.finish()
@@ -2006,14 +2039,14 @@ impl<A: Actor> WeakActorRef<A> {
             let mut this_links = self.links.lock().await;
             let mut sibling_links = sibling_ref.links.lock().await;
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         } else {
             let mut sibling_links = sibling_ref.links.lock().await;
             let mut this_links = self.links.lock().await;
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         }
     }
 
@@ -2030,14 +2063,14 @@ impl<A: Actor> WeakActorRef<A> {
             let mut this_links = self.links.blocking_lock();
             let mut sibling_links = sibling_ref.links.blocking_lock();
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         } else {
             let mut sibling_links = sibling_ref.links.blocking_lock();
             let mut this_links = self.links.blocking_lock();
 
-            this_links.remove(&sibling_ref.id);
-            sibling_links.remove(&self.id);
+            this_links.sibblings.remove(&sibling_ref.id);
+            sibling_links.sibblings.remove(&self.id);
         }
     }
 
@@ -2057,7 +2090,7 @@ impl<A: Actor> WeakActorRef<A> {
             return Ok(());
         }
 
-        self.links.lock().await.remove(&sibling_ref.id);
+        self.links.lock().await.sibblings.remove(&sibling_ref.id);
         remote::ActorSwarm::get()
             .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
             .unlink::<B>(self.id, sibling_ref.id)
@@ -2098,10 +2131,15 @@ impl<A: Actor> fmt::Debug for WeakActorRef<A> {
         d.field("id", &self.id);
         match self.links.try_lock() {
             Ok(guard) => {
-                d.field("links", &guard.keys());
+                d.field(
+                    "parent",
+                    &guard.parent.as_ref().map(|(parent_id, _)| parent_id),
+                )
+                .field("links", &guard.sibblings.keys());
             }
             Err(_) => {
-                d.field("links", &format_args!("<locked>"));
+                d.field("parent", &format_args!("<locked>"))
+                    .field("links", &format_args!("<locked>"));
             }
         }
         d.finish()
@@ -2303,28 +2341,6 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> Hash
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.handler.id().hash(state);
     }
-}
-
-/// A collection of links to other actors that are notified when the actor dies.
-///
-/// Links are used for parent-child or sibling relationships, allowing actors to observe each other's lifecycle.
-#[derive(Clone, Default)]
-#[allow(missing_debug_implementations)]
-pub(crate) struct Links(Arc<Mutex<HashMap<ActorId, Link>>>);
-
-impl ops::Deref for Links {
-    type Target = Mutex<HashMap<ActorId, Link>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[derive(Clone)]
-pub(crate) enum Link {
-    Local(Box<dyn SignalMailbox>),
-    #[cfg(feature = "remote")]
-    Remote(std::borrow::Cow<'static, str>),
 }
 
 pub(crate) trait MessageHandler<M: Send + 'static>:

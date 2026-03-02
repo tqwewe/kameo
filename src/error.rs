@@ -346,6 +346,8 @@ impl<M, E> error::Error for SendError<M, E> where E: fmt::Debug + fmt::Display {
 pub enum ActorStopReason {
     /// Actor stopped normally.
     Normal,
+    /// Supervisor restarted.
+    SupervisorRestart,
     /// Actor was killed.
     Killed,
     /// Actor panicked.
@@ -362,10 +364,25 @@ pub enum ActorStopReason {
     PeerDisconnected,
 }
 
+impl ActorStopReason {
+    pub fn is_normal(&self) -> bool {
+        match self {
+            ActorStopReason::Normal => true,
+            ActorStopReason::SupervisorRestart
+            | ActorStopReason::Killed
+            | ActorStopReason::Panicked(_)
+            | ActorStopReason::LinkDied { .. } => false,
+            #[cfg(feature = "remote")]
+            ActorStopReason::PeerDisconnected => false,
+        }
+    }
+}
+
 impl fmt::Debug for ActorStopReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActorStopReason::Normal => write!(f, "Normal"),
+            ActorStopReason::SupervisorRestart => write!(f, "SupervisorRestart"),
             ActorStopReason::Killed => write!(f, "Killed"),
             ActorStopReason::Panicked(err) => {
                 let mut dbg_struct = f.debug_struct("Panicked");
@@ -389,6 +406,7 @@ impl fmt::Display for ActorStopReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActorStopReason::Normal => write!(f, "actor stopped normally"),
+            ActorStopReason::SupervisorRestart => write!(f, "actor restarted by supervisor"),
             ActorStopReason::Killed => write!(f, "actor was killed"),
             ActorStopReason::Panicked(err) => err.fmt(f),
             ActorStopReason::LinkDied { id, reason: _ } => {
