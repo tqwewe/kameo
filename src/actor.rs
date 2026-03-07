@@ -35,7 +35,7 @@ use crate::{
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
     message::BoxMessage,
     reply::{BoxReplySender, ReplyError},
-    supervision::SupervisionStrategy,
+    supervision::{SupervisedActorBuilder, SupervisionStrategy},
 };
 
 pub use actor_ref::*;
@@ -749,6 +749,26 @@ pub trait Spawn: Actor + private::Sealed {
         (mailbox_tx, mailbox_rx): (MailboxSender<Self>, MailboxReceiver<Self>),
     ) -> PreparedActor<Self> {
         PreparedActor::new((mailbox_tx, mailbox_rx))
+    }
+
+    fn supervise<A: Actor>(
+        supervisor_ref: &ActorRef<A>,
+        args: Self::Args,
+    ) -> SupervisedActorBuilder<'_, A, Self>
+    where
+        Self::Args: Clone + Sync,
+    {
+        SupervisedActorBuilder::new(supervisor_ref, args)
+    }
+
+    fn supervise_with<A: Actor>(
+        supervisor_ref: &ActorRef<A>,
+        f: impl Fn() -> Self::Args + Send + Sync + 'static,
+    ) -> SupervisedActorBuilder<'_, A, Self>
+    where
+        Self::Args: Sync,
+    {
+        SupervisedActorBuilder::new_with(supervisor_ref, f)
     }
 }
 
