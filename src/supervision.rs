@@ -98,6 +98,26 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
         self,
         (mailbox_tx, mailbox_rx): (MailboxSender<C>, MailboxReceiver<C>),
     ) -> ActorRef<C> {
+        self.spawn_inner((mailbox_tx, mailbox_rx), false).await
+    }
+
+    pub async fn spawn_in_thread(self) -> ActorRef<C> {
+        self.spawn_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+            .await
+    }
+
+    pub async fn spawn_in_thread_with_mailbox(
+        self,
+        (mailbox_tx, mailbox_rx): (MailboxSender<C>, MailboxReceiver<C>),
+    ) -> ActorRef<C> {
+        self.spawn_inner((mailbox_tx, mailbox_rx), true).await
+    }
+
+    pub async fn spawn_inner(
+        self,
+        (mailbox_tx, mailbox_rx): (MailboxSender<C>, MailboxReceiver<C>),
+        in_thread: bool,
+    ) -> ActorRef<C> {
         let actor_id = ActorId::generate();
         let links = Links::default();
         let restart_policy = self.restart_policy;
@@ -106,6 +126,7 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
             mailbox_tx.clone(),
             links.clone(),
             self.args_factory,
+            in_thread,
         ));
         let shutdown = Arc::new(Box::new(move || {
             let mailbox_tx = mailbox_tx.clone();
@@ -135,6 +156,7 @@ fn new_factory<C: Actor>(
     mailbox_tx: MailboxSender<C>,
     links: Links,
     args_factory: SupervisorFactory<C::Args>,
+    in_thread: bool,
 ) -> SpawnFactory {
     Box::new(move |rx: Box<dyn Any + Send>| {
         let mailbox_rx = *rx.downcast::<MailboxReceiver<C>>().unwrap();
@@ -145,7 +167,11 @@ fn new_factory<C: Actor>(
         Box::pin(async move {
             let prepared = PreparedActor::new_with(actor_id, (mailbox_tx, mailbox_rx), links);
             let actor_ref = prepared.actor_ref().clone();
-            prepared.spawn(args);
+            if in_thread {
+                prepared.spawn_in_thread(args);
+            } else {
+                prepared.spawn(args);
+            }
             Box::new(actor_ref) as BoxActorRef
         }) as BoxFuture<'static, BoxActorRef>
     })
@@ -175,8 +201,8 @@ mod tests {
     use std::{
         ops::ControlFlow,
         sync::{
-            atomic::{AtomicU32, Ordering},
             Arc,
+            atomic::{AtomicU32, Ordering},
         },
         time::Duration,
     };
@@ -407,7 +433,11 @@ mod tests {
 
         // Wait for restart
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "actor should have restarted after panic");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "actor should have restarted after panic"
+        );
 
         supervisor.kill();
     }
@@ -433,7 +463,11 @@ mod tests {
 
         // Wait for restart
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "permanent policy should restart on normal exit");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "permanent policy should restart on normal exit"
+        );
 
         supervisor.kill();
     }
@@ -459,7 +493,11 @@ mod tests {
 
         // Wait for restart
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "permanent policy should restart on error");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "permanent policy should restart on error"
+        );
 
         supervisor.kill();
     }
@@ -485,7 +523,11 @@ mod tests {
 
         // Wait for restart
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "transient policy should restart on panic");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "transient policy should restart on panic"
+        );
 
         supervisor.kill();
     }
@@ -511,7 +553,11 @@ mod tests {
 
         // Wait to see if restart happens (it shouldn't)
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 1, "transient policy should NOT restart on normal exit");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "transient policy should NOT restart on normal exit"
+        );
 
         supervisor.kill();
     }
@@ -537,7 +583,11 @@ mod tests {
 
         // Wait for restart
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "transient policy should restart on error");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "transient policy should restart on error"
+        );
 
         supervisor.kill();
     }
@@ -562,7 +612,11 @@ mod tests {
 
         // Wait to see if restart happens (it shouldn't)
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 1, "temporary policy should NEVER restart");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "temporary policy should NEVER restart"
+        );
 
         supervisor.kill();
     }
@@ -587,7 +641,11 @@ mod tests {
 
         // Wait to see if restart happens (it shouldn't)
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 1, "temporary policy should NEVER restart");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "temporary policy should NEVER restart"
+        );
 
         supervisor.kill();
     }
@@ -612,7 +670,11 @@ mod tests {
 
         // Wait to see if restart happens (it shouldn't)
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 1, "temporary policy should NEVER restart");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "temporary policy should NEVER restart"
+        );
 
         supervisor.kill();
     }
@@ -648,7 +710,11 @@ mod tests {
         // Third crash -> should NOT restart (max_restarts = 2 exceeded)
         let _ = child.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 3, "should not restart after max_restarts exceeded");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            3,
+            "should not restart after max_restarts exceeded"
+        );
 
         supervisor.kill();
     }
@@ -685,7 +751,11 @@ mod tests {
         // Third crash -> should restart (window reset)
         let _ = child.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 4, "should restart after window resets");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            4,
+            "should restart after window resets"
+        );
 
         supervisor.kill();
     }
@@ -714,7 +784,11 @@ mod tests {
         // Second crash -> should NOT restart
         let _ = child.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "custom limit of 1 should be respected");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "custom limit of 1 should be respected"
+        );
 
         supervisor.kill();
     }
@@ -748,8 +822,16 @@ mod tests {
         let _ = child1.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 2, "child1 should restart");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 1, "child2 should NOT restart");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            2,
+            "child1 should restart"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            1,
+            "child2 should NOT restart"
+        );
 
         supervisor.kill();
     }
@@ -789,9 +871,21 @@ mod tests {
         let _ = child1.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 2, "child1 should restart");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 2, "child2 should restart (OneForAll)");
-        assert_eq!(start_count3.load(Ordering::SeqCst), 2, "child3 should restart (OneForAll)");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            2,
+            "child1 should restart"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            2,
+            "child2 should restart (OneForAll)"
+        );
+        assert_eq!(
+            start_count3.load(Ordering::SeqCst),
+            2,
+            "child3 should restart (OneForAll)"
+        );
 
         supervisor.kill();
     }
@@ -831,9 +925,21 @@ mod tests {
         let _ = child2.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 1, "child1 should NOT restart (spawned before)");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 2, "child2 should restart");
-        assert_eq!(start_count3.load(Ordering::SeqCst), 2, "child3 should restart (spawned after)");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            1,
+            "child1 should NOT restart (spawned before)"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            2,
+            "child2 should restart"
+        );
+        assert_eq!(
+            start_count3.load(Ordering::SeqCst),
+            2,
+            "child3 should restart (spawned after)"
+        );
 
         supervisor.kill();
     }
@@ -873,9 +979,21 @@ mod tests {
         let _ = child1.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(200)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 2, "child1 should restart");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 2, "child2 should restart (spawned after child1)");
-        assert_eq!(start_count3.load(Ordering::SeqCst), 2, "child3 should restart (spawned after child1)");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            2,
+            "child1 should restart"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            2,
+            "child2 should restart (spawned after child1)"
+        );
+        assert_eq!(
+            start_count3.load(Ordering::SeqCst),
+            2,
+            "child3 should restart (spawned after child1)"
+        );
 
         supervisor.kill();
     }
@@ -915,9 +1033,21 @@ mod tests {
         let _ = child3.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 1, "child1 should NOT restart");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 1, "child2 should NOT restart");
-        assert_eq!(start_count3.load(Ordering::SeqCst), 2, "child3 should restart");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            1,
+            "child1 should NOT restart"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            1,
+            "child2 should NOT restart"
+        );
+        assert_eq!(
+            start_count3.load(Ordering::SeqCst),
+            2,
+            "child3 should restart"
+        );
 
         supervisor.kill();
     }
@@ -929,7 +1059,10 @@ mod tests {
         let link_died_count = Arc::new(AtomicU32::new(0));
         let tracker_start_count = Arc::new(AtomicU32::new(0));
 
-        let tracker = LinkTracker::spawn(LinkTracker::new(link_died_count.clone(), tracker_start_count.clone()));
+        let tracker = LinkTracker::spawn(LinkTracker::new(
+            link_died_count.clone(),
+            tracker_start_count.clone(),
+        ));
 
         let child_start_count = Arc::new(AtomicU32::new(0));
         let child = TestChild::spawn(TestChild::new(child_start_count.clone()));
@@ -944,7 +1077,11 @@ mod tests {
         child.kill();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(link_died_count.load(Ordering::SeqCst), 1, "tracker should receive link_died notification");
+        assert_eq!(
+            link_died_count.load(Ordering::SeqCst),
+            1,
+            "tracker should receive link_died notification"
+        );
 
         tracker.kill();
     }
@@ -954,7 +1091,10 @@ mod tests {
         let link_died_count = Arc::new(AtomicU32::new(0));
         let tracker_start_count = Arc::new(AtomicU32::new(0));
 
-        let tracker = LinkTracker::spawn(LinkTracker::new(link_died_count.clone(), tracker_start_count.clone()));
+        let tracker = LinkTracker::spawn(LinkTracker::new(
+            link_died_count.clone(),
+            tracker_start_count.clone(),
+        ));
 
         let child_start_count = Arc::new(AtomicU32::new(0));
         let child = TestChild::spawn(TestChild::new(child_start_count.clone()));
@@ -970,7 +1110,11 @@ mod tests {
         child.kill();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(link_died_count.load(Ordering::SeqCst), 0, "tracker should NOT receive notification after unlink");
+        assert_eq!(
+            link_died_count.load(Ordering::SeqCst),
+            0,
+            "tracker should NOT receive notification after unlink"
+        );
 
         tracker.kill();
     }
@@ -985,7 +1129,10 @@ mod tests {
         let child_start_count = Arc::new(AtomicU32::new(0));
 
         let tracker = supervisor
-            .supervise::<LinkTracker>(LinkTracker::new(link_died_count.clone(), tracker_start_count.clone()))
+            .supervise::<LinkTracker>(LinkTracker::new(
+                link_died_count.clone(),
+                tracker_start_count.clone(),
+            ))
             .restart(RestartPolicy::Permanent)
             .spawn()
             .await;
@@ -1007,9 +1154,17 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         // Child should have restarted
-        assert_eq!(child_start_count.load(Ordering::SeqCst), 2, "child should restart");
+        assert_eq!(
+            child_start_count.load(Ordering::SeqCst),
+            2,
+            "child should restart"
+        );
         // Tracker should NOT be notified because the child was restarted by supervisor
-        assert_eq!(link_died_count.load(Ordering::SeqCst), 0, "siblings should NOT be notified when child restarts");
+        assert_eq!(
+            link_died_count.load(Ordering::SeqCst),
+            0,
+            "siblings should NOT be notified when child restarts"
+        );
 
         supervisor.kill();
     }
@@ -1040,7 +1195,11 @@ mod tests {
 
         // All should have restarted
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert_eq!(start_count.load(Ordering::SeqCst), 6, "should handle rapid successive restarts");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            6,
+            "should handle rapid successive restarts"
+        );
 
         supervisor.kill();
     }
@@ -1064,7 +1223,11 @@ mod tests {
         let _ = child.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "single child should restart under OneForAll");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "single child should restart under OneForAll"
+        );
 
         supervisor.kill();
     }
@@ -1095,8 +1258,16 @@ mod tests {
         let _ = child2.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(150)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 2, "child1 should restart independently");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 2, "child2 should restart independently");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            2,
+            "child1 should restart independently"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            2,
+            "child2 should restart independently"
+        );
 
         supervisor.kill();
     }
@@ -1121,7 +1292,11 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // The restarted actor should use cloned args (same Arc)
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "factory should clone args for restart");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "factory should clone args for restart"
+        );
 
         supervisor.kill();
     }
@@ -1147,7 +1322,11 @@ mod tests {
         let _ = child.tell(StopGracefully).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(start_count.load(Ordering::SeqCst), 2, "default policy (Permanent) should restart on normal exit");
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            2,
+            "default policy (Permanent) should restart on normal exit"
+        );
 
         supervisor.kill();
     }
@@ -1176,8 +1355,16 @@ mod tests {
         let _ = child1.tell(TriggerPanic).await;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        assert_eq!(start_count1.load(Ordering::SeqCst), 2, "child1 should restart");
-        assert_eq!(start_count2.load(Ordering::SeqCst), 1, "child2 should NOT restart (OneForOne)");
+        assert_eq!(
+            start_count1.load(Ordering::SeqCst),
+            2,
+            "child1 should restart"
+        );
+        assert_eq!(
+            start_count2.load(Ordering::SeqCst),
+            1,
+            "child2 should NOT restart (OneForOne)"
+        );
 
         supervisor.kill();
     }
