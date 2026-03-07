@@ -365,6 +365,7 @@ pub enum ActorStopReason {
 }
 
 impl ActorStopReason {
+    /// Returns true if the actor's stop reason is normal and not caused by an error.
     pub fn is_normal(&self) -> bool {
         match self {
             ActorStopReason::Normal => true,
@@ -802,6 +803,7 @@ impl Hash for Infallible {
 
 /// An error that can occur when registering & looking up actors by name.
 #[derive(Debug)]
+#[cfg_attr(not(feature = "remote"), derive(Clone))]
 pub enum RegistryError {
     /// The actor swarm has not been bootstrapped.
     #[cfg(feature = "remote")]
