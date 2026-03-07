@@ -1,3 +1,80 @@
+//! Actor supervision for building fault-tolerant systems.
+//!
+//! This module provides Erlang-style supervision trees, allowing actors to automatically
+//! restart failed child actors according to configurable policies and strategies. Supervision
+//! is a key component of building resilient, self-healing actor systems.
+//!
+//! # Overview
+//!
+//! Supervision enables fault isolation and recovery by organizing actors into hierarchical
+//! supervision trees. When a child actor fails (panics, returns an error, or exits normally),
+//! its supervisor decides whether and how to restart it based on:
+//!
+//! - **[`RestartPolicy`]**: Determines when a child should be restarted (always, only on abnormal exit, or never)
+//! - **[`SupervisionStrategy`]**: Determines which children to restart (just the failed child, all children, or the failed child plus younger siblings)
+//! - **Restart Limits**: Prevents restart storms by limiting the number of restarts within a time window
+//!
+//! # Quick Start
+//!
+//! To create a supervised child actor, use the [`Spawn::supervise`] method:
+//!
+//! ```no_run
+//! use std::time::Duration;
+//! use kameo::actor::{Actor, ActorRef, Spawn};
+//! use kameo::error::Infallible;
+//! use kameo::supervision::{RestartPolicy, SupervisionStrategy};
+//!
+//! struct Supervisor;
+//! impl Actor for Supervisor {
+//!     type Args = ();
+//!     type Error = Infallible;
+//!
+//!     fn supervision_strategy() -> SupervisionStrategy {
+//!         SupervisionStrategy::OneForOne
+//!     }
+//!
+//!     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+//!         // Spawn a supervised child that restarts on abnormal exits
+//!         let child = Worker::supervise(&actor_ref, Worker)
+//!             .restart(RestartPolicy::Transient)
+//!             .restart_limit(5, Duration::from_secs(10))
+//!             .spawn()
+//!             .await;
+//!
+//!         Ok(Supervisor)
+//!     }
+//! }
+//!
+//! #[derive(Clone)]
+//! struct Worker;
+//! impl Actor for Worker {
+//!     type Args = Self;
+//!     type Error = Infallible;
+//!     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+//!         Ok(state)
+//!     }
+//! }
+//! ```
+//!
+//! # Restart Policies
+//!
+//! - **[`RestartPolicy::Permanent`]**: Always restart, regardless of how the actor died (default)
+//! - **[`RestartPolicy::Transient`]**: Only restart on abnormal exits (panics/errors), not normal exits
+//! - **[`RestartPolicy::Temporary`]**: Never restart
+//!
+//! # Supervision Strategies
+//!
+//! - **[`SupervisionStrategy::OneForOne`]**: Only restart the failed child (default)
+//! - **[`SupervisionStrategy::OneForAll`]**: Restart all children when any one fails
+//! - **[`SupervisionStrategy::RestForOne`]**: Restart the failed child plus all younger siblings
+//!
+//! # Examples
+//!
+//! See the [`supervision` example](https://github.com/tqwewe/kameo/blob/main/examples/supervision.rs)
+//! for a complete working example.
+//!
+//! [`Spawn::supervise`]: crate::actor::Spawn::supervise
+
 use std::{
     any::Any,
     sync::Arc,
@@ -12,29 +89,256 @@ use crate::{
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
 };
 
+/// Defines when a supervised child actor should be restarted.
+///
+/// The restart policy determines whether a child should be restarted based on how it
+/// terminated. This allows fine-grained control over restart behavior depending on
+/// whether the actor failed unexpectedly or completed its work normally.
+///
+/// # Restart Behavior
+///
+/// | Policy | On Panic | On Error | On Normal Exit |
+/// |--------|----------|----------|----------------|
+/// | [`Permanent`](Self::Permanent) | ✓ Restart | ✓ Restart | ✓ Restart |
+/// | [`Transient`](Self::Transient) | ✓ Restart | ✓ Restart | ✗ No restart |
+/// | [`Temporary`](Self::Temporary) | ✗ No restart | ✗ No restart | ✗ No restart |
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::time::Duration;
+/// use kameo::actor::{Actor, ActorRef, Spawn};
+/// use kameo::supervision::RestartPolicy;
+/// # use kameo::error::Infallible;
+/// #
+/// # struct Supervisor;
+/// # impl Actor for Supervisor {
+/// #     type Args = ();
+/// #     type Error = Infallible;
+/// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+/// #         Ok(Supervisor)
+/// #     }
+/// # }
+/// # #[derive(Clone)]
+/// # struct Worker;
+/// # impl Actor for Worker {
+/// #     type Args = Self;
+/// #     type Error = Infallible;
+/// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+/// #         Ok(state)
+/// #     }
+/// # }
+/// # let supervisor_ref: ActorRef<Supervisor> = unimplemented!();
+///
+/// // Critical service that must always be running
+/// let critical = Worker::supervise(&supervisor_ref, Worker)
+///     .restart(RestartPolicy::Permanent)
+///     .spawn()
+///     .await;
+///
+/// // Worker that can exit normally when work is done
+/// let worker = Worker::supervise(&supervisor_ref, Worker)
+///     .restart(RestartPolicy::Transient)
+///     .spawn()
+///     .await;
+///
+/// // One-time task that should not restart
+/// let task = Worker::supervise(&supervisor_ref, Worker)
+///     .restart(RestartPolicy::Temporary)
+///     .spawn()
+///     .await;
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RestartPolicy {
-    /// Always restarted, regardless of how it died (panic or normal exit).
+    /// Always restart the child, regardless of how it terminated.
+    ///
+    /// Use this for critical services that must always be running. The child will be
+    /// restarted whether it panicked, returned an error, or exited normally (e.g., via
+    /// `ctx.stop()`).
+    ///
+    /// This is the default restart policy.
+    ///
+    /// # Use Cases
+    ///
+    /// - Critical system services
+    /// - Stateless workers that should always be available
+    /// - Actors that should never stop running
     #[default]
     Permanent,
-    /// Only restarted if it died abnormally (panic, error).
-    /// A normal exit is left alone.
+    /// Only restart if the child died abnormally (panic or error).
+    ///
+    /// Normal exits (e.g., calling `ctx.stop()` or returning successfully) will not trigger
+    /// a restart. Use this for workers that can complete their work and exit normally.
+    ///
+    /// # Use Cases
+    ///
+    /// - Workers that process a queue and exit when empty
+    /// - Actors with defined completion states
+    /// - Services that can gracefully shutdown
     Transient,
-    /// Never restarted. Supervisor just notes it died and moves on.
+    /// Never restart the child, regardless of how it terminated.
+    ///
+    /// The supervisor will note the child's termination but will not attempt to restart it.
+    /// Use this for one-time tasks or when manual intervention is required.
+    ///
+    /// # Use Cases
+    ///
+    /// - One-time initialization tasks
+    /// - Actors where failure requires manual intervention
+    /// - Temporary actors with a single purpose
     Temporary,
 }
 
+/// Defines which children should be restarted when a child actor fails.
+///
+/// The supervision strategy determines the scope of restarts when a child fails.
+/// This allows you to balance fault isolation with consistency requirements based
+/// on how tightly coupled your child actors are.
+///
+/// # Strategy Comparison
+///
+/// | Strategy | Failed Child | Siblings Spawned Before | Siblings Spawned After |
+/// |----------|--------------|-------------------------|------------------------|
+/// | [`OneForOne`](Self::OneForOne) | ✓ Restart | ✗ No change | ✗ No change |
+/// | [`OneForAll`](Self::OneForAll) | ✓ Restart | ✓ Restart | ✓ Restart |
+/// | [`RestForOne`](Self::RestForOne) | ✓ Restart | ✗ No change | ✓ Restart |
+///
+/// # Examples
+///
+/// ```no_run
+/// use kameo::actor::{Actor, ActorRef};
+/// use kameo::error::Infallible;
+/// use kameo::supervision::SupervisionStrategy;
+///
+/// struct Supervisor;
+/// impl Actor for Supervisor {
+///     type Args = ();
+///     type Error = Infallible;
+///
+///     fn supervision_strategy() -> SupervisionStrategy {
+///         // Choose the strategy that matches your requirements
+///         SupervisionStrategy::OneForAll
+///     }
+///
+///     async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+///         Ok(Supervisor)
+///     }
+/// }
+/// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SupervisionStrategy {
-    /// Only restart the child that died.
+    /// Only restart the child that failed.
+    ///
+    /// This is the most selective strategy, providing maximum fault isolation. When a child
+    /// fails, only that child is restarted. All other children continue running normally.
+    ///
+    /// This is the default supervision strategy.
+    ///
+    /// # Use Cases
+    ///
+    /// - Independent workers that don't share state
+    /// - Pool of similar workers processing tasks
+    /// - When failures in one child don't affect others
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// Supervisor
+    /// ├── Child A (running)
+    /// ├── Child B (crashes) → Only Child B restarts
+    /// └── Child C (running)
+    /// ```
     #[default]
     OneForOne,
-    /// Restart all children when any one dies.
+    /// Restart all children when any one fails.
+    ///
+    /// This is the most aggressive strategy. When any child fails, all children under the
+    /// supervisor are terminated and restarted together. Use this when children have
+    /// interdependencies or shared state that must be kept consistent.
+    ///
+    /// # Use Cases
+    ///
+    /// - Tightly coupled services that must stay synchronized
+    /// - Children that share distributed state
+    /// - When a partial restart would leave the system in an inconsistent state
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// Supervisor
+    /// ├── Child A (running) → Restarted
+    /// ├── Child B (crashes) → Restarted
+    /// └── Child C (running) → Restarted
+    /// ```
     OneForAll,
-    /// Restart the child that died, plus all children spawned after it.
+    /// Restart the failed child plus all children spawned after it.
+    ///
+    /// This strategy restarts the failed child and all its "younger siblings" (children that
+    /// were spawned after it). Children spawned before the failed child continue running.
+    /// Use this when children have sequential dependencies.
+    ///
+    /// # Use Cases
+    ///
+    /// - Pipeline stages where later stages depend on earlier ones
+    /// - Services with startup ordering requirements
+    /// - When newer children depend on older ones
+    ///
+    /// # Example
+    ///
+    /// ```text
+    /// Supervisor
+    /// ├── Child A (spawned first, running)  → Continues running
+    /// ├── Child B (spawned second, crashes) → Restarted
+    /// └── Child C (spawned third, running)  → Restarted
+    /// ```
     RestForOne,
 }
 
+/// Builder for configuring and spawning supervised child actors.
+///
+/// This builder is created by calling [`Spawn::supervise`] or [`Spawn::supervise_with`]
+/// and provides a fluent API for configuring supervision behavior before spawning the actor.
+///
+/// # Default Configuration
+///
+/// - **Restart Policy**: [`RestartPolicy::Permanent`] (always restart)
+/// - **Restart Limit**: 5 restarts per 5 seconds
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::time::Duration;
+/// use kameo::actor::{Actor, ActorRef, Spawn};
+/// use kameo::error::Infallible;
+/// use kameo::supervision::RestartPolicy;
+///
+/// # struct Supervisor;
+/// # impl Actor for Supervisor {
+/// #     type Args = ();
+/// #     type Error = Infallible;
+/// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+/// #[derive(Clone)]
+/// struct Worker;
+/// impl Actor for Worker {
+///     type Args = Self;
+///     type Error = Infallible;
+///     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+///         Ok(state)
+///     }
+/// }
+/// # let supervisor_ref: ActorRef<Supervisor> = unimplemented!();
+///
+/// // Configure and spawn a supervised child
+/// let child = Worker::supervise(&supervisor_ref, Worker)
+///     .restart(RestartPolicy::Transient)
+///     .restart_limit(3, Duration::from_secs(10))
+///     .spawn()
+///     .await;
+/// # }}
+/// ```
+///
+/// [`Spawn::supervise`]: crate::actor::Spawn::supervise
+/// [`Spawn::supervise_with`]: crate::actor::Spawn::supervise_with
 #[allow(missing_debug_implementations)]
 pub struct SupervisedActorBuilder<'a, S: Actor, C: Actor> {
     supervisor_ref: &'a ActorRef<S>,
@@ -74,22 +378,162 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
         }
     }
 
+    /// Sets the restart policy for this supervised child.
+    ///
+    /// The restart policy determines when the child should be restarted after it stops.
+    /// See [`RestartPolicy`] for details on each policy.
+    ///
+    /// # Default
+    ///
+    /// [`RestartPolicy::Permanent`] (always restart)
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// use kameo::supervision::RestartPolicy;
+    /// # use kameo::error::Infallible;
+    /// # #[derive(Clone)] struct Worker;
+    /// # impl Actor for Worker {
+    /// #     type Args = Self;
+    /// #     type Error = Infallible;
+    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// # }
+    /// # struct Supervisor;
+    /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
+    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// # let supervisor_ref = &actor_ref;
+    ///
+    /// let child = Worker::supervise(supervisor_ref, Worker)
+    ///     .restart(RestartPolicy::Transient) // Only restart on abnormal exits
+    ///     .spawn()
+    ///     .await;
+    /// # Ok(Supervisor) }}
+    /// ```
     pub fn restart(mut self, policy: RestartPolicy) -> Self {
         self.restart_policy = policy;
         self
     }
 
+    /// Sets the restart intensity limit for this supervised child.
+    ///
+    /// This prevents "restart storms" by limiting the number of restarts within a time window.
+    /// If the child restarts more than `restarts` times within the `within` duration, the
+    /// supervisor will stop attempting to restart it.
+    ///
+    /// # Default
+    ///
+    /// 5 restarts per 5 seconds
+    ///
+    /// # Parameters
+    ///
+    /// - `restarts`: Maximum number of restarts allowed
+    /// - `within`: Time window for counting restarts
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// # use kameo::error::Infallible;
+    /// # #[derive(Clone)] struct Worker;
+    /// # impl Actor for Worker {
+    /// #     type Args = Self;
+    /// #     type Error = Infallible;
+    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// # }
+    /// # struct Supervisor;
+    /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
+    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// # let supervisor_ref = &actor_ref;
+    ///
+    /// // Allow at most 3 restarts in 10 seconds
+    /// let child = Worker::supervise(supervisor_ref, Worker)
+    ///     .restart_limit(3, Duration::from_secs(10))
+    ///     .spawn()
+    ///     .await;
+    /// # Ok(Supervisor) }}
+    /// ```
     pub fn restart_limit(mut self, restarts: u32, within: Duration) -> Self {
         self.max_restarts = restarts;
         self.restart_window = within;
         self
     }
 
+    /// Spawns the supervised child actor with a default bounded mailbox.
+    ///
+    /// The child will be spawned with a bounded mailbox of capacity 64 (the default).
+    ///
+    /// # Returns
+    ///
+    /// An [`ActorRef`] to the spawned child actor.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// # use kameo::error::Infallible;
+    /// # #[derive(Clone)] struct Worker;
+    /// # impl Actor for Worker {
+    /// #     type Args = Self;
+    /// #     type Error = Infallible;
+    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// # }
+    /// # struct Supervisor;
+    /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
+    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// # let supervisor_ref = &actor_ref;
+    ///
+    /// let child = Worker::supervise(supervisor_ref, Worker)
+    ///     .spawn()
+    ///     .await;
+    /// # Ok(Supervisor) }}
+    /// ```
+    ///
+    /// [`ActorRef`]: crate::actor::ActorRef
     pub async fn spawn(self) -> ActorRef<C> {
         self.spawn_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
             .await
     }
 
+    /// Spawns the supervised child actor with a custom mailbox configuration.
+    ///
+    /// This allows you to specify a custom mailbox (bounded or unbounded) for the child actor.
+    ///
+    /// # Parameters
+    ///
+    /// - `mailbox_tx`: The sender side of the mailbox
+    /// - `mailbox_rx`: The receiver side of the mailbox
+    ///
+    /// # Returns
+    ///
+    /// An [`ActorRef`] to the spawned child actor.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// use kameo::mailbox;
+    /// # use kameo::error::Infallible;
+    /// # #[derive(Clone)] struct Worker;
+    /// # impl Actor for Worker {
+    /// #     type Args = Self;
+    /// #     type Error = Infallible;
+    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// # }
+    /// # struct Supervisor;
+    /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
+    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// # let supervisor_ref = &actor_ref;
+    ///
+    /// // Spawn with a custom bounded mailbox
+    /// let child = Worker::supervise(supervisor_ref, Worker)
+    ///     .spawn_with_mailbox(mailbox::bounded(100))
+    ///     .await;
+    /// # Ok(Supervisor) }}
+    /// ```
+    ///
+    /// [`ActorRef`]: crate::actor::ActorRef
     pub async fn spawn_with_mailbox(
         self,
         (mailbox_tx, mailbox_rx): (MailboxSender<C>, MailboxReceiver<C>),
@@ -97,11 +541,83 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
         self.spawn_inner((mailbox_tx, mailbox_rx), false).await
     }
 
+    /// Spawns the supervised child actor in a dedicated thread.
+    ///
+    /// This is useful for actors that need to perform blocking operations or CPU-intensive
+    /// work without blocking the async runtime. The actor will run on a separate OS thread
+    /// but can still communicate with other actors asynchronously.
+    ///
+    /// # Returns
+    ///
+    /// An [`ActorRef`] to the spawned child actor.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// # use kameo::error::Infallible;
+    /// # #[derive(Clone)] struct BlockingWorker;
+    /// # impl Actor for BlockingWorker {
+    /// #     type Args = Self;
+    /// #     type Error = Infallible;
+    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// # }
+    /// # struct Supervisor;
+    /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
+    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// # let supervisor_ref = &actor_ref;
+    ///
+    /// // Spawn in a dedicated thread for blocking operations
+    /// let child = BlockingWorker::supervise(supervisor_ref, BlockingWorker)
+    ///     .spawn_in_thread()
+    ///     .await;
+    /// # Ok(Supervisor) }}
+    /// ```
+    ///
+    /// [`ActorRef`]: crate::actor::ActorRef
     pub async fn spawn_in_thread(self) -> ActorRef<C> {
-        self.spawn_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
+        self.spawn_in_thread_with_mailbox(mailbox::bounded(DEFAULT_MAILBOX_CAPACITY))
             .await
     }
 
+    /// Spawns the supervised child actor in a dedicated thread with a custom mailbox.
+    ///
+    /// Combines the benefits of thread-based spawning with custom mailbox configuration.
+    ///
+    /// # Parameters
+    ///
+    /// - `mailbox_tx`: The sender side of the mailbox
+    /// - `mailbox_rx`: The receiver side of the mailbox
+    ///
+    /// # Returns
+    ///
+    /// An [`ActorRef`] to the spawned child actor.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// use kameo::mailbox;
+    /// # use kameo::error::Infallible;
+    /// # #[derive(Clone)] struct BlockingWorker;
+    /// # impl Actor for BlockingWorker {
+    /// #     type Args = Self;
+    /// #     type Error = Infallible;
+    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// # }
+    /// # struct Supervisor;
+    /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
+    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// # let supervisor_ref = &actor_ref;
+    ///
+    /// // Spawn in thread with custom mailbox
+    /// let child = BlockingWorker::supervise(supervisor_ref, BlockingWorker)
+    ///     .spawn_in_thread_with_mailbox(mailbox::bounded(200))
+    ///     .await;
+    /// # Ok(Supervisor) }}
+    /// ```
+    ///
+    /// [`ActorRef`]: crate::actor::ActorRef
     pub async fn spawn_in_thread_with_mailbox(
         self,
         (mailbox_tx, mailbox_rx): (MailboxSender<C>, MailboxReceiver<C>),
@@ -109,6 +625,11 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
         self.spawn_inner((mailbox_tx, mailbox_rx), true).await
     }
 
+    /// Internal method used by spawn methods.
+    ///
+    /// This method is public but intended for internal use only. Use [`spawn`](Self::spawn),
+    /// [`spawn_with_mailbox`](Self::spawn_with_mailbox), [`spawn_in_thread`](Self::spawn_in_thread),
+    /// or [`spawn_in_thread_with_mailbox`](Self::spawn_in_thread_with_mailbox) instead.
     pub async fn spawn_inner(
         self,
         (mailbox_tx, mailbox_rx): (MailboxSender<C>, MailboxReceiver<C>),

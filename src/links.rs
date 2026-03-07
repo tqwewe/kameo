@@ -90,6 +90,7 @@ pub enum Link {
 }
 
 impl Link {
+    #[cfg_attr(not(feature = "remote"), allow(unused_variables))]
     pub async fn notify(
         self,
         link_actor_id: ActorId,

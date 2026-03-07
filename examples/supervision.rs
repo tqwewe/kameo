@@ -14,13 +14,11 @@ impl Actor for MySupervisor {
         SupervisionStrategy::OneForAll
     }
 
-    async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        let brother = actor_ref
-            .supervise::<BrotherActor>(BrotherActor)
+    async fn on_start(_: Self::Args, supervisor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        let brother = BrotherActor::supervise(&supervisor_ref, BrotherActor)
             .spawn()
             .await;
-        let worker = actor_ref
-            .supervise::<MyActor>(MyActor::default())
+        let worker = MyActor::supervise(&supervisor_ref, MyActor::default())
             .restart_limit(2, Duration::from_secs(5))
             .spawn()
             .await;

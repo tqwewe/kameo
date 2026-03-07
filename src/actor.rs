@@ -135,6 +135,52 @@ pub trait Actor: Sized + Send + 'static {
         any::type_name::<Self>()
     }
 
+    /// Defines the supervision strategy for this actor when acting as a supervisor.
+    ///
+    /// The supervision strategy determines which children should be restarted when a child
+    /// actor fails. Override this method to customize the behavior.
+    ///
+    /// # Default
+    ///
+    /// [`SupervisionStrategy::OneForOne`] - only restart the failed child
+    ///
+    /// # When to Override
+    ///
+    /// - Use [`SupervisionStrategy::OneForAll`] when children are tightly coupled and must be
+    ///   kept in sync (e.g., services that share distributed state)
+    /// - Use [`SupervisionStrategy::RestForOne`] when children have sequential dependencies
+    ///   (e.g., pipeline stages where later stages depend on earlier ones)
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use kameo::actor::{Actor, ActorRef};
+    /// use kameo::error::Infallible;
+    /// use kameo::supervision::SupervisionStrategy;
+    ///
+    /// struct Supervisor;
+    ///
+    /// impl Actor for Supervisor {
+    ///     type Args = ();
+    ///     type Error = Infallible;
+    ///
+    ///     // Override to use OneForAll strategy
+    ///     fn supervision_strategy() -> SupervisionStrategy {
+    ///         SupervisionStrategy::OneForAll
+    ///     }
+    ///
+    ///     async fn on_start(
+    ///         _: Self::Args,
+    ///         _: ActorRef<Self>
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Ok(Supervisor)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`SupervisionStrategy::OneForOne`]: crate::supervision::SupervisionStrategy::OneForOne
+    /// [`SupervisionStrategy::OneForAll`]: crate::supervision::SupervisionStrategy::OneForAll
+    /// [`SupervisionStrategy::RestForOne`]: crate::supervision::SupervisionStrategy::RestForOne
     #[inline]
     fn supervision_strategy() -> SupervisionStrategy {
         SupervisionStrategy::default()
@@ -751,6 +797,71 @@ pub trait Spawn: Actor + private::Sealed {
         PreparedActor::new((mailbox_tx, mailbox_rx))
     }
 
+    /// Creates a supervised child actor under a supervisor.
+    ///
+    /// This method returns a [`SupervisedActorBuilder`] that allows you to configure
+    /// restart policies and limits before spawning the child. The child will be linked
+    /// to the supervisor, and the supervisor will manage its lifecycle according to the
+    /// configured policies.
+    ///
+    /// When the child actor needs to be restarted, the provided `args` will be cloned
+    /// and passed to the actor's [`on_start`](Actor::on_start) method. This requires
+    /// that `Args` implements [`Clone`].
+    ///
+    /// # Parameters
+    ///
+    /// - `supervisor_ref`: Reference to the supervisor actor that will manage this child
+    /// - `args`: Initial arguments for the child actor (must be [`Clone`] + [`Sync`])
+    ///
+    /// # Returns
+    ///
+    /// A [`SupervisedActorBuilder`] for configuring supervision behavior
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// use kameo::error::Infallible;
+    /// use kameo::supervision::{RestartPolicy, SupervisionStrategy};
+    ///
+    /// struct Supervisor;
+    /// impl Actor for Supervisor {
+    ///     type Args = ();
+    ///     type Error = Infallible;
+    ///
+    ///     fn supervision_strategy() -> SupervisionStrategy {
+    ///         SupervisionStrategy::OneForOne
+    ///     }
+    ///
+    ///     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///         // Spawn a supervised child
+    ///         let child = Worker::supervise(&actor_ref, Worker { count: 0 })
+    ///             .restart(RestartPolicy::Transient)
+    ///             .restart_limit(5, Duration::from_secs(10))
+    ///             .spawn()
+    ///             .await;
+    ///
+    ///         Ok(Supervisor)
+    ///     }
+    /// }
+    ///
+    /// #[derive(Clone)]
+    /// struct Worker {
+    ///     count: u32,
+    /// }
+    ///
+    /// impl Actor for Worker {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`SupervisedActorBuilder`]: crate::supervision::SupervisedActorBuilder
     fn supervise<A: Actor>(
         supervisor_ref: &ActorRef<A>,
         args: Self::Args,
@@ -761,6 +872,67 @@ pub trait Spawn: Actor + private::Sealed {
         SupervisedActorBuilder::new(supervisor_ref, args)
     }
 
+    /// Creates a supervised child actor with a factory function for generating args.
+    ///
+    /// This is similar to [`supervise`](Self::supervise), but instead of cloning the same
+    /// args on each restart, it calls a factory function to generate new args. This is
+    /// useful when:
+    ///
+    /// - The actor's args don't implement [`Clone`]
+    /// - You need to generate fresh state on each restart
+    /// - Args need to be dynamically computed at restart time
+    ///
+    /// # Parameters
+    ///
+    /// - `supervisor_ref`: Reference to the supervisor actor that will manage this child
+    /// - `f`: Factory function that returns fresh args on each restart (must be [`Send`] + [`Sync`])
+    ///
+    /// # Returns
+    ///
+    /// A [`SupervisedActorBuilder`] for configuring supervision behavior
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use kameo::actor::{Actor, ActorRef, Spawn};
+    /// use kameo::error::Infallible;
+    /// use kameo::supervision::RestartPolicy;
+    ///
+    /// struct Supervisor;
+    /// impl Actor for Supervisor {
+    ///     type Args = ();
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///         // Use a factory function to generate fresh state on each restart
+    ///         let child = Worker::supervise_with(&actor_ref, || Worker {
+    ///             // This function is called on each restart
+    ///             start_time: std::time::Instant::now(),
+    ///         })
+    ///         .restart(RestartPolicy::Transient)
+    ///         .spawn()
+    ///         .await;
+    ///
+    ///         Ok(Supervisor)
+    ///     }
+    /// }
+    ///
+    /// struct Worker {
+    ///     start_time: std::time::Instant, // Not Clone
+    /// }
+    ///
+    /// impl Actor for Worker {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`SupervisedActorBuilder`]: crate::supervision::SupervisedActorBuilder
     fn supervise_with<A: Actor>(
         supervisor_ref: &ActorRef<A>,
         f: impl Fn() -> Self::Args + Send + Sync + 'static,
