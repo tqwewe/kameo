@@ -152,9 +152,6 @@ impl ErasedChildSpec {
             RestartPolicy::Transient if reason.is_normal() => {
                 return ControlFlow::Break(NoRestartReason::NormalExitUnderTransientPolicy);
             }
-            RestartPolicy::Temporary => {
-                return ControlFlow::Break(NoRestartReason::PolicyTemporary);
-            }
             RestartPolicy::Transient => {}
         }
 
@@ -180,8 +177,6 @@ impl ErasedChildSpec {
 }
 
 pub enum NoRestartReason {
-    /// RestartPolicy::Temporary always forbids restart
-    PolicyTemporary,
     /// Transient policy but stop was normal
     NormalExitUnderTransientPolicy,
     /// Restart intensity threshold exceeded
@@ -194,9 +189,6 @@ pub enum NoRestartReason {
 impl fmt::Display for NoRestartReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            NoRestartReason::PolicyTemporary => {
-                write!(f, "temporary policy")
-            }
             NoRestartReason::NormalExitUnderTransientPolicy => {
                 write!(f, "normal exit under transient policy")
             }

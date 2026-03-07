@@ -311,8 +311,7 @@ where
                     ControlFlow::Break(no_restart_reason) => {
                         #[cfg(feature = "tracing")]
                         match no_restart_reason {
-                            NoRestartReason::PolicyTemporary
-                            | NoRestartReason::NormalExitUnderTransientPolicy => {
+                            NoRestartReason::NormalExitUnderTransientPolicy => {
                                 tracing::debug!(
                                     %id,
                                     name = A::name(),
