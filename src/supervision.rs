@@ -348,10 +348,7 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     pub(crate) fn new_with(
         supervisor_ref: &'a ActorRef<S>,
         f: impl Fn() -> C::Args + Send + Sync + 'static,
-    ) -> Self
-    where
-        C::Args: Sync,
-    {
+    ) -> Self {
         SupervisedActorBuilder {
             supervisor_ref,
             args_factory: SupervisorFactory::new_with(f),

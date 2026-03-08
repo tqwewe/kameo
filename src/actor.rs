@@ -806,7 +806,10 @@ pub trait Spawn: Actor + private::Sealed {
     ///
     /// When the child actor needs to be restarted, the provided `args` will be cloned
     /// and passed to the actor's [`on_start`](Actor::on_start) method. This requires
-    /// that `Args` implements [`Clone`].
+    /// that `Args` implements [`Clone`] + [`Sync`].
+    ///
+    /// **Note**: If your args type is not [`Sync`], use [`supervise_with`](Self::supervise_with)
+    /// instead, which only requires [`Send`].
     ///
     /// # Parameters
     ///
@@ -878,9 +881,13 @@ pub trait Spawn: Actor + private::Sealed {
     /// args on each restart, it calls a factory function to generate new args. This is
     /// useful when:
     ///
+    /// - **The actor's args don't implement [`Sync`]** (only requires [`Send`])
     /// - The actor's args don't implement [`Clone`]
     /// - You need to generate fresh state on each restart
     /// - Args need to be dynamically computed at restart time
+    ///
+    /// Unlike [`supervise`](Self::supervise), this method only requires `Args: Send`, making
+    /// it suitable for types that cannot be safely shared across threads.
     ///
     /// # Parameters
     ///
@@ -936,10 +943,7 @@ pub trait Spawn: Actor + private::Sealed {
     fn supervise_with<A: Actor>(
         supervisor_ref: &ActorRef<A>,
         f: impl Fn() -> Self::Args + Send + Sync + 'static,
-    ) -> SupervisedActorBuilder<'_, A, Self>
-    where
-        Self::Args: Sync,
-    {
+    ) -> SupervisedActorBuilder<'_, A, Self> {
         SupervisedActorBuilder::new_with(supervisor_ref, f)
     }
 }
