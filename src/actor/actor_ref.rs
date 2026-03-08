@@ -20,7 +20,7 @@ use crate::request;
 
 use crate::{
     Actor, Reply,
-    error::{self, HookError, Infallible, PanicError, SendError},
+    error::{self, ActorStopReason, HookError, Infallible, PanicError, SendError},
     links::{ErasedChildSpec, Link, Links},
     mailbox::{MailboxSender, Signal, SignalMailbox, WeakMailboxSender},
     message::{Message, StreamMessage},
@@ -51,7 +51,7 @@ pub struct ActorRef<A: Actor> {
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
-    pub(crate) shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
+    pub(crate) shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
 }
 
 impl<A> ActorRef<A>
@@ -65,7 +65,7 @@ where
         abort_handle: AbortHandle,
         links: Links,
         startup_result: Arc<SetOnce<Result<(), PanicError>>>,
-        shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
+        shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
     ) -> Self {
         ActorRef {
             id,
@@ -432,11 +432,11 @@ where
     /// use std::num::ParseIntError;
     ///
     /// use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
-    /// use kameo::error::ActorStopReason;
+    /// use kameo::error::{ActorStopReason, Infallible};
     ///
-    /// struct MyActor;
+    /// struct MyActorWithError;
     ///
-    /// impl Actor for MyActor {
+    /// impl Actor for MyActorWithError {
     ///     type Args = Self;
     ///     type Error = ParseIntError;
     ///
@@ -452,21 +452,42 @@ where
     ///     }
     /// }
     ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(
+    ///         state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
+    /// }
+    ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// // On error, you get the hook error
+    /// let actor_ref = MyActorWithError::spawn(MyActorWithError);
     /// actor_ref.stop_gracefully().await;
     /// let shutdown_result = actor_ref.wait_for_shutdown_result().await;
     /// assert!(shutdown_result.is_err());
+    ///
+    /// // On success, you get the ActorStopReason
+    /// let actor_ref2 = MyActor::spawn(MyActor);
+    /// actor_ref2.kill();
+    /// let reason = actor_ref2.wait_for_shutdown_result().await.unwrap();
+    /// assert!(matches!(reason, ActorStopReason::Killed));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
-    pub async fn wait_for_shutdown_result(&self) -> Result<(), HookError<A::Error>>
+    pub async fn wait_for_shutdown_result(&self) -> Result<ActorStopReason, HookError<A::Error>>
     where
         A::Error: Clone,
     {
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
-            Ok(()) => Ok(()),
+            Ok(reason) => Ok(reason.clone()),
             Err(err) => Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
                 .unwrap_or_else(|| HookError::Panicked(err.clone()))),
@@ -486,14 +507,14 @@ where
     ///
     /// ```
     /// use kameo::actor::{Actor, ActorRef, Spawn, WeakActorRef};
-    /// use kameo::error::ActorStopReason;
+    /// use kameo::error::{ActorStopReason, Infallible};
     ///
-    /// struct MyActor;
+    /// struct MyActorWithError;
     ///
     /// #[derive(Debug)]
     /// struct NonCloneError;
     ///
-    /// impl Actor for MyActor {
+    /// impl Actor for MyActorWithError {
     ///     type Args = Self;
     ///     type Error = NonCloneError;
     ///
@@ -509,22 +530,45 @@ where
     ///     }
     /// }
     ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(
+    ///         state: Self::Args,
+    ///         _actor_ref: ActorRef<Self>,
+    ///     ) -> Result<Self, Self::Error> {
+    ///         Ok(state)
+    ///     }
+    /// }
+    ///
     /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
+    /// // On error, you get a reference to the hook error
+    /// let actor_ref = MyActorWithError::spawn(MyActorWithError);
     /// actor_ref.stop_gracefully().await;
     /// actor_ref.wait_for_shutdown_with_result(|res| {
     ///     assert!(res.is_err());
+    /// }).await;
+    ///
+    /// // On success, you get a reference to the ActorStopReason
+    /// let actor_ref2 = MyActor::spawn(MyActor);
+    /// actor_ref2.kill();
+    /// actor_ref2.wait_for_shutdown_with_result(|res| {
+    ///     let reason = res.unwrap();
+    ///     assert!(matches!(reason, ActorStopReason::Killed));
     /// }).await;
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// # });
     /// ```
     pub async fn wait_for_shutdown_with_result<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
+        F: FnOnce(Result<&ActorStopReason, HookError<&A::Error>>) -> R,
     {
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
-            Ok(()) => f(Ok(())),
+            Ok(reason) => f(Ok(reason)),
             Err(err) => match err.err.lock() {
                 Ok(lock) => match lock.downcast_ref() {
                     Some(err) => f(Err(HookError::Error(err))),
@@ -1879,7 +1923,7 @@ pub struct WeakActorRef<A: Actor> {
     abort_handle: AbortHandle,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
-    pub(crate) shutdown_result: Arc<SetOnce<Result<(), PanicError>>>,
+    pub(crate) shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
 }
 
 impl<A: Actor> WeakActorRef<A> {
@@ -1992,12 +2036,12 @@ impl<A: Actor> WeakActorRef<A> {
     /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
     ///
     /// See [`ActorRef::wait_for_shutdown_result`] for full details and examples.
-    pub async fn wait_for_shutdown_result(&self) -> Result<(), HookError<A::Error>>
+    pub async fn wait_for_shutdown_result(&self) -> Result<ActorStopReason, HookError<A::Error>>
     where
         A::Error: Clone,
     {
         match self.shutdown_result.wait().await {
-            Ok(()) => Ok(()),
+            Ok(reason) => Ok(reason.clone()),
             Err(err) => Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
                 .unwrap_or_else(|| HookError::Panicked(err.clone()))),
@@ -2009,10 +2053,10 @@ impl<A: Actor> WeakActorRef<A> {
     /// See [`ActorRef::wait_for_shutdown_with_result`] for full details and examples.
     pub async fn wait_for_shutdown_with_result<F, R>(&self, f: F) -> R
     where
-        F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
+        F: FnOnce(Result<&ActorStopReason, HookError<&A::Error>>) -> R,
     {
         match self.shutdown_result.wait().await {
-            Ok(()) => f(Ok(())),
+            Ok(reason) => f(Ok(reason)),
             Err(err) => match err.err.lock() {
                 Ok(lock) => match lock.downcast_ref() {
                     Some(err) => f(Err(HookError::Error(err))),

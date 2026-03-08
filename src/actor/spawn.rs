@@ -228,7 +228,7 @@ where
                     Ok(()) => {
                         actor_ref
                             .shutdown_result
-                            .set(Ok(()))
+                            .set(Ok(reason.clone()))
                             .expect("nothing else should set the shutdown result");
                     }
                     Err(err) => {
