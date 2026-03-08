@@ -100,6 +100,7 @@ impl Link {
     ) {
         match self {
             Link::Local(mailbox) => {
+                #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                 if let Err(err) = mailbox
                     .signal_link_died(dead_actor_id, reason, mailbox_rx)
                     .await
@@ -119,6 +120,7 @@ impl Link {
                             reason,
                         )
                         .await;
+                    #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                     if let Err(err) = res {
                         #[cfg(feature = "tracing")]
                         tracing::error!("failed to notify actor a link died: {err}");

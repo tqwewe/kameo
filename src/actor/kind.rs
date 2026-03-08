@@ -14,7 +14,7 @@ use tracing::Instrument;
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, PanicError, PanicReason},
-    links::{BoxMailboxReceiver, NoRestartReason, ShutdownFn},
+    links::{BoxMailboxReceiver, ShutdownFn},
     mailbox::{MailboxReceiver, Signal},
     message::BoxMessage,
     reply::BoxReplySender,
@@ -233,6 +233,7 @@ where
             if let Some(spec) = links.children.get_mut(&id) {
                 let should_restart = spec.should_restart(&reason);
                 let factory = Arc::clone(&spec.factory);
+                #[cfg(feature = "tracing")]
                 let restart_count = spec.restart_count;
 
                 // Extract what we need for coordination before dropping mutable borrow
@@ -308,10 +309,11 @@ where
 
                         return ControlFlow::Continue(());
                     }
+                    #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                     ControlFlow::Break(no_restart_reason) => {
                         #[cfg(feature = "tracing")]
                         match no_restart_reason {
-                            NoRestartReason::NormalExitUnderTransientPolicy => {
+                            crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
                                 tracing::debug!(
                                     %id,
                                     name = A::name(),
@@ -320,7 +322,7 @@ where
                                     "actor not restarted"
                                 );
                             }
-                            NoRestartReason::MaxRestartsExceeded { .. } => {
+                            crate::links::NoRestartReason::MaxRestartsExceeded { .. } => {
                                 tracing::warn!(
                                     %id,
                                     name = A::name(),
