@@ -36,7 +36,7 @@
 //!     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
 //!         // Spawn a supervised child that restarts on abnormal exits
 //!         let child = Worker::supervise(&actor_ref, Worker)
-//!             .restart(RestartPolicy::Transient)
+//!             .restart_policy(RestartPolicy::Transient)
 //!             .restart_limit(5, Duration::from_secs(10))
 //!             .spawn()
 //!             .await;
@@ -131,13 +131,13 @@ use crate::{
 ///
 /// // Critical service that must always be running
 /// let critical = Worker::supervise(&supervisor_ref, Worker)
-///     .restart(RestartPolicy::Permanent)
+///     .restart_policy(RestartPolicy::Permanent)
 ///     .spawn()
 ///     .await;
 ///
 /// // Worker that can exit normally when work is done
 /// let worker = Worker::supervise(&supervisor_ref, Worker)
-///     .restart(RestartPolicy::Transient)
+///     .restart_policy(RestartPolicy::Transient)
 ///     .spawn()
 ///     .await;
 /// # };
@@ -313,7 +313,7 @@ pub enum SupervisionStrategy {
 ///
 /// // Configure and spawn a supervised child
 /// let child = Worker::supervise(&supervisor_ref, Worker)
-///     .restart(RestartPolicy::Transient)
+///     .restart_policy(RestartPolicy::Transient)
 ///     .restart_limit(3, Duration::from_secs(10))
 ///     .spawn()
 ///     .await;
@@ -388,12 +388,12 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// let child = Worker::supervise(supervisor_ref, Worker)
-    ///     .restart(RestartPolicy::Transient) // Only restart on abnormal exits
+    ///     .restart_policy(RestartPolicy::Transient) // Only restart on abnormal exits
     ///     .spawn()
     ///     .await;
     /// # Ok(Supervisor) }}
     /// ```
-    pub fn restart(mut self, policy: RestartPolicy) -> Self {
+    pub fn restart_policy(mut self, policy: RestartPolicy) -> Self {
         self.restart_policy = policy;
         self
     }
@@ -918,7 +918,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(5, Duration::from_secs(10))
             .spawn()
             .await;
@@ -947,7 +947,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(5, Duration::from_secs(10))
             .spawn()
             .await;
@@ -976,7 +976,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(5, Duration::from_secs(10))
             .spawn()
             .await;
@@ -1005,7 +1005,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Transient)
+            .restart_policy(RestartPolicy::Transient)
             .restart_limit(5, Duration::from_secs(10))
             .spawn()
             .await;
@@ -1034,7 +1034,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Transient)
+            .restart_policy(RestartPolicy::Transient)
             .restart_limit(5, Duration::from_secs(10))
             .spawn()
             .await;
@@ -1063,7 +1063,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Transient)
+            .restart_policy(RestartPolicy::Transient)
             .restart_limit(5, Duration::from_secs(10))
             .spawn()
             .await;
@@ -1094,7 +1094,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(2, Duration::from_secs(10))
             .spawn()
             .await;
@@ -1131,7 +1131,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(2, Duration::from_millis(100)) // Very short window
             .spawn()
             .await;
@@ -1171,7 +1171,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(1, Duration::from_secs(10)) // Only 1 restart allowed
             .spawn()
             .await;
@@ -1206,12 +1206,12 @@ mod tests {
         let start_count2 = Arc::new(AtomicU32::new(0));
 
         let child1 = TestChild::supervise(&supervisor, TestChild::new(start_count1.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child2 = TestChild::supervise(&supervisor, TestChild::new(start_count2.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1246,17 +1246,17 @@ mod tests {
         let start_count3 = Arc::new(AtomicU32::new(0));
 
         let child1 = TestChild::supervise(&supervisor, TestChild::new(start_count1.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child2 = TestChild::supervise(&supervisor, TestChild::new(start_count2.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child3 = TestChild::supervise(&supervisor, TestChild::new(start_count3.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1297,17 +1297,17 @@ mod tests {
         let start_count3 = Arc::new(AtomicU32::new(0));
 
         let _child1 = TestChild::supervise(&supervisor, TestChild::new(start_count1.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let child2 = TestChild::supervise(&supervisor, TestChild::new(start_count2.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child3 = TestChild::supervise(&supervisor, TestChild::new(start_count3.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1348,17 +1348,17 @@ mod tests {
         let start_count3 = Arc::new(AtomicU32::new(0));
 
         let child1 = TestChild::supervise(&supervisor, TestChild::new(start_count1.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child2 = TestChild::supervise(&supervisor, TestChild::new(start_count2.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child3 = TestChild::supervise(&supervisor, TestChild::new(start_count3.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1399,17 +1399,17 @@ mod tests {
         let start_count3 = Arc::new(AtomicU32::new(0));
 
         let _child1 = TestChild::supervise(&supervisor, TestChild::new(start_count1.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let _child2 = TestChild::supervise(&supervisor, TestChild::new(start_count2.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let child3 = TestChild::supervise(&supervisor, TestChild::new(start_count3.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1522,12 +1522,12 @@ mod tests {
             &supervisor,
             LinkTracker::new(link_died_count.clone(), tracker_start_count.clone()),
         )
-        .restart(RestartPolicy::Permanent)
+        .restart_policy(RestartPolicy::Permanent)
         .spawn()
         .await;
 
         let child = TestChild::supervise(&supervisor, TestChild::new(child_start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1565,7 +1565,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .restart_limit(10, Duration::from_secs(10))
             .spawn()
             .await;
@@ -1597,7 +1597,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1625,12 +1625,12 @@ mod tests {
         let start_count2 = Arc::new(AtomicU32::new(0));
 
         let child1 = TestChild::supervise(&supervisor, TestChild::new(start_count1.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
         let child2 = TestChild::supervise(&supervisor, TestChild::new(start_count2.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1662,7 +1662,7 @@ mod tests {
         let start_count = Arc::new(AtomicU32::new(0));
 
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
-            .restart(RestartPolicy::Permanent)
+            .restart_policy(RestartPolicy::Permanent)
             .spawn()
             .await;
 
@@ -1691,7 +1691,7 @@ mod tests {
         let supervisor = TestSupervisor::spawn(TestSupervisor);
         let start_count = Arc::new(AtomicU32::new(0));
 
-        // Use default (no .restart() call)
+        // Use default (no .restart_policy() call)
         let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
             .spawn()
             .await;

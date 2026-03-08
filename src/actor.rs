@@ -837,7 +837,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
     ///         // Spawn a supervised child
     ///         let child = Worker::supervise(&actor_ref, Worker { count: 0 })
-    ///             .restart(RestartPolicy::Transient)
+    ///             .restart_policy(RestartPolicy::Transient)
     ///             .restart_limit(5, Duration::from_secs(10))
     ///             .spawn()
     ///             .await;
@@ -910,7 +910,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///             // This function is called on each restart
     ///             start_time: std::time::Instant::now(),
     ///         })
-    ///         .restart(RestartPolicy::Transient)
+    ///         .restart_policy(RestartPolicy::Transient)
     ///         .spawn()
     ///         .await;
     ///
