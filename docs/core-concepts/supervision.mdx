@@ -2,43 +2,621 @@
 title: Supervision Overview
 ---
 
-Supervision is a critical concept in building resilient actor systems, ensuring that the system can recover from failures and continue operating without interruption. In Kameo, supervision and actor lifecycle management are facilitated through a combination of customizable behavior hooks and actor linking. This page discusses how to effectively use these features to create robust actor hierarchies and manage actor failures gracefully.
+Supervision is a fundamental concept in building resilient, self-healing actor systems. Kameo implements Erlang/OTP-style supervision trees that automatically manage actor lifecycles and recover from failures without manual intervention. By embracing the "let it crash" philosophy, supervision enables you to build fault-tolerant systems where failures are isolated, detected, and recovered from automatically.
 
-## Customizing Actor Behavior on Panic
+This page covers two complementary features: **supervision trees** for parent-child relationships and **actor linking** for sibling relationships. Together, they provide comprehensive fault tolerance and monitoring capabilities.
 
-When an actor panics, its default behavior can be customized using the `on_panic` hook within the `Actor` trait. This hook allows developers to define custom logic that should execute when an actor encounters a panic, providing a first line of defense in managing unexpected failures.
+## Understanding Supervision Trees
 
-## Linking Actors
+Supervision trees establish parent-child relationships where a supervisor actor manages the lifecycle of its child actors. When a child fails (panics, returns an error, or exits), the supervisor automatically decides whether and how to restart it based on configured policies.
 
-Beyond individual actor behavior, Kameo supports linking actors together to create a supervision tree. This structure enables actors to monitor each other's health and respond to failures, forming the backbone of a self-healing system.
+### Key Benefits
 
-### Actor Links
+- **Automatic Recovery**: Failed actors are automatically restarted without manual intervention
+- **Fault Isolation**: Failures are contained and don't cascade through the system
+- **Configurable Policies**: Control when actors restart and which siblings are affected
+- **Restart Protection**: Prevent restart storms with configurable intensity limits
 
-Actors can be linked using `ActorRef::link`, which establishs a sibling relationship between the two actors.
+### Parent-Child Relationships
 
-Remote actors can be linked using the `ActorRef::link_remote` and `RemoteActorRef::link_remote` methods.
+In a supervision tree, supervisors manage the complete lifecycle of their children:
+- **Spawning**: Children are created through the supervisor
+- **Monitoring**: Supervisors watch for child failures
+- **Restarting**: Failed children are automatically restarted according to policy
+- **Cleanup**: Supervisors ensure children are properly shut down
+
+## Supervision Strategies
+
+Supervision strategies determine which actors should be restarted when a failure occurs. You configure the strategy by overriding the `supervision_strategy()` method in your supervisor actor.
+
+### OneForOne (Default)
+
+Only the failed child is restarted. Other children continue running normally.
+
+```text
+Supervisor
+├── Child A (running) → No change
+├── Child B (crashes) → Restarted
+└── Child C (running) → No change
+```
+
+**Use Cases:**
+- Independent workers in a pool
+- Actors that don't share state
+- When failures are isolated
+
+```rust
+use kameo::actor::{Actor, ActorRef};
+use kameo::supervision::SupervisionStrategy;
+
+struct WorkerPool;
+
+impl Actor for WorkerPool {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    // OneForOne is the default, but shown here explicitly
+    fn supervision_strategy() -> SupervisionStrategy {
+        SupervisionStrategy::OneForOne
+    }
+
+    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(WorkerPool)
+    }
+}
+```
+
+### OneForAll
+
+All children are restarted when any one fails. Use this when children have interdependencies or shared state.
+
+```text
+Supervisor
+├── Child A (running)  → Restarted
+├── Child B (crashes)  → Restarted
+└── Child C (running)  → Restarted
+```
+
+**Use Cases:**
+- Tightly coupled services
+- Actors sharing distributed state
+- When partial restart would leave the system inconsistent
+
+```rust
+use kameo::supervision::SupervisionStrategy;
+
+impl Actor for DatabaseCluster {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn supervision_strategy() -> SupervisionStrategy {
+        SupervisionStrategy::OneForAll  // All nodes restart together
+    }
+
+    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(DatabaseCluster)
+    }
+}
+```
+
+### RestForOne
+
+The failed child and all younger siblings (spawned after it) are restarted. Older siblings continue running.
+
+```text
+Supervisor
+├── Child A (spawned first, running)  → No change
+├── Child B (spawned second, crashes) → Restarted
+└── Child C (spawned third, running)  → Restarted
+```
+
+**Use Cases:**
+- Pipeline stages with sequential dependencies
+- Services with startup ordering requirements
+- When later stages depend on earlier ones
+
+```rust
+use kameo::supervision::SupervisionStrategy;
+
+impl Actor for DataPipeline {
+    type Args = ();
+    type Error = Box<dyn std::error::Error + Send + Sync>;
+
+    fn supervision_strategy() -> SupervisionStrategy {
+        SupervisionStrategy::RestForOne  // Later stages depend on earlier ones
+    }
+
+    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(DataPipeline)
+    }
+}
+```
+
+## Creating Supervised Children
+
+Children are spawned through their supervisor using the `Spawn::supervise()` or `Spawn::supervise_with()` methods. These return a `SupervisedActorBuilder` that allows you to configure restart behavior before spawning.
+
+### Basic Supervision with `supervise()`
+
+Use `supervise()` when your actor's args implement `Clone`. The args will be cloned for each restart.
+
+```rust
+use kameo::actor::{Actor, ActorRef, Spawn};
+use kameo::error::Infallible;
+
+struct Supervisor;
+
+impl Actor for Supervisor {
+    type Args = ();
+    type Error = Infallible;
+
+    async fn on_start(_: Self::Args, supervisor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        // Spawn a supervised worker
+        let worker = Worker::supervise(&supervisor_ref, WorkerArgs {
+            name: "worker-1".to_string(),
+            max_tasks: 100,
+        })
+        .spawn()
+        .await;
+
+        Ok(Supervisor)
+    }
+}
+
+#[derive(Clone)]
+struct WorkerArgs {
+    name: String,
+    max_tasks: u32,
+}
+
+struct Worker {
+    args: WorkerArgs,
+}
+
+impl Actor for Worker {
+    type Args = WorkerArgs;
+    type Error = Infallible;
+
+    async fn on_start(args: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(Worker { args })
+    }
+}
+```
+
+### Dynamic Args with `supervise_with()`
+
+Use `supervise_with()` when args don't implement `Clone` or you need to generate fresh state on each restart.
+
+```rust
+use std::time::Instant;
+
+struct TimestampedWorker {
+    start_time: Instant,  // Not Clone
+}
+
+impl Actor for TimestampedWorker {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(state)
+    }
+}
+
+// In supervisor's on_start:
+let worker = TimestampedWorker::supervise_with(&supervisor_ref, || {
+    // Fresh timestamp on each restart
+    TimestampedWorker {
+        start_time: Instant::now(),
+    }
+})
+.spawn()
+.await;
+```
+
+## Restart Policies
+
+Restart policies determine when a child should be restarted based on how it terminated. Configure this using the `.restart_policy()` builder method.
+
+### Permanent (Default)
+
+Always restart, regardless of how the actor died. Use this for critical services that must always run.
+
+```rust
+use kameo::supervision::RestartPolicy;
+
+let critical_service = CriticalService::supervise(&supervisor_ref, args)
+    .restart_policy(RestartPolicy::Permanent)  // Always restart
+    .spawn()
+    .await;
+```
+
+**Restart Behavior:**
+- ✅ Panics → Restart
+- ✅ Errors → Restart
+- ✅ Normal exits → Restart
+
+**Use Cases:**
+- Database connection pools
+- Critical system services
+- Stateless workers that should always be available
+
+### Transient
+
+Only restart on abnormal exits (panics/errors). Normal exits are not restarted.
+
+```rust
+use kameo::supervision::RestartPolicy;
+
+let task_worker = TaskWorker::supervise(&supervisor_ref, args)
+    .restart_policy(RestartPolicy::Transient)  // Only restart on failures
+    .spawn()
+    .await;
+```
+
+**Restart Behavior:**
+- ✅ Panics → Restart
+- ✅ Errors → Restart
+- ❌ Normal exits → No restart
+
+**Use Cases:**
+- Workers that process queues and exit when empty
+- Actors with defined completion states
+- Services that can gracefully complete their work
+
+### Policy Comparison
+
+| Policy | On Panic | On Error | On Normal Exit |
+|--------|----------|----------|----------------|
+| `Permanent` | ✅ Restart | ✅ Restart | ✅ Restart |
+| `Transient` | ✅ Restart | ✅ Restart | ❌ No restart |
+
+## Restart Limits
+
+Restart intensity limits prevent "restart storms" where actors repeatedly fail and restart in rapid succession. By default, actors are limited to **5 restarts within 5 seconds**.
+
+### Configuring Restart Limits
+
+```rust
+use std::time::Duration;
+use kameo::supervision::RestartPolicy;
+
+let worker = Worker::supervise(&supervisor_ref, args)
+    .restart_policy(RestartPolicy::Permanent)
+    .restart_limit(3, Duration::from_secs(10))  // Max 3 restarts in 10 seconds
+    .spawn()
+    .await;
+```
+
+If the child exceeds this limit, the supervisor stops attempting to restart it, preventing infinite restart loops.
+
+### When to Adjust Limits
+
+**Increase limits** for:
+- Actors that may legitimately fail multiple times during recovery
+- External service integrations with flaky connections
+- Actors with long initialization times
+
+**Decrease limits** for:
+- Fast-failing actors where rapid restarts indicate fundamental problems
+- Resource-intensive actors to prevent system overload
+- Development/testing to fail fast and surface issues
+
+### Restart Window Reset
+
+The restart counter resets after the time window expires. For example, with a limit of `3 restarts in 10 seconds`:
+- Time 0s: Crash #1 → Restart (count: 1)
+- Time 3s: Crash #2 → Restart (count: 2)
+- Time 6s: Crash #3 → Restart (count: 3)
+- Time 9s: Crash #4 → **Not restarted** (limit exceeded)
+- Time 11s: Counter resets (more than 10s since first crash)
+
+## Advanced Spawn Options
+
+The `SupervisedActorBuilder` provides several spawn methods for different use cases.
+
+### Default Mailbox: `spawn()`
+
+Spawns the actor with a bounded mailbox of capacity 64 (the default).
+
+```rust
+let worker = Worker::supervise(&supervisor_ref, args)
+    .spawn()
+    .await;
+```
+
+### Custom Mailbox: `spawn_with_mailbox()`
+
+Specify a custom mailbox capacity or type (bounded/unbounded).
+
+```rust
+use kameo::mailbox;
+
+let worker = Worker::supervise(&supervisor_ref, args)
+    .spawn_with_mailbox(mailbox::bounded(1000))  // Large mailbox
+    .await;
+
+let unbounded_worker = Worker::supervise(&supervisor_ref, args)
+    .spawn_with_mailbox(mailbox::unbounded())  // Unlimited capacity
+    .await;
+```
+
+### Dedicated Thread: `spawn_in_thread()`
+
+Spawn the actor in a dedicated OS thread for blocking operations.
+
+```rust
+use std::fs::File;
+
+struct FileProcessor {
+    file: File,  // Blocking I/O
+}
+
+let processor = FileProcessor::supervise(&supervisor_ref, args)
+    .spawn_in_thread()  // Runs in dedicated thread
+    .await;
+```
+
+**Use Cases:**
+- Blocking I/O operations (file access, synchronous APIs)
+- CPU-intensive computations
+- Interfacing with non-async libraries
+
+### Thread + Custom Mailbox: `spawn_in_thread_with_mailbox()`
+
+Combine dedicated thread execution with custom mailbox configuration.
+
+```rust
+let processor = FileProcessor::supervise(&supervisor_ref, args)
+    .spawn_in_thread_with_mailbox(mailbox::bounded(500))
+    .await;
+```
+
+## Complete Example
+
+Here's a complete example showing a supervisor managing multiple workers with different configurations:
+
+```rust
+use std::time::Duration;
+use kameo::actor::{Actor, ActorRef, Spawn};
+use kameo::error::Infallible;
+use kameo::supervision::{RestartPolicy, SupervisionStrategy};
+
+// Supervisor that manages a pool of workers
+struct WorkerSupervisor;
+
+impl Actor for WorkerSupervisor {
+    type Args = ();
+    type Error = Infallible;
+
+    // Use OneForOne strategy - workers are independent
+    fn supervision_strategy() -> SupervisionStrategy {
+        SupervisionStrategy::OneForOne
+    }
+
+    async fn on_start(_: Self::Args, supervisor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        // Critical worker - always restart
+        let critical_worker = CriticalWorker::supervise(&supervisor_ref, CriticalWorker)
+            .restart_policy(RestartPolicy::Permanent)
+            .restart_limit(10, Duration::from_secs(60))
+            .spawn()
+            .await;
+
+        // Task worker - only restart on failures
+        let task_worker = TaskWorker::supervise(&supervisor_ref, TaskWorker { tasks_left: 100 })
+            .restart_policy(RestartPolicy::Transient)
+            .restart_limit(3, Duration::from_secs(10))
+            .spawn()
+            .await;
+
+        // File processor - runs in dedicated thread for blocking I/O
+        let file_worker = FileWorker::supervise_with(&supervisor_ref, || FileWorker::new())
+            .spawn_in_thread()
+            .await;
+
+        Ok(WorkerSupervisor)
+    }
+}
+
+#[derive(Clone)]
+struct CriticalWorker;
+
+impl Actor for CriticalWorker {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(state)
+    }
+}
+
+#[derive(Clone)]
+struct TaskWorker {
+    tasks_left: u32,
+}
+
+impl Actor for TaskWorker {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(state)
+    }
+}
+
+struct FileWorker;
+
+impl FileWorker {
+    fn new() -> Self {
+        FileWorker
+    }
+}
+
+impl Actor for FileWorker {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(state)
+    }
+}
+```
+
+For a complete working example, see [`examples/supervision.rs`](https://github.com/tqwewe/kameo/blob/main/examples/supervision.rs) in the repository.
+
+## Actor Linking (Sibling Relationships)
+
+While supervision provides parent-child monitoring, actor linking establishes peer-to-peer (sibling) relationships. This is useful when supervised children need to monitor each other or when you want notification of actor death without automatic restart.
+
+### Creating Links
+
+Use `ActorRef::link()` to establish bidirectional monitoring between actors:
+
+```rust
+use kameo::actor::{Actor, ActorRef, Spawn};
+
+// Supervised children can link to each other
+let worker_a = WorkerA::supervise(&supervisor_ref, WorkerA).spawn().await;
+let worker_b = WorkerB::supervise(&supervisor_ref, WorkerB).spawn().await;
+
+// Create sibling link
+worker_a.link(&worker_b).await;
+```
+
+When either actor dies, the other will be notified via the `on_link_died` hook.
 
 ### Handling Link Failures
 
-When a linked actor dies, the surviving actors can react to this event using the `on_link_died` hook in the `Actor` trait.
-This hook provides the ID of the deceased actor and the reason for its termination, enabling the surviving actors to implement custom logic, such as restarting the failed actor or taking other remedial actions.
+Implement the `on_link_died` hook to respond when a linked actor dies:
 
-The default behavior for `on_link_died` is to stop the current actor if the linked actor died for any reason other than a normal shutdown. This conservative default ensures that failures are not silently ignored, promoting system stability by preventing dependent actors from continuing in an inconsistent state.
+```rust
+use std::ops::ControlFlow;
+use kameo::actor::{ActorId, WeakActorRef};
+use kameo::error::ActorStopReason;
 
-In the case of remote actor links, if a peer/node gets disconnected, then all links to actors on that peer will be considered dead, with `ActorStopReason::PeerDisconnected` being signaled to the linked actors.
+impl Actor for WorkerA {
+    type Args = Self;
+    type Error = Box<dyn std::error::Error + Send + Sync>;
 
-## Unlinking Actors
+    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(state)
+    }
 
-In some scenarios, it may be necessary to remove links between actors, either to restructure the supervision tree or in response to changing application dynamics. Kameo provides the following methods for this purpose:
+    async fn on_link_died(
+        &mut self,
+        _actor_ref: WeakActorRef<Self>,
+        id: ActorId,
+        reason: ActorStopReason,
+    ) -> Result<ControlFlow<ActorStopReason>, Self::Error> {
+        // Log the failure
+        tracing::warn!("linked actor {id} died: {reason:?}");
 
-- `ActorRef::unlink`: Unlinks two previously linked sibling actors.
-- `ActorRef::unlink_remote`: Unlinks two previously linked sibling remote actors.
-- `RemoteActorRef::unlink_remote`: Unlinks two previously linked sibling remote actors.
+        // Continue running instead of stopping
+        Ok(ControlFlow::Continue(()))
+    }
+}
+```
 
-These methods allows for dynamic adjustments to the actor supervision hierarchy, ensuring that the system can adapt to new requirements or recover from errors by reorganizing actor relationships.
+**Default Behavior:** If not overridden, `on_link_died` stops the actor when a link dies (except for normal shutdowns). This prevents actors from continuing when their dependencies have failed.
+
+**Return Values:**
+- `ControlFlow::Continue(())` - Keep running
+- `ControlFlow::Break(reason)` - Stop this actor with the given reason
+
+### Remote Actor Linking
+
+Kameo supports linking actors across different nodes in a distributed system:
+
+```rust
+use kameo::actor::RemoteActorRef;
+
+// Link to a remote actor
+local_actor.link_remote(&remote_actor_ref).await;
+
+// Or from the remote side
+remote_actor_ref.link_remote(&local_actor).await;
+```
+
+**Peer Disconnection:** If a remote node disconnects, all actors linked to actors on that node will receive `ActorStopReason::PeerDisconnected` in their `on_link_died` hook.
+
+### Unlinking Actors
+
+Remove links when they're no longer needed:
+
+```rust
+// Unlink local actors
+worker_a.unlink(&worker_b).await;
+
+// Unlink remote actors
+local_actor.unlink_remote(&remote_actor_ref).await;
+remote_actor_ref.unlink_remote(&local_actor).await;
+```
+
+This allows for dynamic restructuring of monitoring relationships as your application evolves.
+
+## Best Practices
+
+### When to Use Supervision vs Linking
+
+**Use Supervision Trees when:**
+- You need automatic restart on failure
+- You want to enforce lifecycle management
+- You're building hierarchical systems with clear parent-child relationships
+- You need configurable restart policies and strategies
+
+**Use Linking when:**
+- You need peer-to-peer failure notification without restart
+- Supervised children should monitor each other
+- You want to react to failure with custom logic
+- You're building distributed systems with cross-node dependencies
+
+**Combine Both when:**
+- Supervised children need to coordinate (supervision for restart + linking for coordination)
+- You want notification AND restart (link siblings within a supervision tree)
+- Building complex fault-tolerant systems with multiple layers of monitoring
+
+### Designing Supervision Trees
+
+**Hierarchical Structure:**
+```text
+Application Supervisor (OneForAll)
+├── Database Supervisor (OneForOne)
+│   ├── Connection Pool
+│   └── Query Cache
+└── Worker Supervisor (OneForOne)
+    ├── Worker 1
+    ├── Worker 2
+    └── Worker 3
+```
+
+**Guidelines:**
+- Keep supervision trees shallow (2-3 levels deep)
+- Group related actors under the same supervisor
+- Use appropriate strategies for each level
+- Critical services higher in the tree, workers lower
+
+### Choosing Restart Policies
+
+- **Permanent**: Default for most long-running services
+- **Transient**: For actors that complete tasks and exit normally
+- **Avoid**: Spawning supervised actors that you never want to restart (use regular `spawn()` instead)
+
+### Setting Restart Limits
+
+**Conservative (Default: 5/5s):** Good for most cases
+**Relaxed (10/60s):** Services with legitimate flaky external dependencies
+**Strict (2/5s):** Fast-failing actors where rapid restarts indicate bugs
+
+**Monitor:** Use logging and observability to track restart patterns and adjust limits accordingly.
 
 ---
 
 #### Summary
 
-Supervision in Kameo is a powerful mechanism for building resilient, self-healing actor systems. By leveraging customizable panic behavior and actor linking, developers can design systems that are capable of recovering from failures, maintaining consistent operation through disruptions. Whether through parent-child hierarchies or peer relationships, actor links in Kameo provide the foundation for a robust supervision strategy, ensuring that actor systems can gracefully handle and recover from the inevitable challenges they face.
+Supervision in Kameo provides two complementary mechanisms for building resilient actor systems:
+
+**Supervision Trees** establish parent-child relationships with automatic restart capabilities. Supervisors manage child lifecycles using configurable **restart policies** (Permanent/Transient) that determine when to restart, **supervision strategies** (OneForOne/OneForAll/RestForOne) that determine which children to restart, and **restart limits** that prevent restart storms.
+
+**Actor Linking** enables peer-to-peer monitoring between actors, allowing siblings to detect and respond to each other's failures with custom logic through the `on_link_died` hook.
+
+Together, these features embody the "let it crash" philosophy, enabling you to build self-healing systems that automatically recover from failures while maintaining clean separation of concerns. Supervision handles the automatic fault recovery, while linking provides the flexibility for custom failure handling and coordination between actors.
