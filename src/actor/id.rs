@@ -238,6 +238,7 @@ impl<'de> Deserialize<'de> for ActorId {
 
 /// Errors that can occur when deserializing an `ActorId` from bytes.
 #[derive(Debug)]
+#[cfg_attr(not(feature = "remote"), derive(Clone))]
 pub enum ActorIdFromBytesError {
     /// The byte slice doesn't contain enough data for the `sequence_id`.
     MissingSequenceID,

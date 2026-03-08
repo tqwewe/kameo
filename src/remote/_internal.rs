@@ -8,8 +8,9 @@ pub use linkme;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use crate::actor::{ActorId, Link};
+use crate::actor::ActorId;
 use crate::error::{ActorStopReason, Infallible, RemoteSendError};
+use crate::links::Link;
 use crate::message::Message;
 use crate::{Actor, Reply};
 
@@ -232,6 +233,7 @@ where
         .links
         .lock()
         .await
+        .sibblings
         .insert(sibling_id, Link::Remote(sibling_remote_id));
 
     Ok(())
@@ -252,7 +254,7 @@ where
             .downcast::<A>()?
     };
 
-    actor_ref.links.lock().await.remove(&sibling_id);
+    actor_ref.links.lock().await.sibblings.remove(&sibling_id);
 
     Ok(())
 }
@@ -275,7 +277,7 @@ where
 
     actor_ref
         .weak_signal_mailbox()
-        .signal_link_died(dead_actor_id, stop_reason)
+        .signal_link_died(dead_actor_id, stop_reason, None)
         .await?;
 
     Ok(())

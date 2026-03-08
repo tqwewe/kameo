@@ -1168,6 +1168,7 @@ impl<'a> ActorRegistration<'a> {
 
 /// Errors that can occur when deserializing an actor registration.
 #[derive(Debug)]
+#[cfg_attr(not(feature = "remote"), derive(Clone))]
 pub enum InvalidActorRegistration {
     /// The registration data is empty.
     EmptyActorRegistration,

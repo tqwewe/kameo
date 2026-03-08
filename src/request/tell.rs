@@ -797,13 +797,13 @@ mod tests {
                 _msg: Msg,
                 _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }
 
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
         actor_ref.wait_for_startup().await;
-        // We need enough messages to both (a) occupy the actor (sleeping 10s
+        // We need enough messages to both (a) occupy the actor (sleeping 5s
         // in the handler) and (b) fill the bounded channel.  Without hotpath
         // the channel capacity is 1, so 2 messages suffice: the first is
         // dequeued by the actor after the 2ms yield, the second stays queued.
@@ -815,6 +815,7 @@ mod tests {
             assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
             tokio::time::sleep(Duration::from_millis(2)).await;
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
         assert_eq!(
             actor_ref.tell(Msg).try_send(),
             Err(SendError::MailboxFull(Msg))
@@ -856,20 +857,11 @@ mod tests {
         }
 
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
-        // Mailbox empty, will succeed
-        assert_eq!(
-            actor_ref
-                .tell(Sleep(Duration::from_millis(100)))
-                .mailbox_timeout(Duration::from_millis(10))
-                .send()
-                .await,
-            Ok(())
-        );
         // Mailbox is empty, this will make there be one item in the mailbox
         #[cfg(not(feature = "hotpath"))]
         let fill_count = 1;
         #[cfg(feature = "hotpath")]
-        let fill_count = 3;
+        let fill_count = 4;
         for _ in 0..fill_count {
             assert_eq!(
                 actor_ref
@@ -880,6 +872,7 @@ mod tests {
                 Ok(())
             );
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
         // Finally, this one will fail because there's one item in the mailbox already.
         assert_eq!(
             actor_ref

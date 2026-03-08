@@ -3,6 +3,7 @@
 //! An actor mailbox is a channel which stores pending messages and signals for an actor to process sequentially.
 
 use std::{
+    any::Any,
     fmt,
     task::{Context, Poll},
     time::Duration,
@@ -16,6 +17,7 @@ use crate::{
     Actor,
     actor::{ActorId, ActorRef},
     error::{ActorStopReason, SendError},
+    links::BoxMailboxReceiver,
     message::BoxMessage,
     reply::BoxReplySender,
 };
@@ -127,7 +129,9 @@ impl<A: Actor> From<&Signal<A>> for SignalKind {
     fn from(signal: &Signal<A>) -> Self {
         match signal {
             Signal::Message { .. } => SignalKind::Message,
-            Signal::StartupFinished | Signal::Stop => SignalKind::Lifecycle,
+            Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
+                SignalKind::Lifecycle
+            }
             Signal::LinkDied { .. } => SignalKind::LinkDied,
         }
     }
@@ -545,7 +549,7 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &signal {
             Some(Signal::Message { .. }) => self.messages_received.increment(1),
-            Some(Signal::StartupFinished | Signal::Stop) => {
+            Some(Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
@@ -573,7 +577,7 @@ impl<A: Actor> MailboxReceiver<A> {
             for signal in &buffer[len - 1 - count..len - 1] {
                 match signal {
                     Signal::Message { .. } => self.messages_received.increment(1),
-                    Signal::StartupFinished | Signal::Stop => {
+                    Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
                         self.lifecycle_signals_received.increment(1)
                     }
                     Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
@@ -599,7 +603,7 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &res {
             Ok(Signal::Message { .. }) => self.messages_received.increment(1),
-            Ok(Signal::StartupFinished | Signal::Stop) => {
+            Ok(Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Ok(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
@@ -624,7 +628,7 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &signal {
             Some(Signal::Message { .. }) => self.messages_received.increment(1),
-            Some(Signal::StartupFinished | Signal::Stop) => {
+            Some(Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart) => {
                 self.lifecycle_signals_received.increment(1)
             }
             Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
@@ -652,7 +656,7 @@ impl<A: Actor> MailboxReceiver<A> {
             for signal in &buffer[len - 1 - count..len - 1] {
                 match signal {
                     Signal::Message { .. } => self.messages_received.increment(1),
-                    Signal::StartupFinished | Signal::Stop => {
+                    Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
                         self.lifecycle_signals_received.increment(1)
                     }
                     Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
@@ -730,9 +734,9 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &poll {
             Poll::Ready(Some(Signal::Message { .. })) => self.messages_received.increment(1),
-            Poll::Ready(Some(Signal::StartupFinished | Signal::Stop)) => {
-                self.lifecycle_signals_received.increment(1)
-            }
+            Poll::Ready(Some(
+                Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart,
+            )) => self.lifecycle_signals_received.increment(1),
             Poll::Ready(Some(Signal::LinkDied { .. })) => {
                 self.link_died_signals_received.increment(1)
             }
@@ -766,7 +770,7 @@ impl<A: Actor> MailboxReceiver<A> {
                 for signal in &buffer[len - 1 - count..len - 1] {
                     match signal {
                         Signal::Message { .. } => self.messages_received.increment(1),
-                        Signal::StartupFinished | Signal::Stop => {
+                        Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
                             self.lifecycle_signals_received.increment(1)
                         }
                         Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
@@ -841,9 +845,13 @@ pub enum Signal<A: Actor> {
         id: ActorId,
         /// The reason the actor stopped.
         reason: ActorStopReason,
+        /// The mailbox sender. Some is the link is being sent to a supervising parent, None for sibblings.
+        mailbox_rx: Option<Box<dyn Any + Send>>,
     },
     /// Signals the actor to stop.
     Stop,
+    /// Signals the actor to restart.
+    SupervisorRestart,
 }
 
 impl<A: Actor> Signal<A> {
@@ -865,6 +873,7 @@ pub trait SignalMailbox: DynClone + Send + Sync {
         &self,
         id: ActorId,
         reason: ActorStopReason,
+        mailbox_rx: Option<BoxMailboxReceiver>,
     ) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
 }
@@ -892,17 +901,26 @@ where
         &self,
         id: ActorId,
         reason: ActorStopReason,
+        mailbox_rx: Option<Box<dyn Any + Send>>,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => async move {
-                tx.send(Signal::LinkDied { id, reason })
-                    .await
-                    .map_err(|_| SendError::ActorNotRunning(()))
+                tx.send(Signal::LinkDied {
+                    id,
+                    reason,
+                    mailbox_rx,
+                })
+                .await
+                .map_err(|_| SendError::ActorNotRunning(()))
             }
             .boxed(),
             MailboxSenderInner::Unbounded(tx) => async move {
-                tx.send(Signal::LinkDied { id, reason })
-                    .map_err(|_| SendError::ActorNotRunning(()))
+                tx.send(Signal::LinkDied {
+                    id,
+                    reason,
+                    mailbox_rx,
+                })
+                .map_err(|_| SendError::ActorNotRunning(()))
             }
             .boxed(),
         }
@@ -940,10 +958,11 @@ where
         &self,
         id: ActorId,
         reason: ActorStopReason,
+        mailbox_rx: Option<Box<dyn Any + Send>>,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {
             match self.upgrade() {
-                Some(tx) => tx.signal_link_died(id, reason).await,
+                Some(tx) => tx.signal_link_died(id, reason, mailbox_rx).await,
                 None => Err(SendError::ActorNotRunning(())),
             }
         }

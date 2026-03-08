@@ -1,9 +1,8 @@
 use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread};
 
 use futures::{
-    FutureExt, StreamExt,
-    future::BoxFuture,
-    stream::{AbortHandle, AbortRegistration, Abortable, FuturesUnordered},
+    FutureExt,
+    stream::{AbortHandle, AbortRegistration, Abortable},
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -17,8 +16,9 @@ use tracing::{Instrument, error, trace};
 use crate::remote;
 
 use crate::{
-    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, Link, Links, kind::ActorBehaviour},
+    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
     error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
+    links::Links,
     mailbox::{MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -46,11 +46,23 @@ impl<A: Actor> PreparedActor<A> {
     ///
     /// This is typically created though [`Actor::prepare`](crate::actor::Spawn::prepare) and [`Actor::prepare_with_mailbox`](crate::actor::Spawn::prepare_with_mailbox).
     pub fn new((mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>)) -> Self {
+        Self::new_with(
+            ActorId::generate(),
+            (mailbox_tx, mailbox_rx),
+            Links::default(),
+        )
+    }
+
+    pub(crate) fn new_with(
+        actor_id: ActorId,
+        (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
+        links: Links,
+    ) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let links = Links::default();
         let startup_result = Arc::new(SetOnce::new());
         let shutdown_result = Arc::new(SetOnce::new());
         let actor_ref = ActorRef::new(
+            actor_id,
             mailbox_tx,
             abort_handle,
             links,
@@ -156,7 +168,7 @@ impl<A: Actor> PreparedActor<A> {
 async fn run_actor_lifecycle<A>(
     args: A::Args,
     actor_ref: ActorRef<A>,
-    mailbox_rx: MailboxReceiver<A>,
+    mut mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
 ) -> Result<(A, ActorStopReason), PanicError>
 where
@@ -190,7 +202,7 @@ where
                 let reason = Abortable::new(
                     abortable_actor_loop(
                         &mut state,
-                        mailbox_rx,
+                        &mut mailbox_rx,
                         &actor_ref.startup_result,
                         startup_finished,
                     ),
@@ -201,11 +213,14 @@ where
 
                 let mut actor = state.shutdown().await;
 
-                let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
+                actor_ref
+                    .links
+                    .lock()
+                    .await
+                    .notify_links(id, reason.clone(), mailbox_rx);
 
                 log_actor_stop_reason(id, name, &reason);
                 let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
-                while let Some(()) = notify_futs.next().await {}
 
                 unregister_actor(&id).await;
 
@@ -238,8 +253,11 @@ where
                 let reason = ActorStopReason::Panicked(err);
                 log_actor_stop_reason(id, name, &reason);
 
-                let mut notify_futs = notify_links(id, &actor_ref.links, &reason).await;
-                while let Some(()) = notify_futs.next().await {}
+                actor_ref
+                    .links
+                    .lock()
+                    .await
+                    .notify_links(id, reason.clone(), mailbox_rx);
 
                 unregister_actor(&id).await;
 
@@ -271,7 +289,7 @@ where
 
 async fn abortable_actor_loop<A>(
     state: &mut ActorBehaviour<A>,
-    mut mailbox_rx: MailboxReceiver<A>,
+    mailbox_rx: &mut MailboxReceiver<A>,
     startup_result: &SetOnce<Result<(), PanicError>>,
     startup_finished: bool,
 ) -> ActorStopReason
@@ -282,7 +300,7 @@ where
         return reason;
     }
     loop {
-        let reason = recv_mailbox_loop(state, &mut mailbox_rx, startup_result).await;
+        let reason = recv_mailbox_loop(state, mailbox_rx, startup_result).await;
         if let ControlFlow::Break(reason) = state.on_shutdown(reason).await {
             return reason;
         }
@@ -332,12 +350,19 @@ where
                     return reason;
                 }
             }
-            ControlFlow::Continue(Signal::LinkDied { id, reason }) => {
-                if let ControlFlow::Break(reason) = state.handle_link_died(id, reason).await {
+            ControlFlow::Continue(Signal::LinkDied {
+                id,
+                reason,
+                mailbox_rx,
+            }) => {
+                if let ControlFlow::Break(reason) =
+                    state.handle_link_died(id, reason, mailbox_rx).await
+                {
                     return reason;
                 }
             }
-            ControlFlow::Continue(Signal::Stop) => {
+            ControlFlow::Continue(Signal::Stop)
+            | ControlFlow::Continue(Signal::SupervisorRestart) => {
                 if let ControlFlow::Break(reason) = state.handle_stop().await {
                     return reason;
                 }
@@ -345,59 +370,6 @@ where
             ControlFlow::Break(reason) => return reason,
         }
     }
-}
-
-async fn notify_links(
-    id: ActorId,
-    links: &Links,
-    reason: &ActorStopReason,
-) -> FuturesUnordered<BoxFuture<'static, ()>> {
-    let futs = FuturesUnordered::new();
-    {
-        let mut links = links.lock().await;
-        #[allow(unused_variables)]
-        for (link_actor_id, link) in links.drain() {
-            match link {
-                Link::Local(mailbox) => {
-                    let reason = reason.clone();
-                    futs.push(
-                        async move {
-                            if let Err(err) = mailbox.signal_link_died(id, reason).await {
-                                #[cfg(feature = "tracing")]
-                                error!("failed to notify actor a link died: {err}");
-                            }
-                        }
-                        .boxed(),
-                    );
-                }
-                #[cfg(feature = "remote")]
-                Link::Remote(notified_actor_remote_id) => {
-                    if let Some(swarm) = remote::ActorSwarm::get() {
-                        let reason = reason.clone();
-                        futs.push(
-                            async move {
-                                let res = swarm
-                                    .signal_link_died(
-                                        id,
-                                        link_actor_id,
-                                        notified_actor_remote_id,
-                                        reason,
-                                    )
-                                    .await;
-                                if let Err(err) = res {
-                                    #[cfg(feature = "tracing")]
-                                    error!("failed to notify actor a link died: {err}");
-                                }
-                            }
-                            .boxed(),
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    futs
 }
 
 #[allow(unused_variables)]
@@ -421,6 +393,7 @@ async fn unregister_actor(id: &ActorId) {
 fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ ActorStopReason::Normal
+        | reason @ ActorStopReason::SupervisorRestart
         | reason @ ActorStopReason::Killed
         | reason @ ActorStopReason::LinkDied { .. } => {
             trace!(%id, %name, ?reason, "actor stopped");
