@@ -1247,13 +1247,28 @@ mod tests {
                 _msg: Msg,
                 _ctx: &mut Context<Self, Self::Reply>,
             ) -> Self::Reply {
-                tokio::time::sleep(Duration::from_secs(10)).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
                 true
             }
         }
 
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
-        assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
+        // Mailbox is empty, this will make there be one item in the mailbox
+        #[cfg(not(feature = "hotpath"))]
+        let fill_count = 1;
+        #[cfg(feature = "hotpath")]
+        let fill_count = 4; // Sadly, hotpath adds some proxy layers, causing the fill count to be 4 instead of 1
+        for _ in 0..fill_count {
+            assert_eq!(
+                actor_ref
+                    .tell(Msg)
+                    .mailbox_timeout(Duration::from_millis(10))
+                    .send()
+                    .await,
+                Ok(())
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
         assert_eq!(
             actor_ref.ask(Msg).try_send().await,
             Err(SendError::MailboxFull(Msg))
@@ -1320,6 +1335,7 @@ mod tests {
                 Ok(())
             );
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
         // Mailbox has one item, this will fail
         assert_eq!(
             actor_ref
