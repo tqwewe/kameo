@@ -62,8 +62,12 @@ where
             .catch_unwind()
             .await;
         match res {
-            Ok(Some(signal)) => ControlFlow::Continue(signal),
-            Ok(None) => ControlFlow::Break(ActorStopReason::Normal),
+            Ok(Ok(Some(signal))) => ControlFlow::Continue(signal),
+            Ok(Ok(None)) => ControlFlow::Break(ActorStopReason::Normal),
+            Ok(Err(err)) => ControlFlow::Break(ActorStopReason::Panicked(PanicError::new(
+                Box::new(err),
+                PanicReason::Next,
+            ))),
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
                 PanicError::new_from_panic_any(err, PanicReason::Next),
             )), // The handler panicked

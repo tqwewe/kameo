@@ -346,8 +346,8 @@ pub trait Actor: Sized + Send + 'static {
         &mut self,
         actor_ref: WeakActorRef<Self>,
         mailbox_rx: &mut MailboxReceiver<Self>,
-    ) -> impl Future<Output = Option<Signal<Self>>> + Send {
-        mailbox_rx.recv()
+    ) -> impl Future<Output = Result<Option<Signal<Self>>, Self::Error>> + Send {
+        async move { Ok(mailbox_rx.recv().await) }
     }
 }
 

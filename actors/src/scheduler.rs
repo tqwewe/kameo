@@ -84,14 +84,14 @@ impl Actor for Scheduler {
         &mut self,
         _actor_ref: WeakActorRef<Self>,
         mailbox_rx: &mut MailboxReceiver<Self>,
-    ) -> Option<Signal<Self>> {
+    ) -> Result<Option<Signal<Self>>, Self::Error> {
         loop {
             if self.tasks.is_empty() {
-                return mailbox_rx.recv().await;
+                return Ok(mailbox_rx.recv().await);
             } else {
                 tokio::select! {
                     signal = mailbox_rx.recv() => {
-                        return signal;
+                        return Ok(signal);
                     }
                     _ = self.tasks.join_next() => {}
                 }
