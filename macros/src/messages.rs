@@ -111,7 +111,7 @@ impl Messages {
                         let mut attrs: Vec<_> = impl_item_fn.attrs.iter().filter(|attr| {
                             matches!(
                                 &attr.meta,
-                                Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
+                                Meta::NameValue(meta) if meta.path.segments.first().is_some_and(|seg| seg.ident == "doc")
                             )
                         })
                             .map(|attr| quote! { #attr })
@@ -269,7 +269,7 @@ impl Messages {
                                     while i < pat_type.attrs.len() {
                                         let is_doc_attr = matches!(
                                             &pat_type.attrs[i].meta,
-                                            Meta::NameValue(meta) if meta.path.segments.first().map(|seg| seg.ident == "doc").unwrap_or(false)
+                                            Meta::NameValue(meta) if meta.path.segments.first().is_some_and(|seg| seg.ident == "doc")
                                         );
                                         if is_doc_attr {
                                             doc_attrs.push(pat_type.attrs.remove(i));
@@ -309,15 +309,15 @@ impl Messages {
             })
             .collect();
 
-        let error = if !errors.is_empty() {
+        let error = if errors.is_empty() {
+            None
+        } else {
             let mut iter = errors.into_iter();
             let first = iter.next().unwrap();
             Some(iter.fold(first, |err, mut errors| {
                 errors.combine(err);
                 errors
             }))
-        } else {
-            None
         };
 
         (messages, error)
@@ -410,14 +410,13 @@ impl Messages {
                     }
                 }).collect();
 
-                let ctx_ident = match ctx {
-                    Some((ctx, i)) => {
-                        params.insert(*i, quote! { #ctx });
-                        quote_spanned! {ctx.span()=>
-                            #ctx
-                        }
-                    },
-                    None => quote! { _ctx },
+                let ctx_ident = if let Some((ctx, i)) = ctx {
+                    params.insert(*i, quote! { #ctx });
+                    quote_spanned! {ctx.span()=>
+                        #ctx
+                    }
+                } else {
+                    quote! { _ctx }
                 };
 
                 quote_spanned! {sig.span()=>
@@ -444,7 +443,7 @@ impl ToTokens for Messages {
         let item_impl = &self.item_impl;
         let msg_enum = self.expand_msgs();
         let msg_impl_message = self.expand_msg_impls();
-        let errors = self.errors.clone().map(|err| err.into_compile_error());
+        let errors = self.errors.clone().map(syn::Error::into_compile_error);
 
         tokens.extend(quote! {
             #item_impl
@@ -522,10 +521,6 @@ fn contains_generic_in_param(ty: &Type, generics: &[GenericParam]) -> Vec<Generi
             params
         }
         Type::Group(group) => contains_generic_in_param(&group.elem, generics),
-        Type::ImplTrait(_) => vec![],
-        Type::Infer(_) => vec![],
-        Type::Macro(_) => vec![],
-        Type::Never(_) => vec![],
         Type::Paren(paren) => contains_generic_in_param(&paren.elem, generics),
         Type::Path(path) => {
             if let Some(ident) = path.path.get_ident() {
@@ -597,7 +592,6 @@ fn contains_generic_in_param(ty: &Type, generics: &[GenericParam]) -> Vec<Generi
                         vec![]
                     }
                 }
-                syn::TypeParamBound::Verbatim(_) => vec![],
                 _ => vec![],
             })
             .collect(),
@@ -606,7 +600,6 @@ fn contains_generic_in_param(ty: &Type, generics: &[GenericParam]) -> Vec<Generi
             .iter()
             .flat_map(|elem| contains_generic_in_param(elem, generics))
             .collect(),
-        Type::Verbatim(_) => vec![],
         _ => vec![],
     }
 }

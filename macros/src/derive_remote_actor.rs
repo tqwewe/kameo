@@ -20,11 +20,12 @@ impl ToTokens for DeriveRemoteActor {
         } = self;
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        let id = match &attrs.id {
-            Some(id) => quote! { #id },
-            None => quote! {
+        let id = if let Some(id) = &attrs.id {
+            quote! { #id }
+        } else {
+            quote! {
                 ::std::concat!(::std::module_path!(), "::", ::std::stringify!(#ident))
-            },
+            }
         };
 
         tokens.extend(quote! {

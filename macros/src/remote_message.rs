@@ -41,34 +41,37 @@ impl RemoteMessage {
         } = self;
 
         let RemoteMessageAttrs { id } = attrs;
-        let id = id.map(|id| id.into_token_stream()).unwrap_or_else(|| {
-            let actor_ty = actor_ty.to_token_stream().to_string().replace(' ', "");
-            let message_generics = message_generics
-                .to_token_stream()
-                .to_string()
-                .replace(' ', "");
-            let actor_generics = actor_generics
-                .to_token_stream()
-                .to_string()
-                .replace(' ', "");
-            quote! {
-                ::kameo::remote::_internal::const_str::format!(
-                    "{:x}",
-                    ::kameo::remote::_internal::const_fnv1a_hash::fnv1a_hash_str_64(concat!(
-                        env!("CARGO_PKG_NAME"),
-                        "::",
-                        env!("CARGO_PKG_VERSION_MAJOR"),
-                        "::",
-                        module_path!(),
-                        "::",
-                        #message_generics,
-                        "::",
-                        #actor_ty,
-                        #actor_generics,
-                    ))
-                )
-            }
-        });
+        let id = id.map_or_else(
+            || {
+                let actor_ty = actor_ty.to_token_stream().to_string().replace(' ', "");
+                let message_generics = message_generics
+                    .to_token_stream()
+                    .to_string()
+                    .replace(' ', "");
+                let actor_generics = actor_generics
+                    .to_token_stream()
+                    .to_string()
+                    .replace(' ', "");
+                quote! {
+                    ::kameo::remote::_internal::const_str::format!(
+                        "{:x}",
+                        ::kameo::remote::_internal::const_fnv1a_hash::fnv1a_hash_str_64(concat!(
+                            env!("CARGO_PKG_NAME"),
+                            "::",
+                            env!("CARGO_PKG_VERSION_MAJOR"),
+                            "::",
+                            module_path!(),
+                            "::",
+                            #message_generics,
+                            "::",
+                            #actor_ty,
+                            #actor_generics,
+                        ))
+                    )
+                }
+            },
+            quote::ToTokens::into_token_stream,
+        );
 
         let (impl_generics, ty_generics, where_clause) = actor_generics.split_for_impl();
 
