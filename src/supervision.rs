@@ -1699,7 +1699,11 @@ mod tests {
         let _ = child.tell(StopGracefully).await;
         tokio::time::sleep(Duration::from_millis(150)).await;
 
-        assert_eq!(child_start_count.load(Ordering::SeqCst), 1, "should not restart");
+        assert_eq!(
+            child_start_count.load(Ordering::SeqCst),
+            1,
+            "should not restart"
+        );
         assert_eq!(
             link_died_count.load(Ordering::SeqCst),
             1,
