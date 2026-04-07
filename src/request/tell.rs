@@ -1,6 +1,7 @@
 use std::{future::IntoFuture, time::Duration};
 
 use futures::{FutureExt, future::BoxFuture};
+use tokio::task::JoinHandle;
 
 use crate::{
     Actor,
@@ -104,6 +105,47 @@ where
             Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
             None => Ok(tx.send(signal).await?),
         }
+    }
+
+    /// Sends a message to the actor after a delay.
+    ///
+    /// Returns a [`JoinHandle`] that can be used to cancel the scheduled send via
+    /// [`JoinHandle::abort`]. The handle can safely be ignored for fire-and-forget usage.
+    ///
+    /// Awaiting the handle will block until the delay has elapsed and the message
+    /// has been sent; this is rarely what you want.
+    pub fn send_after(self, duration: Duration) -> JoinHandle<Result<(), SendError<M>>>
+    where
+        Tm: Into<Option<Duration>>,
+    {
+        let signal = Signal::Message {
+            message: Box::new(self.msg),
+            actor_ref: self.actor_ref.clone(),
+            reply: None,
+            sent_within_actor: self.actor_ref.is_current(),
+            message_name: self.message_name,
+            #[cfg(feature = "tracing")]
+            caller_span: tracing::Span::current(),
+        };
+
+        let tx = self.actor_ref.mailbox_sender().clone();
+        if tx.capacity().is_some() {
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            warn_deadlock(
+                self.actor_ref,
+                "An actor is sending a `tell` request to itself using a bounded mailbox, which may lead to a deadlock. To avoid this, use `.try_send()`.",
+                self.called_at,
+            );
+        }
+        let mailbox_timeout = self.mailbox_timeout.into();
+
+        tokio::spawn(async move {
+            tokio::time::sleep(duration).await;
+            match mailbox_timeout {
+                Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
+                None => Ok(tx.send(signal).await?),
+            }
+        })
     }
 }
 
