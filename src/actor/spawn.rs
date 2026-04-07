@@ -213,6 +213,18 @@ where
 
                 let mut actor = state.shutdown().await;
 
+                actor_ref.links.set_children_parent_shutdown().await;
+                actor_ref.links.send_children_shutdown().await;
+                {
+                    let wait = actor_ref.links.wait_children_closed();
+                    tokio::pin!(wait);
+                    loop {
+                        tokio::select! {
+                            _ = &mut wait => break,
+                            _ = mailbox_rx.recv() => {}
+                        }
+                    }
+                }
                 actor_ref
                     .links
                     .lock()
@@ -253,6 +265,18 @@ where
                 let reason = ActorStopReason::Panicked(err);
                 log_actor_stop_reason(id, name, &reason);
 
+                actor_ref.links.set_children_parent_shutdown().await;
+                actor_ref.links.send_children_shutdown().await;
+                {
+                    let wait = actor_ref.links.wait_children_closed();
+                    tokio::pin!(wait);
+                    loop {
+                        tokio::select! {
+                            _ = &mut wait => break,
+                            _ = mailbox_rx.recv() => {}
+                        }
+                    }
+                }
                 actor_ref
                     .links
                     .lock()
@@ -354,15 +378,16 @@ where
                 id,
                 reason,
                 mailbox_rx,
+                dead_actor_sibblings,
             }) => {
-                if let ControlFlow::Break(reason) =
-                    state.handle_link_died(id, reason, mailbox_rx).await
+                if let ControlFlow::Break(reason) = state
+                    .handle_link_died(id, reason, mailbox_rx, dead_actor_sibblings)
+                    .await
                 {
                     return reason;
                 }
             }
-            ControlFlow::Continue(Signal::Stop)
-            | ControlFlow::Continue(Signal::SupervisorRestart) => {
+            ControlFlow::Continue(Signal::Stop | Signal::SupervisorRestart) => {
                 if let ControlFlow::Break(reason) = state.handle_stop().await {
                     return reason;
                 }
@@ -392,10 +417,10 @@ async fn unregister_actor(id: &ActorId) {
 #[cfg(feature = "tracing")]
 fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
     match reason {
-        reason @ ActorStopReason::Normal
-        | reason @ ActorStopReason::SupervisorRestart
-        | reason @ ActorStopReason::Killed
-        | reason @ ActorStopReason::LinkDied { .. } => {
+        reason @ (ActorStopReason::Normal
+        | ActorStopReason::SupervisorRestart
+        | ActorStopReason::Killed
+        | ActorStopReason::LinkDied { .. }) => {
             trace!(%id, %name, ?reason, "actor stopped");
         }
         reason @ ActorStopReason::Panicked(_) => {

@@ -277,7 +277,7 @@ where
 
     actor_ref
         .weak_signal_mailbox()
-        .signal_link_died(dead_actor_id, stop_reason, None)
+        .signal_link_died(dead_actor_id, stop_reason, None, None)
         .await?;
 
     Ok(())

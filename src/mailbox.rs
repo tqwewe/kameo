@@ -4,6 +4,7 @@
 
 use std::{
     any::Any,
+    collections::HashMap,
     fmt,
     task::{Context, Poll},
     time::Duration,
@@ -17,7 +18,7 @@ use crate::{
     Actor,
     actor::{ActorId, ActorRef},
     error::{ActorStopReason, SendError},
-    links::BoxMailboxReceiver,
+    links::{BoxMailboxReceiver, Link},
     message::BoxMessage,
     reply::BoxReplySender,
 };
@@ -845,8 +846,11 @@ pub enum Signal<A: Actor> {
         id: ActorId,
         /// The reason the actor stopped.
         reason: ActorStopReason,
-        /// The mailbox sender. Some is the link is being sent to a supervising parent, None for sibblings.
+        /// The mailbox receiver. `Some` when sent to a supervising parent, `None` for sibling links.
         mailbox_rx: Option<Box<dyn Any + Send>>,
+        /// The dead actor's own peer links, passed along the supervised path so the supervisor can
+        /// notify them when it decides not to restart. `None` on the unsupervised (sibling) path.
+        dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     },
     /// Signals the actor to stop.
     Stop,
@@ -874,8 +878,10 @@ pub trait SignalMailbox: DynClone + Send + Sync {
         id: ActorId,
         reason: ActorStopReason,
         mailbox_rx: Option<BoxMailboxReceiver>,
+        dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> BoxFuture<'_, Result<(), SendError>>;
     fn signal_stop(&self) -> BoxFuture<'_, Result<(), SendError>>;
+    fn closed(&self) -> BoxFuture<'_, ()>;
 }
 
 impl<A> SignalMailbox for MailboxSender<A>
@@ -902,6 +908,7 @@ where
         id: ActorId,
         reason: ActorStopReason,
         mailbox_rx: Option<Box<dyn Any + Send>>,
+        dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         match &self.inner {
             MailboxSenderInner::Bounded(tx) => async move {
@@ -909,6 +916,7 @@ where
                     id,
                     reason,
                     mailbox_rx,
+                    dead_actor_sibblings,
                 })
                 .await
                 .map_err(|_| SendError::ActorNotRunning(()))
@@ -919,6 +927,7 @@ where
                     id,
                     reason,
                     mailbox_rx,
+                    dead_actor_sibblings,
                 })
                 .map_err(|_| SendError::ActorNotRunning(()))
             }
@@ -941,6 +950,13 @@ where
             .boxed(),
         }
     }
+
+    fn closed(&self) -> BoxFuture<'_, ()> {
+        match &self.inner {
+            MailboxSenderInner::Bounded(tx) => tx.closed().boxed(),
+            MailboxSenderInner::Unbounded(tx) => tx.closed().boxed(),
+        }
+    }
 }
 
 impl<A> SignalMailbox for WeakMailboxSender<A>
@@ -959,10 +975,14 @@ where
         id: ActorId,
         reason: ActorStopReason,
         mailbox_rx: Option<Box<dyn Any + Send>>,
+        dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> BoxFuture<'_, Result<(), SendError>> {
         async move {
             match self.upgrade() {
-                Some(tx) => tx.signal_link_died(id, reason, mailbox_rx).await,
+                Some(tx) => {
+                    tx.signal_link_died(id, reason, mailbox_rx, dead_actor_sibblings)
+                        .await
+                }
                 None => Err(SendError::ActorNotRunning(())),
             }
         }
@@ -977,6 +997,13 @@ where
             }
         }
         .boxed()
+    }
+
+    fn closed(&self) -> BoxFuture<'_, ()> {
+        match self.upgrade() {
+            Some(tx) => async move { tx.closed().await }.boxed(),
+            None => Box::pin(futures::future::ready(())),
+        }
     }
 }
 

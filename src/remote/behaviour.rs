@@ -455,6 +455,7 @@ impl NetworkBehaviour for Behaviour {
                                         linked_actor_id,
                                         ActorStopReason::PeerDisconnected,
                                         None,
+                                        None,
                                     )
                                     .await
                             });

@@ -1,13 +1,20 @@
 use std::{
     any::Any,
     collections::HashMap,
-    fmt,
+    fmt, mem,
     ops::{self, ControlFlow},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
-use futures::{FutureExt, StreamExt, future::BoxFuture, stream::FuturesUnordered};
+use futures::{
+    FutureExt, StreamExt,
+    future::{BoxFuture, join_all},
+    stream::FuturesUnordered,
+};
 use tokio::sync::Mutex;
 
 use crate::{
@@ -30,6 +37,47 @@ pub type ShutdownFn = Box<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 #[allow(missing_debug_implementations)]
 pub struct Links(Arc<Mutex<LinksInner>>);
 
+impl Links {
+    /// Sets the `parent_shutdown` flag on all supervised children.
+    ///
+    /// This must be called before the parent stops processing its mailbox so that any child
+    /// exiting independently after this point will drop its `mailbox_rx` immediately in
+    /// `notify_links`, preventing it from being queued in the parent's mailbox where it would
+    /// deadlock the `shutdown_children` wait.
+    pub async fn set_children_parent_shutdown(&self) {
+        let inner = self.lock().await;
+        for spec in inner.children.values() {
+            spec.parent_shutdown.store(true, Ordering::Release);
+        }
+    }
+
+    pub async fn send_children_shutdown(&self) {
+        let shutdowns: Vec<_> = {
+            let inner = self.lock().await;
+            inner
+                .children
+                .values()
+                .map(|c| c.shutdown.clone())
+                .collect()
+        };
+
+        join_all(shutdowns.iter().map(|s| s())).await;
+    }
+
+    pub async fn wait_children_closed(&self) {
+        let mailboxes: Vec<_> = {
+            let inner = self.lock().await;
+            inner
+                .children
+                .values()
+                .map(|c| c.signal_mailbox.clone())
+                .collect()
+        };
+
+        join_all(mailboxes.iter().map(|m| m.closed())).await;
+    }
+}
+
 #[derive(Default)]
 pub struct LinksInner {
     /// Parent actor supervising us.
@@ -38,6 +86,11 @@ pub struct LinksInner {
     pub sibblings: HashMap<ActorId, Link>,
     /// Child actors we are supervising.
     pub children: HashMap<ActorId, ErasedChildSpec>,
+    /// Set by the parent supervisor (via `ErasedChildSpec`) before sending `SupervisorRestart`
+    /// during final shutdown. When `true`, `notify_links` drops `mailbox_rx` immediately
+    /// instead of queuing it in the parent's mailbox, which would deadlock the parent's
+    /// `shutdown_children` wait.
+    pub parent_shutdown: Arc<AtomicBool>,
 }
 
 impl LinksInner {
@@ -50,8 +103,23 @@ impl LinksInner {
     ) {
         match self.parent.clone() {
             Some((parent_id, parent_link)) => {
-                // Supervised, notify parent, it will be responsible for notifying sibblings if it decides not to restart
-                tokio::spawn(parent_link.notify(parent_id, id, reason, Some(Box::new(mailbox_rx))));
+                let sibblings = mem::take(&mut self.sibblings);
+                if self.parent_shutdown.load(Ordering::Acquire) {
+                    // Parent is in shutdown_children — drop mailbox_rx immediately so the
+                    // child's channel closes and the parent's mailbox.closed() wait resolves.
+                    // Passing it to the parent's queue would deadlock since the parent is not
+                    // processing its mailbox while blocked in shutdown_children.
+                    tokio::spawn(parent_link.notify(parent_id, id, reason, None, None));
+                } else {
+                    // Supervised normal path — pass mailbox_rx so the parent can restart us.
+                    tokio::spawn(parent_link.notify(
+                        parent_id,
+                        id,
+                        reason,
+                        Some(Box::new(mailbox_rx)),
+                        Some(sibblings),
+                    ));
+                }
             }
             None => {
                 // Unsupervised, notify sibblings directly
@@ -66,7 +134,7 @@ impl LinksInner {
             .sibblings
             .drain()
             .map(|(sibbling_actor_id, link)| {
-                link.notify(sibbling_actor_id, id, reason.clone(), None)
+                link.notify(sibbling_actor_id, id, reason.clone(), None, None)
                     .boxed()
             })
             .collect();
@@ -83,6 +151,7 @@ impl ops::Deref for Links {
 }
 
 #[derive(Clone)]
+#[allow(missing_debug_implementations)]
 pub enum Link {
     Local(Box<dyn SignalMailbox>),
     #[cfg(feature = "remote")]
@@ -97,16 +166,22 @@ impl Link {
         dead_actor_id: ActorId,
         reason: ActorStopReason,
         mailbox_rx: Option<BoxMailboxReceiver>,
+        dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) {
         match self {
             Link::Local(mailbox) => {
                 #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                 if let Err(err) = mailbox
-                    .signal_link_died(dead_actor_id, reason, mailbox_rx)
+                    .signal_link_died(dead_actor_id, reason, mailbox_rx, dead_actor_sibblings)
                     .await
                 {
                     #[cfg(feature = "tracing")]
-                    tracing::error!("failed to notify actor a link died: {err}");
+                    match err {
+                        crate::error::SendError::ActorNotRunning(_) => {}
+                        _ => {
+                            tracing::error!("failed to notify actor a link died: {err}");
+                        }
+                    }
                 }
             }
             #[cfg(feature = "remote")]
@@ -131,9 +206,15 @@ impl Link {
     }
 }
 
+#[derive(Clone)]
 pub struct ErasedChildSpec {
     pub factory: Arc<SpawnFactory>,
     pub shutdown: Arc<ShutdownFn>,
+    pub signal_mailbox: Box<dyn SignalMailbox>,
+    /// Shared with the child's `LinksInner::parent_shutdown`. Set to `true` by
+    /// `shutdown_children` before sending `SupervisorRestart`, so the child knows to drop
+    /// its `mailbox_rx` immediately rather than forwarding it to the parent's queue.
+    pub parent_shutdown: Arc<AtomicBool>,
     pub restart_policy: RestartPolicy,
     pub restart_count: u32,
     pub last_restart: Instant,
@@ -209,8 +290,7 @@ impl fmt::Display for NoRestartReason {
             } => {
                 write!(
                     f,
-                    "max restarts exceeded ({} >= {})",
-                    restart_count, max_restarts
+                    "max restarts exceeded ({restart_count} >= {max_restarts})"
                 )
             }
             NoRestartReason::NeverPolicy => write!(f, "never restart policy"),

@@ -7,14 +7,14 @@ use std::{
     sync::Arc,
 };
 
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 #[cfg(feature = "tracing")]
 use tracing::Instrument;
 
 use crate::{
     actor::{Actor, ActorRef, WeakActorRef},
     error::{ActorStopReason, PanicError, PanicReason},
-    links::{BoxMailboxReceiver, ShutdownFn},
+    links::{BoxMailboxReceiver, Link, ShutdownFn},
     mailbox::{MailboxReceiver, Signal},
     message::BoxMessage,
     reply::BoxReplySender,
@@ -208,6 +208,7 @@ where
         id: ActorId,
         reason: ActorStopReason,
         mailbox_rx: Option<Box<dyn Any + Send>>,
+        dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> ControlFlow<ActorStopReason> {
         {
             let mut links = self.actor_ref.links.lock().await;
@@ -345,8 +346,19 @@ where
                                 );
                             }
                         }
+                        // Notify the dead child's own peer links
+                        if let Some(sibblings) = dead_actor_sibblings {
+                            let mut notify_futs: FuturesUnordered<_> = sibblings
+                                .into_iter()
+                                .map(|(sibbling_actor_id, link)| {
+                                    link.notify(sibbling_actor_id, id, reason.clone(), None, None)
+                                        .boxed()
+                                })
+                                .collect();
+                            tokio::spawn(async move {
+                                while let Some(()) = notify_futs.next().await {}
+                            });
                         }
-                        links.notify_sibblings(id, &reason);
                     }
                 }
             }
@@ -373,6 +385,7 @@ where
     }
 
     pub(crate) async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
+        self.actor_ref.links.set_children_parent_shutdown().await;
         match self.handle_startup_finished().await {
             ControlFlow::Continue(_) => ControlFlow::Break(ActorStopReason::Normal),
             ControlFlow::Break(reason) => ControlFlow::Break(reason),

@@ -77,7 +77,7 @@
 
 use std::{
     any::Any,
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
     time::{Duration, Instant},
 };
 
@@ -645,18 +645,24 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
             self.args_factory,
             in_thread,
         ));
-        let shutdown = Arc::new(Box::new(move || {
+        let shutdown = Arc::new(Box::new({
             let mailbox_tx = mailbox_tx.clone();
-            async move {
-                // We can ignore the error here.
-                // If this failed, then the supervisor will restart it for its previous stop reason.
-                let _ = mailbox_tx.send(Signal::SupervisorRestart).await;
+            move || {
+                let mailbox_tx = mailbox_tx.clone();
+                async move {
+                    // We can ignore the error here.
+                    // If this failed, then the supervisor will restart it for its previous stop reason.
+                    let _ = mailbox_tx.send(Signal::SupervisorRestart).await;
+                }
+                .boxed()
             }
-            .boxed()
         }) as ShutdownFn);
+        let parent_shutdown = links.lock().await.parent_shutdown.clone();
         let spec = ErasedChildSpec {
             factory: factory.clone(),
             shutdown,
+            signal_mailbox: Box::new(mailbox_tx.clone()),
+            parent_shutdown,
             restart_policy,
             restart_count: 0,
             last_restart: Instant::now(),
@@ -682,6 +688,16 @@ fn new_factory<C: Actor>(
         let args = args_factory.get();
 
         Box::pin(async move {
+            {
+                let mut inner = links.lock().await;
+                // Clear stale children entries from the previous instance. Any queued
+                // Signal::LinkDied for those old children arriving in the new actor loop will
+                // find no entry in children and fall through to on_link_died harmlessly.
+                inner.children.clear();
+                // Reset parent_shutdown so this restarted instance doesn't inherit a true flag
+                // left by a previous supervisor shutdown.
+                inner.parent_shutdown.store(false, Ordering::Release);
+            }
             let prepared = PreparedActor::new_with(actor_id, (mailbox_tx, mailbox_rx), links);
             let actor_ref = prepared.actor_ref().clone();
             if in_thread {
@@ -1658,6 +1674,86 @@ mod tests {
         supervisor.kill();
     }
 
+    #[tokio::test]
+    async fn supervised_child_notifies_its_own_siblings_on_permanent_death() {
+        let supervisor = TestSupervisor::spawn(TestSupervisor);
+        let link_died_count = Arc::new(AtomicU32::new(0));
+        let tracker_start_count = Arc::new(AtomicU32::new(0));
+        let child_start_count = Arc::new(AtomicU32::new(0));
+
+        // Standalone tracker (unsupervised), peer-linked to the supervised child
+        let tracker = LinkTracker::spawn(LinkTracker::new(
+            link_died_count.clone(),
+            tracker_start_count.clone(),
+        ));
+
+        let child = TestChild::supervise(&supervisor, TestChild::new(child_start_count.clone()))
+            .restart_policy(RestartPolicy::Transient)
+            .spawn()
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        tracker.link(&child).await;
+
+        // Normal exit — Transient policy will not restart
+        let _ = child.tell(StopGracefully).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert_eq!(child_start_count.load(Ordering::SeqCst), 1, "should not restart");
+        assert_eq!(
+            link_died_count.load(Ordering::SeqCst),
+            1,
+            "child's own peer-linked actors should be notified on permanent death"
+        );
+
+        supervisor.kill();
+        tracker.kill();
+    }
+
+    #[tokio::test]
+    async fn supervisor_peer_links_not_spuriously_notified_on_child_permanent_death() {
+        let supervisor = TestSupervisor::spawn(TestSupervisor);
+        let watcher_died_count = Arc::new(AtomicU32::new(0));
+        let watcher_start_count = Arc::new(AtomicU32::new(0));
+        let child_start_count = Arc::new(AtomicU32::new(0));
+
+        // Watcher peer-linked to the supervisor, not the child
+        let watcher = LinkTracker::spawn(LinkTracker::new(
+            watcher_died_count.clone(),
+            watcher_start_count.clone(),
+        ));
+        watcher.link(&supervisor).await;
+
+        let child = TestChild::supervise(&supervisor, TestChild::new(child_start_count.clone()))
+            .restart_policy(RestartPolicy::Transient)
+            .spawn()
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let _ = child.tell(StopGracefully).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // No spurious notifications from the child's death
+        assert_eq!(
+            watcher_died_count.load(Ordering::SeqCst),
+            0,
+            "supervisor's peer links should not be spuriously notified when a child permanently dies"
+        );
+
+        // Kill supervisor — watcher should still be notified (link not drained)
+        supervisor.stop_gracefully().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        assert_eq!(
+            watcher_died_count.load(Ordering::SeqCst),
+            1,
+            "supervisor's peer links should still fire when supervisor itself dies"
+        );
+
+        watcher.kill();
+    }
+
     // ==================== Edge Cases ====================
 
     #[tokio::test]
@@ -1848,5 +1944,29 @@ mod tests {
         );
 
         supervisor.kill();
+    }
+
+    #[tokio::test]
+    async fn stop_gracefully_does_not_deadlock_with_supervised_children() {
+        // Regression test: stopping a supervisor with live supervised children used to deadlock
+        // because children sent their mailbox_rx into the parent's queue, but the parent was
+        // stuck in shutdown_children waiting for those receivers to be dropped.
+        let supervisor = TestSupervisor::spawn(TestSupervisor);
+        let start_count = Arc::new(AtomicU32::new(0));
+
+        let _child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
+            .restart_policy(RestartPolicy::Permanent)
+            .spawn()
+            .await;
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // This must complete without hanging
+        tokio::time::timeout(Duration::from_secs(2), async {
+            supervisor.stop_gracefully().await.unwrap();
+            supervisor.wait_for_shutdown().await;
+        })
+        .await
+        .expect("supervisor shutdown deadlocked");
     }
 }
