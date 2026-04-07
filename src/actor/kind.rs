@@ -335,6 +335,16 @@ where
                                     "actor not restarted"
                                 );
                             }
+                            crate::links::NoRestartReason::NeverPolicy => {
+                                tracing::debug!(
+                                    %id,
+                                    name = A::name(),
+                                    ?reason,
+                                    decision = %no_restart_reason,
+                                    "actor not restarted"
+                                );
+                            }
+                        }
                         }
                         links.notify_sibblings(id, &reason);
                     }

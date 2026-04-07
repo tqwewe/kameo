@@ -143,6 +143,11 @@ pub struct ErasedChildSpec {
 
 impl ErasedChildSpec {
     pub fn should_restart(&mut self, reason: &ActorStopReason) -> ControlFlow<NoRestartReason> {
+        // Never policy takes precedence over everything, including coordinator-initiated restarts
+        if matches!(self.restart_policy, RestartPolicy::Never) {
+            return ControlFlow::Break(NoRestartReason::NeverPolicy);
+        }
+
         // Always restart if supervisor initiated the shutdown for coordination
         if matches!(reason, ActorStopReason::SupervisorRestart) {
             return ControlFlow::Continue(());
@@ -155,6 +160,7 @@ impl ErasedChildSpec {
                 return ControlFlow::Break(NoRestartReason::NormalExitUnderTransientPolicy);
             }
             RestartPolicy::Transient => {}
+            RestartPolicy::Never => unreachable!(),
         }
 
         // Reset count if outside time window
@@ -178,6 +184,7 @@ impl ErasedChildSpec {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoRestartReason {
     /// Transient policy but stop was normal
     NormalExitUnderTransientPolicy,
@@ -186,6 +193,8 @@ pub enum NoRestartReason {
         restart_count: u32,
         max_restarts: u32,
     },
+    /// Never policy — this child is configured to never restart
+    NeverPolicy,
 }
 
 impl fmt::Display for NoRestartReason {
@@ -204,6 +213,7 @@ impl fmt::Display for NoRestartReason {
                     restart_count, max_restarts
                 )
             }
+            NoRestartReason::NeverPolicy => write!(f, "never restart policy"),
         }
     }
 }

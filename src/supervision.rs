@@ -60,6 +60,7 @@
 //!
 //! - **[`RestartPolicy::Permanent`]**: Always restart, regardless of how the actor died (default)
 //! - **[`RestartPolicy::Transient`]**: Only restart on abnormal exits (panics/errors), not normal exits
+//! - **[`RestartPolicy::Never`]**: Never restart, regardless of how the actor died
 //!
 //! # Supervision Strategies
 //!
@@ -100,6 +101,7 @@ use crate::{
 /// |--------|----------|----------|----------------|
 /// | [`Permanent`](Self::Permanent) | ✓ Restart | ✓ Restart | ✓ Restart |
 /// | [`Transient`](Self::Transient) | ✓ Restart | ✓ Restart | ✗ No restart |
+/// | [`Never`](Self::Never)         | ✗ No restart | ✗ No restart | ✗ No restart |
 ///
 /// # Examples
 ///
@@ -140,6 +142,12 @@ use crate::{
 ///     .restart_policy(RestartPolicy::Transient)
 ///     .spawn()
 ///     .await;
+///
+/// // One-shot task that should run once and never be restarted
+/// let one_shot = Worker::supervise(&supervisor_ref, Worker)
+///     .restart_policy(RestartPolicy::Never)
+///     .spawn()
+///     .await;
 /// # };
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -170,6 +178,18 @@ pub enum RestartPolicy {
     /// - Actors with defined completion states
     /// - Services that can gracefully shutdown
     Transient,
+    /// Never restart the child, regardless of how it terminated.
+    ///
+    /// The child is still supervised — the supervisor tracks it and includes it in
+    /// [`SupervisionStrategy::OneForAll`] / [`SupervisionStrategy::RestForOne`]
+    /// coordination — but will not spawn a new instance after it stops.
+    ///
+    /// # Use Cases
+    ///
+    /// - One-shot tasks that should run once and then stop permanently
+    /// - Actors managed externally whose lifecycle is controlled elsewhere
+    /// - Children that should be observable but not automatically recovered
+    Never,
 }
 
 /// Defines which children should be restarted when a child actor fails.
@@ -1078,6 +1098,90 @@ mod tests {
             start_count.load(Ordering::SeqCst),
             2,
             "transient policy should restart on error"
+        );
+
+        supervisor.kill();
+    }
+
+    #[tokio::test]
+    async fn never_no_restart_on_panic() {
+        let supervisor = TestSupervisor::spawn(TestSupervisor);
+        let start_count = Arc::new(AtomicU32::new(0));
+
+        let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
+            .restart_policy(RestartPolicy::Never)
+            .spawn()
+            .await;
+
+        // Wait for initial start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(start_count.load(Ordering::SeqCst), 1);
+
+        // Trigger panic
+        let _ = child.tell(TriggerPanic).await;
+
+        // Wait to see if restart happens (it shouldn't)
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "never policy should NOT restart on panic"
+        );
+
+        supervisor.kill();
+    }
+
+    #[tokio::test]
+    async fn never_no_restart_on_normal_exit() {
+        let supervisor = TestSupervisor::spawn(TestSupervisor);
+        let start_count = Arc::new(AtomicU32::new(0));
+
+        let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
+            .restart_policy(RestartPolicy::Never)
+            .spawn()
+            .await;
+
+        // Wait for initial start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(start_count.load(Ordering::SeqCst), 1);
+
+        // Stop gracefully (normal exit)
+        let _ = child.tell(StopGracefully).await;
+
+        // Wait to see if restart happens (it shouldn't)
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "never policy should NOT restart on normal exit"
+        );
+
+        supervisor.kill();
+    }
+
+    #[tokio::test]
+    async fn never_no_restart_on_error() {
+        let supervisor = TestSupervisor::spawn(TestSupervisor);
+        let start_count = Arc::new(AtomicU32::new(0));
+
+        let child = TestChild::supervise(&supervisor, TestChild::new(start_count.clone()))
+            .restart_policy(RestartPolicy::Never)
+            .spawn()
+            .await;
+
+        // Wait for initial start
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(start_count.load(Ordering::SeqCst), 1);
+
+        // Trigger error
+        let _ = child.tell(TriggerError).await;
+
+        // Wait to see if restart happens (it shouldn't)
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            start_count.load(Ordering::SeqCst),
+            1,
+            "never policy should NOT restart on error"
         );
 
         supervisor.kill();
