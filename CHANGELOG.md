@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-04-07
+
+* @Janrupf made their first contribution in #309
+
+* @caniko made their first contribution in #312
+
+* @pawurb made their first contribution in #294
+
+* @camas made their first contribution in #287
+
+* @djmitche made their first contribution in #285
+
+* @bddap made their first contribution in #
+
+* @hnorkowski made their first contribution in #
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add `PanicReason` enum to `PanicError` [</>](https://github.com/tqwewe/kameo/commit/11a9f6734916b9701321adbdb590ee0c47de12b3)
+- **BREAKING:** Add supervision support (#314)
+- **BREAKING:** Add support for returning errors in `Actor::next` [</>](https://github.com/tqwewe/kameo/commit/3a669e7de506413ff1577cc12c10ffc38dc16adf)
+- Add support for `channels-console` (#261) [</>](https://github.com/tqwewe/kameo/commit/c172212eacb2ac90a2c63cd3e0dfd185c87ea82a)
+- Add utility methods to `WeakActorRef`
+- Improve error message
+- Add tracing span support (#309)
+- Add #[must_use] to pure getter methods [</>](https://github.com/tqwewe/kameo/commit/bebf296ada5f313ebd64c77754dd5271cd16c756)
+- Add non-blocking startup/shutdown result accessors to ActorRef [</>](https://github.com/tqwewe/kameo/commit/1efb7c6cff5bd70217b43add833e3666d424dbc6)
+- Add RestartPolicy::Never [</>](https://github.com/tqwewe/kameo/commit/05052d68a8fdb543d2722d36050df11fe9a1ff8c)
+- Add `TellRequest::send_after` for delayed message delivery [</>](https://github.com/tqwewe/kameo/commit/3ad7b9bf75e148339271088a805d3aff526baaaf)
+
+### <!-- 1 -->Changed
+
+- **BREAKING:** Replace channels-console with hotpath (#263)
+- **BREAKING:** Return `ActorStopReason` in shutdown result (#316)
+- Use idiomatic rust patterns [</>](https://github.com/tqwewe/kameo/commit/25b8bb9185cd4c79a0918d071e38e10c9f6f2248)
+- Format supervision.rs [</>](https://github.com/tqwewe/kameo/commit/35680273b7fc1b2c3f7b9fe2ae1ffc117318890c)
+
+### <!-- 2 -->Removed
+
+- Remove unnecessary `Sync` bound from `supervise_with` [</>](https://github.com/tqwewe/kameo/commit/06ea2b253078e87a51448fffacdf3ffcabd3c75c)
+
+### <!-- 3 -->Fixed
+
+- Metrics counter names (#260) [</>](https://github.com/tqwewe/kameo/commit/9b76ad11f29a33356f7623f6bbf31d863c152139)
+- Use correct spawn invocation in getting-started.mdx
+- Fix sibbling typo
+- Update hotpath link and gif
+- Make SwarmSender::send() non-panicking when channel is closed [</>](https://github.com/tqwewe/kameo/commit/3103b51a237bb4ebfaa5c53565c4cd897b73b69e)
+- Prevent actor tasks from panicking in `Actor::next` and `Actor::on_panic` calls [</>](https://github.com/tqwewe/kameo/commit/0d57707b1e1db130a74d3567fd571884ed679425)
+- Incorrect panic reasons in panic errors [</>](https://github.com/tqwewe/kameo/commit/48ad44994ff91b92d69cc0570ef2b7f704423a72)
+- Missing display impl for `PanicReason::Next` variant
+- Request::ask::tests::bounded_ask_requests_mailbox_timeout test [</>](https://github.com/tqwewe/kameo/commit/43f582cf82d73a746ca2aee319cf6f787faf4d78)
+- Tests
+- Bounded_tell_requests_mailbox_full needs 2 messages to fill
+- Prevent deadlock when supervisor shuts down children [</>](https://github.com/tqwewe/kameo/commit/99ebb6ca7bde194b629adad3bf6cee25d3ccc939)
+
+### <!-- 4 -->Documentation
+
+- Add observability page [</>](https://github.com/tqwewe/kameo/commit/0ba30877fb6d10bc0edcb4789230500d3a921192)
+- Update kameo msrv [</>](https://github.com/tqwewe/kameo/commit/3acebadfebff6c2d528fd8bb674f5135052ba743)
+- Remove sponsor from README.md
+- Remove sponsor from README.md [</>](https://github.com/tqwewe/kameo/commit/cc7cd6b27c578d20e1c58ed572124fa44222361c)
+- Fix on_start return type in example [</>](https://github.com/tqwewe/kameo/commit/7b0b4a8edae8fda8e99789422846e95d5e050138)
+
+### <!-- 5 -->Misc
+
+- Bump kameo to version 0.19.2 [</>](https://github.com/tqwewe/kameo/commit/cca1abc2d12e8b7a6b410b821282773f8ab677fc)
+- Fix clippy non-canonical lints for `Infallible` error type
+- Upgrade dependencies [</>](https://github.com/tqwewe/kameo/commit/0891e6e68d77adf22c12349e200c4834d5fb6003)
+- Update hotpath requirement from 0.11 to 0.13 (#313)
+- Update hotpath requirement from 0.11 to 0.14 (#317)
+- Update hotpath requirement from 0.11 to 0.14 (#318)
+- Bump kameo_macros to version 0.20.0 [</>](https://github.com/tqwewe/kameo/commit/4f3e332ecb3aae730b6459d94d033c5d0c26392a)
+
 ## [0.19.2] - 2025-11-17
 
 ### <!-- 0 -->Added

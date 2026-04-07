@@ -49,7 +49,7 @@ Add Kameo as a dependency in your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-kameo = "0.19"
+kameo = "0.20"
 ```
 
 Alternatively, you can add it via command line:
