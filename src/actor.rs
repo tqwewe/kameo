@@ -531,6 +531,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///
     /// This method requires that `Self::Args` implements [`Default`]. For actors where
     /// `Args = Self`, this means the actor struct itself must implement `Default`.
+    #[must_use]
     fn spawn_default() -> ActorRef<Self>
     where
         Self::Args: Default,

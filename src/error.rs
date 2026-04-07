@@ -216,6 +216,7 @@ impl<M, E> SendError<M, SendError<M, E>> {
 
 impl BoxSendError {
     /// Downcasts the inner error types to a concrete type.
+    #[must_use]
     pub fn downcast<M, E>(self) -> SendError<M, E>
     where
         M: 'static,

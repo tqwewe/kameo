@@ -158,6 +158,7 @@ where
     ///
     /// For bidirectional communication that supports `ask` requests,
     /// see [`ActorRef::reply_recipient`].
+    #[must_use]
     pub fn recipient<M>(self) -> Recipient<M>
     where
         A: Message<M>,
@@ -177,6 +178,7 @@ where
     ///
     /// For unidirectional communication that only supports `tell`,
     /// see [`ActorRef::recipient`].
+    #[must_use]
     pub fn reply_recipient<M>(
         self,
     ) -> ReplyRecipient<M, <A::Reply as Reply>::Ok, <A::Reply as Reply>::Error>
@@ -1218,6 +1220,7 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> ReplyRecipient<M, O
     /// Returns a [`Recipient<M>`] that only supports `tell` operations. This is useful
     /// when you need to pass the recipient to code that doesn't require bidirectional
     /// communication.
+    #[must_use]
     pub fn erase_reply(self) -> Recipient<M> {
         Recipient {
             handler: self.handler.upcast(),
@@ -1940,6 +1943,7 @@ impl<A: Actor> WeakActorRef<A> {
 
     /// Tries to convert a `WeakActorRef` into a [`ActorRef`]. This will return `Some`
     /// if there are other `ActorRef` instances alive, otherwise `None` is returned.
+    #[must_use]
     pub fn upgrade(&self) -> Option<ActorRef<A>> {
         self.mailbox_sender.upgrade().map(|mailbox| ActorRef {
             id: self.id,
@@ -2238,6 +2242,7 @@ impl<M: Send + 'static> WeakRecipient<M> {
 
     /// Tries to convert a `WeakRecipient` into a [`Recipient`]. This will return `Some`
     /// if there are other `ActorRef`/`Recipient` instances alive, otherwise `None` is returned.
+    #[must_use]
     pub fn upgrade(&self) -> Option<Recipient<M>> {
         self.handler.upgrade()
     }
@@ -2318,6 +2323,7 @@ impl<M: Send + 'static, Ok: Send + 'static, Err: ReplyError> WeakReplyRecipient<
 
     /// Tries to convert a `WeakReplyRecipient` into a [`ReplyRecipient`]. This will return `Some`
     /// if there are other `ActorRef`/`ReplyRecipient` instances alive, otherwise `None` is returned.
+    #[must_use]
     pub fn upgrade(&self) -> Option<ReplyRecipient<M, Ok, Err>> {
         self.handler.reply_upgrade()
     }
