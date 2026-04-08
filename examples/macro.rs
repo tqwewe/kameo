@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic)]
+
 use kameo::prelude::*;
 
 #[derive(Actor)]
@@ -13,7 +15,7 @@ impl MyActor {
 
     #[message(derive(Clone))]
     fn inc(&mut self, amount: u32) -> i64 {
-        self.count += amount as i64;
+        self.count += i64::from(amount);
         self.count
     }
 
