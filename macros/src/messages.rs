@@ -194,6 +194,9 @@ impl Messages {
                             return None;
                         }
 
+                        impl_item_fn.attrs.push(parse_quote! ( #[allow(clippy::unused_self, reason = "self required for message handlers")] ));
+                        impl_item_fn.attrs.push(parse_quote! ( #[allow(clippy::needless_pass_by_value, reason = "references are not allowed in message handlers")] ));
+
                         let mut generics = vec![];
                         let impl_item_generics: Vec<_> = item_impl.generics
                             .lifetimes()
