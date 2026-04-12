@@ -617,6 +617,92 @@ impl Messages {
 
         Ok(first.vis.clone())
     }
+
+    fn expand_dispatch_impl(
+        &self,
+        msg_enum_name: &Ident,
+        response_enum_name: &Ident,
+    ) -> proc_macro2::TokenStream {
+        let Self {
+            item_impl,
+            ident: actor_ident,
+            messages,
+            ..
+        } = self;
+        let (impl_generics, actor_ty_generics, where_clause) =
+            item_impl.generics.split_for_impl();
+
+        // Each message contributes one Message<MsgType> bound on the actor.
+        let msg_bounds = messages.iter().map(|m| {
+            let msg_ident = &m.ident;
+            let (_, msg_ty_generics, _) = m.generics.split_for_impl();
+            quote! { #actor_ident #actor_ty_generics: ::kameo::message::Message<#msg_ident #msg_ty_generics> }
+        });
+
+        let match_arms = messages.iter().map(|message| {
+            let Message {
+                sig,
+                ident: msg_ident,
+                fields,
+                ..
+            } = message;
+
+            // Pattern: Enum::Variant or Enum::Variant(msg)
+            let (pattern, ask_arg, map_msg_fn) = if fields.is_empty() {
+                (
+                    quote! { #msg_enum_name::#msg_ident },
+                    quote! { #msg_ident },
+                    quote! { |_| #msg_enum_name::#msg_ident },
+                )
+            } else {
+                (
+                    quote! { #msg_enum_name::#msg_ident(msg) },
+                    quote! { msg },
+                    quote! { #msg_enum_name::#msg_ident },
+                )
+            };
+
+            // Capture reply and build response variant.
+            let (capture, response_variant) = if non_unit_return(&sig.output).is_some() {
+                (
+                    quote! { let reply = },
+                    quote! { #response_enum_name::#msg_ident(reply) },
+                )
+            } else {
+                (quote! {}, quote! { #response_enum_name::#msg_ident })
+            };
+
+            quote! {
+                #pattern => {
+                    #capture self.ask(#ask_arg).send().await
+                        .map_err(|e| e.map_msg(#map_msg_fn))?;
+                    ::std::result::Result::Ok(#response_variant)
+                }
+            }
+        });
+
+        quote! {
+            #[automatically_derived]
+            #[allow(async_fn_in_trait)]
+            impl #impl_generics ::kameo::message::Dispatch<#msg_enum_name #actor_ty_generics>
+            for ::kameo::actor::ActorRef<#actor_ident #actor_ty_generics>
+            #where_clause
+            where
+                #( #msg_bounds, )*
+            {
+                type Response = #response_enum_name #actor_ty_generics;
+
+                async fn dispatch(
+                    &self,
+                    msg: #msg_enum_name #actor_ty_generics,
+                ) -> ::std::result::Result<Self::Response, ::kameo::error::SendError<#msg_enum_name #actor_ty_generics>> {
+                    match msg {
+                        #( #match_arms )*
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl ToTokens for Messages {
@@ -634,6 +720,12 @@ impl ToTokens for Messages {
             .replies
             .clone()
             .map(|name| self.expand_response_enum(name));
+        let dispatch_impl = self
+            .args
+            .messages
+            .as_ref()
+            .zip(self.args.replies.as_ref())
+            .map(|(msg_name, resp_name)| self.expand_dispatch_impl(msg_name, resp_name));
         let errors = self.errors.clone().map(syn::Error::into_compile_error);
 
         tokens.extend(quote! {
@@ -644,6 +736,7 @@ impl ToTokens for Messages {
             #msg_impl_message
             #errors
             #response_enum
+            #dispatch_impl
         });
     }
 }
@@ -1188,6 +1281,63 @@ mod tests {
                 "pub enum ActorResponse < T : Clone , T2 : Copy > { First (T) , Second (T2) , }"
             ),
             "{expanded}"
+        );
+    }
+
+    #[test]
+    fn dispatch_impl_generated_for_messages_and_replies() {
+        let expanded = expand(
+            quote! { messages = ActorMessage, replies = ActorResponse },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn reset(&self) {}
+
+                    #[message]
+                    pub fn inc(&mut self, amount: u32) -> i64 {}
+                }
+            },
+        );
+
+        // impl Dispatch<ActorMessage> for ActorRef<Actor>
+        assert!(
+            expanded.contains(
+                "impl :: kameo :: message :: Dispatch < ActorMessage > for :: kameo :: actor :: ActorRef < Actor >"
+            ),
+            "{expanded}"
+        );
+        // type Response = ActorResponse
+        assert!(
+            expanded.contains("type Response = ActorResponse ;"),
+            "{expanded}"
+        );
+        // unit variant: self.ask(Reset)
+        assert!(
+            expanded.contains("self . ask (Reset)"),
+            "{expanded}"
+        );
+        // tuple variant: self.ask(msg)
+        assert!(
+            expanded.contains("self . ask (msg)"),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn dispatch_impl_not_generated_without_replies() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn inc(&mut self, amount: u32) -> i64 {}
+                }
+            },
+        );
+
+        assert!(
+            !expanded.contains("Dispatch"),
+            "dispatch impl should not be generated without replies = ...\n{expanded}"
         );
     }
 }

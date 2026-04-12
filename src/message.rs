@@ -426,3 +426,26 @@ where
         self
     }
 }
+
+/// Dispatches a message enum to an actor and collects typed responses.
+///
+/// Implemented on [`ActorRef<A>`] (via `#[messages(messages = ..., replies = ...)]`)
+/// to allow dispatching any message enum variant and receiving a unified response.
+///
+/// # Example
+///
+/// ```ignore
+/// use kameo::message::Dispatch;
+///
+/// let response = actor_ref
+///     .dispatch(CounterMessage::Inc(Inc { amount: 1 }))
+///     .await?;
+/// ```
+#[allow(async_fn_in_trait)]
+pub trait Dispatch<M>: Sized {
+    /// The response enum returned after dispatching.
+    type Response;
+
+    /// Dispatches the message to the actor and returns the typed response.
+    async fn dispatch(&self, msg: M) -> Result<Self::Response, error::SendError<M>>;
+}
