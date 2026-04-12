@@ -1,16 +1,71 @@
 use heck::ToUpperCamelCase;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
+use std::collections::{HashMap, HashSet};
 use syn::{
     Attribute, Expr, Field, FnArg, GenericParam, Generics, Ident, ImplItem, ItemImpl, Meta,
-    MetaNameValue, Pat, ReturnType, Signature, Token, Type, Visibility,
+    MetaNameValue, Pat, ReturnType, Signature, Token, Type, TypeParam, Visibility,
     parse::{Parse, ParseStream, Parser},
     parse_quote, parse_quote_spanned,
     punctuated::Punctuated,
     spanned::Spanned,
+    visit_mut::{self, VisitMut},
 };
 
+pub struct MessagesArgs {
+    messages: Option<Ident>,
+    replies: Option<Ident>,
+}
+
+impl Parse for MessagesArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        if input.is_empty() {
+            return Ok(Self {
+                messages: None,
+                replies: None,
+            });
+        }
+
+        let mut replies = None;
+        let mut messages = None;
+
+        while !input.is_empty() {
+            let key: Ident = input.parse()?;
+            input.parse::<Token![=]>()?;
+            let value: Ident = input.parse()?;
+
+            match key.to_string().as_str() {
+                "replies" => {
+                    if replies.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate `replies`"));
+                    }
+                    replies = Some(value);
+                }
+                "messages" => {
+                    if messages.is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate `messages`"));
+                    }
+                    messages = Some(value);
+                }
+                _ => {
+                    return Err(syn::Error::new(
+                        key.span(),
+                        "expected `replies` or `messages`",
+                    ));
+                }
+            }
+
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
+            }
+        }
+
+        Ok(Self { replies, messages })
+    }
+}
+
 pub struct Messages {
+    args: MessagesArgs,
     item_impl: ItemImpl,
     ident: Ident,
     messages: Vec<Message>,
@@ -75,7 +130,7 @@ impl
             .map::<syn::Result<Field>, _>(|(doc_attrs, pat_type)| {
                 let ident = match pat_type.pat.as_ref() {
                     syn::Pat::Ident(pat_ident) => pat_ident.ident.clone(),
-                    _ => return Err(syn::Error::new(pat_type.span(), "unsupported pattern - argments must be named when used with the actor macro")),
+                    _ => return Err(syn::Error::new(pat_type.span(), "unsupported pattern - arguments must be named when used with the actor macro")),
                 };
                 let ty = &pat_type.ty;
 
@@ -439,28 +494,244 @@ impl Messages {
             #( #msg_impls )*
         }
     }
+
+    fn expand_msg_enum(&self, name: syn::Ident) -> proc_macro2::TokenStream {
+        let vis = match self.message_enum_visibility() {
+            Ok(vis) => vis,
+            Err(err) => return err.into_compile_error(),
+        };
+
+        let mut enum_generics = Generics::default();
+        let mut registered = Vec::new();
+        let mut used_names = HashSet::new();
+        let mut where_predicates = HashSet::new();
+
+        let payload_messages: Vec<_> = self
+            .messages
+            .iter()
+            .filter(|message| !message.fields.is_empty())
+            .collect();
+
+        for type_param in self.item_impl.generics.type_params() {
+            let is_used = payload_messages.iter().any(|message| {
+                message
+                    .generics
+                    .type_params()
+                    .any(|message_type_param| message_type_param.ident == type_param.ident)
+            });
+
+            if !is_used {
+                continue;
+            }
+
+            used_names.insert(type_param.ident.to_string());
+            registered.push(RegisteredEnumTypeParam {
+                original: type_param.ident.to_string(),
+                ident: type_param.ident.clone(),
+                key: type_param_key(type_param, None),
+            });
+            enum_generics
+                .params
+                .push(GenericParam::Type(type_param.clone()));
+        }
+
+        let variants: Vec<_> = self
+            .messages
+            .iter()
+            .map(|message| {
+                let Message {
+                    sig,
+                    ident: msg_ident,
+                    fields,
+                    ..
+                } = message;
+                let variant_ident = msg_ident;
+
+                if fields.is_empty() {
+                    return quote! {
+                        #variant_ident
+                    };
+                }
+
+                let mut renames = HashMap::new();
+                let mut params_to_add = Vec::new();
+
+                for type_param in sig.generics.type_params() {
+                    let original = type_param.ident.to_string();
+                    let key = type_param_key(type_param, sig.generics.where_clause.as_ref());
+
+                    if let Some(existing) = registered
+                        .iter()
+                        .find(|registered| registered.original == original && registered.key == key)
+                    {
+                        renames.insert(original, existing.ident.clone());
+                        continue;
+                    }
+
+                    let ident = unique_type_param_ident(&type_param.ident, &mut used_names);
+                    registered.push(RegisteredEnumTypeParam {
+                        original: original.clone(),
+                        ident: ident.clone(),
+                        key,
+                    });
+                    renames.insert(original, ident.clone());
+                    params_to_add.push((type_param.clone(), ident));
+                }
+
+                for (mut type_param, ident) in params_to_add {
+                    type_param.ident = ident;
+                    RenameTypeParams { renames: &renames }.visit_type_param_mut(&mut type_param);
+                    enum_generics.params.push(GenericParam::Type(type_param));
+                }
+
+                if let Some(where_clause) = &sig.generics.where_clause {
+                    for predicate in &where_clause.predicates {
+                        let mut predicate = predicate.clone();
+                        RenameTypeParams { renames: &renames }
+                            .visit_where_predicate_mut(&mut predicate);
+
+                        let key = predicate.to_token_stream().to_string();
+                        if where_predicates.insert(key) {
+                            enum_generics.make_where_clause().predicates.push(predicate);
+                        }
+                    }
+                }
+
+                let type_args: Vec<_> = message
+                    .generics
+                    .type_params()
+                    .map(|type_param| {
+                        renames
+                            .get(&type_param.ident.to_string())
+                            .cloned()
+                            .unwrap_or_else(|| type_param.ident.clone())
+                    })
+                    .collect();
+
+                if type_args.is_empty() {
+                    quote! {
+                        #variant_ident(#msg_ident)
+                    }
+                } else {
+                    quote! {
+                        #variant_ident(#msg_ident<#( #type_args ),*>)
+                    }
+                }
+            })
+            .collect();
+
+        let where_clause = &enum_generics.where_clause;
+
+        quote! {
+            #vis enum #name #enum_generics #where_clause {
+                #( #variants, )*
+            }
+        }
+    }
+
+    fn message_enum_visibility(&self) -> syn::Result<Visibility> {
+        let Some(first) = self.messages.first() else {
+            return Ok(Visibility::Inherited);
+        };
+        let first_visibility = first.vis.to_token_stream().to_string();
+
+        for message in self.messages.iter().skip(1) {
+            if message.vis.to_token_stream().to_string() != first_visibility {
+                return Err(syn::Error::new(
+                    message.sig.ident.span(),
+                    "message enum requires all message handlers to have the same visibility",
+                ));
+            }
+        }
+        
+
+        Ok(first.vis.clone())
+    }
 }
 
 impl ToTokens for Messages {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let item_impl = &self.item_impl;
-        let msg_enum = self.expand_msgs();
+        let msg_structs = self.expand_msgs();
+        let msg_enum = self
+            .args
+            .messages
+            .clone()
+            .map(|name| self.expand_msg_enum(name));
         let msg_impl_message = self.expand_msg_impls();
+        let replies_error = self.args.replies.as_ref().map(|name| {
+            syn::Error::new(
+                name.span(),
+                "`replies` enum generation is not supported yet",
+            )
+            .into_compile_error()
+        });
         let errors = self.errors.clone().map(syn::Error::into_compile_error);
 
         tokens.extend(quote! {
             #item_impl
 
+            #msg_structs
             #msg_enum
             #msg_impl_message
             #errors
+            #replies_error
         });
     }
 }
 
-impl Parse for Messages {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut item_impl: ItemImpl = input.parse()?;
+struct RegisteredEnumTypeParam {
+    original: String,
+    ident: Ident,
+    key: String,
+}
+
+fn type_param_key(type_param: &TypeParam, where_clause: Option<&syn::WhereClause>) -> String {
+    let mut tokens = type_param.to_token_stream().to_string();
+    if let Some(where_clause) = where_clause {
+        tokens.push_str(" where ");
+        tokens.push_str(&where_clause.predicates.to_token_stream().to_string());
+    }
+    tokens
+}
+
+fn unique_type_param_ident(ident: &Ident, used_names: &mut HashSet<String>) -> Ident {
+    let name = ident.to_string();
+    if used_names.insert(name.clone()) {
+        return ident.clone();
+    }
+
+    for i in 2usize.. {
+        let candidate = format_ident!("{}{}", name, i, span = ident.span());
+        if used_names.insert(candidate.to_string()) {
+            return candidate;
+        }
+    }
+
+    unreachable!("unbounded suffix search must find an unused type parameter name")
+}
+
+struct RenameTypeParams<'a> {
+    renames: &'a HashMap<String, Ident>,
+}
+
+impl VisitMut for RenameTypeParams<'_> {
+    fn visit_path_mut(&mut self, path: &mut syn::Path) {
+        if path.leading_colon.is_none() && path.segments.len() == 1 {
+            if let Some(segment) = path.segments.first_mut() {
+                if let Some(rename) = self.renames.get(&segment.ident.to_string()) {
+                    segment.ident = rename.clone();
+                }
+            }
+        }
+
+        visit_mut::visit_path_mut(self, path);
+    }
+}
+
+impl Messages {
+    pub fn parse(input: TokenStream, args: MessagesArgs) -> syn::Result<Self> {
+        let mut item_impl: ItemImpl = syn::parse2(input)?;
 
         let ident = match item_impl.self_ty.as_ref() {
             Type::Path(type_path) => type_path
@@ -483,6 +754,7 @@ impl Parse for Messages {
         Ok(Messages {
             item_impl,
             ident,
+            args,
             messages,
             errors,
         })
@@ -604,5 +876,189 @@ fn contains_generic_in_param(ty: &Type, generics: &[GenericParam]) -> Vec<Generi
             .flat_map(|elem| contains_generic_in_param(elem, generics))
             .collect(),
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use quote::quote;
+
+    fn expand(attr: TokenStream, item: TokenStream) -> String {
+        let args = syn::parse2::<MessagesArgs>(attr).unwrap();
+        Messages::parse(item, args)
+            .unwrap()
+            .into_token_stream()
+            .to_string()
+    }
+
+    #[test]
+    fn parses_messages_arg_without_outer_parentheses() {
+        let args = syn::parse2::<MessagesArgs>(quote! { messages = ActorMessage }).unwrap();
+
+        assert_eq!(args.messages.unwrap().to_string(), "ActorMessage");
+        assert!(args.replies.is_none());
+    }
+
+    #[test]
+    fn message_enum_uses_unit_and_tuple_variants() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl Actor {
+                    #[message]
+                    fn reset(&self) {}
+
+                    #[message(ctx)]
+                    fn stop(&self, ctx: &mut Context<Self, ()>) {}
+
+                    #[message]
+                    fn inc(&mut self, amount: u32) {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains("enum ActorMessage { Reset , Stop , Inc (Inc) , }"),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn message_enum_uses_common_handler_visibility() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn reset(&self) {}
+
+                    #[message]
+                    pub fn inc(&mut self, amount: u32) {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains("pub enum ActorMessage { Reset , Inc (Inc) , }"),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn message_enum_errors_on_mixed_handler_visibility() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn reset(&self) {}
+
+                    #[message]
+                    fn inc(&mut self, amount: u32) {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains(
+                "compile_error ! { \"message enum requires all message handlers to have the same visibility\" }"
+            ),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn message_enum_orders_impl_generics_before_function_generics() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl<ActorValue> Actor<ActorValue> {
+                    #[message]
+                    pub fn first<T: Clone>(&self, actor: ActorValue, value: T) {}
+
+                    #[message]
+                    pub fn second<U: Copy>(&self, value: U) {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains(
+                "pub enum ActorMessage < ActorValue , T : Clone , U : Copy > { First (First < ActorValue , T >) , Second (Second < U >) , }"
+            ),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn message_enum_renames_conflicting_function_generics() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn first<T: Clone>(&self, value: T) {}
+
+                    #[message]
+                    pub fn second<T: Copy>(&self, value: T) {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains(
+                "pub enum ActorMessage < T : Clone , T2 : Copy > { First (First < T >) , Second (Second < T2 >) , }"
+            ),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn message_enum_renames_conflicting_where_clause_generics() {
+        let expanded = expand(
+            quote! { messages = ActorMessage },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn first<T>(&self, value: T)
+                    where
+                        T: Clone,
+                    {}
+
+                    #[message]
+                    pub fn second<T>(&self, value: T)
+                    where
+                        T: Copy,
+                    {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains(
+                "pub enum ActorMessage < T , T2 > where T : Clone , T2 : Copy { First (First < T >) , Second (Second < T2 >) , }"
+            ),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn replies_arg_emits_explicit_error() {
+        let expanded = expand(
+            quote! { replies = ActorReplies },
+            quote! {
+                impl Actor {
+                    #[message]
+                    fn reset(&self) {}
+                }
+            },
+        );
+
+        assert!(
+            expanded
+                .contains("compile_error ! { \"`replies` enum generation is not supported yet\" }"),
+            "{expanded}"
+        );
     }
 }

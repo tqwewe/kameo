@@ -7,7 +7,7 @@ mod remote_message;
 use derive_actor::DeriveActor;
 use derive_remote_actor::DeriveRemoteActor;
 use derive_reply::DeriveReply;
-use messages::Messages;
+use messages::{Messages, MessagesArgs};
 use proc_macro::TokenStream;
 use quote::ToTokens;
 use remote_message::{RemoteMessage, RemoteMessageAttrs};
@@ -24,13 +24,16 @@ use syn::parse_macro_input;
 /// - `#[message(derive(...))]` - Add derives to the generated message struct
 /// - `#[message(ctx)]` - Include a `ctx` parameter that is excluded from the generated struct
 /// - `#[message(ctx = name)]` - Include a context parameter with a custom name
+/// - `#[messages(messages = Name)]` - Generate an enum with one variant per generated message
+///   struct. Messages with fields become tuple variants, and messages without fields become
+///   unit variants.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use kameo::messages;
 ///
-/// #[messages]
+/// #[messages(messages = CounterMessage)]
 /// impl Counter {
 ///     /// Regular message
 ///     #[message]
@@ -110,6 +113,13 @@ use syn::parse_macro_input;
 ///
 /// pub struct Reset;
 ///
+/// pub enum CounterMessage {
+///     Inc(Inc),
+///     Dec(Dec),
+///     IncWithLogging(IncWithLogging),
+///     Reset,
+/// }
+///
 /// impl kameo::message::Message<Reset> for Counter {
 ///     type Reply = ();
 ///
@@ -120,9 +130,13 @@ use syn::parse_macro_input;
 /// ```
 /// </details>
 #[proc_macro_attribute]
-pub fn messages(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let messages = parse_macro_input!(item as Messages);
-    TokenStream::from(messages.into_token_stream())
+pub fn messages(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as MessagesArgs);
+
+    match Messages::parse(item.into(), args) {
+        Ok(m) => TokenStream::from(m.into_token_stream()),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 /// Derive macro implementing the [Actor](https://docs.rs/kameo/latest/kameo/actor/trait.Actor.html) trait with default behaviour.
