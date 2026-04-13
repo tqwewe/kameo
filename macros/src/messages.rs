@@ -568,11 +568,8 @@ impl Messages {
                 let renames = builder.register_fn_params(
                     sig,
                     |tp| {
-                        !contains_generic_in_param(
-                            return_ty,
-                            &[GenericParam::Type(tp.clone())],
-                        )
-                        .is_empty()
+                        !contains_generic_in_param(return_ty, &[GenericParam::Type(tp.clone())])
+                            .is_empty()
                     },
                     |pred, renames| {
                         if let syn::WherePredicate::Type(pred_type) = pred {
@@ -597,7 +594,38 @@ impl Messages {
             })
             .collect();
 
-        builder.finish(vis, name, variants)
+        let enum_generics = builder.generics.clone();
+        let enum_ts = builder.finish(vis, name.clone(), variants);
+
+        let (impl_generics, ty_generics, where_clause) = enum_generics.split_for_impl();
+        let reply_impl = quote! {
+            #[automatically_derived]
+            impl #impl_generics ::kameo::Reply for #name #ty_generics #where_clause {
+                type Ok = Self;
+                type Error = ::kameo::error::Infallible;
+                type Value = Self;
+
+                #[inline]
+                fn to_result(self) -> ::std::result::Result<Self::Ok, Self::Error> {
+                    ::std::result::Result::Ok(self)
+                }
+
+                #[inline]
+                fn into_any_err(self) -> ::std::option::Option<::std::boxed::Box<dyn ::kameo::reply::ReplyError>> {
+                    ::std::option::Option::None
+                }
+
+                #[inline]
+                fn into_value(self) -> Self::Value {
+                    self
+                }
+            }
+        };
+
+        quote! {
+            #enum_ts
+            #reply_impl
+        }
     }
 
     fn message_enum_visibility(&self) -> syn::Result<Visibility> {
@@ -629,15 +657,7 @@ impl Messages {
             messages,
             ..
         } = self;
-        let (impl_generics, actor_ty_generics, where_clause) =
-            item_impl.generics.split_for_impl();
-
-        // Each message contributes one Message<MsgType> bound on the actor.
-        let msg_bounds = messages.iter().map(|m| {
-            let msg_ident = &m.ident;
-            let (_, msg_ty_generics, _) = m.generics.split_for_impl();
-            quote! { #actor_ident #actor_ty_generics: ::kameo::message::Message<#msg_ident #msg_ty_generics> }
-        });
+        let (impl_generics, actor_ty_generics, where_clause) = item_impl.generics.split_for_impl();
 
         let match_arms = messages.iter().map(|message| {
             let Message {
@@ -647,55 +667,61 @@ impl Messages {
                 ..
             } = message;
 
-            // Pattern: Enum::Variant or Enum::Variant(msg)
-            let (pattern, ask_arg, map_msg_fn) = if fields.is_empty() {
+            let (_, msg_ty_generics, _) = message.generics.split_for_impl();
+
+            // The reply type of the inner handler, used for __internal_fork.
+            let inner_reply_ty: syn::Type = match non_unit_return(&sig.output) {
+                Some(ty) => ty.clone(),
+                None => parse_quote! { () },
+            };
+
+            // Pattern: Enum::Variant or Enum::Variant(__msg), plus the arg to pass to handle.
+            let (pattern, inner_arg) = if fields.is_empty() {
                 (
                     quote! { #msg_enum_name::#msg_ident },
                     quote! { #msg_ident },
-                    quote! { |_| #msg_enum_name::#msg_ident },
                 )
             } else {
                 (
-                    quote! { #msg_enum_name::#msg_ident(msg) },
-                    quote! { msg },
-                    quote! { #msg_enum_name::#msg_ident },
+                    quote! { #msg_enum_name::#msg_ident(__msg) },
+                    quote! { __msg },
                 )
             };
 
-            // Capture reply and build response variant.
-            let (capture, response_variant) = if non_unit_return(&sig.output).is_some() {
-                (
-                    quote! { let reply = },
-                    quote! { #response_enum_name::#msg_ident(reply) },
-                )
+            if non_unit_return(&sig.output).is_some() {
+                quote! {
+                    #pattern => {
+                        let mut __ctx = ctx.__internal_fork::<#inner_reply_ty>();
+                        let __reply = <Self as ::kameo::message::Message<#msg_ident #msg_ty_generics>>::handle(self, #inner_arg, &mut __ctx).await;
+                        if __ctx.__internal_should_stop() { ctx.stop(); }
+                        #response_enum_name::#msg_ident(__reply)
+                    }
+                }
             } else {
-                (quote! {}, quote! { #response_enum_name::#msg_ident })
-            };
-
-            quote! {
-                #pattern => {
-                    #capture self.ask(#ask_arg).send().await
-                        .map_err(|e| e.map_msg(#map_msg_fn))?;
-                    ::std::result::Result::Ok(#response_variant)
+                quote! {
+                    #pattern => {
+                        let mut __ctx = ctx.__internal_fork::<#inner_reply_ty>();
+                        <Self as ::kameo::message::Message<#msg_ident #msg_ty_generics>>::handle(self, #inner_arg, &mut __ctx).await;
+                        if __ctx.__internal_should_stop() { ctx.stop(); }
+                        #response_enum_name::#msg_ident
+                    }
                 }
             }
         });
 
         quote! {
             #[automatically_derived]
-            #[allow(async_fn_in_trait)]
-            impl #impl_generics ::kameo::message::Dispatch<#msg_enum_name #actor_ty_generics>
-            for ::kameo::actor::ActorRef<#actor_ident #actor_ty_generics>
+            impl #impl_generics ::kameo::message::Message<#msg_enum_name #actor_ty_generics>
+            for #actor_ident #actor_ty_generics
             #where_clause
-            where
-                #( #msg_bounds, )*
             {
-                type Response = #response_enum_name #actor_ty_generics;
+                type Reply = #response_enum_name #actor_ty_generics;
 
-                async fn dispatch(
-                    &self,
+                async fn handle(
+                    &mut self,
                     msg: #msg_enum_name #actor_ty_generics,
-                ) -> ::std::result::Result<Self::Response, ::kameo::error::SendError<#msg_enum_name #actor_ty_generics>> {
+                    ctx: &mut ::kameo::message::Context<Self, Self::Reply>,
+                ) -> Self::Reply {
                     match msg {
                         #( #match_arms )*
                     }
@@ -771,7 +797,9 @@ impl EnumBuilder {
             ident: type_param.ident.clone(),
             key: type_param_key(type_param, None),
         });
-        self.generics.params.push(GenericParam::Type(type_param.clone()));
+        self.generics
+            .params
+            .push(GenericParam::Type(type_param.clone()));
     }
 
     fn register_fn_params(
@@ -822,8 +850,7 @@ impl EnumBuilder {
                     continue;
                 }
                 let mut predicate = predicate.clone();
-                RenameTypeParams { renames: &renames }
-                    .visit_where_predicate_mut(&mut predicate);
+                RenameTypeParams { renames: &renames }.visit_where_predicate_mut(&mut predicate);
                 let key = predicate.to_token_stream().to_string();
                 if self.where_predicates.insert(key) {
                     self.generics.make_where_clause().predicates.push(predicate);
@@ -923,9 +950,7 @@ impl Messages {
 fn non_unit_return(output: &ReturnType) -> Option<&Type> {
     match output {
         ReturnType::Default => None,
-        ReturnType::Type(_, ty)
-            if matches!(ty.as_ref(), Type::Tuple(t) if t.elems.is_empty()) =>
-        {
+        ReturnType::Type(_, ty) if matches!(ty.as_ref(), Type::Tuple(t) if t.elems.is_empty()) => {
             None
         }
         ReturnType::Type(_, ty) => Some(ty),
@@ -1312,15 +1337,9 @@ mod tests {
             "{expanded}"
         );
         // unit variant: self.ask(Reset)
-        assert!(
-            expanded.contains("self . ask (Reset)"),
-            "{expanded}"
-        );
+        assert!(expanded.contains("self . ask (Reset)"), "{expanded}");
         // tuple variant: self.ask(msg)
-        assert!(
-            expanded.contains("self . ask (msg)"),
-            "{expanded}"
-        );
+        assert!(expanded.contains("self . ask (msg)"), "{expanded}");
     }
 
     #[test]

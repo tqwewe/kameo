@@ -1,6 +1,5 @@
-/// Demonstrates the `Dispatch` trait, which lets you send any variant of a
-/// generated message enum to an actor through a single `actor_ref.dispatch(msg)`
-/// call and receive a unified response enum back.
+/// Demonstrates dispatching a generated message enum to an actor via `ask`,
+/// receiving a unified response enum back.
 use kameo::prelude::*;
 
 #[derive(Actor, Default)]
@@ -52,10 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("get",     CounterMessage::Get),
     ];
 
-    // Dispatch each command through a single call site; handle each response by
+    // Send each command through a single call site; handle each response by
     // matching on the unified `CounterResponse` enum.
     for (label, cmd) in commands {
-        let response = actor_ref.dispatch(cmd).await?;
+        let response = actor_ref.ask(cmd).send().await?;
         match response {
             CounterResponse::Inc(v) | CounterResponse::Dec(v) | CounterResponse::Get(v) => {
                 println!("{label:<10} -> {v}");
