@@ -459,10 +459,10 @@ impl Messages {
         }
     }
 
-    fn expand_msg_enum(&self, name: syn::Ident) -> proc_macro2::TokenStream {
+    fn expand_msg_enum(&self, name: syn::Ident) -> (proc_macro2::TokenStream, Generics) {
         let vis = match self.message_enum_visibility() {
             Ok(vis) => vis,
-            Err(err) => return err.into_compile_error(),
+            Err(err) => return (err.into_compile_error(), Generics::default()),
         };
 
         let mut builder = EnumBuilder::new();
@@ -523,10 +523,10 @@ impl Messages {
         builder.finish(vis, name, variants)
     }
 
-    fn expand_response_enum(&self, name: syn::Ident) -> proc_macro2::TokenStream {
+    fn expand_response_enum(&self, name: syn::Ident) -> (proc_macro2::TokenStream, Generics) {
         let vis = match self.message_enum_visibility() {
             Ok(vis) => vis,
-            Err(err) => return err.into_compile_error(),
+            Err(err) => return (err.into_compile_error(), Generics::default()),
         };
 
         let mut builder = EnumBuilder::new();
@@ -594,8 +594,7 @@ impl Messages {
             })
             .collect();
 
-        let enum_generics = builder.generics.clone();
-        let enum_ts = builder.finish(vis, name.clone(), variants);
+        let (enum_ts, enum_generics) = builder.finish(vis, name.clone(), variants);
 
         let (impl_generics, ty_generics, where_clause) = enum_generics.split_for_impl();
         let reply_impl = quote! {
@@ -622,10 +621,7 @@ impl Messages {
             }
         };
 
-        quote! {
-            #enum_ts
-            #reply_impl
-        }
+        (quote! { #enum_ts #reply_impl }, enum_generics)
     }
 
     fn message_enum_visibility(&self) -> syn::Result<Visibility> {
@@ -649,7 +645,9 @@ impl Messages {
     fn expand_dispatch_impl(
         &self,
         msg_enum_name: &Ident,
+        msg_enum_generics: &Generics,
         response_enum_name: &Ident,
+        response_enum_generics: &Generics,
     ) -> proc_macro2::TokenStream {
         let Self {
             item_impl,
@@ -657,8 +655,37 @@ impl Messages {
             messages,
             ..
         } = self;
-        let (impl_generics, actor_ty_generics, where_clause) = item_impl.generics.split_for_impl();
 
+        // Type args for referencing each enum (e.g. `CounterMessage<T, V>`).
+        let (_, msg_enum_ty_generics, _) = msg_enum_generics.split_for_impl();
+        let (_, response_enum_ty_generics, _) = response_enum_generics.split_for_impl();
+        let (_, actor_only_ty_generics, _) = item_impl.generics.split_for_impl();
+
+        // The impl<...> block needs all actor params PLUS any function-level params
+        // that were promoted into the message enum but are not actor-level params.
+        let actor_param_names: HashSet<String> = item_impl
+            .generics
+            .type_params()
+            .map(|tp| tp.ident.to_string())
+            .collect();
+        let mut combined = item_impl.generics.clone();
+        for param in msg_enum_generics.params.iter() {
+            if let GenericParam::Type(tp) = param {
+                if !actor_param_names.contains(&tp.ident.to_string()) {
+                    combined.params.push(param.clone());
+                }
+            }
+        }
+        if let Some(msg_where) = &msg_enum_generics.where_clause {
+            for pred in &msg_where.predicates {
+                combined.make_where_clause().predicates.push(pred.clone());
+            }
+        }
+        let (impl_generics, _, where_clause) = combined.split_for_impl();
+
+        // Match arms use plain `Message::handle` so Rust infers the concrete
+        // message type from the pattern — no explicit generic args needed,
+        // which avoids issues with type params renamed by EnumBuilder.
         let match_arms = messages.iter().map(|message| {
             let Message {
                 sig,
@@ -667,15 +694,6 @@ impl Messages {
                 ..
             } = message;
 
-            let (_, msg_ty_generics, _) = message.generics.split_for_impl();
-
-            // The reply type of the inner handler, used for __internal_fork.
-            let inner_reply_ty: syn::Type = match non_unit_return(&sig.output) {
-                Some(ty) => ty.clone(),
-                None => parse_quote! { () },
-            };
-
-            // Pattern: Enum::Variant or Enum::Variant(__msg), plus the arg to pass to handle.
             let (pattern, inner_arg) = if fields.is_empty() {
                 (
                     quote! { #msg_enum_name::#msg_ident },
@@ -691,8 +709,8 @@ impl Messages {
             if non_unit_return(&sig.output).is_some() {
                 quote! {
                     #pattern => {
-                        let mut __ctx = ctx.__internal_fork::<#inner_reply_ty>();
-                        let __reply = <Self as ::kameo::message::Message<#msg_ident #msg_ty_generics>>::handle(self, #inner_arg, &mut __ctx).await;
+                        let mut __ctx = ctx.__internal_fork();
+                        let __reply = ::kameo::message::Message::handle(self, #inner_arg, &mut __ctx).await;
                         if __ctx.__internal_should_stop() { ctx.stop(); }
                         #response_enum_name::#msg_ident(__reply)
                     }
@@ -700,8 +718,8 @@ impl Messages {
             } else {
                 quote! {
                     #pattern => {
-                        let mut __ctx = ctx.__internal_fork::<#inner_reply_ty>();
-                        <Self as ::kameo::message::Message<#msg_ident #msg_ty_generics>>::handle(self, #inner_arg, &mut __ctx).await;
+                        let mut __ctx = ctx.__internal_fork();
+                        ::kameo::message::Message::handle(self, #inner_arg, &mut __ctx).await;
                         if __ctx.__internal_should_stop() { ctx.stop(); }
                         #response_enum_name::#msg_ident
                     }
@@ -711,15 +729,15 @@ impl Messages {
 
         quote! {
             #[automatically_derived]
-            impl #impl_generics ::kameo::message::Message<#msg_enum_name #actor_ty_generics>
-            for #actor_ident #actor_ty_generics
+            impl #impl_generics ::kameo::message::Message<#msg_enum_name #msg_enum_ty_generics>
+            for #actor_ident #actor_only_ty_generics
             #where_clause
             {
-                type Reply = #response_enum_name #actor_ty_generics;
+                type Reply = #response_enum_name #response_enum_ty_generics;
 
                 async fn handle(
                     &mut self,
-                    msg: #msg_enum_name #actor_ty_generics,
+                    msg: #msg_enum_name #msg_enum_ty_generics,
                     ctx: &mut ::kameo::message::Context<Self, Self::Reply>,
                 ) -> Self::Reply {
                     match msg {
@@ -735,33 +753,41 @@ impl ToTokens for Messages {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let item_impl = &self.item_impl;
         let msg_structs = self.expand_msgs();
-        let msg_enum = self
+        let (msg_enum_ts, msg_enum_generics) = self
             .args
             .messages
             .clone()
-            .map(|name| self.expand_msg_enum(name));
+            .map(|name| self.expand_msg_enum(name))
+            .map(|(ts, g)| (Some(ts), Some(g)))
+            .unwrap_or((None, None));
         let msg_impl_message = self.expand_msg_impls();
-        let response_enum = self
+        let (response_enum_ts, response_enum_generics) = self
             .args
             .replies
             .clone()
-            .map(|name| self.expand_response_enum(name));
+            .map(|name| self.expand_response_enum(name))
+            .map(|(ts, g)| (Some(ts), Some(g)))
+            .unwrap_or((None, None));
         let dispatch_impl = self
             .args
             .messages
             .as_ref()
             .zip(self.args.replies.as_ref())
-            .map(|(msg_name, resp_name)| self.expand_dispatch_impl(msg_name, resp_name));
+            .zip(msg_enum_generics.as_ref())
+            .zip(response_enum_generics.as_ref())
+            .map(|(((msg_name, resp_name), msg_gen), resp_gen)| {
+                self.expand_dispatch_impl(msg_name, msg_gen, resp_name, resp_gen)
+            });
         let errors = self.errors.clone().map(syn::Error::into_compile_error);
 
         tokens.extend(quote! {
             #item_impl
 
             #msg_structs
-            #msg_enum
+            #msg_enum_ts
             #msg_impl_message
             #errors
-            #response_enum
+            #response_enum_ts
             #dispatch_impl
         });
     }
@@ -861,14 +887,15 @@ impl EnumBuilder {
         renames
     }
 
-    fn finish(self, vis: Visibility, name: Ident, variants: Vec<TokenStream>) -> TokenStream {
+    fn finish(self, vis: Visibility, name: Ident, variants: Vec<TokenStream>) -> (TokenStream, Generics) {
         let where_clause = &self.generics.where_clause;
         let generics = &self.generics;
-        quote! {
+        let ts = quote! {
             #vis enum #name #generics #where_clause {
                 #( #variants, )*
             }
-        }
+        };
+        (ts, self.generics)
     }
 }
 
