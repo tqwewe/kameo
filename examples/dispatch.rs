@@ -7,7 +7,7 @@ pub struct Counter {
     count: i64,
 }
 
-#[messages(messages = CounterMessage, replies = CounterResponse)]
+#[messages(enum = CounterMessage, replies = CounterResponse)]
 impl Counter {
     /// Increment the counter and return the new value.
     #[message]

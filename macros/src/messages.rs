@@ -15,7 +15,8 @@ use syn::{
 
 #[derive(Debug, Default, FromMeta)]
 pub struct MessagesArgs {
-    messages: Option<Ident>,
+    #[darling(rename = "enum")]
+    enum_name: Option<Ident>,
     replies: Option<Ident>,
 }
 
@@ -752,10 +753,19 @@ impl Messages {
 impl ToTokens for Messages {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let item_impl = &self.item_impl;
+        let replies_without_enum_err = if self.args.replies.is_some() && self.args.enum_name.is_none() {
+            Some(syn::Error::new(
+                Span::call_site(),
+                "`replies` requires `enum` to also be specified",
+            ).into_compile_error())
+        } else {
+            None
+        };
+
         let msg_structs = self.expand_msgs();
         let (msg_enum_ts, msg_enum_generics) = self
             .args
-            .messages
+            .enum_name
             .clone()
             .map(|name| self.expand_msg_enum(name))
             .map(|(ts, g)| (Some(ts), Some(g)))
@@ -770,7 +780,7 @@ impl ToTokens for Messages {
             .unwrap_or((None, None));
         let dispatch_impl = self
             .args
-            .messages
+            .enum_name
             .as_ref()
             .zip(self.args.replies.as_ref())
             .zip(msg_enum_generics.as_ref())
@@ -787,6 +797,7 @@ impl ToTokens for Messages {
             #msg_enum_ts
             #msg_impl_message
             #errors
+            #replies_without_enum_err
             #response_enum_ts
             #dispatch_impl
         });
@@ -1117,16 +1128,16 @@ mod tests {
 
     #[test]
     fn parses_messages_arg_without_outer_parentheses() {
-        let args = syn::parse2::<MessagesArgs>(quote! { messages = ActorMessage }).unwrap();
+        let args = syn::parse2::<MessagesArgs>(quote! { enum = ActorMessage }).unwrap();
 
-        assert_eq!(args.messages.unwrap().to_string(), "ActorMessage");
+        assert_eq!(args.enum_name.unwrap().to_string(), "ActorMessage");
         assert!(args.replies.is_none());
     }
 
     #[test]
     fn message_enum_uses_unit_and_tuple_variants() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1150,7 +1161,7 @@ mod tests {
     #[test]
     fn message_enum_uses_common_handler_visibility() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1171,7 +1182,7 @@ mod tests {
     #[test]
     fn message_enum_errors_on_mixed_handler_visibility() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1194,7 +1205,7 @@ mod tests {
     #[test]
     fn message_enum_orders_impl_generics_before_function_generics() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl<ActorValue> Actor<ActorValue> {
                     #[message]
@@ -1217,7 +1228,7 @@ mod tests {
     #[test]
     fn message_enum_renames_conflicting_function_generics() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1240,7 +1251,7 @@ mod tests {
     #[test]
     fn message_enum_renames_conflicting_where_clause_generics() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1339,7 +1350,7 @@ mod tests {
     #[test]
     fn dispatch_impl_generated_for_messages_and_replies() {
         let expanded = expand(
-            quote! { messages = ActorMessage, replies = ActorResponse },
+            quote! { enum = ActorMessage, replies = ActorResponse },
             quote! {
                 impl Actor {
                     #[message]
@@ -1351,28 +1362,28 @@ mod tests {
             },
         );
 
-        // impl Dispatch<ActorMessage> for ActorRef<Actor>
+        // impl Message<ActorMessage> for Actor
         assert!(
             expanded.contains(
-                "impl :: kameo :: message :: Dispatch < ActorMessage > for :: kameo :: actor :: ActorRef < Actor >"
+                "impl :: kameo :: message :: Message < ActorMessage > for Actor"
             ),
             "{expanded}"
         );
-        // type Response = ActorResponse
+        // type Reply = ActorResponse
         assert!(
-            expanded.contains("type Response = ActorResponse ;"),
+            expanded.contains("type Reply = ActorResponse ;"),
             "{expanded}"
         );
-        // unit variant: self.ask(Reset)
-        assert!(expanded.contains("self . ask (Reset)"), "{expanded}");
-        // tuple variant: self.ask(msg)
-        assert!(expanded.contains("self . ask (msg)"), "{expanded}");
+        // unit variant arm: ActorMessage::Reset
+        assert!(expanded.contains("ActorMessage :: Reset"), "{expanded}");
+        // tuple variant arm: ActorMessage::Inc(__msg)
+        assert!(expanded.contains("ActorMessage :: Inc (__msg)"), "{expanded}");
     }
 
     #[test]
     fn dispatch_impl_not_generated_without_replies() {
         let expanded = expand(
-            quote! { messages = ActorMessage },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1382,8 +1393,26 @@ mod tests {
         );
 
         assert!(
-            !expanded.contains("Dispatch"),
+            !expanded.contains("Message < ActorMessage >"),
             "dispatch impl should not be generated without replies = ...\n{expanded}"
+        );
+    }
+
+    #[test]
+    fn replies_without_enum_emits_compile_error() {
+        let expanded = expand(
+            quote! { replies = ActorResponse },
+            quote! {
+                impl Actor {
+                    #[message]
+                    pub fn inc(&mut self, amount: u32) -> i64 {}
+                }
+            },
+        );
+
+        assert!(
+            expanded.contains("`replies` requires `enum` to also be specified"),
+            "expected compile_error when replies specified without enum\n{expanded}"
         );
     }
 }

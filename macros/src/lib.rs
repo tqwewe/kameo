@@ -24,16 +24,22 @@ use syn::parse_macro_input;
 /// - `#[message(derive(...))]` - Add derives to the generated message struct
 /// - `#[message(ctx)]` - Include a `ctx` parameter that is excluded from the generated struct
 /// - `#[message(ctx = name)]` - Include a context parameter with a custom name
-/// - `#[messages(messages = Name)]` - Generate an enum with one variant per generated message
+/// - `#[messages(enum = Name)]` - Generate an enum with one variant per generated message
 ///   struct. Messages with fields become tuple variants, and messages without fields become
 ///   unit variants.
+/// - `#[messages(enum = Name, replies = Name)]` - In addition to the message enum, generate
+///   a reply enum with one variant per message handler. Variants that return a value wrap that
+///   value; unit-return variants are unit enum variants. The macro also implements
+///   [`Message<MessageEnum>`](kameo::message::Message) for the actor so that
+///   `actor_ref.ask(msg_enum_variant).send().await` returns
+///   `Result<ReplyEnum, SendError<MessageEnum>>`.
 ///
 /// # Example
 ///
 /// ```ignore
 /// use kameo::messages;
 ///
-/// #[messages(messages = CounterMessage)]
+/// #[messages(enum = CounterMessage)]
 /// impl Counter {
 ///     /// Regular message
 ///     #[message]
@@ -69,13 +75,48 @@ use syn::parse_macro_input;
 /// counter_ref.ask(Reset).await?;
 /// ```
 ///
+/// ## Aggregated message enum with unified reply enum
+///
+/// When both `messages` and `replies` are provided, you can dispatch any variant of the
+/// generated message enum through a single `ask` call and receive a typed reply enum back.
+///
+/// ```ignore
+/// use kameo::prelude::*;
+///
+/// #[messages(enum = CounterMessage, replies = CounterResponse)]
+/// impl Counter {
+///     #[message]
+///     pub fn inc(&mut self, amount: u32) -> i64 { /* … */ }
+///
+///     #[message]
+///     pub fn dec(&mut self, amount: u32) -> i64 { /* … */ }
+///
+///     #[message]
+///     pub fn reset(&mut self) {}
+///
+///     #[message]
+///     pub fn get(&self) -> i64 { /* … */ }
+/// }
+///
+/// // Any variant of `CounterMessage` can be sent with a single `ask` call.
+/// // The return type is `Result<CounterResponse, SendError<CounterMessage>>`.
+/// let response: CounterResponse = actor_ref.ask(CounterMessage::Inc(Inc { amount: 5 })).send().await?;
+///
+/// match response {
+///     CounterResponse::Inc(v) | CounterResponse::Dec(v) | CounterResponse::Get(v) => {
+///         println!("value: {v}");
+///     }
+///     CounterResponse::Reset => {}
+/// }
+/// ```
+///
 /// <details>
 /// <summary>See expanded code</summary>
 ///
 /// ```ignore
-/// pub struct Inc {
-///     pub amount: u32,
-/// }
+/// // --- individual message structs and their Message impls ---
+///
+/// pub struct Inc { pub amount: u32 }
 ///
 /// impl kameo::message::Message<Inc> for Counter {
 ///     type Reply = i64;
@@ -86,9 +127,7 @@ use syn::parse_macro_input;
 /// }
 ///
 /// #[derive(Clone, Copy)]
-/// pub struct Dec {
-///     pub amount: u32,
-/// }
+/// pub struct Dec { pub amount: u32 }
 ///
 /// impl kameo::message::Message<Dec> for Counter {
 ///     type Reply = ();
@@ -98,10 +137,7 @@ use syn::parse_macro_input;
 ///     }
 /// }
 ///
-/// pub struct IncWithLogging {
-///     pub amount: u32,
-///     // Note: ctx is NOT included in the struct
-/// }
+/// pub struct IncWithLogging { pub amount: u32 }  // ctx excluded
 ///
 /// impl kameo::message::Message<IncWithLogging> for Counter {
 ///     type Reply = i64;
@@ -113,6 +149,16 @@ use syn::parse_macro_input;
 ///
 /// pub struct Reset;
 ///
+/// impl kameo::message::Message<Reset> for Counter {
+///     type Reply = ();
+///
+///     async fn handle(&mut self, msg: Reset, my_ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
+///         self.reset(my_ctx).await
+///     }
+/// }
+///
+/// // --- aggregated message enum (messages = CounterMessage) ---
+///
 /// pub enum CounterMessage {
 ///     Inc(Inc),
 ///     Dec(Dec),
@@ -120,11 +166,47 @@ use syn::parse_macro_input;
 ///     Reset,
 /// }
 ///
-/// impl kameo::message::Message<Reset> for Counter {
-///     type Reply = ();
+/// // --- aggregated reply enum (replies = CounterResponse) ---
+/// // Only generated when `replies = …` is specified alongside `messages = …`.
 ///
-///     async fn handle(&mut self, msg: Reset, my_ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
-///         self.reset(my_ctx).await
+/// pub enum CounterResponse {
+///     Inc(i64),
+///     Dec(i64),       // Dec returns () so the variant is unit here — omitted for clarity
+///     IncWithLogging(i64),
+///     Reset,
+/// }
+///
+/// impl kameo::Reply for CounterResponse {
+///     type Ok = Self;
+///     type Error = kameo::error::Infallible;
+///     type Value = Self;
+///     // … infallible impl …
+/// }
+///
+/// // --- Message<CounterMessage> dispatch impl ---
+/// // Routes each enum variant to the corresponding inner handler.
+/// // `actor_ref.ask(CounterMessage::…).send().await` returns
+/// // `Result<CounterResponse, SendError<CounterMessage>>`.
+///
+/// impl kameo::message::Message<CounterMessage> for Counter {
+///     type Reply = CounterResponse;
+///
+///     async fn handle(
+///         &mut self,
+///         msg: CounterMessage,
+///         ctx: &mut kameo::message::Context<Self, Self::Reply>,
+///     ) -> Self::Reply {
+///         match msg {
+///             CounterMessage::Inc(inner) => {
+///                 let reply = /* dispatch to Message<Inc>::handle */ …;
+///                 CounterResponse::Inc(reply)
+///             }
+///             CounterMessage::Reset => {
+///                 /* dispatch to Message<Reset>::handle */;
+///                 CounterResponse::Reset
+///             }
+///             // … other variants …
+///         }
 ///     }
 /// }
 /// ```
