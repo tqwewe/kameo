@@ -367,7 +367,7 @@ where
     #[doc(hidden)]
     pub fn __internal_fork<R2>(&self) -> Context<A, R2>
     where
-        R2: Reply + ?Sized,
+        R2: Reply<Value = R2> + ?Sized,
     {
         Context {
             actor_ref: self.actor_ref.clone(),
