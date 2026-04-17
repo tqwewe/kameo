@@ -1,4 +1,3 @@
-use darling::{FromMeta, ast::NestedMeta};
 use heck::ToUpperCamelCase;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote, quote_spanned};
@@ -13,19 +12,65 @@ use syn::{
     visit_mut::{self, VisitMut},
 };
 
-#[derive(Debug, Default, FromMeta)]
+#[derive(Debug, Clone)]
+enum MessagesEnumName {
+    Default,
+    Named(Ident),
+}
+
+#[derive(Debug, Default)]
 pub struct MessagesArgs {
-    #[darling(rename = "enum")]
-    enum_name: Option<Ident>,
-    replies: Option<Ident>,
+    enum_name: Option<MessagesEnumName>,
 }
 
 impl Parse for MessagesArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let tokens: TokenStream = input.parse()?;
-        let attr_args = NestedMeta::parse_meta_list(tokens)
-            .map_err(|e| syn::Error::new(Span::call_site(), e))?;
-        Self::from_list(&attr_args).map_err(|e| syn::Error::new(Span::call_site(), e))
+        if input.is_empty() {
+            return Ok(Self::default());
+        }
+
+        let mut enum_name = None;
+
+        while !input.is_empty() {
+            let _enum_kw: Token![enum] = input.parse()?;
+
+            if enum_name.is_some() {
+                return Err(syn::Error::new(
+                    _enum_kw.span,
+                    "`enum` can only be specified once",
+                ));
+            }
+
+            if input.peek(Token![=]) {
+                input.parse::<Token![=]>()?;
+                let ident: Ident = input.parse()?;
+                enum_name = Some(MessagesEnumName::Named(ident));
+            } else {
+                enum_name = Some(MessagesEnumName::Default);
+            }
+
+            if input.is_empty() {
+                break;
+            }
+
+            input.parse::<Token![,]>()?;
+        }
+
+        Ok(Self { enum_name })
+    }
+}
+
+impl MessagesArgs {
+    fn message_enum_name(&self, actor_ident: &Ident) -> Option<Ident> {
+        match &self.enum_name {
+            None => None,
+            Some(MessagesEnumName::Default) => Some(format_ident!(
+                "{}Message",
+                actor_ident,
+                span = actor_ident.span()
+            )),
+            Some(MessagesEnumName::Named(name)) => Some(name.clone()),
+        }
     }
 }
 
@@ -753,42 +798,32 @@ impl Messages {
 impl ToTokens for Messages {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let item_impl = &self.item_impl;
-        let replies_without_enum_err = if self.args.replies.is_some() && self.args.enum_name.is_none() {
-            Some(syn::Error::new(
-                Span::call_site(),
-                "`replies` requires `enum` to also be specified",
-            ).into_compile_error())
-        } else {
-            None
-        };
-
         let msg_structs = self.expand_msgs();
-        let (msg_enum_ts, msg_enum_generics) = self
-            .args
-            .enum_name
-            .clone()
-            .map(|name| self.expand_msg_enum(name))
-            .map(|(ts, g)| (Some(ts), Some(g)))
-            .unwrap_or((None, None));
         let msg_impl_message = self.expand_msg_impls();
-        let (response_enum_ts, response_enum_generics) = self
-            .args
-            .replies
-            .clone()
-            .map(|name| self.expand_response_enum(name))
-            .map(|(ts, g)| (Some(ts), Some(g)))
-            .unwrap_or((None, None));
-        let dispatch_impl = self
-            .args
-            .enum_name
-            .as_ref()
-            .zip(self.args.replies.as_ref())
-            .zip(msg_enum_generics.as_ref())
-            .zip(response_enum_generics.as_ref())
-            .map(|(((msg_name, resp_name), msg_gen), resp_gen)| {
-                self.expand_dispatch_impl(msg_name, msg_gen, resp_name, resp_gen)
-            });
         let errors = self.errors.clone().map(syn::Error::into_compile_error);
+
+        let msg_enum_name = self.args.message_enum_name(&self.ident);
+        let (msg_enum_ts, response_enum_ts, dispatch_impl) =
+            if let Some(msg_enum_name) = msg_enum_name {
+                let reply_enum_name =
+                    format_ident!("{}Reply", msg_enum_name, span = msg_enum_name.span());
+                let (msg_enum_ts, msg_enum_generics) = self.expand_msg_enum(msg_enum_name.clone());
+                let (response_enum_ts, response_enum_generics) =
+                    self.expand_response_enum(reply_enum_name.clone());
+                let dispatch_impl = self.expand_dispatch_impl(
+                    &msg_enum_name,
+                    &msg_enum_generics,
+                    &reply_enum_name,
+                    &response_enum_generics,
+                );
+                (
+                    Some(msg_enum_ts),
+                    Some(response_enum_ts),
+                    Some(dispatch_impl),
+                )
+            } else {
+                (None, None, None)
+            };
 
         tokens.extend(quote! {
             #item_impl
@@ -797,7 +832,6 @@ impl ToTokens for Messages {
             #msg_enum_ts
             #msg_impl_message
             #errors
-            #replies_without_enum_err
             #response_enum_ts
             #dispatch_impl
         });
@@ -898,7 +932,12 @@ impl EnumBuilder {
         renames
     }
 
-    fn finish(self, vis: Visibility, name: Ident, variants: Vec<TokenStream>) -> (TokenStream, Generics) {
+    fn finish(
+        self,
+        vis: Visibility,
+        name: Ident,
+        variants: Vec<TokenStream>,
+    ) -> (TokenStream, Generics) {
         let where_clause = &self.generics.where_clause;
         let generics = &self.generics;
         let ts = quote! {
@@ -1127,11 +1166,13 @@ mod tests {
     }
 
     #[test]
-    fn parses_messages_arg_without_outer_parentheses() {
+    fn parses_messages_arg_with_explicit_name() {
         let args = syn::parse2::<MessagesArgs>(quote! { enum = ActorMessage }).unwrap();
 
-        assert_eq!(args.enum_name.unwrap().to_string(), "ActorMessage");
-        assert!(args.replies.is_none());
+        match args.enum_name.unwrap() {
+            MessagesEnumName::Named(name) => assert_eq!(name.to_string(), "ActorMessage"),
+            other => panic!("unexpected enum arg: {:?}", other),
+        }
     }
 
     #[test]
@@ -1280,7 +1321,7 @@ mod tests {
     #[test]
     fn response_enum_uses_unit_and_tuple_variants() {
         let expanded = expand(
-            quote! { replies = ActorResponse },
+            quote! { enum = ActorResponse },
             quote! {
                 impl Actor {
                     #[message]
@@ -1295,16 +1336,16 @@ mod tests {
             },
         );
 
-        assert!(
-            expanded.contains("enum ActorResponse { Reset , GetCount (i64) , Inc (i64) , }"),
-            "{expanded}"
-        );
+        assert!(expanded.contains("enum ActorResponse {"), "{expanded}");
+        assert!(expanded.contains("enum ActorResponseReply {"), "{expanded}");
+        assert!(expanded.contains("GetCount (i64)"), "{expanded}");
+        assert!(expanded.contains("Inc (i64)"), "{expanded}");
     }
 
     #[test]
     fn response_enum_orders_impl_generics_before_function_generics() {
         let expanded = expand(
-            quote! { replies = ActorResponse },
+            quote! { enum = ActorResponse },
             quote! {
                 impl<ActorValue> Actor<ActorValue> {
                     #[message]
@@ -1317,9 +1358,11 @@ mod tests {
         );
 
         assert!(
-            expanded.contains(
-                "pub enum ActorResponse < ActorValue , T : Clone , U : Copy > { First ((ActorValue , T)) , Second (U) , }"
-            ),
+            expanded.contains("pub enum ActorResponse { First , Second , }"),
+            "{expanded}"
+        );
+        assert!(
+            expanded.contains("pub enum ActorResponseReply < ActorValue , T : Clone , U : Copy >"),
             "{expanded}"
         );
     }
@@ -1327,7 +1370,7 @@ mod tests {
     #[test]
     fn response_enum_renames_conflicting_function_generics() {
         let expanded = expand(
-            quote! { replies = ActorResponse },
+            quote! { enum = ActorResponse },
             quote! {
                 impl Actor {
                     #[message]
@@ -1340,17 +1383,19 @@ mod tests {
         );
 
         assert!(
-            expanded.contains(
-                "pub enum ActorResponse < T : Clone , T2 : Copy > { First (T) , Second (T2) , }"
-            ),
+            expanded.contains("pub enum ActorResponse { First , Second , }"),
+            "{expanded}"
+        );
+        assert!(
+            expanded.contains("pub enum ActorResponseReply < T : Clone , T2 : Copy >"),
             "{expanded}"
         );
     }
 
     #[test]
-    fn dispatch_impl_generated_for_messages_and_replies() {
+    fn dispatch_impl_generated_for_messages() {
         let expanded = expand(
-            quote! { enum = ActorMessage, replies = ActorResponse },
+            quote! { enum = ActorMessage },
             quote! {
                 impl Actor {
                     #[message]
@@ -1364,26 +1409,27 @@ mod tests {
 
         // impl Message<ActorMessage> for Actor
         assert!(
-            expanded.contains(
-                "impl :: kameo :: message :: Message < ActorMessage > for Actor"
-            ),
+            expanded.contains("impl :: kameo :: message :: Message < ActorMessage > for Actor"),
             "{expanded}"
         );
-        // type Reply = ActorResponse
+        // type Reply = ActorMessageReply
         assert!(
-            expanded.contains("type Reply = ActorResponse ;"),
+            expanded.contains("type Reply = ActorMessageReply ;"),
             "{expanded}"
         );
         // unit variant arm: ActorMessage::Reset
         assert!(expanded.contains("ActorMessage :: Reset"), "{expanded}");
         // tuple variant arm: ActorMessage::Inc(__msg)
-        assert!(expanded.contains("ActorMessage :: Inc (__msg)"), "{expanded}");
+        assert!(
+            expanded.contains("ActorMessage :: Inc (__msg)"),
+            "{expanded}"
+        );
     }
 
     #[test]
-    fn dispatch_impl_not_generated_without_replies() {
+    fn dispatch_impl_not_generated_without_enum() {
         let expanded = expand(
-            quote! { enum = ActorMessage },
+            quote! {},
             quote! {
                 impl Actor {
                     #[message]
@@ -1394,25 +1440,7 @@ mod tests {
 
         assert!(
             !expanded.contains("Message < ActorMessage >"),
-            "dispatch impl should not be generated without replies = ...\n{expanded}"
-        );
-    }
-
-    #[test]
-    fn replies_without_enum_emits_compile_error() {
-        let expanded = expand(
-            quote! { replies = ActorResponse },
-            quote! {
-                impl Actor {
-                    #[message]
-                    pub fn inc(&mut self, amount: u32) -> i64 {}
-                }
-            },
-        );
-
-        assert!(
-            expanded.contains("`replies` requires `enum` to also be specified"),
-            "expected compile_error when replies specified without enum\n{expanded}"
+            "dispatch impl should not be generated without enum = ...\n{expanded}"
         );
     }
 }

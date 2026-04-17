@@ -7,7 +7,7 @@ pub struct Counter {
     count: i64,
 }
 
-#[messages(enum = CounterMessage, replies = CounterResponse)]
+#[messages(enum)]
 impl Counter {
     /// Increment the counter and return the new value.
     #[message]
@@ -52,14 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     // Send each command through a single call site; handle each response by
-    // matching on the unified `CounterResponse` enum.
+    // matching on the unified `CounterMessageReply` enum.
     for (label, cmd) in commands {
         let response = actor_ref.ask(cmd).send().await?;
         match response {
-            CounterResponse::Inc(v) | CounterResponse::Dec(v) | CounterResponse::Get(v) => {
+            CounterMessageReply::Inc(v) | CounterMessageReply::Dec(v) | CounterMessageReply::Get(v) => {
                 println!("{label:<10} -> {v}");
             }
-            CounterResponse::Reset => {
+            CounterMessageReply::Reset => {
                 println!("{label:<10} -> (reset)");
             }
         }

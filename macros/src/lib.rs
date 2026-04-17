@@ -25,13 +25,10 @@ use syn::parse_macro_input;
 /// - `#[message(ctx)]` - Include a `ctx` parameter that is excluded from the generated struct
 /// - `#[message(ctx = name)]` - Include a context parameter with a custom name
 /// - `#[messages(enum = Name)]` - Generate an enum with one variant per generated message
-///   struct. Messages with fields become tuple variants, and messages without fields become
-///   unit variants.
-/// - `#[messages(enum = Name, replies = Name)]` - In addition to the message enum, generate
-///   a reply enum with one variant per message handler. Variants that return a value wrap that
-///   value; unit-return variants are unit enum variants. The macro also implements
-///   [`Message<MessageEnum>`](kameo::message::Message) for the actor so that
-///   `actor_ref.ask(msg_enum_variant).send().await` returns
+///   struct, plus a reply enum named `NameReply`. Messages with fields become tuple variants,
+///   and messages without fields become unit variants.
+///   The macro also implements [`Message<MessageEnum>`](kameo::message::Message) for the actor so
+///   that `actor_ref.ask(msg_enum_variant).send().await` returns
 ///   `Result<ReplyEnum, SendError<MessageEnum>>`.
 ///
 /// # Example
@@ -77,13 +74,13 @@ use syn::parse_macro_input;
 ///
 /// ## Aggregated message enum with unified reply enum
 ///
-/// When both `messages` and `replies` are provided, you can dispatch any variant of the
-/// generated message enum through a single `ask` call and receive a typed reply enum back.
+/// When `messages` is provided, you can dispatch any variant of the generated message enum
+/// through a single `ask` call and receive a typed reply enum back.
 ///
 /// ```ignore
 /// use kameo::prelude::*;
 ///
-/// #[messages(enum = CounterMessage, replies = CounterResponse)]
+/// #[messages(enum = CounterMessage)]
 /// impl Counter {
 ///     #[message]
 ///     pub fn inc(&mut self, amount: u32) -> i64 { /* … */ }
@@ -99,14 +96,14 @@ use syn::parse_macro_input;
 /// }
 ///
 /// // Any variant of `CounterMessage` can be sent with a single `ask` call.
-/// // The return type is `Result<CounterResponse, SendError<CounterMessage>>`.
-/// let response: CounterResponse = actor_ref.ask(CounterMessage::Inc(Inc { amount: 5 })).send().await?;
+/// // The return type is `Result<CounterMessageReply, SendError<CounterMessage>>`.
+/// let response: CounterMessageReply = actor_ref.ask(CounterMessage::Inc(Inc { amount: 5 })).send().await?;
 ///
 /// match response {
-///     CounterResponse::Inc(v) | CounterResponse::Dec(v) | CounterResponse::Get(v) => {
+///     CounterMessageReply::Inc(v) | CounterMessageReply::Dec(v) | CounterMessageReply::Get(v) => {
 ///         println!("value: {v}");
 ///     }
-///     CounterResponse::Reset => {}
+///     CounterMessageReply::Reset => {}
 /// }
 /// ```
 ///
@@ -166,17 +163,17 @@ use syn::parse_macro_input;
 ///     Reset,
 /// }
 ///
-/// // --- aggregated reply enum (replies = CounterResponse) ---
-/// // Only generated when `replies = …` is specified alongside `messages = …`.
+/// // --- aggregated reply enum (CounterMessageReply) ---
+/// // Generated automatically from the message enum name.
 ///
-/// pub enum CounterResponse {
+/// pub enum CounterMessageReply {
 ///     Inc(i64),
 ///     Dec(i64),       // Dec returns () so the variant is unit here — omitted for clarity
 ///     IncWithLogging(i64),
 ///     Reset,
 /// }
 ///
-/// impl kameo::Reply for CounterResponse {
+/// impl kameo::Reply for CounterMessageReply {
 ///     type Ok = Self;
 ///     type Error = kameo::error::Infallible;
 ///     type Value = Self;
@@ -186,7 +183,7 @@ use syn::parse_macro_input;
 /// // --- Message<CounterMessage> dispatch impl ---
 /// // Routes each enum variant to the corresponding inner handler.
 /// // `actor_ref.ask(CounterMessage::…).send().await` returns
-/// // `Result<CounterResponse, SendError<CounterMessage>>`.
+/// // `Result<CounterMessageReply, SendError<CounterMessage>>`.
 ///
 /// impl kameo::message::Message<CounterMessage> for Counter {
 ///     type Reply = CounterResponse;
