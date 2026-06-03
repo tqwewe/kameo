@@ -26,7 +26,7 @@ impl Actor for MySupervisor {
         SupervisionStrategy::OneForOne  // default
     }
 
-    async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
         Ok(MySupervisor)
     }
 }
@@ -56,7 +56,11 @@ impl Actor for Supervisor {
     type Args = ();
     type Error = Infallible;
 
-    async fn on_start(_: Self::Args, supervisor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
+        Ok(Supervisor)
+    }
+
+    async fn on_start(&mut self, supervisor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         // Spawn with cloneable args
         let worker = Worker::supervise(&supervisor_ref, Worker { count: 0 })
             .restart_policy(RestartPolicy::Permanent)
@@ -70,7 +74,7 @@ impl Actor for Supervisor {
             .spawn()
             .await;
 
-        Ok(Supervisor)
+        Ok(())
     }
 }
 
@@ -82,8 +86,8 @@ struct Worker {
 impl Actor for Worker {
     type Args = Self;
     type Error = Infallible;
-    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-        Ok(state)
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
     }
 }
 
@@ -95,8 +99,8 @@ impl Task {
 impl Actor for Task {
     type Args = Self;
     type Error = Infallible;
-    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-        Ok(state)
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
     }
 }
 ```
@@ -165,8 +169,8 @@ impl Actor for WorkerA {
     type Args = Self;
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
-    async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-        Ok(state)
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
     }
 
     async fn on_link_died(

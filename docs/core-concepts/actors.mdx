@@ -57,9 +57,13 @@ impl Actor for MyActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
+    }
+
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         println!("Actor started");
-        Ok(MyActor)
+        Ok(())
     }
 
     // Implement other lifecycle hooks as needed...

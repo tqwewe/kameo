@@ -14,7 +14,11 @@ impl Actor for MySupervisor {
         SupervisionStrategy::OneForAll
     }
 
-    async fn on_start(_: Self::Args, supervisor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
+        Ok(MySupervisor)
+    }
+
+    async fn on_start(&mut self, supervisor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         let brother = BrotherActor::supervise(&supervisor_ref, BrotherActor)
             .spawn()
             .await;
@@ -38,7 +42,7 @@ impl Actor for MySupervisor {
 
         Box::leak(Box::new(brother));
 
-        Ok(MySupervisor)
+        Ok(())
     }
 }
 
@@ -51,9 +55,13 @@ impl Actor for MyActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
+    }
+
+    async fn on_start(&mut self, _actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         info!("my actor started");
-        Ok(state)
+        Ok(())
     }
 }
 
@@ -94,9 +102,13 @@ impl Actor for BrotherActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
+    }
+
+    async fn on_start(&mut self, _actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         info!("brother actor started");
-        Ok(state)
+        Ok(())
     }
 
     async fn on_link_died(

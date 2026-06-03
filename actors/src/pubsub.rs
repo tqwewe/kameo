@@ -241,8 +241,8 @@ impl<M: 'static> Actor for PubSub<M> {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        Ok(state)
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
     }
 }
 

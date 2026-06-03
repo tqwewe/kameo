@@ -798,10 +798,7 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                args: Self::Args,
-                _actor_ref: crate::actor::ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
                 Ok(args)
             }
         }
@@ -836,10 +833,7 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                args: Self::Args,
-                _actor_ref: crate::actor::ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
                 Ok(args)
             }
         }
@@ -906,10 +900,7 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                args: Self::Args,
-                _actor_ref: crate::actor::ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
                 Ok(args)
             }
         }

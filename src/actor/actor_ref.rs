@@ -269,7 +269,7 @@ where
     ///
     /// Unlike [`wait_for_startup_result`](ActorRef::wait_for_startup_result), this method does
     /// not block — it returns immediately with `None` if the actor has not yet completed its
-    /// [`on_start`](Actor::on_start) hook.
+    /// startup hooks.
     ///
     /// # Example
     ///
@@ -284,10 +284,7 @@ where
     ///     type Args = Self;
     ///     type Error = ParseIntError;
     ///
-    ///     async fn on_start(
-    ///         _state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_args: Self::Args) -> Result<Self, Self::Error> {
     ///         "invalid int".parse().map(|_: i32| MyActor) // Will always error
     ///     }
     /// }
@@ -320,7 +317,7 @@ where
     ///
     /// Unlike [`wait_for_startup_with_result`](ActorRef::wait_for_startup_with_result), this
     /// method does not block — it returns immediately with `None` if the actor has not yet
-    /// completed its [`on_start`](Actor::on_start) hook.
+    /// completed its startup hooks.
     ///
     /// The closure receives a reference to the error rather than a clone, which is useful when
     /// `A::Error` does not implement [`Clone`].
@@ -339,10 +336,7 @@ where
     ///     type Args = Self;
     ///     type Error = NonCloneError;
     ///
-    ///     async fn on_start(
-    ///         _state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_args: Self::Args) -> Result<Self, Self::Error> {
     ///         Err(NonCloneError) // Will always error
     ///     }
     /// }
@@ -398,11 +392,8 @@ where
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     /// }
     ///
@@ -456,11 +447,8 @@ where
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     /// }
     ///
@@ -495,7 +483,7 @@ where
 
     /// Waits for the actor to finish startup and become ready to process messages.
     ///
-    /// This method ensures the actors on_start lifecycle hook has been fully processed.
+    /// This method ensures the actor's startup lifecycle hooks have been fully processed.
     /// If `wait_for_startup` is called after the actor has already started up, this will return immediately.
     ///
     /// # Example
@@ -513,12 +501,13 @@ where
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
+    ///     }
+    ///
+    ///     async fn on_start(&mut self, _actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     ///         sleep(Duration::from_secs(2)).await; // Some io operation
-    ///         Ok(state)
+    ///         Ok(())
     ///     }
     /// }
     ///
@@ -536,7 +525,7 @@ where
 
     /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
     ///
-    /// This method ensures the actors on_start lifecycle hook has been fully processed.
+    /// This method ensures the actor's startup lifecycle hooks have been fully processed.
     /// If `wait_for_startup_result` is called after the actor has already started up, this will return immediately.
     ///
     /// # Example
@@ -552,10 +541,7 @@ where
     ///     type Args = Self;
     ///     type Error = ParseIntError;
     ///
-    ///     async fn on_start(
-    ///         _state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_args: Self::Args) -> Result<Self, Self::Error> {
     ///         "invalid int".parse().map(|_: i32| MyActor) // Will always error
     ///     }
     /// }
@@ -581,7 +567,7 @@ where
 
     /// Waits for the actor to finish startup, returning the startup result with a clousre containing the error.
     ///
-    /// This method ensures the actors on_start lifecycle hook has been fully processed.
+    /// This method ensures the actor's startup lifecycle hooks have been fully processed.
     /// If `wait_for_startup_with_result` is called after the actor has already started up, this will return immediately.
     ///
     /// # Example
@@ -598,10 +584,7 @@ where
     ///     type Args = Self;
     ///     type Error = NonCloneError;
     ///
-    ///     async fn on_start(
-    ///         _state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_args: Self::Args) -> Result<Self, Self::Error> {
     ///         Err(NonCloneError) // Will always error
     ///     }
     /// }
@@ -671,11 +654,8 @@ where
     ///     type Args = Self;
     ///     type Error = ParseIntError;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     ///
     ///     async fn on_stop(&mut self, actor_ref: WeakActorRef<Self>, reason: ActorStopReason) -> Result<(), Self::Error> {
@@ -689,11 +669,8 @@ where
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     /// }
     ///
@@ -749,11 +726,8 @@ where
     ///     type Args = Self;
     ///     type Error = NonCloneError;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     ///
     ///     async fn on_stop(&mut self, actor_ref: WeakActorRef<Self>, reason: ActorStopReason) -> Result<(), Self::Error> {
@@ -767,11 +741,8 @@ where
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>,
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     /// }
     ///

@@ -33,7 +33,11 @@
 //!         SupervisionStrategy::OneForOne
 //!     }
 //!
-//!     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+//!     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
+//!         Ok(Supervisor)
+//!     }
+//!
+//!     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
 //!         // Spawn a supervised child that restarts on abnormal exits
 //!         let child = Worker::supervise(&actor_ref, Worker)
 //!             .restart_policy(RestartPolicy::Transient)
@@ -41,7 +45,7 @@
 //!             .spawn()
 //!             .await;
 //!
-//!         Ok(Supervisor)
+//!         Ok(())
 //!     }
 //! }
 //!
@@ -50,8 +54,8 @@
 //! impl Actor for Worker {
 //!     type Args = Self;
 //!     type Error = Infallible;
-//!     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-//!         Ok(state)
+//!     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+//!         Ok(args)
 //!     }
 //! }
 //! ```
@@ -115,7 +119,7 @@ use crate::{
 /// # impl Actor for Supervisor {
 /// #     type Args = ();
 /// #     type Error = Infallible;
-/// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+/// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
 /// #         Ok(Supervisor)
 /// #     }
 /// # }
@@ -124,8 +128,8 @@ use crate::{
 /// # impl Actor for Worker {
 /// #     type Args = Self;
 /// #     type Error = Infallible;
-/// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-/// #         Ok(state)
+/// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+/// #         Ok(args)
 /// #     }
 /// # }
 /// # async {
@@ -223,7 +227,7 @@ pub enum RestartPolicy {
 ///         SupervisionStrategy::OneForAll
 ///     }
 ///
-///     async fn on_start(_: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+///     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
 ///         Ok(Supervisor)
 ///     }
 /// }
@@ -319,14 +323,15 @@ pub enum SupervisionStrategy {
 /// # impl Actor for Supervisor {
 /// #     type Args = ();
 /// #     type Error = Infallible;
-/// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+/// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+/// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
 /// #[derive(Clone)]
 /// struct Worker;
 /// impl Actor for Worker {
 ///     type Args = Self;
 ///     type Error = Infallible;
-///     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-///         Ok(state)
+///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+///         Ok(args)
 ///     }
 /// }
 /// # let supervisor_ref: ActorRef<Supervisor> = unimplemented!();
@@ -397,18 +402,19 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # impl Actor for Worker {
     /// #     type Args = Self;
     /// #     type Error = Infallible;
-    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> { Ok(args) }
     /// # }
     /// # struct Supervisor;
     /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
-    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+    /// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// let child = Worker::supervise(supervisor_ref, Worker)
     ///     .restart_policy(RestartPolicy::Transient) // Only restart on abnormal exits
     ///     .spawn()
     ///     .await;
-    /// # Ok(Supervisor) }}
+    /// # Ok(()) }}
     /// ```
     pub fn restart_policy(mut self, policy: RestartPolicy) -> Self {
         self.restart_policy = policy;
@@ -440,11 +446,12 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # impl Actor for Worker {
     /// #     type Args = Self;
     /// #     type Error = Infallible;
-    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> { Ok(args) }
     /// # }
     /// # struct Supervisor;
     /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
-    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+    /// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// // Allow at most 3 restarts in 10 seconds
@@ -452,7 +459,7 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     ///     .restart_limit(3, Duration::from_secs(10))
     ///     .spawn()
     ///     .await;
-    /// # Ok(Supervisor) }}
+    /// # Ok(()) }}
     /// ```
     pub fn restart_limit(mut self, restarts: u32, within: Duration) -> Self {
         self.max_restarts = restarts;
@@ -477,17 +484,18 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # impl Actor for Worker {
     /// #     type Args = Self;
     /// #     type Error = Infallible;
-    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> { Ok(args) }
     /// # }
     /// # struct Supervisor;
     /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
-    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+    /// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// let child = Worker::supervise(supervisor_ref, Worker)
     ///     .spawn()
     ///     .await;
-    /// # Ok(Supervisor) }}
+    /// # Ok(()) }}
     /// ```
     ///
     /// [`ActorRef`]: crate::actor::ActorRef
@@ -519,18 +527,19 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # impl Actor for Worker {
     /// #     type Args = Self;
     /// #     type Error = Infallible;
-    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> { Ok(args) }
     /// # }
     /// # struct Supervisor;
     /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
-    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+    /// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// // Spawn with a custom bounded mailbox
     /// let child = Worker::supervise(supervisor_ref, Worker)
     ///     .spawn_with_mailbox(mailbox::bounded(100))
     ///     .await;
-    /// # Ok(Supervisor) }}
+    /// # Ok(()) }}
     /// ```
     ///
     /// [`ActorRef`]: crate::actor::ActorRef
@@ -560,18 +569,19 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # impl Actor for BlockingWorker {
     /// #     type Args = Self;
     /// #     type Error = Infallible;
-    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> { Ok(args) }
     /// # }
     /// # struct Supervisor;
     /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
-    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+    /// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// // Spawn in a dedicated thread for blocking operations
     /// let child = BlockingWorker::supervise(supervisor_ref, BlockingWorker)
     ///     .spawn_in_thread()
     ///     .await;
-    /// # Ok(Supervisor) }}
+    /// # Ok(()) }}
     /// ```
     ///
     /// [`ActorRef`]: crate::actor::ActorRef
@@ -603,18 +613,19 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
     /// # impl Actor for BlockingWorker {
     /// #     type Args = Self;
     /// #     type Error = Infallible;
-    /// #     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> { Ok(state) }
+    /// #     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> { Ok(args) }
     /// # }
     /// # struct Supervisor;
     /// # impl Actor for Supervisor { type Args = (); type Error = Infallible;
-    /// #     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    /// #     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> { Ok(Supervisor) }
+    /// #     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     /// # let supervisor_ref = &actor_ref;
     ///
     /// // Spawn in thread with custom mailbox
     /// let child = BlockingWorker::supervise(supervisor_ref, BlockingWorker)
     ///     .spawn_in_thread_with_mailbox(mailbox::bounded(200))
     ///     .await;
-    /// # Ok(Supervisor) }}
+    /// # Ok(()) }}
     /// ```
     ///
     /// [`ActorRef`]: crate::actor::ActorRef
@@ -765,12 +776,13 @@ mod tests {
         type Args = Self;
         type Error = Infallible;
 
-        async fn on_start(
-            state: Self::Args,
-            _actor_ref: ActorRef<Self>,
-        ) -> Result<Self, Self::Error> {
-            state.start_count.fetch_add(1, Ordering::SeqCst);
-            Ok(state)
+        async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+            Ok(args)
+        }
+
+        async fn on_start(&mut self, _actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+            self.start_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
     }
 
@@ -846,11 +858,8 @@ mod tests {
             SupervisionStrategy::OneForOne
         }
 
-        async fn on_start(
-            state: Self::Args,
-            _actor_ref: ActorRef<Self>,
-        ) -> Result<Self, Self::Error> {
-            Ok(state)
+        async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+            Ok(args)
         }
     }
 
@@ -865,11 +874,8 @@ mod tests {
             SupervisionStrategy::OneForAll
         }
 
-        async fn on_start(
-            state: Self::Args,
-            _actor_ref: ActorRef<Self>,
-        ) -> Result<Self, Self::Error> {
-            Ok(state)
+        async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+            Ok(args)
         }
     }
 
@@ -884,11 +890,8 @@ mod tests {
             SupervisionStrategy::RestForOne
         }
 
-        async fn on_start(
-            state: Self::Args,
-            _actor_ref: ActorRef<Self>,
-        ) -> Result<Self, Self::Error> {
-            Ok(state)
+        async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+            Ok(args)
         }
     }
 
@@ -912,12 +915,13 @@ mod tests {
         type Args = Self;
         type Error = Infallible;
 
-        async fn on_start(
-            state: Self::Args,
-            _actor_ref: ActorRef<Self>,
-        ) -> Result<Self, Self::Error> {
-            state.start_count.fetch_add(1, Ordering::SeqCst);
-            Ok(state)
+        async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+            Ok(args)
+        }
+
+        async fn on_start(&mut self, _actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+            self.start_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
         }
 
         async fn on_link_died(

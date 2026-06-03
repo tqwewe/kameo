@@ -674,6 +674,8 @@ pub enum PanicReason {
     ///
     /// [`on_message`]: Actor::on_message
     OnMessage,
+    /// The [`pre_start`](Actor::pre_start) lifecycle hook returned an error.
+    PreStart,
     /// The [`on_start`](Actor::on_start) lifecycle hook returned an error.
     OnStart,
     /// The [`on_panic`](Actor::on_panic) lifecycle hook returned an error.
@@ -689,7 +691,7 @@ pub enum PanicReason {
 impl PanicReason {
     /// Returns `true` if the panic occurred in a lifecycle hook.
     ///
-    /// Lifecycle hooks include `on_start`, `on_panic`, `on_link_died`, and `on_stop`.
+    /// Lifecycle hooks include `pre_start`, `on_start`, `on_panic`, `on_link_died`, and `on_stop`.
     /// This can be useful for distinguishing between initialization/cleanup errors
     /// and runtime message handling errors.
     ///
@@ -704,7 +706,8 @@ impl PanicReason {
     pub fn is_lifecycle_hook(&self) -> bool {
         matches!(
             self,
-            PanicReason::OnStart
+            PanicReason::PreStart
+                | PanicReason::OnStart
                 | PanicReason::OnPanic
                 | PanicReason::OnLinkDied
                 | PanicReason::OnStop
@@ -735,6 +738,7 @@ impl fmt::Display for PanicReason {
         match self {
             PanicReason::HandlerPanic => write!(f, "message handler panicked"),
             PanicReason::OnMessage => write!(f, "on_message returned error"),
+            PanicReason::PreStart => write!(f, "pre_start returned error"),
             PanicReason::OnStart => write!(f, "on_start returned error"),
             PanicReason::OnPanic => write!(f, "on_panic returned error"),
             PanicReason::OnLinkDied => write!(f, "on_link_died returned error"),

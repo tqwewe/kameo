@@ -182,12 +182,22 @@ where
         #[cfg(feature = "tracing")]
         trace!(%id, %name, "actor started");
 
-        let start_res = AssertUnwindSafe(A::on_start(args, actor_ref.clone()))
+        let start_res = match AssertUnwindSafe(A::pre_start(args))
             .catch_unwind()
             .await
-            .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart)))
-            .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
-            .and_then(convert::identity);
+            .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::PreStart)))
+            .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::PreStart))
+            .and_then(convert::identity)
+        {
+            Ok(mut actor) => AssertUnwindSafe(actor.on_start(actor_ref.clone()))
+                .catch_unwind()
+                .await
+                .map(|res| res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStart)))
+                .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStart))
+                .and_then(convert::identity)
+                .map(|()| actor),
+            Err(err) => Err(err),
+        };
         let startup_finished = matches!(
             actor_ref.weak_signal_mailbox().signal_startup_finished(),
             Err(SendError::MailboxFull(()))

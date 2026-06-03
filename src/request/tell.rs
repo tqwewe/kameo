@@ -616,7 +616,7 @@ mod tests {
 
     use crate::{
         Actor,
-        actor::{ActorRef, Spawn},
+        actor::Spawn,
         error::{Infallible, SendError},
         mailbox,
         message::{Context, Message},
@@ -630,11 +630,8 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                state: Self::Args,
-                _actor_ref: ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
-                Ok(state)
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+                Ok(args)
             }
         }
 
@@ -673,11 +670,8 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                state: Self::Args,
-                _actor_ref: ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
-                Ok(state)
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+                Ok(args)
             }
         }
 
@@ -712,11 +706,8 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                state: Self::Args,
-                _actor_ref: ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
-                Ok(state)
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+                Ok(args)
             }
         }
 
@@ -766,11 +757,8 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                state: Self::Args,
-                _actor_ref: ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
-                Ok(state)
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+                Ok(args)
             }
         }
 
@@ -820,11 +808,8 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                state: Self::Args,
-                _actor_ref: ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
-                Ok(state)
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+                Ok(args)
             }
         }
 
@@ -875,11 +860,8 @@ mod tests {
             type Args = Self;
             type Error = Infallible;
 
-            async fn on_start(
-                state: Self::Args,
-                _actor_ref: ActorRef<Self>,
-            ) -> Result<Self, Self::Error> {
-                Ok(state)
+            async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+                Ok(args)
             }
         }
 
@@ -899,9 +881,10 @@ mod tests {
         }
 
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
-        // Mailbox is empty, this will make there be one item in the mailbox
+        actor_ref.wait_for_startup().await;
+        // Fill both the actor's in-flight message and the bounded mailbox slot.
         #[cfg(not(feature = "hotpath"))]
-        let fill_count = 1;
+        let fill_count = 2;
         #[cfg(feature = "hotpath")]
         let fill_count = 4;
         for _ in 0..fill_count {

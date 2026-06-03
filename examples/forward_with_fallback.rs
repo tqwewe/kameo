@@ -26,7 +26,7 @@ impl Actor for PrimaryComputeActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(args: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
         Ok(args)
     }
 }
@@ -60,7 +60,7 @@ impl Actor for GatewayActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(args: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
         Ok(args)
     }
 }

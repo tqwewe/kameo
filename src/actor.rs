@@ -1,7 +1,7 @@
 //! Core functionality for defining and managing actors in Kameo.
 //!
 //! Actors are independent units of computation that run asynchronously, sending and receiving messages.
-//! Each actor operates within its own task, and its lifecycle is managed by hooks such as `on_start`, `on_panic`, and `on_stop`.
+//! Each actor operates within its own task, and its lifecycle is managed by hooks such as `pre_start`, `on_start`, `on_panic`, and `on_stop`.
 //!
 //! The actor trait is designed to support fault tolerance, recovery from panics, and clean termination.
 //! Lifecycle hooks allow customization of actor behavior when starting, encountering errors, or shutting down.
@@ -11,12 +11,13 @@
 //!
 //! # Features
 //! - **Asynchronous Message Handling**: Each actor processes messages asynchronously within its own task.
-//! - **Lifecycle Hooks**: Customizable hooks ([`on_start`], [`on_stop`], [`on_panic`]) for managing the actor's lifecycle.
+//! - **Lifecycle Hooks**: Customizable hooks ([`pre_start`], [`on_start`], [`on_stop`], [`on_panic`]) for managing the actor's lifecycle.
 //! - **Backpressure**: Mailboxes can be bounded or unbounded, controlling the flow of messages.
 //! - **Supervision**: Actors can be linked, enabling robust supervision and error recovery systems.
 //!
 //! This module allows building resilient, fault-tolerant, distributed systems with flexible control over the actor lifecycle.
 //!
+//! [`pre_start`]: Actor::pre_start
 //! [`on_start`]: Actor::on_start
 //! [`on_stop`]: Actor::on_stop
 //! [`on_panic`]: Actor::on_panic
@@ -47,7 +48,7 @@ pub(crate) const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 /// Core behavior of an actor, including its lifecycle events and how it processes messages.
 ///
 /// Every actor must implement this trait, which provides hooks
-/// for the actor's initialization ([`on_start`]), handling errors ([`on_panic`]), and cleanup ([`on_stop`]).
+/// for the actor's initialization ([`pre_start`] and [`on_start`]), handling errors ([`on_panic`]), and cleanup ([`on_stop`]).
 ///
 /// The actor runs within its own task and processes messages asynchronously from a mailbox.
 /// Each actor can be linked to others, allowing for robust supervision and failure recovery mechanisms.
@@ -77,12 +78,13 @@ pub(crate) const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 ///     type Args = Self;
 ///     type Error = Infallible;
 ///
-///     async fn on_start(
-///         state: Self::Args,
-///         actor_ref: ActorRef<Self>
-///     ) -> Result<Self, Self::Error> {
+///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+///         Ok(args)
+///     }
+///
+///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
 ///         println!("actor started");
-///         Ok(state)
+///         Ok(())
 ///     }
 ///
 ///     async fn on_stop(
@@ -97,7 +99,8 @@ pub(crate) const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 /// ```
 ///
 /// # Lifecycle Hooks
-/// - [`on_start`]: Called when the actor starts. This is where initialization happens.
+/// - [`pre_start`]: Called before the actor starts. This is where actor construction happens.
+/// - [`on_start`]: Called after the actor is constructed, before it processes messages.
 /// - [`on_panic`]: Called when the actor encounters a panic or an error while processing a "tell" message.
 /// - [`on_stop`]: Called before the actor is stopped. This allows for cleanup tasks.
 /// - [`on_link_died`]: Hook that is invoked when a linked actor dies.
@@ -110,6 +113,7 @@ pub(crate) const DEFAULT_MAILBOX_CAPACITY: usize = 64;
 /// Mailboxes enable efficient asynchronous message passing with support for both backpressure and
 /// unbounded queueing depending on system requirements.
 ///
+/// [`pre_start`]: Actor::pre_start
 /// [`on_start`]: Actor::on_start
 /// [`on_panic`]: Actor::on_panic
 /// [`on_stop`]: Actor::on_stop
@@ -169,10 +173,7 @@ pub trait Actor: Sized + Send + 'static {
     ///         SupervisionStrategy::OneForAll
     ///     }
     ///
-    ///     async fn on_start(
-    ///         _: Self::Args,
-    ///         _: ActorRef<Self>
-    ///     ) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
     ///         Ok(Supervisor)
     ///     }
     /// }
@@ -186,7 +187,32 @@ pub trait Actor: Sized + Send + 'static {
         SupervisionStrategy::default()
     }
 
-    /// Called when the actor starts, before it processes any messages.
+    /// Called before the actor starts, to construct the actor from its spawn arguments.
+    ///
+    /// This hook is executed by the actor framework, so panics and errors during actor
+    /// construction are captured and surfaced through the normal actor failure path.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use kameo::actor::Actor;
+    /// # use kameo::error::Infallible;
+    /// #
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
+    ///     }
+    /// }
+    /// ```
+    #[allow(unused_variables)]
+    fn pre_start(args: Self::Args) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+
+    /// Called when the constructed actor starts, before it processes any messages.
     ///
     /// Messages sent internally by the actor during `on_start` are prioritized and processed
     /// before any externally sent messages, even if external messages are received first.
@@ -205,19 +231,23 @@ pub trait Actor: Sized + Send + 'static {
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(
-    ///         state: Self::Args,
-    ///         _actor_ref: ActorRef<Self>
-    ///     ) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
+    ///     }
+    ///
+    ///     async fn on_start(&mut self, _actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+    ///         Ok(())
     ///     }
     /// }
     /// ```
     #[allow(unused_variables)]
+    #[inline]
     fn on_start(
-        args: Self::Args,
+        &mut self,
         actor_ref: ActorRef<Self>,
-    ) -> impl Future<Output = Result<Self, Self::Error>> + Send;
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async { Ok(()) }
+    }
 
     /// Called when the actor receives a message to be processed.
     ///
@@ -806,7 +836,7 @@ pub trait Spawn: Actor + private::Sealed {
     /// configured policies.
     ///
     /// When the child actor needs to be restarted, the provided `args` will be cloned
-    /// and passed to the actor's [`on_start`](Actor::on_start) method. This requires
+    /// and passed to the actor's [`pre_start`](Actor::pre_start) method. This requires
     /// that `Args` implements [`Clone`] + [`Sync`].
     ///
     /// **Note**: If your args type is not [`Sync`], use [`supervise_with`](Self::supervise_with)
@@ -838,7 +868,11 @@ pub trait Spawn: Actor + private::Sealed {
     ///         SupervisionStrategy::OneForOne
     ///     }
     ///
-    ///     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(Supervisor)
+    ///     }
+    ///
+    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     ///         // Spawn a supervised child
     ///         let child = Worker::supervise(&actor_ref, Worker { count: 0 })
     ///             .restart_policy(RestartPolicy::Transient)
@@ -846,7 +880,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///             .spawn()
     ///             .await;
     ///
-    ///         Ok(Supervisor)
+    ///         Ok(())
     ///     }
     /// }
     ///
@@ -859,8 +893,8 @@ pub trait Spawn: Actor + private::Sealed {
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     /// }
     /// ```
@@ -912,7 +946,11 @@ pub trait Spawn: Actor + private::Sealed {
     ///     type Args = ();
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(_: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///     async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(Supervisor)
+    ///     }
+    ///
+    ///     async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
     ///         // Use a factory function to generate fresh state on each restart
     ///         let child = Worker::supervise_with(&actor_ref, || Worker {
     ///             // This function is called on each restart
@@ -922,7 +960,7 @@ pub trait Spawn: Actor + private::Sealed {
     ///         .spawn()
     ///         .await;
     ///
-    ///         Ok(Supervisor)
+    ///         Ok(())
     ///     }
     /// }
     ///
@@ -934,8 +972,8 @@ pub trait Spawn: Actor + private::Sealed {
     ///     type Args = Self;
     ///     type Error = Infallible;
     ///
-    ///     async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
-    ///         Ok(state)
+    ///     async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+    ///         Ok(args)
     ///     }
     /// }
     /// ```

@@ -14,14 +14,18 @@ impl Actor for MyActor {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
+    }
+
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
         let stream = Box::pin(stream::repeat(1).take(5).throttle(Duration::from_secs(1)));
         actor_ref.attach_stream(stream, "1st stream", "1st stream");
 
         let stream = stream::repeat(1).take(5);
         actor_ref.attach_stream(stream, "2nd stream", "2nd stream");
 
-        Ok(state)
+        Ok(())
     }
 }
 

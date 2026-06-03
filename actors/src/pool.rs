@@ -172,12 +172,16 @@ where
         "ActorPool"
     }
 
-    async fn on_start(state: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        for (worker, _) in &state.workers {
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
+    }
+
+    async fn on_start(&mut self, actor_ref: ActorRef<Self>) -> Result<(), Self::Error> {
+        for (worker, _) in &self.workers {
             worker.link(&actor_ref).await;
         }
 
-        Ok(state)
+        Ok(())
     }
 
     async fn on_link_died(
@@ -232,8 +236,8 @@ impl<A: Actor> Actor for Worker<A> {
     type Args = Self;
     type Error = Infallible;
 
-    async fn on_start(state: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
-        Ok(state)
+    async fn pre_start(args: Self::Args) -> Result<Self, Self::Error> {
+        Ok(args)
     }
 }
 

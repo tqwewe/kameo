@@ -63,7 +63,7 @@ Actors stop running if one of the following conditions is met:
 
 - All references to the actor (`ActorRef<MyActor>`) are dropped.
 - It is explicitly stopped with `.stop_gracefully()` or `.kill()`.
-- `Actor::on_start` returns an error.
+- `Actor::pre_start`, `Actor::on_start`, or another lifecycle hook returns an error.
 - `Actor::on_panic` returns `Ok(ControlFlow::Break(reason))`, or returns an error.
 - `Actor::on_link_died` returns `Ok(ControlFlow::Break(reason))`, or returns an error.
 - `Actor::next` returns `None`.
