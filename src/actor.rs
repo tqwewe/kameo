@@ -209,7 +209,6 @@ pub trait Actor: Sized + Send + 'static {
     ///     }
     /// }
     /// ```
-    #[allow(unused_variables)]
     fn pre_start(args: Self::Args) -> impl Future<Output = Result<Self, Self::Error>> + Send;
 
     /// Called when the constructed actor starts, before it processes any messages.
