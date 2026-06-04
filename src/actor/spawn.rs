@@ -445,3 +445,39 @@ fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
 
 #[cfg(not(feature = "tracing"))]
 fn log_actor_stop_reason(_id: ActorId, _name: &str, _reason: &ActorStopReason) {}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        actor::{Actor, Spawn},
+        error::{HookError, Infallible, PanicReason},
+    };
+
+    #[tokio::test]
+    async fn pre_start_panic_is_captured_as_startup_failure() {
+        struct PanicsInPreStart;
+
+        impl Actor for PanicsInPreStart {
+            type Args = ();
+            type Error = Infallible;
+
+            async fn pre_start(_: Self::Args) -> Result<Self, Self::Error> {
+                panic!("pre_start exploded");
+            }
+        }
+
+        let actor_ref = PanicsInPreStart::spawn(());
+        let err = actor_ref
+            .wait_for_startup_result()
+            .await
+            .expect_err("pre_start panic should fail actor startup");
+
+        let HookError::Panicked(err) = err;
+
+        assert_eq!(err.reason(), PanicReason::PreStart);
+        assert_eq!(
+            err.with_str(str::to_owned),
+            Some("pre_start exploded".to_owned())
+        );
+    }
+}
