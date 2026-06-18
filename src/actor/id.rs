@@ -244,12 +244,12 @@ pub enum ActorIdFromBytesError {
     MissingSequenceID,
     /// An error occurred while parsing the `PeerId`.
     #[cfg(feature = "remote")]
-    ParsePeerID(libp2p_identity::ParseError),
+    ParsePeerID(libp2p::identity::ParseError),
 }
 
 #[cfg(feature = "remote")]
-impl From<libp2p_identity::ParseError> for ActorIdFromBytesError {
-    fn from(err: libp2p_identity::ParseError) -> Self {
+impl From<libp2p::identity::ParseError> for ActorIdFromBytesError {
+    fn from(err: libp2p::identity::ParseError) -> Self {
         ActorIdFromBytesError::ParsePeerID(err)
     }
 }
