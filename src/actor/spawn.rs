@@ -38,6 +38,8 @@ pub struct PreparedActor<A: Actor> {
     actor_ref: ActorRef<A>,
     mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
+    #[cfg(feature = "console")]
+    monitor: Arc<crate::console::registry::ActorMonitor>,
 }
 
 impl<A: Actor> PreparedActor<A> {
@@ -72,10 +74,19 @@ impl<A: Actor> PreparedActor<A> {
             shutdown_result,
         );
 
+        #[cfg(feature = "console")]
+        let monitor = crate::console::registry::register_or_get::<A>(
+            actor_id,
+            actor_ref.mailbox_sender(),
+            &actor_ref.links,
+        );
+
         PreparedActor {
             actor_ref,
             mailbox_rx,
             abort_registration,
+            #[cfg(feature = "console")]
+            monitor,
         }
     }
 
@@ -123,6 +134,8 @@ impl<A: Actor> PreparedActor<A> {
             self.actor_ref,
             self.mailbox_rx,
             self.abort_registration,
+            #[cfg(feature = "console")]
+            self.monitor,
         )
         .await
     }
@@ -172,6 +185,7 @@ async fn run_actor_lifecycle<A>(
     actor_ref: ActorRef<A>,
     mut mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
+    #[cfg(feature = "console")] monitor: Arc<crate::console::registry::ActorMonitor>,
 ) -> Result<(A, ActorStopReason), PanicError>
 where
     A: Actor,
@@ -179,6 +193,9 @@ where
     #[allow(unused_mut)]
     let mut id = actor_ref.id();
     let name = A::name();
+
+    #[cfg(feature = "console")]
+    let monitor_scope = Arc::clone(&monitor);
 
     let task = async move {
         #[cfg(feature = "tracing")]
@@ -201,17 +218,25 @@ where
             Ok(actor) => {
                 let mut state = ActorBehaviour::new_from_actor(actor, actor_ref.clone());
 
+                #[cfg(feature = "console")]
+                monitor.set_running();
+
                 let reason = Abortable::new(
                     abortable_actor_loop(
                         &mut state,
                         &mut mailbox_rx,
                         &actor_ref.startup_result,
                         startup_finished,
+                        #[cfg(feature = "console")]
+                        &monitor,
                     ),
                     abort_registration,
                 )
                 .await
                 .unwrap_or(ActorStopReason::Killed);
+
+                #[cfg(feature = "console")]
+                monitor.set_stopping();
 
                 let mut actor = state.shutdown().await;
 
@@ -234,6 +259,9 @@ where
                         })
                         .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStop))
                         .and_then(convert::identity);
+
+                #[cfg(feature = "console")]
+                monitor.set_stopped(&reason);
 
                 unregister_actor(&id).await;
 
@@ -274,6 +302,9 @@ where
                     .await
                     .notify_links(id, reason.clone(), mailbox_rx);
 
+                #[cfg(feature = "console")]
+                monitor.set_stopped(&reason);
+
                 unregister_actor(&id).await;
 
                 let ActorStopReason::Panicked(err) = reason else {
@@ -289,6 +320,9 @@ where
             }
         }
     };
+
+    #[cfg(feature = "console")]
+    let task = crate::console::registry::with_monitor(monitor_scope, task);
 
     #[cfg(not(feature = "tracing"))]
     {
@@ -331,6 +365,7 @@ async fn abortable_actor_loop<A>(
     mailbox_rx: &mut MailboxReceiver<A>,
     startup_result: &SetOnce<Result<(), PanicError>>,
     startup_finished: bool,
+    #[cfg(feature = "console")] monitor: &Arc<crate::console::registry::ActorMonitor>,
 ) -> ActorStopReason
 where
     A: Actor,
@@ -339,7 +374,14 @@ where
         return reason;
     }
     loop {
-        let reason = recv_mailbox_loop(state, mailbox_rx, startup_result).await;
+        let reason = recv_mailbox_loop(
+            state,
+            mailbox_rx,
+            startup_result,
+            #[cfg(feature = "console")]
+            monitor,
+        )
+        .await;
         if let ControlFlow::Break(reason) = state.on_shutdown(reason).await {
             return reason;
         }
@@ -350,12 +392,23 @@ async fn recv_mailbox_loop<A>(
     state: &mut ActorBehaviour<A>,
     mailbox_rx: &mut MailboxReceiver<A>,
     startup_result: &SetOnce<Result<(), PanicError>>,
+    #[cfg(feature = "console")] monitor: &Arc<crate::console::registry::ActorMonitor>,
 ) -> ActorStopReason
 where
     A: Actor,
 {
     loop {
-        match state.next(mailbox_rx).await {
+        let next = state.next(mailbox_rx).await;
+
+        #[cfg(feature = "console")]
+        {
+            monitor.set_mailbox_len(mailbox_rx.len());
+            if let ControlFlow::Continue(signal) = &next {
+                monitor.record_received(signal);
+            }
+        }
+
+        match next {
             ControlFlow::Continue(Signal::StartupFinished) => {
                 if startup_result.set(Ok(())).is_err() {
                     #[cfg(feature = "tracing")]
@@ -374,7 +427,9 @@ where
                 #[cfg(feature = "tracing")]
                 caller_span,
             }) => {
-                if let ControlFlow::Break(reason) = state
+                #[cfg(feature = "console")]
+                monitor.begin_handler(message_name);
+                let result = state
                     .handle_message(
                         message,
                         actor_ref,
@@ -384,8 +439,10 @@ where
                         #[cfg(feature = "tracing")]
                         caller_span,
                     )
-                    .await
-                {
+                    .await;
+                #[cfg(feature = "console")]
+                monitor.end_handler();
+                if let ControlFlow::Break(reason) = result {
                     return reason;
                 }
             }

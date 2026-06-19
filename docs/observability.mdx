@@ -21,6 +21,51 @@ Some common exporters include:
 [metrics-exporter-tcp]: https://docs.rs/metrics-exporter-tcp
 [metrics-exporter-prometheus]: https://docs.rs/metrics-exporter-prometheus
 
+## Console
+
+Kameo ships a terminal UI, the **kameo console**, for monitoring a running actor system in real time. It connects to your application over TCP and shows the live supervision tree, message throughput, mailbox backpressure, restarts, and deadlocks.
+
+![kameo console screenshot](https://github.com/tqwewe/kameo/blob/main/console/screenshot.png?raw=true)
+
+Enable the `console` feature in your application:
+
+```toml
+kameo = { version = "*", features = ["console"] }
+```
+
+Then start the collector once, early in `main`, and keep the handle alive for as long as you want monitoring:
+
+```rust
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let console = kameo::console::serve("127.0.0.1:9999").await?;
+
+    // spawn and run your actors as usual...
+
+    tokio::signal::ctrl_c().await?;
+    Ok(())
+}
+```
+
+The instrumentation lives behind the `console` cargo feature and has no cost when the feature is turned off. Polling is pull based and happens on demand, so an idle application does no extra work.
+
+Install the console binary from crates.io:
+
+```bash
+cargo install kameo_console
+```
+
+Then point it at your application's collector address, or try it without a running application using the built in demo:
+
+```bash
+kameo-console 127.0.0.1:9999
+kameo-console --demo
+```
+
+See the [console README] for the full feature list, keybindings, and options.
+
+[console README]: https://github.com/tqwewe/kameo/tree/main/console
+
 ## Hotpath
 
 For observability in your terminal, a TUI called [hotpath] is available and supported by kameo.

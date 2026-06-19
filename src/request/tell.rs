@@ -101,6 +101,17 @@ where
             );
         }
 
+        // A bounded `tell` parks the sender until the mailbox has room; record that as a
+        // wait-for edge so the console can surface mailbox-capacity deadlocks. An unbounded
+        // send never waits, so it's left uninstrumented.
+        #[cfg(feature = "console")]
+        let _wait = tx.capacity().is_some().then(|| {
+            crate::console::registry::begin_wait(
+                self.actor_ref.id(),
+                crate::console::wire::WaitKind::Tell,
+            )
+        });
+
         match self.mailbox_timeout.into() {
             Some(timeout) => Ok(tx.send_timeout(signal, timeout).await?),
             None => Ok(tx.send(signal).await?),

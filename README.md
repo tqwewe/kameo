@@ -26,6 +26,7 @@ Whether you're building a microservice, a real-time application, or an embedded 
 - **Panic Safety**: Actors are isolated; a panic in one actor doesn't bring down the whole system.
 - **Type-Safe Interfaces**: Strong typing for messages and replies ensures compile-time correctness.
 - **Easy Integration**: Compatible with existing Rust async code, and can be integrated into larger systems effortlessly.
+- **Live Console**: Monitor a running actor system in a terminal UI with the [kameo console](#monitoring-with-the-console), showing the supervision tree, throughput, mailbox backpressure, restarts, and deadlocks.
 
 ## Why Kameo?
 
@@ -123,6 +124,31 @@ if let Some(remote_actor_ref) = RemoteActorRef::<MyActor>::lookup("my_actor").aw
 ### Under the Hood
 
 Kameo uses [libp2p](https://libp2p.io) for peer-to-peer networking, enabling actors to communicate over various protocols (TCP/IP, WebSockets, QUIC, etc.) using multiaddresses. This abstraction allows you to focus on your application's logic without worrying about the complexities of network programming.
+
+## Monitoring with the Console
+
+Kameo ships a terminal UI, the **kameo console**, for monitoring a running actor system in real time.
+
+[![kameo console screenshot](https://github.com/tqwewe/kameo/blob/main/console/screenshot.png?raw=true)](https://github.com/tqwewe/kameo/tree/main/console)
+
+Enable the `console` feature and start the collector once in `main`:
+
+```toml
+kameo = { version = "0.20", features = ["console"] }
+```
+
+```rust,ignore
+let console = kameo::console::serve("127.0.0.1:9999").await?;
+```
+
+Then install and run the console in another terminal:
+
+```bash
+cargo install kameo_console
+kameo-console 127.0.0.1:9999
+```
+
+It shows the live supervision tree, message throughput, mailbox backpressure, restarts, and deadlocks. See the [console README](https://github.com/tqwewe/kameo/tree/main/console) for the full feature list and keybindings, or try it with no running application via `kameo-console --demo`.
 
 ## Documentation and Resources
 

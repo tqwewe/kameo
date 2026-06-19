@@ -143,6 +143,11 @@ where
             }
         }
 
+        #[cfg(feature = "console")]
+        let _wait = crate::console::registry::begin_wait(
+            self.actor_ref.id(),
+            crate::console::wire::WaitKind::Ask,
+        );
         let reply = match self.reply_timeout.into() {
             Some(timeout) => tokio::time::timeout(timeout, rx).await??,
             None => rx.await?,
@@ -323,6 +328,11 @@ where
         let tx = self.actor_ref.mailbox_sender();
         tx.try_send(signal)?;
 
+        #[cfg(feature = "console")]
+        let _wait = crate::console::registry::begin_wait(
+            self.actor_ref.id(),
+            crate::console::wire::WaitKind::Ask,
+        );
         let reply = match self.reply_timeout.into() {
             Some(timeout) => tokio::time::timeout(timeout, rx).await??,
             None => rx.await?,
