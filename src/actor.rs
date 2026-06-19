@@ -324,7 +324,7 @@ pub trait Actor: Sized + Send + 'static {
     ///
     /// This allows the actor to perform any necessary cleanup or release resources before being fully stopped.
     ///
-    /// The error returned by this method will be unwraped by kameo, causing a panic in the tokio task or
+    /// The error returned by this method will be unwrapped by kameo, causing a panic in the tokio task or
     /// thread running the actor.
     #[allow(unused_variables)]
     #[inline]
