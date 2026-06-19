@@ -297,7 +297,7 @@ where
     }
 }
 
-/// A message used to subscribe an actor and filter a bessage before sending to a `PubSub` actor.
+/// A message used to subscribe an actor and filter a message before sending to a `PubSub` actor.
 ///
 /// This struct wraps an `ActorRef` and is used to subscribe an actor to a pubsub actor. Before sending
 /// the message is passed to the given function and only sent if this function returns `true`.
