@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "actors", "macros"]
+members = [".", "actors", "console", "macros"]
 
 [workspace.dependencies]
 kameo = { path = ".", version = "0.20.0" }
@@ -32,6 +32,7 @@ include = ["/src"]
 [features]
 default = ["macros", "tracing"]
 macros = ["dep:kameo_macros"]
+console = ["dep:rmp-serde", "tokio/net", "tokio/io-util"]
 remote = [
   "dep:const-fnv1a-hash",
   "dep:const-str",
@@ -91,6 +92,10 @@ tokio = { version = "1", features = [
 tokio-stream = { version = "0.1.15", features = ["time"] }
 tokio-test = "0.4.4"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "console"
+required-features = ["console"]
 
 [[example]]
 name = "remote"

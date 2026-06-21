@@ -1,0 +1,28 @@
+[package]
+name = "kameo_console"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+description = "Terminal UI for monitoring a running kameo actor system"
+readme = "README.md"
+repository = "https://github.com/tqwewe/kameo"
+license = "MIT OR Apache-2.0"
+keywords = ["actor", "tokio", "kameo", "tui", "monitoring"]
+categories = ["asynchronous", "command-line-utilities", "development-tools::debugging"]
+include = ["/src", "/README.md"]
+
+[[bin]]
+name = "kameo-console"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+color-eyre = "0.6.3"
+crossterm = "0.29.0"
+humantime = "2.3"
+kameo = { workspace = true, features = ["console"] }
+ratatui = "0.30.0"
+rmp-serde = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+# Only used by `--demo`, to host the example actor system in-process on a background runtime.
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "sync"] }

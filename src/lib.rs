@@ -6,6 +6,8 @@
 #![deny(unused_must_use)]
 
 pub mod actor;
+#[cfg(feature = "console")]
+pub mod console;
 pub mod error;
 pub(crate) mod links;
 pub mod mailbox;

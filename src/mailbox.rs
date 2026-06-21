@@ -307,6 +307,19 @@ impl<A: Actor> MailboxSender<A> {
         }
     }
 
+    /// Returns the maximum buffer capacity of the channel, if bounded.
+    /// Unbounded channels return `None`.
+    ///
+    /// See tokio's [`mpsc::Sender::max_capacity`] docs for more info.
+    ///
+    /// [`mpsc::Sender::max_capacity`]: tokio::sync::mpsc::Sender::max_capacity
+    pub fn max_capacity(&self) -> Option<usize> {
+        match &self.inner {
+            MailboxSenderInner::Bounded(tx) => Some(tx.max_capacity()),
+            MailboxSenderInner::Unbounded(_) => None,
+        }
+    }
+
     /// Converts the `MailboxSender` to a [`WeakMailboxSender`] that does not count
     /// towards RAII semantics, i.e. if all `Sender` instances of the
     /// channel were dropped and only `WeakMailboxSender` instances remain,
