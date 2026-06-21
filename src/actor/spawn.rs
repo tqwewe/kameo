@@ -1,4 +1,6 @@
-use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread};
+use std::{
+    collections::VecDeque, convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread,
+};
 
 use futures::{
     FutureExt,
@@ -215,16 +217,7 @@ where
 
                 actor_ref.links.set_children_parent_shutdown().await;
                 actor_ref.links.send_children_shutdown().await;
-                {
-                    let wait = actor_ref.links.wait_children_closed();
-                    tokio::pin!(wait);
-                    loop {
-                        tokio::select! {
-                            _ = &mut wait => break,
-                            _ = mailbox_rx.recv() => {}
-                        }
-                    }
-                }
+                drain_until_children_closed(&actor_ref.links, &mut mailbox_rx).await;
                 actor_ref
                     .links
                     .lock()
@@ -274,16 +267,7 @@ where
 
                 actor_ref.links.set_children_parent_shutdown().await;
                 actor_ref.links.send_children_shutdown().await;
-                {
-                    let wait = actor_ref.links.wait_children_closed();
-                    tokio::pin!(wait);
-                    loop {
-                        tokio::select! {
-                            _ = &mut wait => break,
-                            _ = mailbox_rx.recv() => {}
-                        }
-                    }
-                }
+                drain_until_children_closed(&actor_ref.links, &mut mailbox_rx).await;
                 actor_ref
                     .links
                     .lock()
@@ -316,6 +300,30 @@ where
         let actor_span = tracing::info_span!("actor.lifecycle", actor.name = name, actor.id = %id);
         task.instrument(actor_span).await
     }
+}
+
+/// Waits for all child actors to close while keeping the mailbox drained, so a child
+/// notifying us cannot deadlock on a full mailbox. Pending messages pulled during the wait
+/// are re-queued afterwards so they survive a supervisor restart rather than being dropped.
+async fn drain_until_children_closed<A>(links: &Links, mailbox_rx: &mut MailboxReceiver<A>)
+where
+    A: Actor,
+{
+    let mut preserved = VecDeque::new();
+    let wait = links.wait_children_closed();
+    tokio::pin!(wait);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut wait => break,
+            signal = mailbox_rx.recv() => {
+                if let Some(signal @ Signal::Message { .. }) = signal {
+                    preserved.push_back(signal);
+                }
+            }
+        }
+    }
+    mailbox_rx.push_front(preserved);
 }
 
 async fn abortable_actor_loop<A>(

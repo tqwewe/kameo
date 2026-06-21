@@ -4,7 +4,7 @@
 
 use std::{
     any::Any,
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     fmt,
     task::{Context, Poll},
     time::Duration,
@@ -44,6 +44,7 @@ pub fn bounded<A: Actor>(buffer: usize) -> (MailboxSender<A>, MailboxReceiver<A>
         },
         MailboxReceiver {
             inner: MailboxReceiverInner::Bounded(rx),
+            front: VecDeque::new(),
             #[cfg(feature = "metrics")]
             messages_received: metrics::counter!("kameo_messages_received", "actor_name" => A::name()),
             #[cfg(feature = "metrics")]
@@ -75,6 +76,7 @@ pub fn unbounded<A: Actor>() -> (MailboxSender<A>, MailboxReceiver<A>) {
         },
         MailboxReceiver {
             inner: MailboxReceiverInner::Unbounded(rx),
+            front: VecDeque::new(),
             #[cfg(feature = "metrics")]
             messages_received: metrics::counter!("kameo_messages_received", "actor_name" => A::name()),
             #[cfg(feature = "metrics")]
@@ -519,6 +521,7 @@ impl<A: Actor> fmt::Debug for WeakMailboxSender<A> {
 /// Instances are created by the [`bounded`] and [`unbounded`] functions.
 pub struct MailboxReceiver<A: Actor> {
     inner: MailboxReceiverInner<A>,
+    front: VecDeque<Signal<A>>,
     #[cfg(feature = "metrics")]
     messages_received: metrics::Counter,
     #[cfg(feature = "metrics")]
@@ -535,6 +538,20 @@ enum MailboxReceiverInner<A: Actor> {
 }
 
 impl<A: Actor> MailboxReceiver<A> {
+    /// Re-inserts signals ahead of the channel, preserving their order, so they are
+    /// yielded before anything still queued. Used to keep pending messages across a restart.
+    pub(crate) fn push_front(&mut self, mut signals: VecDeque<Signal<A>>) {
+        signals.append(&mut self.front);
+        self.front = signals;
+    }
+
+    /// Moves up to `limit` already-buffered front signals into `buffer`, returning the count.
+    fn drain_front_into(&mut self, buffer: &mut Vec<Signal<A>>, limit: usize) -> usize {
+        let count = self.front.len().min(limit);
+        buffer.extend(self.front.drain(..count));
+        count
+    }
+
     /// Receives the next value for this receiver.
     ///
     /// See tokio's [`mpsc::Receiver::recv`] and [`mpsc::UnboundedReceiver::recv`] docs for more info.
@@ -542,6 +559,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::recv`]: tokio::sync::mpsc::Receiver::recv
     /// [`mpsc::UnboundedReceiver::recv`]: tokio::sync::mpsc::UnboundedReceiver::recv
     pub async fn recv(&mut self) -> Option<Signal<A>> {
+        if let Some(signal) = self.front.pop_front() {
+            return Some(signal);
+        }
+
         let signal = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.recv().await,
             MailboxReceiverInner::Unbounded(rx) => rx.recv().await,
@@ -567,6 +588,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::recv_many`]: tokio::sync::mpsc::Receiver::recv_many
     /// [`mpsc::UnboundedReceiver::recv_many`]: tokio::sync::mpsc::UnboundedReceiver::recv_many
     pub async fn recv_many(&mut self, buffer: &mut Vec<Signal<A>>, limit: usize) -> usize {
+        if !self.front.is_empty() {
+            return self.drain_front_into(buffer, limit);
+        }
+
         let count = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.recv_many(buffer, limit).await,
             MailboxReceiverInner::Unbounded(rx) => rx.recv_many(buffer, limit).await,
@@ -596,6 +621,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::try_recv`]: tokio::sync::mpsc::Receiver::try_recv
     /// [`mpsc::UnboundedReceiver::try_recv`]: tokio::sync::mpsc::UnboundedReceiver::try_recv
     pub fn try_recv(&mut self) -> Result<Signal<A>, TryRecvError> {
+        if let Some(signal) = self.front.pop_front() {
+            return Ok(signal);
+        }
+
         let res = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.try_recv(),
             MailboxReceiverInner::Unbounded(rx) => rx.try_recv(),
@@ -621,6 +650,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::blocking_recv`]: tokio::sync::mpsc::Receiver::blocking_recv
     /// [`mpsc::UnboundedReceiver::blocking_recv`]: tokio::sync::mpsc::UnboundedReceiver::blocking_recv
     pub fn blocking_recv(&mut self) -> Option<Signal<A>> {
+        if let Some(signal) = self.front.pop_front() {
+            return Some(signal);
+        }
+
         let signal = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.blocking_recv(),
             MailboxReceiverInner::Unbounded(rx) => rx.blocking_recv(),
@@ -646,6 +679,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::blocking_recv_many`]: tokio::sync::mpsc::Receiver::blocking_recv_many
     /// [`mpsc::UnboundedReceiver::blocking_recv_many`]: tokio::sync::mpsc::UnboundedReceiver::blocking_recv_many
     pub fn blocking_recv_many(&mut self, buffer: &mut Vec<Signal<A>>, limit: usize) -> usize {
+        if !self.front.is_empty() {
+            return self.drain_front_into(buffer, limit);
+        }
+
         let count = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.blocking_recv_many(buffer, limit),
             MailboxReceiverInner::Unbounded(rx) => rx.blocking_recv_many(buffer, limit),
@@ -701,6 +738,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::is_empty`]: tokio::sync::mpsc::Receiver::is_empty
     /// [`mpsc::UnboundedReceiver::is_empty`]: tokio::sync::mpsc::UnboundedReceiver::is_empty
     pub fn is_empty(&self) -> bool {
+        if !self.front.is_empty() {
+            return false;
+        }
+
         match &self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.is_empty(),
             MailboxReceiverInner::Unbounded(rx) => rx.is_empty(),
@@ -714,10 +755,11 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::len`]: tokio::sync::mpsc::Receiver::len
     /// [`mpsc::UnboundedReceiver::len`]: tokio::sync::mpsc::UnboundedReceiver::len
     pub fn len(&self) -> usize {
-        match &self.inner {
+        let inner = match &self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.len(),
             MailboxReceiverInner::Unbounded(rx) => rx.len(),
-        }
+        };
+        self.front.len() + inner
     }
 
     /// Polls to receive the next message on this channel.
@@ -727,6 +769,10 @@ impl<A: Actor> MailboxReceiver<A> {
     /// [`mpsc::Receiver::poll_recv`]: tokio::sync::mpsc::Receiver::poll_recv
     /// [`mpsc::UnboundedReceiver::poll_recv`]: tokio::sync::mpsc::UnboundedReceiver::poll_recv
     pub fn poll_recv(&mut self, cx: &mut Context<'_>) -> Poll<Option<Signal<A>>> {
+        if let Some(signal) = self.front.pop_front() {
+            return Poll::Ready(Some(signal));
+        }
+
         let poll = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.poll_recv(cx),
             MailboxReceiverInner::Unbounded(rx) => rx.poll_recv(cx),
@@ -759,6 +805,10 @@ impl<A: Actor> MailboxReceiver<A> {
         buffer: &mut Vec<Signal<A>>,
         limit: usize,
     ) -> Poll<usize> {
+        if !self.front.is_empty() {
+            return Poll::Ready(self.drain_front_into(buffer, limit));
+        }
+
         let poll = match &mut self.inner {
             MailboxReceiverInner::Bounded(rx) => rx.poll_recv_many(cx, buffer, limit),
             MailboxReceiverInner::Unbounded(rx) => rx.poll_recv_many(cx, buffer, limit),
