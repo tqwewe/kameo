@@ -232,7 +232,15 @@ where
                     .notify_links(id, reason.clone(), mailbox_rx);
 
                 log_actor_stop_reason(id, name, &reason);
-                let on_stop_res = actor.on_stop(actor_ref.clone(), reason.clone()).await;
+                let on_stop_res =
+                    AssertUnwindSafe(actor.on_stop(actor_ref.clone(), reason.clone()))
+                        .catch_unwind()
+                        .await
+                        .map(|res| {
+                            res.map_err(|err| PanicError::new(Box::new(err), PanicReason::OnStop))
+                        })
+                        .map_err(|err| PanicError::new_from_panic_any(err, PanicReason::OnStop))
+                        .and_then(convert::identity);
 
                 unregister_actor(&id).await;
 
@@ -244,7 +252,6 @@ where
                             .expect("nothing else should set the shutdown result");
                     }
                     Err(err) => {
-                        let err = PanicError::new(Box::new(err), PanicReason::OnStop);
                         invoke_actor_error_hook(&err);
 
                         actor_ref

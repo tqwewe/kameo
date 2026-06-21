@@ -362,16 +362,7 @@ where
     {
         match self.startup_result.get()? {
             Ok(()) => Some(f(Ok(()))),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-            },
+            Err(err) => Some(handle_hook_panic(f, err)),
         }
     }
 
@@ -480,16 +471,7 @@ where
     {
         match self.shutdown_result.get()? {
             Ok(reason) => Some(f(Ok(reason))),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-            },
+            Err(err) => Some(handle_hook_panic(f, err)),
         }
     }
 
@@ -620,16 +602,7 @@ where
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => handle_hook_panic(f, err),
         }
     }
 
@@ -800,16 +773,7 @@ where
         self.mailbox_sender.closed().await;
         match self.shutdown_result.wait().await {
             Ok(reason) => f(Ok(reason)),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => handle_hook_panic(f, err),
         }
     }
 
@@ -2245,16 +2209,7 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.startup_result.wait().await {
             Ok(()) => f(Ok(())),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => handle_hook_panic(f, err),
         }
     }
 
@@ -2284,16 +2239,7 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.startup_result.get()? {
             Ok(()) => Some(f(Ok(()))),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-            },
+            Err(err) => Some(handle_hook_panic(f, err)),
         }
     }
 
@@ -2329,16 +2275,7 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.shutdown_result.wait().await {
             Ok(reason) => f(Ok(reason)),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => f(Err(HookError::Error(err))),
-                    None => f(Err(HookError::Panicked(err.clone()))),
-                },
-            },
+            Err(err) => handle_hook_panic(f, err),
         }
     }
 
@@ -2368,16 +2305,7 @@ impl<A: Actor> WeakActorRef<A> {
     {
         match self.shutdown_result.get()? {
             Ok(reason) => Some(f(Ok(reason))),
-            Err(err) => match err.err.lock() {
-                Ok(lock) => match lock.downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-                Err(poison_err) => match poison_err.get_ref().downcast_ref() {
-                    Some(err) => Some(f(Err(HookError::Error(err)))),
-                    None => Some(f(Err(HookError::Panicked(err.clone())))),
-                },
-            },
+            Err(err) => Some(handle_hook_panic(f, err)),
         }
     }
 
@@ -2464,6 +2392,35 @@ impl<A: Actor> WeakActorRef<A> {
     #[inline]
     pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
         Box::new(self.mailbox_sender.clone())
+    }
+}
+
+/// Try to downcast the panic error to a specific error type `E` (typically
+/// `Actor::Error`), otherwise return [`HookError::Panicked`].
+fn handle_hook_panic<F, T, E, R>(f: F, err: &PanicError) -> R
+where
+    F: FnOnce(Result<T, HookError<&E>>) -> R,
+    E: ReplyError,
+{
+    match err.err.lock() {
+        Ok(lock) => match lock.downcast_ref() {
+            Some(err) => f(Err(HookError::Error(err))),
+            None => {
+                // The lock _must_ be dropped before `err` is re-cloned, else `f` will deadlock
+                // if it tries to access the inner error through the mutex.
+                drop(lock);
+                f(Err(HookError::Panicked(err.clone())))
+            }
+        },
+        Err(poison_err) => match poison_err.get_ref().downcast_ref() {
+            Some(err) => f(Err(HookError::Error(err))),
+            None => {
+                // The lock _must_ be dropped before `err` is re-cloned, else `f` will deadlock
+                // if it tries to access the inner error through the mutex.
+                drop(poison_err);
+                f(Err(HookError::Panicked(err.clone())))
+            }
+        },
     }
 }
 
@@ -2908,5 +2865,116 @@ where
     #[inline]
     fn reply_upgrade(&self) -> Option<ReplyRecipient<M, Ok, Err>> {
         self.upgrade().map(ReplyRecipient::new)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::actor::Spawn;
+
+    struct Panicker(PanicConfig);
+
+    #[derive(Default)]
+    struct PanicConfig {
+        on_startup: bool,
+        on_shutdown: bool,
+    }
+
+    impl Actor for Panicker {
+        type Args = PanicConfig;
+        type Error = ();
+
+        async fn on_start(args: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            if args.on_startup {
+                panic!();
+            }
+
+            Ok(Self(args))
+        }
+
+        async fn on_stop(
+            &mut self,
+            _: WeakActorRef<Self>,
+            _: ActorStopReason,
+        ) -> Result<(), Self::Error> {
+            if self.0.on_shutdown {
+                panic!();
+            }
+
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_panic_no_deadlock() {
+        let aref = Panicker::spawn(PanicConfig {
+            on_startup: true,
+            on_shutdown: false,
+        });
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            aref.wait_for_startup_with_result(|r| assert_panic(r)),
+        )
+        .await
+        .unwrap();
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            aref.downgrade()
+                .wait_for_startup_with_result(|r| assert_panic(r)),
+        )
+        .await
+        .unwrap();
+
+        aref.with_startup_result(|r| assert_panic(r));
+        aref.downgrade().with_startup_result(|r| assert_panic(r));
+    }
+
+    #[tokio::test]
+    async fn shutdown_panic_no_deadlock() {
+        let aref = Panicker::spawn(PanicConfig {
+            on_startup: false,
+            on_shutdown: true,
+        });
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            aref.wait_for_startup_with_result(|r| assert!(r.is_ok())),
+        )
+        .await
+        .unwrap();
+
+        aref.stop_gracefully().await.unwrap();
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            aref.wait_for_shutdown_with_result(|r| assert_panic(r)),
+        )
+        .await
+        .unwrap();
+
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            aref.downgrade()
+                .wait_for_shutdown_with_result(|r| assert_panic(r)),
+        )
+        .await
+        .unwrap();
+
+        aref.with_shutdown_result(|r| assert_panic(r));
+        aref.downgrade().with_shutdown_result(|r| assert_panic(r));
+    }
+
+    fn assert_panic<T, E>(res: Result<T, HookError<E>>) {
+        let Err(HookError::Panicked(p)) = &res else {
+            unreachable!();
+        };
+
+        p.with(|r| {
+            // Side-effect to ensure this access isn't optimized out.
+            println!("actor lifecycle panicked (expected): {r:?}")
+        });
     }
 }
