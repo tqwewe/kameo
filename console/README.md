@@ -24,7 +24,7 @@ Add the feature:
 
 ```toml
 [dependencies]
-kameo = { version = "0.20", features = ["console"] }
+kameo = { version = "0.21", features = ["console"] }
 ```
 
 Start the collector once, early in `main`:

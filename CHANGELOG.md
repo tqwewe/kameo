@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-06-21
+
+* @npry made their first contribution in #340
+
+* @manuelarte made their first contribution in #342
+
+* @getong made their first contribution in #339
+
+* @marcoradocchia made their first contribution in #338
+
+* @CleverWild made their first contribution in #321
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Support error chains on `SendError` (#338)
+- Add clippy allow attribute to methods tagged with #[message] to ensure compatibility with `clippy::pedantic` (#321)
+- Add live actor-system monitoring console TUI (#343)
+
+### <!-- 3 -->Fixed
+
+- Deadlocks in `ActorRef` lifecycle methods, catch panics in actor shutdown (#340)
+- Preserve pending mailbox messages on actor stop/restart (#345)
+- Prevent actor.handle_message spans from nesting unboundedly on self-sends (#346)
+
+### <!-- 4 -->Documentation
+
+- Update supervision page to cover new parent supervision (#315)
+- Add haruki-nikaidou to sponsors [</>](https://github.com/tqwewe/kameo/commit/aa23f66902501fd17fb8e3debbda0483f6bb4c54)
+
+### <!-- 5 -->Misc
+
+- Fix link in CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/27bed764dba99f16995c8064c35f01bb75aedad4)
+- Update hotpath requirement from 0.11 to 0.14 (#319)
+- Update hotpath requirement from 0.11 to 0.15 (#324)
+- Update hotpath requirement from 0.11 to 0.16 (#326)
+- Update opentelemetry requirement from 0.31 to 0.32 (#327)
+- Update hotpath requirement from 0.11 to 0.16 (#328)
+- Update opentelemetry requirement from 0.31 to 0.32 (#329)
+- Update hotpath requirement from 0.11 to 0.17 (#337)
+- Update tracing-opentelemetry requirement from 0.32 to 0.33 (#332)
+- Update opentelemetry requirement from 0.31 to 0.32 (#330)
+- Use libp2p::identity instead of libp2p_identity directly (#339)
+- Fix typos (#342)
+
 ## [0.20.0] - 2026-04-07
 
 * @Janrupf made their first contribution in #309
@@ -840,6 +884,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add support for stable rust [</>](https://github.com/tqwewe/kameo/commit/0d3e66c47ab04d435bf44c356b1e0ff53f78e43e)
 
+[0.21.0]: https://github.com/tqwewe/kameo/compare/v0.20.0..v0.21.0
 [0.20.0]: https://github.com/tqwewe/kameo/compare/v0.19.2..v0.20.0
 [0.19.2]: https://github.com/tqwewe/kameo/compare/v0.19.1..v0.19.2
 [0.19.1]: https://github.com/tqwewe/kameo/compare/v0.19.0..v0.19.1
