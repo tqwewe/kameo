@@ -2410,7 +2410,7 @@ where
                 // if it tries to access the inner error through the mutex.
                 drop(lock);
                 f(Err(HookError::Panicked(err.clone())))
-            },
+            }
         },
         Err(poison_err) => match poison_err.get_ref().downcast_ref() {
             Some(err) => f(Err(HookError::Error(err))),
@@ -2419,7 +2419,7 @@ where
                 // if it tries to access the inner error through the mutex.
                 drop(poison_err);
                 f(Err(HookError::Panicked(err.clone())))
-            },
+            }
         },
     }
 }
@@ -2893,7 +2893,11 @@ mod test {
             Ok(Self(args))
         }
 
-        async fn on_stop(&mut self, _: WeakActorRef<Self>, _: ActorStopReason) -> Result<(), Self::Error> {
+        async fn on_stop(
+            &mut self,
+            _: WeakActorRef<Self>,
+            _: ActorStopReason,
+        ) -> Result<(), Self::Error> {
             if self.0.on_shutdown {
                 panic!();
             }
@@ -2912,12 +2916,17 @@ mod test {
         tokio::time::timeout(
             Duration::from_secs(1),
             aref.wait_for_startup_with_result(|r| assert_panic(r)),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         tokio::time::timeout(
             Duration::from_secs(1),
-            aref.downgrade().wait_for_startup_with_result(|r| assert_panic(r)),
-        ).await.unwrap();
+            aref.downgrade()
+                .wait_for_startup_with_result(|r| assert_panic(r)),
+        )
+        .await
+        .unwrap();
 
         aref.with_startup_result(|r| assert_panic(r));
         aref.downgrade().with_startup_result(|r| assert_panic(r));
@@ -2933,19 +2942,26 @@ mod test {
         tokio::time::timeout(
             Duration::from_secs(1),
             aref.wait_for_startup_with_result(|r| assert!(r.is_ok())),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         aref.stop_gracefully().await.unwrap();
 
         tokio::time::timeout(
             Duration::from_secs(1),
             aref.wait_for_shutdown_with_result(|r| assert_panic(r)),
-        ).await.unwrap();
+        )
+        .await
+        .unwrap();
 
         tokio::time::timeout(
             Duration::from_secs(1),
-            aref.downgrade().wait_for_shutdown_with_result(|r| assert_panic(r)),
-        ).await.unwrap();
+            aref.downgrade()
+                .wait_for_shutdown_with_result(|r| assert_panic(r)),
+        )
+        .await
+        .unwrap();
 
         aref.with_shutdown_result(|r| assert_panic(r));
         aref.downgrade().with_shutdown_result(|r| assert_panic(r));
