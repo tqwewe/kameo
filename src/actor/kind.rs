@@ -134,13 +134,14 @@ where
 
             #[cfg(not(feature = "otel"))]
             {
-                tracing::info_span!(
-                    parent: &caller_span,
+                let span = tracing::info_span!(
                     "actor.handle_message",
                     actor.name = A::name(),
                     actor.id = %actor_id,
                     message = message_name,
-                )
+                );
+                span.follows_from(&caller_span);
+                span
             }
 
             #[cfg(feature = "otel")]
@@ -150,7 +151,6 @@ where
 
                 let span_name = format!("{}.{message_name}", A::name());
                 let span = tracing::info_span!(
-                    parent: &caller_span,
                     "actor.handle_message",
                     otel.name = %span_name,
                     actor.name = A::name(),
@@ -158,12 +158,8 @@ where
                     message = message_name,
                 );
 
-                let actor_span_ctx = tracing::Span::current()
-                    .context()
-                    .span()
-                    .span_context()
-                    .clone();
-                span.add_link(actor_span_ctx);
+                let caller_span_ctx = caller_span.context().span().span_context().clone();
+                span.add_link(caller_span_ctx);
 
                 span
             }
