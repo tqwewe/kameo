@@ -75,7 +75,7 @@ execute_step "Creating git tag v$NEW_VERSION" "git tag -a \"v$NEW_VERSION\" -m \
 
 execute_step "Pushing tag to remote" "git push origin \"v$NEW_VERSION\""
 
-execute_step "Creating CHANGELOG-Release.md for release notes" "git cliff --tag \"$NEW_VERSION\" --output ./CHANGELOG-Release.md --current"
+execute_step "Creating CHANGELOG-Release.md for release notes" "awk -v ver=\"$NEW_VERSION\" 'index(\$0, \"## [\" ver \"]\")==1 {f=1; print; next} f && index(\$0,\"## [\")==1 {exit} f' CHANGELOG.md > ./CHANGELOG-Release.md"
 
 # Extract the release date from the CHANGELOG-Release.md file
 RELEASE_DATE=$(grep '^## \['"$NEW_VERSION"'\] - ' CHANGELOG-Release.md | sed -E 's/.* - ([0-9]{4}-[0-9]{2}-[0-9]{2})$/\1/')
