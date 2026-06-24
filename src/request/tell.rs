@@ -909,31 +909,33 @@ mod tests {
             }
         }
 
+        tokio::time::pause();
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
-        // Mailbox is empty, this will make there be one item in the mailbox
+        actor_ref.wait_for_startup().await;
+        // The handler sleep must be longer than the mailbox timeout: tokio's test runtime
+        // auto-advances to the next timer when all tasks are blocked, so if the actor's sleep
+        // fires before the mailbox timeout the actor drains the buffer and the send succeeds.
+        let handler_sleep = Duration::from_secs(5);
         #[cfg(not(feature = "hotpath"))]
-        let fill_count = 1;
+        let fill_count = 2;
         #[cfg(feature = "hotpath")]
         let fill_count = 4;
         for _ in 0..fill_count {
-            assert_eq!(
-                actor_ref
-                    .tell(Sleep(Duration::from_millis(100)))
-                    .mailbox_timeout(Duration::from_millis(10))
-                    .send()
-                    .await,
-                Ok(())
-            );
+            assert_eq!(actor_ref.tell(Sleep(handler_sleep)).try_send(), Ok(()));
+            tokio::time::advance(Duration::from_millis(1)).await;
         }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        // Finally, this one will fail because there's one item in the mailbox already.
-        assert_eq!(
-            actor_ref
-                .tell(Sleep(Duration::from_millis(100)))
+        let actor_ref2 = actor_ref.clone();
+        let timeout_task = tokio::spawn(async move {
+            actor_ref2
+                .tell(Sleep(handler_sleep))
                 .mailbox_timeout(Duration::from_millis(50))
                 .send()
-                .await,
-            Err(SendError::Timeout(Some(Sleep(Duration::from_millis(100)))))
+                .await
+        });
+        tokio::time::advance(Duration::from_millis(51)).await;
+        assert_eq!(
+            timeout_task.await?,
+            Err(SendError::Timeout(Some(Sleep(handler_sleep))))
         );
         actor_ref.kill();
 
