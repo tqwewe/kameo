@@ -551,13 +551,6 @@ enum MailboxReceiverInner<A: Actor> {
 }
 
 impl<A: Actor> MailboxReceiver<A> {
-    /// Re-inserts signals ahead of the channel, preserving their order, so they are
-    /// yielded before anything still queued. Used to keep pending messages across a restart.
-    pub(crate) fn push_front(&mut self, mut signals: VecDeque<Signal<A>>) {
-        signals.append(&mut self.front);
-        self.front = signals;
-    }
-
     /// Moves up to `limit` already-buffered front signals into `buffer`, returning the count.
     fn drain_front_into(&mut self, buffer: &mut Vec<Signal<A>>, limit: usize) -> usize {
         let count = self.front.len().min(limit);

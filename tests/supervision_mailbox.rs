@@ -1,17 +1,6 @@
-//! Regression tests for https://github.com/tqwewe/kameo/issues/335
-//!
-//! When a supervised actor stops or panics, the messages still pending in its mailbox must
-//! survive the restart and be processed afterwards, in order. Previously they could be
-//! randomly dropped because the shutdown path drained and discarded the mailbox while
-//! waiting for children to close.
-//!
-//! Each test loops the scenario many times because the bug was non-deterministic: a single
-//! run could pass by luck. With enough iterations the probability of all passing on the
-//! buggy code is effectively zero.
-
 use std::time::Duration;
 
-use kameo::error::Infallible;
+use kameo::error::{Infallible, SendError};
 use kameo::prelude::*;
 use kameo::supervision::RestartPolicy;
 use tokio::sync::mpsc;
@@ -19,7 +8,6 @@ use tokio::sync::mpsc;
 const ITERATIONS: usize = 50;
 const RECV_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Receive the next item, failing the test (rather than hanging forever) if nothing arrives.
 async fn recv_or_fail<T>(rx: &mut mpsc::UnboundedReceiver<T>, what: &str) -> T {
     match tokio::time::timeout(RECV_TIMEOUT, rx.recv()).await {
         Ok(Some(v)) => v,
@@ -59,8 +47,6 @@ impl Actor for Worker {
     }
 }
 
-/// Makes the worker panic, but only after a short delay so that messages sent afterwards
-/// are guaranteed to be sitting in the mailbox when the panic occurs.
 struct Panic;
 
 impl Message<Panic> for Worker {
@@ -72,7 +58,6 @@ impl Message<Panic> for Worker {
     }
 }
 
-/// Stops the worker normally, again after a short delay.
 struct StopAfterDelay;
 
 impl Message<StopAfterDelay> for Worker {
@@ -118,18 +103,14 @@ async fn messages_survive_supervised_panic_restart() {
         .spawn()
         .await;
 
-        // Wait for the initial startup.
         recv_or_fail(&mut on_start_rx, "initial startup").await;
 
-        // Trigger the panic, then enqueue two messages behind it.
         worker.tell(Panic).await.unwrap();
         worker.tell(Msg(0)).await.unwrap();
         worker.tell(Msg(1)).await.unwrap();
 
-        // Wait for the actor to restart after the panic.
         recv_or_fail(&mut on_start_rx, "restart startup").await;
 
-        // The remaining messages must be processed, in order.
         assert_eq!(
             recv_or_fail(&mut on_msg_rx, "Msg(0)").await,
             Msg(0),
@@ -167,12 +148,10 @@ async fn messages_survive_supervised_normal_stop_restart() {
 
         recv_or_fail(&mut on_start_rx, "initial startup").await;
 
-        // Stop normally, then enqueue two messages behind the stop.
         worker.tell(StopAfterDelay).await.unwrap();
         worker.tell(Msg(0)).await.unwrap();
         worker.tell(Msg(1)).await.unwrap();
 
-        // Permanent policy restarts even on a normal exit.
         recv_or_fail(&mut on_start_rx, "restart startup").await;
 
         assert_eq!(
@@ -189,4 +168,218 @@ async fn messages_survive_supervised_normal_stop_restart() {
         supervisor.kill();
         supervisor.wait_for_shutdown().await;
     }
+}
+
+// ==================== ask-to-dying-supervisor deadlock (supervised) ====================
+
+struct PingSupervisor;
+
+impl Actor for PingSupervisor {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(this)
+    }
+}
+
+struct Ping;
+
+impl Message<Ping> for PingSupervisor {
+    type Reply = ();
+
+    async fn handle(&mut self, _msg: Ping, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {}
+}
+
+#[derive(Clone)]
+struct AskBackChild {
+    supervisor: ActorRef<PingSupervisor>,
+    result_tx: mpsc::UnboundedSender<Result<(), SendError<Ping, Infallible>>>,
+}
+
+impl Actor for AskBackChild {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(this)
+    }
+}
+
+struct TriggerAsk;
+
+impl Message<TriggerAsk> for AskBackChild {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _msg: TriggerAsk,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let result = self.supervisor.ask(Ping).await;
+        let _ = self.result_tx.send(result);
+    }
+}
+
+#[tokio::test]
+async fn supervised_child_ask_to_stopping_supervisor_does_not_deadlock() {
+    let (result_tx, mut result_rx) = mpsc::unbounded_channel();
+    let supervisor = PingSupervisor::spawn(PingSupervisor);
+    let child = AskBackChild::supervise(
+        &supervisor,
+        AskBackChild {
+            supervisor: supervisor.clone(),
+            result_tx,
+        },
+    )
+    .spawn()
+    .await;
+
+    child.tell(TriggerAsk).await.unwrap();
+    supervisor.stop_gracefully().await.unwrap();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        supervisor.wait_for_shutdown(),
+    )
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "supervisor deadlocked — child's ask() to the stopping supervisor prevented the child \
+         from finishing and its mailbox from closing"
+    );
+
+    let ask_result = recv_or_fail(&mut result_rx, "ask result from child").await;
+    assert!(
+        ask_result.is_err(),
+        "expected Err from ask to stopping supervisor — drain discards messages; got: {ask_result:?}"
+    );
+}
+
+// ==================== ask-to-dying actor (sibling link) ====================
+
+struct SiblingParent;
+
+impl Actor for SiblingParent {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(this)
+    }
+}
+
+struct PingSibling;
+
+impl Message<PingSibling> for SiblingParent {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _msg: PingSibling,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+    }
+}
+
+#[derive(Clone)]
+struct SiblingChild {
+    parent: ActorRef<SiblingParent>,
+}
+
+impl Actor for SiblingChild {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(this)
+    }
+}
+
+struct TriggerAskSibling;
+
+impl Message<TriggerAskSibling> for SiblingChild {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        _msg: TriggerAskSibling,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let _ = self.parent.ask(PingSibling).await;
+    }
+}
+
+#[tokio::test]
+async fn sibling_linked_child_ask_to_killed_parent_does_not_deadlock() {
+    let parent = SiblingParent::spawn(SiblingParent);
+    let child = SiblingChild::spawn_link(
+        &parent,
+        SiblingChild {
+            parent: parent.clone(),
+        },
+    )
+    .await;
+
+    child.tell(TriggerAskSibling).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    parent.kill();
+
+    let result = tokio::time::timeout(Duration::from_secs(2), child.wait_for_shutdown()).await;
+
+    assert!(
+        result.is_ok(),
+        "child deadlocked — ask() to the killed parent hung instead of returning promptly"
+    );
+}
+
+// ==================== Multiple children asking supervisor during drain ====================
+
+#[tokio::test]
+async fn two_children_asking_supervisor_during_drain_both_get_actor_stopped() {
+    let (result1_tx, mut result1_rx) = mpsc::unbounded_channel();
+    let (result2_tx, mut result2_rx) = mpsc::unbounded_channel();
+    let supervisor = PingSupervisor::spawn(PingSupervisor);
+
+    let child1 = AskBackChild::supervise(
+        &supervisor,
+        AskBackChild {
+            supervisor: supervisor.clone(),
+            result_tx: result1_tx,
+        },
+    )
+    .spawn()
+    .await;
+
+    let child2 = AskBackChild::supervise(
+        &supervisor,
+        AskBackChild {
+            supervisor: supervisor.clone(),
+            result_tx: result2_tx,
+        },
+    )
+    .spawn()
+    .await;
+
+    child1.tell(TriggerAsk).await.unwrap();
+    child2.tell(TriggerAsk).await.unwrap();
+    supervisor.stop_gracefully().await.unwrap();
+
+    let result = tokio::time::timeout(
+        Duration::from_secs(2),
+        supervisor.wait_for_shutdown(),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "supervisor deadlocked with two children both asking during drain"
+    );
+
+    let r1 = recv_or_fail(&mut result1_rx, "child1 ask result").await;
+    let r2 = recv_or_fail(&mut result2_rx, "child2 ask result").await;
+    assert!(r1.is_err(), "child1 expected ActorStopped, got: {r1:?}");
+    assert!(r2.is_err(), "child2 expected ActorStopped, got: {r2:?}");
 }
