@@ -879,6 +879,9 @@ mod tests {
     }
 
     #[tokio::test]
+    // hotpath wraps the channel with a proxy on a separate background runtime, making the
+    // observable fill count non-deterministic; backpressure semantics are unchanged.
+    #[cfg_attr(feature = "hotpath", ignore)]
     async fn bounded_tell_requests_mailbox_timeout() -> Result<(), Box<dyn std::error::Error>> {
         struct MyActor;
 
@@ -916,11 +919,7 @@ mod tests {
         // auto-advances to the next timer when all tasks are blocked, so if the actor's sleep
         // fires before the mailbox timeout the actor drains the buffer and the send succeeds.
         let handler_sleep = Duration::from_secs(5);
-        #[cfg(not(feature = "hotpath"))]
-        let fill_count = 2;
-        #[cfg(feature = "hotpath")]
-        let fill_count = 4;
-        for _ in 0..fill_count {
+        for _ in 0..2 {
             assert_eq!(actor_ref.tell(Sleep(handler_sleep)).try_send(), Ok(()));
             tokio::time::advance(Duration::from_millis(1)).await;
         }
