@@ -239,11 +239,7 @@ async fn supervised_child_ask_to_stopping_supervisor_does_not_deadlock() {
     child.tell(TriggerAsk).await.unwrap();
     supervisor.stop_gracefully().await.unwrap();
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        supervisor.wait_for_shutdown(),
-    )
-    .await;
+    let result = tokio::time::timeout(Duration::from_secs(2), supervisor.wait_for_shutdown()).await;
 
     assert!(
         result.is_ok(),
@@ -368,11 +364,7 @@ async fn two_children_asking_supervisor_during_drain_both_get_actor_stopped() {
     child2.tell(TriggerAsk).await.unwrap();
     supervisor.stop_gracefully().await.unwrap();
 
-    let result = tokio::time::timeout(
-        Duration::from_secs(2),
-        supervisor.wait_for_shutdown(),
-    )
-    .await;
+    let result = tokio::time::timeout(Duration::from_secs(2), supervisor.wait_for_shutdown()).await;
     assert!(
         result.is_ok(),
         "supervisor deadlocked with two children both asking during drain"
