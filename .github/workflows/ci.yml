@@ -8,6 +8,9 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
   CARGO_TERM_VERBOSE: true
+  # Retry crate downloads more aggressively to ride out transient crates.io
+  # HTTP/2 framing errors (rust-lang/cargo#6788).
+  CARGO_NET_RETRY: 10
 
 jobs:
   build:
