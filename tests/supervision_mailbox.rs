@@ -375,3 +375,183 @@ async fn two_children_asking_supervisor_during_drain_both_get_actor_stopped() {
     assert!(r1.is_err(), "child1 expected ActorStopped, got: {r1:?}");
     assert!(r2.is_err(), "child2 expected ActorStopped, got: {r2:?}");
 }
+
+// ==================== Restart of an actor that has children ====================
+//
+// An actor that itself supervises children opens a "drain window" while it waits for those
+// children to close. These tests cover the gap #351 left: messages arriving during that window
+// must still survive a restart (tells), while asks are released with `ActorStopped`.
+
+struct RootSupervisor;
+
+impl Actor for RootSupervisor {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(this)
+    }
+}
+
+// A child whose handler stays busy so the `SupervisorRestart` signal queues behind it, keeping
+// the child's mailbox open — and therefore its parent's drain window open.
+#[derive(Clone)]
+struct SlowChild;
+
+impl Actor for SlowChild {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        Ok(this)
+    }
+}
+
+struct BusyWork(Duration);
+
+impl Message<BusyWork> for SlowChild {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        msg: BusyWork,
+        _ctx: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        tokio::time::sleep(msg.0).await;
+    }
+}
+
+// The middle actor is both supervised (so it restarts) and a supervisor (so it has a drain
+// window during shutdown).
+#[derive(Clone)]
+struct Middle {
+    on_start_tx: mpsc::UnboundedSender<()>,
+    on_msg_tx: mpsc::UnboundedSender<Msg>,
+}
+
+impl Actor for Middle {
+    type Args = Self;
+    type Error = Infallible;
+
+    async fn on_start(this: Self::Args, _actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
+        this.on_start_tx.send(()).unwrap();
+        Ok(this)
+    }
+}
+
+impl Message<Panic> for Middle {
+    type Reply = ();
+
+    async fn handle(&mut self, _msg: Panic, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        panic!("intentional panic for testing");
+    }
+}
+
+impl Message<Msg> for Middle {
+    type Reply = ();
+
+    async fn handle(&mut self, msg: Msg, _ctx: &mut Context<Self, Self::Reply>) -> Self::Reply {
+        self.on_msg_tx.send(msg).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn tells_survive_restart_of_actor_with_children() {
+    for i in 0..ITERATIONS {
+        let root = RootSupervisor::spawn(RootSupervisor);
+
+        let (on_start_tx, mut on_start_rx) = mpsc::unbounded_channel();
+        let (on_msg_tx, mut on_msg_rx) = mpsc::unbounded_channel();
+        let middle = Middle::supervise(
+            &root,
+            Middle {
+                on_start_tx,
+                on_msg_tx,
+            },
+        )
+        .restart_policy(RestartPolicy::Permanent)
+        .restart_limit(5, Duration::from_secs(10))
+        .spawn()
+        .await;
+
+        recv_or_fail(&mut on_start_rx, "middle initial startup").await;
+
+        // Give middle a busy child so its shutdown opens a drain window that outlives the
+        // panic, ensuring the pending tells are pulled while it waits for the child to close.
+        let child = SlowChild::supervise(&middle, SlowChild).spawn().await;
+        child
+            .tell(BusyWork(Duration::from_millis(100)))
+            .await
+            .unwrap();
+
+        middle.tell(Panic).await.unwrap();
+        middle.tell(Msg(0)).await.unwrap();
+        middle.tell(Msg(1)).await.unwrap();
+
+        recv_or_fail(&mut on_start_rx, "middle restart startup").await;
+
+        assert_eq!(
+            recv_or_fail(&mut on_msg_rx, "Msg(0)").await,
+            Msg(0),
+            "iteration {i}: tell lost during the drain window of an actor with children"
+        );
+        assert_eq!(
+            recv_or_fail(&mut on_msg_rx, "Msg(1)").await,
+            Msg(1),
+            "iteration {i}: tell lost during the drain window of an actor with children"
+        );
+
+        root.kill();
+        root.wait_for_shutdown().await;
+    }
+}
+
+#[tokio::test]
+async fn ask_during_restart_of_actor_with_children_returns_actor_stopped() {
+    let root = RootSupervisor::spawn(RootSupervisor);
+
+    let (on_start_tx, mut on_start_rx) = mpsc::unbounded_channel();
+    let (on_msg_tx, mut on_msg_rx) = mpsc::unbounded_channel();
+    let middle = Middle::supervise(
+        &root,
+        Middle {
+            on_start_tx,
+            on_msg_tx,
+        },
+    )
+    .restart_policy(RestartPolicy::Permanent)
+    .restart_limit(5, Duration::from_secs(10))
+    .spawn()
+    .await;
+
+    recv_or_fail(&mut on_start_rx, "middle initial startup").await;
+
+    let child = SlowChild::supervise(&middle, SlowChild).spawn().await;
+    child
+        .tell(BusyWork(Duration::from_millis(100)))
+        .await
+        .unwrap();
+
+    middle.tell(Panic).await.unwrap();
+    // Enqueue an ask then a tell behind the panic, in order. The ask must be released with
+    // `ActorStopped` during the drain window; the tell must survive to the restarted instance.
+    let pending_ask = middle.ask(Msg(99)).enqueue().await.unwrap();
+    middle.tell(Msg(0)).await.unwrap();
+
+    let ask_result = pending_ask.await;
+    assert!(
+        matches!(ask_result, Err(SendError::ActorStopped)),
+        "ask during the restart drain window should return ActorStopped, got: {ask_result:?}"
+    );
+
+    recv_or_fail(&mut on_start_rx, "middle restart startup").await;
+    assert_eq!(
+        recv_or_fail(&mut on_msg_rx, "Msg(0)").await,
+        Msg(0),
+        "tell should survive the restart even when an ask in the same window is dropped"
+    );
+
+    root.kill();
+    root.wait_for_shutdown().await;
+}

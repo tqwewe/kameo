@@ -1,4 +1,6 @@
-use std::{convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread};
+use std::{
+    collections::VecDeque, convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread,
+};
 
 use futures::{
     FutureExt,
@@ -334,13 +336,15 @@ where
 }
 
 /// Keeps the mailbox drained while waiting for supervised children to close their channels,
-/// preventing a child's notification from deadlocking on a full mailbox. All messages consumed
-/// during this window are discarded: reply senders are dropped, so pending asks receive
-/// `ActorStopped`.
+/// preventing a child's notification from deadlocking on a full mailbox. Tells consumed during
+/// this window are preserved and re-queued so they survive a supervisor restart; asks have their
+/// reply sender dropped (caller receives `ActorStopped`), which unblocks any child awaiting a
+/// reply so it can finish shutting down.
 async fn drain_until_children_closed<A>(links: &Links, mailbox_rx: &mut MailboxReceiver<A>)
 where
     A: Actor,
 {
+    let mut preserved = VecDeque::new();
     let wait = links.wait_children_closed();
     tokio::pin!(wait);
     loop {
@@ -348,11 +352,17 @@ where
             biased;
             _ = &mut wait => break,
             signal = mailbox_rx.recv() => match signal {
+                // tell: preserve for the restart
+                Some(signal @ Signal::Message { reply: None, .. }) => preserved.push_back(signal),
+                // ask: drop the reply sender so the caller gets `ActorStopped`
+                Some(Signal::Message { reply: Some(_), .. }) => {}
+                // lifecycle / link-died signals during our own teardown: discard
                 Some(_) => {}
                 None => break,
             }
         }
     }
+    mailbox_rx.push_front(preserved);
 }
 
 async fn abortable_actor_loop<A>(
