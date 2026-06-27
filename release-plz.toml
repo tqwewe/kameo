@@ -1,0 +1,92 @@
+[workspace]
+# Label applied to the automatically opened release PR.
+pr_labels = ["release"]
+# Per-crate changelogs (the default): kameo keeps the root CHANGELOG.md, and
+# kameo_macros / kameo_actors / kameo_console each get their own CHANGELOG.md.
+
+[[package]]
+name = "kameo"
+git_tag_name = "v{{ version }}"
+git_release_name = "v{{ version }}"
+# Sponsors note is prepended to every kameo GitHub release. Update the list here
+# when sponsors change. `{{ changelog }}` expands to this release's changelog.
+git_release_body = """
+A huge thank you to [**Caido Community**], [**vanhouc**], [**cawfeecoder**], and [**haruki-nikaidou**] for supporting Kameo's development! 💖
+
+[**Caido Community**]: https://github.com/caido-community
+[**vanhouc**]: https://github.com/vanhouc
+[**cawfeecoder**]: https://github.com/cawfeecoder
+[**haruki-nikaidou**]: https://github.com/haruki-nikaidou
+
+{{ changelog }}
+"""
+
+[[package]]
+name = "kameo_macros"
+git_tag_name = "macros-v{{ version }}"
+git_release_name = "macros-v{{ version }}"
+
+[[package]]
+name = "kameo_actors"
+git_tag_name = "actors-v{{ version }}"
+git_release_name = "actors-v{{ version }}"
+
+[[package]]
+name = "kameo_console"
+git_tag_name = "console-v{{ version }}"
+git_release_name = "console-v{{ version }}"
+
+[changelog]
+# Ported from the former cliff.toml. In release-plz the git-cliff commit parsing
+# keys live under [changelog] rather than a separate [git] table.
+header = """
+# Changelog\n
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n
+"""
+body = """
+{% if version -%}
+    ## [{{ version | trim_start_matches(pat="v") }}]{% if release_link %}({{ release_link }}){% endif %} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+    ## [Unreleased]
+{% endif -%}
+{%- if remote and remote.contributors -%}
+{%- for contributor in remote.contributors | filter(attribute="is_first_time", value=true) %}
+  * @{{ contributor.username }} made their first contribution in #{{ contributor.pr_number }}
+{% endfor -%}
+{%- endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | upper_first }}
+    {% for commit in commits | sort(attribute="author.timestamp") | reverse %}
+        - {% if commit.breaking %}**BREAKING:** {% endif %}{{ commit.message | upper_first }}\
+        {% if commit.remote.pr_number %}{% else %} [</>](https://github.com/tqwewe/kameo/commit/{{ commit.id }}){%- endif %}\
+    {% endfor %}
+{% endfor %}\n
+"""
+trim = true
+protect_breaking_commits = false
+sort_commits = "oldest"
+commit_parsers = [
+  # release-plz creates the release commit; skip it so it never lands in the changelog.
+  { message = "^chore: release", skip = true },
+  { message = "^chore\\(release\\): ", skip = true },
+  # legacy manual bump commits (e.g. "chore: bump kameo to version 0.21.0").
+  { message = "^chore: bump .* to version .*", skip = true },
+  { message = "^chore: bump version to .*", skip = true },
+  { message = "^chore: bump to version .*", skip = true },
+  { message = "^chore: sync readme versions", skip = true },
+  { message = "^.*\\(example(s)?\\):.*", skip = true },
+  { message = "^chore(\\(.*\\))?: .*", group = "<!-- 5 -->Misc" },
+  { message = "^feat(\\(.*\\))?: .*", group = "<!-- 0 -->Added" },
+  { message = "^docs(\\(.*\\))?: .*", group = "<!-- 4 -->Documentation" },
+  { message = "^.*: add", group = "<!-- 0 -->Added" },
+  { message = "^.*: support", group = "<!-- 0 -->Added" },
+  { message = "^.*: remove", group = "<!-- 2 -->Removed" },
+  { message = "^.*: delete", group = "<!-- 2 -->Removed" },
+  { message = "^test", group = "<!-- 3 -->Fixed" },
+  { message = "^fix", group = "<!-- 3 -->Fixed" },
+  { message = "^.*: fix", group = "<!-- 3 -->Fixed" },
+  { message = "^.*", group = "<!-- 1 -->Changed" },
+]

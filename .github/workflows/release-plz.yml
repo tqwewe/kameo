@@ -1,0 +1,79 @@
+name: Release-plz
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Publishes any crate whose version isn't yet on crates.io, then tags it and
+  # creates a GitHub release. Runs after a release PR is merged into main.
+  release-plz-release:
+    name: Release-plz release
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'tqwewe' }}
+    permissions:
+      contents: write
+      # Required for crates.io trusted publishing (OIDC), so no
+      # CARGO_REGISTRY_TOKEN secret is needed.
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+  # Opens/updates the release PR with version bumps and changelogs, then syncs the
+  # hardcoded doc versions into the same PR (release-plz only edits Cargo.toml).
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'tqwewe' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run release-plz
+        id: release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      - name: Sync doc versions into release PR
+        if: steps.release-plz.outputs.prs_created == 'true'
+        env:
+          PR_BRANCH: ${{ fromJSON(steps.release-plz.outputs.pr).head_branch }}
+        run: |
+          git fetch origin "$PR_BRANCH"
+          git checkout "$PR_BRANCH"
+          ./scripts/sync-readme-versions.sh
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -am "chore: sync readme versions"
+            git push origin "HEAD:$PR_BRANCH"
+          fi
