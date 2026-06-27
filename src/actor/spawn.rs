@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque, convert, ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, thread,
+    time::Duration,
 };
 
 use futures::{
@@ -93,8 +94,26 @@ impl<A: Actor> PreparedActor<A> {
     /// Returns a reference to the [`ActorRef`], which can be used to send messages to the actor.
     ///
     /// The `ActorRef` can be used for interaction before the actor starts processing its event loop.
+    ///
+    /// Note: if you intend to configure a [default reply timeout](PreparedActor::reply_timeout),
+    /// do so before cloning the ref out, as the value is read off the clone at the time it's made.
     pub fn actor_ref(&self) -> &ActorRef<A> {
         &self.actor_ref
+    }
+
+    /// Sets a default reply timeout applied to every `ask` request that doesn't specify its own.
+    ///
+    /// An `ask` whose handler doesn't reply within this duration resolves with a timeout error
+    /// instead of waiting forever. A timeout set at the call site with
+    /// [`AskRequest::reply_timeout`](crate::request::AskRequest::reply_timeout) always takes
+    /// precedence over this default. The default applies to async `ask` requests; the blocking
+    /// variants are unaffected.
+    ///
+    /// Configure this before cloning the [`ActorRef`] out (see [`PreparedActor::actor_ref`]),
+    /// otherwise the clone won't observe the default.
+    pub fn reply_timeout(mut self, duration: Duration) -> Self {
+        self.actor_ref.set_default_reply_timeout(Some(duration));
+        self
     }
 
     /// Runs the actor in the current context **without** spawning a separate task, until the actor is stopped.

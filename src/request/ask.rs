@@ -148,7 +148,11 @@ where
             self.actor_ref.id(),
             crate::console::wire::WaitKind::Ask,
         );
-        let reply = match self.reply_timeout.into() {
+        let reply_timeout = self
+            .reply_timeout
+            .into()
+            .or_else(|| self.actor_ref.default_reply_timeout());
+        let reply = match reply_timeout {
             Some(timeout) => tokio::time::timeout(timeout, rx).await??,
             None => rx.await?,
         };
@@ -214,8 +218,12 @@ where
             }
         }
 
+        let reply_timeout = self
+            .reply_timeout
+            .into()
+            .or_else(|| self.actor_ref.default_reply_timeout());
         let fut = async move {
-            let reply = match self.reply_timeout.into() {
+            let reply = match reply_timeout {
                 Some(timeout) => tokio::time::timeout(timeout, rx).await??,
                 None => rx.await?,
             };
@@ -333,7 +341,11 @@ where
             self.actor_ref.id(),
             crate::console::wire::WaitKind::Ask,
         );
-        let reply = match self.reply_timeout.into() {
+        let reply_timeout = self
+            .reply_timeout
+            .into()
+            .or_else(|| self.actor_ref.default_reply_timeout());
+        let reply = match reply_timeout {
             Some(timeout) => tokio::time::timeout(timeout, rx).await??,
             None => rx.await?,
         };
@@ -392,8 +404,12 @@ where
         let tx = self.actor_ref.mailbox_sender();
         tx.try_send(signal)?;
 
+        let reply_timeout = self
+            .reply_timeout
+            .into()
+            .or_else(|| self.actor_ref.default_reply_timeout());
         let fut = async move {
-            let reply = match self.reply_timeout.into() {
+            let reply = match reply_timeout {
                 Some(timeout) => tokio::time::timeout(timeout, rx).await??,
                 None => rx.await?,
             };
@@ -414,6 +430,9 @@ where
     M: Send + 'static,
 {
     /// Sends the message in a blocking context.
+    ///
+    /// Note: a [default reply timeout](crate::actor::PreparedActor::reply_timeout) does not
+    /// apply to blocking asks, only to the async variants.
     #[allow(clippy::type_complexity)]
     pub fn blocking_send(
         self,
@@ -468,6 +487,9 @@ where
     ///
     /// The actor will not progress until the pending reply has been received or dropped.
     /// This may lead to deadlocks if used incorrectly.
+    ///
+    /// Note: a [default reply timeout](crate::actor::PreparedActor::reply_timeout) does not
+    /// apply to blocking asks, only to the async variants.
     ///
     /// # Example
     ///
@@ -1458,6 +1480,135 @@ mod tests {
         );
         actor_ref.kill();
 
+        Ok(())
+    }
+
+    // Helper actor shared by the default reply timeout tests below.
+    struct SleepActor;
+
+    impl Actor for SleepActor {
+        type Args = Self;
+        type Error = Infallible;
+
+        async fn on_start(
+            state: Self::Args,
+            _actor_ref: ActorRef<Self>,
+        ) -> Result<Self, Self::Error> {
+            Ok(state)
+        }
+    }
+
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    struct Sleep(Duration);
+
+    impl Message<Sleep> for SleepActor {
+        type Reply = bool;
+
+        async fn handle(
+            &mut self,
+            Sleep(duration): Sleep,
+            _ctx: &mut Context<Self, Self::Reply>,
+        ) -> Self::Reply {
+            tokio::time::sleep(duration).await;
+            true
+        }
+    }
+
+    #[tokio::test]
+    async fn default_reply_timeout_applies_without_call_site_timeout()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let prepared = SleepActor::prepare_with_mailbox(mailbox::bounded(100))
+            .reply_timeout(Duration::from_millis(100));
+        let actor_ref = prepared.actor_ref().clone();
+        prepared.spawn(SleepActor);
+
+        // Replies within the default succeed.
+        assert_eq!(
+            actor_ref.ask(Sleep(Duration::from_millis(20))).await,
+            Ok(true)
+        );
+        // Exceeding the default times out.
+        assert_eq!(
+            actor_ref.ask(Sleep(Duration::from_millis(400))).await,
+            Err(SendError::Timeout(None))
+        );
+
+        actor_ref.kill();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn call_site_reply_timeout_overrides_default() -> Result<(), Box<dyn std::error::Error>> {
+        // Short default: a longer call-site timeout wins, so a slow reply succeeds.
+        let prepared = SleepActor::prepare_with_mailbox(mailbox::bounded(100))
+            .reply_timeout(Duration::from_millis(50));
+        let short_default = prepared.actor_ref().clone();
+        prepared.spawn(SleepActor);
+
+        assert_eq!(
+            short_default
+                .ask(Sleep(Duration::from_millis(150)))
+                .reply_timeout(Duration::from_millis(400))
+                .await,
+            Ok(true)
+        );
+        // Without a call-site timeout the short default still applies.
+        assert_eq!(
+            short_default.ask(Sleep(Duration::from_millis(150))).await,
+            Err(SendError::Timeout(None))
+        );
+
+        // Long default: a shorter call-site timeout wins, so a slow reply times out.
+        let prepared = SleepActor::prepare_with_mailbox(mailbox::bounded(100))
+            .reply_timeout(Duration::from_millis(400));
+        let long_default = prepared.actor_ref().clone();
+        prepared.spawn(SleepActor);
+
+        assert_eq!(
+            long_default
+                .ask(Sleep(Duration::from_millis(150)))
+                .reply_timeout(Duration::from_millis(50))
+                .await,
+            Err(SendError::Timeout(None))
+        );
+
+        short_default.kill();
+        long_default.kill();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn no_default_reply_timeout_waits() -> Result<(), Box<dyn std::error::Error>> {
+        let actor_ref = SleepActor::spawn_with_mailbox(SleepActor, mailbox::bounded(100));
+        // No default and no call-site timeout: the ask waits for the reply.
+        assert_eq!(
+            actor_ref.ask(Sleep(Duration::from_millis(50))).await,
+            Ok(true)
+        );
+        actor_ref.kill();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reply_recipient_honors_default_reply_timeout() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let prepared = SleepActor::prepare_with_mailbox(mailbox::bounded(100))
+            .reply_timeout(Duration::from_millis(100));
+        let actor_ref = prepared.actor_ref().clone();
+        prepared.spawn(SleepActor);
+
+        // The default carries through to a reply recipient, which has no call-site override.
+        let recipient = actor_ref.clone().reply_recipient::<Sleep>();
+        assert_eq!(
+            recipient.ask(Sleep(Duration::from_millis(20))).await,
+            Ok(true)
+        );
+        assert_eq!(
+            recipient.ask(Sleep(Duration::from_millis(400))).await,
+            Err(SendError::Timeout(None))
+        );
+
+        actor_ref.kill();
         Ok(())
     }
 }

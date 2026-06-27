@@ -49,6 +49,7 @@ pub struct ActorRef<A: Actor> {
     id: ActorId,
     mailbox_sender: MailboxSender<A>,
     abort_handle: AbortHandle,
+    default_reply_timeout: Option<Duration>,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
     pub(crate) shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
@@ -71,10 +72,23 @@ where
             id,
             mailbox_sender: mailbox,
             abort_handle,
+            default_reply_timeout: None,
             links,
             startup_result,
             shutdown_result,
         }
+    }
+
+    /// Returns the default reply timeout applied to `ask` requests that don't set their own.
+    #[inline]
+    pub(crate) fn default_reply_timeout(&self) -> Option<Duration> {
+        self.default_reply_timeout
+    }
+
+    /// Sets the default reply timeout applied to `ask` requests that don't set their own.
+    #[inline]
+    pub(crate) fn set_default_reply_timeout(&mut self, timeout: Option<Duration>) {
+        self.default_reply_timeout = timeout;
     }
 
     /// Returns the unique identifier of the actor.
@@ -200,6 +214,7 @@ where
             id: self.id,
             mailbox_sender: self.mailbox_sender.downgrade(),
             abort_handle: self.abort_handle.clone(),
+            default_reply_timeout: self.default_reply_timeout,
             links: self.links.clone(),
             startup_result: self.startup_result.clone(),
             shutdown_result: self.shutdown_result.clone(),
@@ -211,6 +226,7 @@ where
             id: self.id,
             mailbox_sender: self.mailbox_sender.downgrade(),
             abort_handle: self.abort_handle,
+            default_reply_timeout: self.default_reply_timeout,
             links: self.links,
             startup_result: self.startup_result,
             shutdown_result: self.shutdown_result,
@@ -1332,6 +1348,7 @@ impl<A: Actor> Clone for ActorRef<A> {
             id: self.id,
             mailbox_sender: self.mailbox_sender.clone(),
             abort_handle: self.abort_handle.clone(),
+            default_reply_timeout: self.default_reply_timeout,
             links: self.links.clone(),
             startup_result: self.startup_result.clone(),
             shutdown_result: self.shutdown_result.clone(),
@@ -2117,6 +2134,7 @@ pub struct WeakActorRef<A: Actor> {
     id: ActorId,
     mailbox_sender: WeakMailboxSender<A>,
     abort_handle: AbortHandle,
+    default_reply_timeout: Option<Duration>,
     pub(crate) links: Links,
     pub(crate) startup_result: Arc<SetOnce<Result<(), PanicError>>>,
     pub(crate) shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
@@ -2142,6 +2160,7 @@ impl<A: Actor> WeakActorRef<A> {
             id: self.id,
             mailbox_sender: mailbox,
             abort_handle: self.abort_handle.clone(),
+            default_reply_timeout: self.default_reply_timeout,
             links: self.links.clone(),
             startup_result: self.startup_result.clone(),
             shutdown_result: self.shutdown_result.clone(),
@@ -2430,6 +2449,7 @@ impl<A: Actor> Clone for WeakActorRef<A> {
             id: self.id,
             mailbox_sender: self.mailbox_sender.clone(),
             abort_handle: self.abort_handle.clone(),
+            default_reply_timeout: self.default_reply_timeout,
             links: self.links.clone(),
             startup_result: self.startup_result.clone(),
             shutdown_result: self.shutdown_result.clone(),
