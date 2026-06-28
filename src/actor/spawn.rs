@@ -258,7 +258,6 @@ where
                 monitor.set_stopping();
 
                 let mut actor = state.shutdown().await;
-
                 actor_ref.links.set_children_parent_shutdown().await;
                 actor_ref.links.send_children_shutdown().await;
                 drain_until_children_closed(&actor_ref.links, &mut mailbox_rx).await;
@@ -355,9 +354,11 @@ where
     }
 }
 
-/// Waits for all child actors to close while keeping the mailbox drained, so a child
-/// notifying us cannot deadlock on a full mailbox. Pending messages pulled during the wait
-/// are re-queued afterwards so they survive a supervisor restart rather than being dropped.
+/// Keeps the mailbox drained while waiting for supervised children to close their channels,
+/// preventing a child's notification from deadlocking on a full mailbox. Tells consumed during
+/// this window are preserved and re-queued so they survive a supervisor restart; asks have their
+/// reply sender dropped (caller receives `ActorStopped`), which unblocks any child awaiting a
+/// reply so it can finish shutting down.
 async fn drain_until_children_closed<A>(links: &Links, mailbox_rx: &mut MailboxReceiver<A>)
 where
     A: Actor,
@@ -369,10 +370,17 @@ where
         tokio::select! {
             biased;
             _ = &mut wait => break,
-            signal = mailbox_rx.recv() => {
-                if let Some(signal @ Signal::Message { .. }) = signal {
-                    preserved.push_back(signal);
+            signal = mailbox_rx.recv() => match signal {
+                // tell: preserve for the restart
+                Some(signal @ Signal::Message { reply: None, .. }) => preserved.push_back(signal),
+                // ask: drop the reply sender so the caller gets `ActorStopped`
+                Some(Signal::Message { reply: Some(_), .. }) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("dropping pending ask during restart drain, caller will receive ActorStopped");
                 }
+                // lifecycle / link-died signals during our own teardown: discard
+                Some(_) => {}
+                None => break,
             }
         }
     }
