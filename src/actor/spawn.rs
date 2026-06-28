@@ -355,7 +355,10 @@ where
                 // tell: preserve for the restart
                 Some(signal @ Signal::Message { reply: None, .. }) => preserved.push_back(signal),
                 // ask: drop the reply sender so the caller gets `ActorStopped`
-                Some(Signal::Message { reply: Some(_), .. }) => {}
+                Some(Signal::Message { reply: Some(_), .. }) => {
+                    #[cfg(feature = "tracing")]
+                    tracing::debug!("dropping pending ask during restart drain, caller will receive ActorStopped");
+                }
                 // lifecycle / link-died signals during our own teardown: discard
                 Some(_) => {}
                 None => break,
