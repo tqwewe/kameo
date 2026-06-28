@@ -11,6 +11,9 @@ env:
   # Retry crate downloads more aggressively to ride out transient crates.io
   # HTTP/2 framing errors (rust-lang/cargo#6788).
   CARGO_NET_RETRY: 10
+  # Force HTTP/1.1 for crate downloads; the framing errors originate in the
+  # HTTP/2 layer, so disabling multiplexing avoids them outright.
+  CARGO_HTTP_MULTIPLEXING: false
 
 jobs:
   build:
