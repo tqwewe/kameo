@@ -192,6 +192,7 @@ A huge thank you to [**Caido Community**], [**vanhouc**], [**cawfeecoder**], [**
 <a href="https://github.com/vanhouc"><img src="https://avatars.githubusercontent.com/u/3475140?s=100&v=4" width="100" height="100" alt="vanhouc"/></a>
 &nbsp;&nbsp;&nbsp;
 <a href="https://github.com/cawfeecoder"><img src="https://avatars.githubusercontent.com/u/10661697?s=100&v=4" width="100" height="100" alt="cawfeecoder"/></a>
+&nbsp;&nbsp;&nbsp;
 <a href="https://github.com/haruki-nikaidou"><img src="https://avatars.githubusercontent.com/u/135048882?v=4" width="100" height="100" alt="haruki-nikaidou"/></a>
 
 [**Caido Community**]: https://github.com/caido-community
