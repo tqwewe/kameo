@@ -260,7 +260,8 @@ where
                 let mut actor = state.shutdown().await;
                 actor_ref.links.set_children_parent_shutdown().await;
                 actor_ref.links.send_children_shutdown().await;
-                drain_until_children_closed(&actor_ref.links, &mut mailbox_rx).await;
+                let is_restarting = actor_ref.links.lock().await.will_restart(&reason);
+                drain_until_children_closed(&actor_ref.links, &mut mailbox_rx, is_restarting).await;
                 actor_ref
                     .links
                     .lock()
@@ -313,7 +314,9 @@ where
 
                 actor_ref.links.set_children_parent_shutdown().await;
                 actor_ref.links.send_children_shutdown().await;
-                drain_until_children_closed(&actor_ref.links, &mut mailbox_rx).await;
+                // startup failed; the supervisor may still restart us per policy
+                let is_restarting = actor_ref.links.lock().await.will_restart(&reason);
+                drain_until_children_closed(&actor_ref.links, &mut mailbox_rx, is_restarting).await;
                 actor_ref
                     .links
                     .lock()
@@ -356,11 +359,16 @@ where
 
 /// Keeps the mailbox drained while waiting for supervised children to close their channels,
 /// preventing a child's notification from deadlocking on a full mailbox. Tells consumed during
-/// this window are preserved and re-queued so they survive a supervisor restart; asks have their
-/// reply sender dropped (caller receives `ActorStopped`), which unblocks any child awaiting a
-/// reply so it can finish shutting down.
-async fn drain_until_children_closed<A>(links: &Links, mailbox_rx: &mut MailboxReceiver<A>)
-where
+/// this window are preserved and re-queued so they survive a supervisor restart. Asks are bounced
+/// back to their caller with the original message so nothing queued is silently dropped: on a
+/// restart the caller receives `ActorRestarting` (safe to retry against the new incarnation), on a
+/// terminal stop `ActorNotRunning`. Either way any child awaiting a reply is unblocked so it can
+/// finish shutting down.
+async fn drain_until_children_closed<A>(
+    links: &Links,
+    mailbox_rx: &mut MailboxReceiver<A>,
+    is_restarting: bool,
+) where
     A: Actor,
 {
     let mut preserved = VecDeque::new();
@@ -373,10 +381,15 @@ where
             signal = mailbox_rx.recv() => match signal {
                 // tell: preserve for the restart
                 Some(signal @ Signal::Message { reply: None, .. }) => preserved.push_back(signal),
-                // ask: drop the reply sender so the caller gets `ActorStopped`
-                Some(Signal::Message { reply: Some(_), .. }) => {
-                    #[cfg(feature = "tracing")]
-                    tracing::debug!("dropping pending ask during restart drain, caller will receive ActorStopped");
+                // ask: bounce the message back so it isn't dropped; label it by whether we expect
+                // to restart (`ActorRestarting`, retry-safe) or stop for good (`ActorNotRunning`)
+                Some(Signal::Message { reply: Some(tx), message, .. }) => {
+                    let err = if is_restarting {
+                        SendError::ActorRestarting(message.as_any())
+                    } else {
+                        SendError::ActorNotRunning(message.as_any())
+                    };
+                    let _ = tx.send(Err(err));
                 }
                 // lifecycle / link-died signals during our own teardown: discard
                 Some(_) => {}

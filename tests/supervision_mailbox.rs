@@ -249,8 +249,9 @@ async fn supervised_child_ask_to_stopping_supervisor_does_not_deadlock() {
 
     let ask_result = recv_or_fail(&mut result_rx, "ask result from child").await;
     assert!(
-        ask_result.is_err(),
-        "expected Err from ask to stopping supervisor — drain discards messages; got: {ask_result:?}"
+        matches!(ask_result, Err(SendError::ActorNotRunning(Ping))),
+        "ask to a terminally stopping supervisor should be bounced back as ActorNotRunning \
+         carrying its message, not silently dropped; got: {ask_result:?}"
     );
 }
 
@@ -335,7 +336,7 @@ async fn sibling_linked_child_ask_to_killed_parent_does_not_deadlock() {
 // ==================== Multiple children asking supervisor during drain ====================
 
 #[tokio::test]
-async fn two_children_asking_supervisor_during_drain_both_get_actor_stopped() {
+async fn two_children_asking_supervisor_during_drain_both_get_actor_not_running() {
     let (result1_tx, mut result1_rx) = mpsc::unbounded_channel();
     let (result2_tx, mut result2_rx) = mpsc::unbounded_channel();
     let supervisor = PingSupervisor::spawn(PingSupervisor);
@@ -372,15 +373,22 @@ async fn two_children_asking_supervisor_during_drain_both_get_actor_stopped() {
 
     let r1 = recv_or_fail(&mut result1_rx, "child1 ask result").await;
     let r2 = recv_or_fail(&mut result2_rx, "child2 ask result").await;
-    assert!(r1.is_err(), "child1 expected ActorStopped, got: {r1:?}");
-    assert!(r2.is_err(), "child2 expected ActorStopped, got: {r2:?}");
+    assert!(
+        matches!(r1, Err(SendError::ActorNotRunning(Ping))),
+        "child1 expected ActorNotRunning with message, got: {r1:?}"
+    );
+    assert!(
+        matches!(r2, Err(SendError::ActorNotRunning(Ping))),
+        "child2 expected ActorNotRunning with message, got: {r2:?}"
+    );
 }
 
 // ==================== Restart of an actor that has children ====================
 //
 // An actor that itself supervises children opens a "drain window" while it waits for those
 // children to close. These tests cover the gap #351 left: messages arriving during that window
-// must still survive a restart (tells), while asks are released with `ActorStopped`.
+// must still survive a restart (tells), while asks are bounced back carrying their message
+// (`ActorRestarting` when it will restart, `ActorNotRunning` on a terminal stop).
 
 struct RootSupervisor;
 
@@ -508,7 +516,7 @@ async fn tells_survive_restart_of_actor_with_children() {
 }
 
 #[tokio::test]
-async fn ask_during_restart_of_actor_with_children_returns_actor_stopped() {
+async fn ask_during_restart_of_actor_with_children_returns_actor_restarting() {
     let root = RootSupervisor::spawn(RootSupervisor);
 
     let (on_start_tx, mut on_start_rx) = mpsc::unbounded_channel();
@@ -534,15 +542,17 @@ async fn ask_during_restart_of_actor_with_children_returns_actor_stopped() {
         .unwrap();
 
     middle.tell(Panic).await.unwrap();
-    // Enqueue an ask then a tell behind the panic, in order. The ask must be released with
-    // `ActorStopped` during the drain window; the tell must survive to the restarted instance.
+    // Enqueue an ask then a tell behind the panic, in order. The ask is bounced back with
+    // `ActorRestarting` carrying its message during the drain window; the tell must survive to
+    // the restarted instance.
     let pending_ask = middle.ask(Msg(99)).enqueue().await.unwrap();
     middle.tell(Msg(0)).await.unwrap();
 
     let ask_result = pending_ask.await;
     assert!(
-        matches!(ask_result, Err(SendError::ActorStopped)),
-        "ask during the restart drain window should return ActorStopped, got: {ask_result:?}"
+        matches!(ask_result, Err(SendError::ActorRestarting(Msg(99)))),
+        "ask during the restart drain window should return ActorRestarting with the original \
+         message, got: {ask_result:?}"
     );
 
     recv_or_fail(&mut on_start_rx, "middle restart startup").await;
