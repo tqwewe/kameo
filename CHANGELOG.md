@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1](https://github.com/tqwewe/kameo/compare/v0.21.0...v0.21.1) - 2026-07-01
+
+### <!-- 0 -->Added
+
+- Add per-actor default reply timeout via PreparedActor ([#354](https://github.com/tqwewe/kameo/pull/354)) [</>](https://github.com/tqwewe/kameo/commit/0750d5a731669f6d473c441afc79fc7835f7a954)
+
+### <!-- 1 -->Changed
+
+- Drop all messages during drain instead of buffering tells and processing asks ([#351](https://github.com/tqwewe/kameo/pull/351)) [</>](https://github.com/tqwewe/kameo/commit/3e01df19aa6d9424b18322dcaeb44cfce82eb7cc)
+- Disable cargo http multiplexing to avoid crates.io HTTP/2 framing errors [</>](https://github.com/tqwewe/kameo/commit/80448a29d41d147ccf6907985aa48d7ce8db063f)
+- Increase cargo net retry to ride out crates.io HTTP/2 flakes [</>](https://github.com/tqwewe/kameo/commit/63f6f0c69bf10913bd38bb9ff0783357f743f398)
+
+### <!-- 3 -->Fixed
+
+- De-flake scheduler interval doctest [</>](https://github.com/tqwewe/kameo/commit/293d11d1e005783884727df9236e45d40521883a)
+- Skip and simplify bounded mailbox tests under hotpath feature [</>](https://github.com/tqwewe/kameo/commit/53984d756a10983fc54c0debc569a8fd8a192435)
+- Use deterministic fake time for bounded mailbox unit tests [</>](https://github.com/tqwewe/kameo/commit/970b977def985a7165844de212f0b6d215e251c5)
+
+### <!-- 5 -->Misc
+
+- Automate releases with release-plz ([#352](https://github.com/tqwewe/kameo/pull/352)) [</>](https://github.com/tqwewe/kameo/commit/71eda0e3139e5a453ec885b96ccc8c8c1ab1a31d)
+
+
 ## [0.21.0] - 2026-06-21
 
 * @npry made their first contribution in #340
