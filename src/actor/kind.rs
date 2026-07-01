@@ -16,7 +16,7 @@ use crate::{
     error::{ActorStopReason, PanicError, PanicReason},
     links::{BoxMailboxReceiver, Link, ShutdownFn},
     mailbox::{MailboxReceiver, Signal},
-    message::BoxMessage,
+    message::{BoxMessage, CallbackFn, Context},
     reply::BoxReplySender,
     supervision::SupervisionStrategy,
 };
@@ -196,6 +196,31 @@ where
             Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
                 PanicError::new_from_panic_any(err, PanicReason::HandlerPanic),
             )), // The handler panicked
+        }
+    }
+
+    pub(crate) async fn handle_callback(
+        &mut self,
+        actor_ref: ActorRef<A>,
+        callback: CallbackFn<A>,
+    ) -> ControlFlow<ActorStopReason> {
+        let mut ctx: Context<A, ()> = Context::new(actor_ref, None, false);
+
+        let res = AssertUnwindSafe(callback(&mut self.state, &mut ctx))
+            .catch_unwind()
+            .await;
+
+        match res {
+            Ok(()) => {
+                if ctx.should_stop() {
+                    ControlFlow::Break(ActorStopReason::Normal)
+                } else {
+                    ControlFlow::Continue(())
+                }
+            }
+            Err(err) => ControlFlow::Break(ActorStopReason::Panicked(
+                PanicError::new_from_panic_any(err, PanicReason::HandlerPanic),
+            )), // The continuation panicked
         }
     }
 

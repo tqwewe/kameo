@@ -22,11 +22,19 @@ use crate::{
     Actor,
     actor::ActorRef,
     error::{self, PanicError, PanicReason, SendError},
+    mailbox::Signal,
     reply::{BoxReplySender, DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender},
 };
 
 /// A boxed dynamic message type for the actor `A`.
 pub type BoxMessage<A> = Box<dyn DynMessage<A>>;
+
+/// A boxed continuation run against an actor's state when a [`Context::pipe`] future resolves.
+///
+/// The continuation returns a future that borrows `&mut A`, so it is boxed behind a `for<'a>`
+/// bound rather than a plain `FnOnce`.
+pub(crate) type CallbackFn<A> =
+    Box<dyn for<'a> FnOnce(&'a mut A, &'a mut Context<A, ()>) -> BoxFuture<'a, ()> + Send>;
 
 /// A boxed dynamic type used for message replies.
 pub type BoxReply = Box<dyn any::Any + Send>;
@@ -111,6 +119,11 @@ where
     /// Stops the actor normally after processing the current message.
     pub fn stop(&mut self) {
         self.stop = true;
+    }
+
+    /// Whether [`Context::stop`] was called on this context.
+    pub(crate) fn should_stop(&self) -> bool {
+        self.stop
     }
 
     /// Extracts the reply sender, providing a mechanism for delegated responses and an optional reply sender.
@@ -249,6 +262,67 @@ where
         });
 
         delegated_reply
+    }
+
+    /// Runs a future off the actor's message loop, then applies its result back to the actor.
+    ///
+    /// This is the "pipe to self" pattern: `future` runs on a separate task so the actor keeps
+    /// processing other messages while it is in flight. When `future` resolves, `on_complete`
+    /// runs with `&mut self` (and its own [`Context`]) between messages, so it can mutate the
+    /// actor's state, and it may `.await`.
+    ///
+    /// The actor is kept alive until `future` resolves. If the actor has stopped or is
+    /// restarting by the time it resolves, `on_complete` is not run. The future itself is not
+    /// cancelled when the actor stops.
+    ///
+    /// Because `on_complete` returns a future that borrows `&mut self`, it is written as a
+    /// closure returning a boxed future (`Box::pin(async move { .. })`).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kameo::prelude::*;
+    ///
+    /// #[derive(Actor, Default)]
+    /// struct MyActor {
+    ///     last: u32,
+    /// }
+    ///
+    /// struct Fetch;
+    ///
+    /// impl Message<Fetch> for MyActor {
+    ///     type Reply = ();
+    ///
+    ///     async fn handle(&mut self, _: Fetch, ctx: &mut Context<Self, Self::Reply>) {
+    ///         ctx.pipe(async { 40 + 2 }, |actor, _ctx, result| {
+    ///             Box::pin(async move {
+    ///                 actor.last = result;
+    ///             })
+    ///         });
+    ///     }
+    /// }
+    /// ```
+    pub fn pipe<F, Fun>(&self, future: F, on_complete: Fun)
+    where
+        F: Future + Send + 'static,
+        F::Output: Send + 'static,
+        Fun: for<'a> FnOnce(&'a mut A, &'a mut Context<A, ()>, F::Output) -> BoxFuture<'a, ()>
+            + Send
+            + 'static,
+    {
+        let actor_ref = self.actor_ref.clone();
+        tokio::spawn(async move {
+            let output = future.await;
+            let callback: CallbackFn<A> =
+                Box::new(move |actor, ctx| on_complete(actor, ctx, output));
+            // The signal carries a strong `ActorRef` so the actor stays alive until the
+            // callback is processed, even after this task drops its own ref.
+            let signal = Signal::Callback {
+                actor_ref: actor_ref.clone(),
+                callback,
+            };
+            let _ = actor_ref.mailbox_sender().send(signal).await;
+        });
     }
 
     /// Forwards the message to another actor, returning a [ForwardedReply].
