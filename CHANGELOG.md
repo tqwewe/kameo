@@ -170,26 +170,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add ignore_tags regex to cliff.toml [</>](https://github.com/tqwewe/kameo/commit/e4577f7e3ebda92cdc98013be56e356139c86ede)
 - Bump kameo to version 0.19.1 [</>](https://github.com/tqwewe/kameo/commit/2d6033a1c3ad9003f338e4fb40070125c27cfa86)
-
-## [0.19.1] - 2025-11-13
-
-### <!-- 3 -->Fixed
-
-- Docs.rs builds failing due to now unsupported `doc_auto_cfg` feature [</>](https://github.com/tqwewe/kameo/commit/cc934e59483d32527336748eb010bbf26130ef98)
-
-### <!-- 4 -->Documentation
-
-- Add 0.19.0 link to CHANGELOG.md [</>](https://github.com/tqwewe/kameo/commit/8670c85f672eb41dd054a4b736e73baaaab9c2f0)
-
-### <!-- 5 -->Misc
-
-- Add ignore_tags regex to cliff.toml [</>](https://github.com/tqwewe/kameo/commit/e4577f7e3ebda92cdc98013be56e356139c86ede)
-- Bump kameo to version 0.19.1 [</>](https://github.com/tqwewe/kameo/commit/2d6033a1c3ad9003f338e4fb40070125c27cfa86)
-
-## [0.19.1] - 2025-11-13
-
-### <!-- 5 -->Misc
-
 - Bump kameo_actors to version 0.4.0 [</>](https://github.com/tqwewe/kameo/commit/fcfaf75ee574a5be3f8fc6911a7f757930c53ad6)
 
 ## [0.19.0] - 2025-11-10
