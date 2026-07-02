@@ -27,7 +27,7 @@ impl Message<Trigger> for PipeActor {
     type Reply = ();
 
     async fn handle(&mut self, _: Trigger, ctx: &mut Context<Self, Self::Reply>) {
-        ctx.pipe(async { 40 + 2 }, |actor, _ctx, out| {
+        ctx.pipe_with(async { 40 + 2 }, |actor, _ctx, out| {
             Box::pin(async move {
                 actor.value = out;
                 actor.done_tx.send(actor.value).unwrap();
@@ -43,7 +43,7 @@ impl Message<TriggerDelayed> for PipeActor {
     type Reply = ();
 
     async fn handle(&mut self, _: TriggerDelayed, ctx: &mut Context<Self, Self::Reply>) {
-        ctx.pipe(
+        ctx.pipe_with(
             async {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 42
@@ -66,7 +66,7 @@ impl Message<TriggerStop> for PipeActor {
     type Reply = ();
 
     async fn handle(&mut self, _: TriggerStop, ctx: &mut Context<Self, Self::Reply>) {
-        ctx.pipe(async { 7 }, |actor, ctx, out| {
+        ctx.pipe_with(async { 7 }, |actor, ctx, out| {
             Box::pin(async move {
                 actor.value = out;
                 actor.done_tx.send(actor.value).unwrap();
@@ -83,7 +83,7 @@ impl Message<TriggerMessage> for PipeActor {
     type Reply = ();
 
     async fn handle(&mut self, _: TriggerMessage, ctx: &mut Context<Self, Self::Reply>) {
-        ctx.pipe_message(async { Fetched(99) });
+        ctx.pipe(async { Fetched(99) });
     }
 }
 
@@ -116,7 +116,7 @@ async fn recv(rx: &mut mpsc::UnboundedReceiver<u32>) -> u32 {
 }
 
 #[tokio::test]
-async fn pipe_applies_result_to_state() {
+async fn pipe_with_applies_result_to_state() {
     let (done_tx, mut done_rx) = mpsc::unbounded_channel();
     let actor = PipeActor::spawn(PipeActor { value: 0, done_tx });
 
@@ -127,7 +127,7 @@ async fn pipe_applies_result_to_state() {
 }
 
 #[tokio::test]
-async fn pipe_continuation_may_await() {
+async fn pipe_with_continuation_may_await() {
     let (done_tx, mut done_rx) = mpsc::unbounded_channel();
     let actor = PipeActor::spawn(PipeActor { value: 0, done_tx });
 
@@ -138,7 +138,7 @@ async fn pipe_continuation_may_await() {
 }
 
 #[tokio::test]
-async fn pipe_continuation_can_stop_actor() {
+async fn pipe_with_continuation_can_stop_actor() {
     let (done_tx, mut done_rx) = mpsc::unbounded_channel();
     let actor = PipeActor::spawn(PipeActor { value: 0, done_tx });
 
@@ -152,7 +152,7 @@ async fn pipe_continuation_can_stop_actor() {
 }
 
 #[tokio::test]
-async fn pipe_message_delivers_to_handler() {
+async fn pipe_delivers_result_as_message() {
     let (done_tx, mut done_rx) = mpsc::unbounded_channel();
     let actor = PipeActor::spawn(PipeActor { value: 0, done_tx });
 
@@ -163,7 +163,7 @@ async fn pipe_message_delivers_to_handler() {
 }
 
 #[tokio::test]
-async fn pipe_keeps_actor_alive_until_future_resolves() {
+async fn pipe_with_keeps_actor_alive_until_future_resolves() {
     let (done_tx, mut done_rx) = mpsc::unbounded_channel();
     let actor = PipeActor::spawn(PipeActor { value: 0, done_tx });
 

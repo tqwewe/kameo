@@ -935,10 +935,10 @@ pub enum Signal<A: Actor> {
     Stop,
     /// Signals the actor to restart.
     SupervisorRestart,
-    /// A continuation to run against the actor's state, produced by a resolved [`Context::pipe`]
-    /// future.
+    /// A continuation to run against the actor's state, produced by a resolved
+    /// [`Context::pipe_with`] future.
     ///
-    /// [`Context::pipe`]: crate::message::Context::pipe
+    /// [`Context::pipe_with`]: crate::message::Context::pipe_with
     Callback {
         /// The actor ref, to keep the actor from stopping due to RAII semantics.
         actor_ref: ActorRef<A>,

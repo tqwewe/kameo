@@ -29,7 +29,7 @@ use crate::{
 /// A boxed dynamic message type for the actor `A`.
 pub type BoxMessage<A> = Box<dyn DynMessage<A>>;
 
-/// A boxed continuation run against an actor's state when a [`Context::pipe`] future resolves.
+/// A boxed continuation run against an actor's state when a [`Context::pipe_with`] future resolves.
 ///
 /// The continuation returns a future that borrows `&mut A`, so it is boxed behind a `for<'a>`
 /// bound rather than a plain `FnOnce`.
@@ -264,12 +264,72 @@ where
         delegated_reply
     }
 
-    /// Runs a future off the actor's message loop, then applies its result back to the actor.
+    /// Runs a future off the actor's message loop, then sends its result back to the actor as a
+    /// message.
     ///
     /// This is the "pipe to self" pattern: `future` runs on a separate task so the actor keeps
-    /// processing other messages while it is in flight. When `future` resolves, `on_complete`
-    /// runs with `&mut self` (and its own [`Context`]) between messages, so it can mutate the
-    /// actor's state, and it may `.await`.
+    /// processing other messages while it is in flight. When `future` resolves, its output is
+    /// delivered to the actor with [`tell`] semantics, so it runs through the normal message
+    /// pipeline (handler, ordering, tracing) and its reply is discarded.
+    ///
+    /// Use [`pipe_with`] instead when the completion logic is a one-off that should mutate the
+    /// actor's state inline rather than go through a dedicated [`Message`] handler.
+    ///
+    /// The actor is kept alive until `future` resolves. If the actor has stopped by the time it
+    /// resolves, the message is dropped. The future itself is not cancelled when the actor stops.
+    ///
+    /// [`tell`]: crate::actor::ActorRef::tell
+    /// [`pipe_with`]: Context::pipe_with
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kameo::prelude::*;
+    ///
+    /// #[derive(Actor, Default)]
+    /// struct MyActor {
+    ///     last: u32,
+    /// }
+    ///
+    /// struct Fetch;
+    /// struct Fetched(u32);
+    ///
+    /// impl Message<Fetch> for MyActor {
+    ///     type Reply = ();
+    ///
+    ///     async fn handle(&mut self, _: Fetch, ctx: &mut Context<Self, Self::Reply>) {
+    ///         ctx.pipe(async { Fetched(40 + 2) });
+    ///     }
+    /// }
+    ///
+    /// impl Message<Fetched> for MyActor {
+    ///     type Reply = ();
+    ///
+    ///     async fn handle(&mut self, Fetched(value): Fetched, _: &mut Context<Self, Self::Reply>) {
+    ///         self.last = value;
+    ///     }
+    /// }
+    /// ```
+    pub fn pipe<F, M>(&self, future: F)
+    where
+        A: Message<M>,
+        F: Future<Output = M> + Send + 'static,
+        M: Send + 'static,
+    {
+        let actor_ref = self.actor_ref.clone();
+        tokio::spawn(async move {
+            let msg = future.await;
+            let _ = actor_ref.tell(msg).send().await;
+        });
+    }
+
+    /// Runs a future off the actor's message loop, then applies its result back to the actor with
+    /// a custom continuation.
+    ///
+    /// Like [`pipe`], but instead of delivering the result as a message, `on_complete` runs with
+    /// `&mut self` (and its own [`Context`]) between messages, so it can mutate the actor's state
+    /// directly, and it may `.await`. Prefer [`pipe`] when the completion should go through an
+    /// existing [`Message`] handler.
     ///
     /// The actor is kept alive until `future` resolves. If the actor has stopped or is
     /// restarting by the time it resolves, `on_complete` is not run. The future itself is not
@@ -277,6 +337,8 @@ where
     ///
     /// Because `on_complete` returns a future that borrows `&mut self`, it is written as a
     /// closure returning a boxed future (`Box::pin(async move { .. })`).
+    ///
+    /// [`pipe`]: Context::pipe
     ///
     /// # Example
     ///
@@ -294,7 +356,7 @@ where
     ///     type Reply = ();
     ///
     ///     async fn handle(&mut self, _: Fetch, ctx: &mut Context<Self, Self::Reply>) {
-    ///         ctx.pipe(async { 40 + 2 }, |actor, _ctx, result| {
+    ///         ctx.pipe_with(async { 40 + 2 }, |actor, _ctx, result| {
     ///             Box::pin(async move {
     ///                 actor.last = result;
     ///             })
@@ -302,7 +364,7 @@ where
     ///     }
     /// }
     /// ```
-    pub fn pipe<F, Fun>(&self, future: F, on_complete: Fun)
+    pub fn pipe_with<F, Fun>(&self, future: F, on_complete: Fun)
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
@@ -322,66 +384,6 @@ where
                 callback,
             };
             let _ = actor_ref.mailbox_sender().send(signal).await;
-        });
-    }
-
-    /// Runs a future off the actor's message loop, then sends its result back to the actor as a
-    /// message.
-    ///
-    /// This is the "pipe to self" pattern for cases where the completion should be handled by an
-    /// existing [`Message`] handler rather than an inline closure. `future` runs on a separate
-    /// task so the actor keeps processing other messages while it is in flight. When `future`
-    /// resolves, its output is delivered to the actor with [`tell`] semantics, so it runs through
-    /// the normal message pipeline (handler, ordering, tracing) and its reply is discarded.
-    ///
-    /// Use [`pipe`] instead when the completion logic is a one-off that should mutate the actor's
-    /// state inline.
-    ///
-    /// The actor is kept alive until `future` resolves. If the actor has stopped by the time it
-    /// resolves, the message is dropped. The future itself is not cancelled when the actor stops.
-    ///
-    /// [`tell`]: crate::actor::ActorRef::tell
-    /// [`pipe`]: Context::pipe
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use kameo::prelude::*;
-    ///
-    /// #[derive(Actor, Default)]
-    /// struct MyActor {
-    ///     last: u32,
-    /// }
-    ///
-    /// struct Fetch;
-    /// struct Fetched(u32);
-    ///
-    /// impl Message<Fetch> for MyActor {
-    ///     type Reply = ();
-    ///
-    ///     async fn handle(&mut self, _: Fetch, ctx: &mut Context<Self, Self::Reply>) {
-    ///         ctx.pipe_message(async { Fetched(40 + 2) });
-    ///     }
-    /// }
-    ///
-    /// impl Message<Fetched> for MyActor {
-    ///     type Reply = ();
-    ///
-    ///     async fn handle(&mut self, Fetched(value): Fetched, _: &mut Context<Self, Self::Reply>) {
-    ///         self.last = value;
-    ///     }
-    /// }
-    /// ```
-    pub fn pipe_message<F, M>(&self, future: F)
-    where
-        A: Message<M>,
-        F: Future<Output = M> + Send + 'static,
-        M: Send + 'static,
-    {
-        let actor_ref = self.actor_ref.clone();
-        tokio::spawn(async move {
-            let msg = future.await;
-            let _ = actor_ref.tell(msg).send().await;
         });
     }
 

@@ -44,20 +44,7 @@ The asynchronous nature of the `handle` function, combined with Rust's powerfu
 
 Because messages are processed one at a time, awaiting a long-running operation directly inside `handle` holds up the actor's mailbox until it finishes. When you want to start async work, such as a network request, but keep processing other messages while it runs, use `ctx.pipe`.
 
-`ctx.pipe` runs a future on a separate task and, once it resolves, applies the result back to the actor between messages. This is the "pipe to self" pattern: the actor stays responsive, and the continuation runs with `&mut self` so it can safely update the actor's state (and may `.await`).
-
-```rust
-ctx.pipe(
-    async { fetch_from_network().await },
-    |actor, _ctx, result| {
-        Box::pin(async move {
-            actor.last_result = result;
-        })
-    },
-);
-```
-
-If the completion should be handled by a message your actor already implements, rather than an inline closure, use `ctx.pipe_message`. It runs the future the same way, then delivers its output back to the actor as a message, so it flows through the normal handler:
+`ctx.pipe` runs a future on a separate task and, once it resolves, delivers its output back to the actor as a message. This is the "pipe to self" pattern: the actor stays responsive, and the result flows through a normal message handler:
 
 ```rust
 struct Fetched(Data);
@@ -71,10 +58,23 @@ impl Message<Fetched> for MyActor {
 }
 
 // In some other handler:
-ctx.pipe_message(async { Fetched(fetch_from_network().await) });
+ctx.pipe(async { Fetched(fetch_from_network().await) });
 ```
 
-In both cases the actor is kept alive until the future resolves. If it has already stopped by then, the continuation or message is simply skipped.
+If the completion is a one-off that doesn't warrant a dedicated message type, use `ctx.pipe_with` instead. It runs the future the same way, but applies the result via an inline continuation that runs with `&mut self` (and may `.await`):
+
+```rust
+ctx.pipe_with(
+    async { fetch_from_network().await },
+    |actor, _ctx, result| {
+        Box::pin(async move {
+            actor.last_result = result;
+        })
+    },
+);
+```
+
+In both cases the actor is kept alive until the future resolves. If it has already stopped by then, the message or continuation is simply skipped.
 
 ---
 
