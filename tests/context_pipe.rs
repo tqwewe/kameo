@@ -76,6 +76,28 @@ impl Message<TriggerStop> for PipeActor {
     }
 }
 
+// Pipes a future whose output is delivered back as a message the actor already handles.
+struct TriggerMessage;
+
+impl Message<TriggerMessage> for PipeActor {
+    type Reply = ();
+
+    async fn handle(&mut self, _: TriggerMessage, ctx: &mut Context<Self, Self::Reply>) {
+        ctx.pipe_message(async { Fetched(99) });
+    }
+}
+
+struct Fetched(u32);
+
+impl Message<Fetched> for PipeActor {
+    type Reply = ();
+
+    async fn handle(&mut self, Fetched(value): Fetched, _: &mut Context<Self, Self::Reply>) {
+        self.value = value;
+        self.done_tx.send(self.value).unwrap();
+    }
+}
+
 struct GetValue;
 
 impl Message<GetValue> for PipeActor {
@@ -127,6 +149,17 @@ async fn pipe_continuation_can_stop_actor() {
         .await
         .expect("actor did not stop after continuation called ctx.stop()");
     assert!(!actor.is_alive());
+}
+
+#[tokio::test]
+async fn pipe_message_delivers_to_handler() {
+    let (done_tx, mut done_rx) = mpsc::unbounded_channel();
+    let actor = PipeActor::spawn(PipeActor { value: 0, done_tx });
+
+    actor.tell(TriggerMessage).await.unwrap();
+
+    assert_eq!(recv(&mut done_rx).await, 99);
+    assert_eq!(actor.ask(GetValue).await.unwrap(), 99);
 }
 
 #[tokio::test]
