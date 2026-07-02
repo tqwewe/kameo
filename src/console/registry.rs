@@ -208,9 +208,10 @@ impl ActorMonitor {
     pub(crate) fn record_received<A: Actor>(&self, signal: &Signal<A>) {
         let counter = match signal {
             Signal::Message { .. } => &self.messages_received,
-            Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
-                &self.lifecycle_signals_received
-            }
+            Signal::StartupFinished
+            | Signal::Stop
+            | Signal::SupervisorRestart
+            | Signal::Callback { .. } => &self.lifecycle_signals_received,
             Signal::LinkDied { .. } => &self.link_died_signals_received,
         };
         counter.fetch_add(1, Ordering::Relaxed);

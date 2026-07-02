@@ -40,6 +40,42 @@ While messages are processed sequentially within a single actor, Kameo allows fo
 
 The asynchronous nature of the `handle` function, combined with Rust's powerful futures and async/await syntax, makes it straightforward to perform non-blocking operations, such as I/O tasks or querying other actors, within a message handler.
 
+## Reacting to Async Work Without Blocking
+
+Because messages are processed one at a time, awaiting a long-running operation directly inside `handle` holds up the actor's mailbox until it finishes. When you want to start async work, such as a network request, but keep processing other messages while it runs, use `ctx.pipe`.
+
+`ctx.pipe` runs a future on a separate task and, once it resolves, delivers its output back to the actor as a message. This is the "pipe to self" pattern: the actor stays responsive, and the result flows through a normal message handler:
+
+```rust
+struct Fetched(Data);
+
+impl Message<Fetched> for MyActor {
+    type Reply = ();
+
+    async fn handle(&mut self, Fetched(data): Fetched, _: &mut Context<Self, Self::Reply>) {
+        self.last_result = data;
+    }
+}
+
+// In some other handler:
+ctx.pipe(async { Fetched(fetch_from_network().await) });
+```
+
+If the completion is a one-off that doesn't warrant a dedicated message type, use `ctx.pipe_with` instead. It runs the future the same way, but applies the result via an inline continuation that runs with `&mut self` (and may `.await`):
+
+```rust
+ctx.pipe_with(
+    async { fetch_from_network().await },
+    |actor, _ctx, result| {
+        Box::pin(async move {
+            actor.last_result = result;
+        })
+    },
+);
+```
+
+In both cases the actor is kept alive until the future resolves. If it has already stopped by then, the message or continuation is simply skipped.
+
 ---
 
 #### Summary

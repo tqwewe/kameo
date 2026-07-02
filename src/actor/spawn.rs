@@ -491,6 +491,15 @@ where
                     return reason;
                 }
             }
+            ControlFlow::Continue(Signal::Callback {
+                actor_ref,
+                callback,
+            }) => {
+                if let ControlFlow::Break(reason) = state.handle_callback(actor_ref, callback).await
+                {
+                    return reason;
+                }
+            }
             ControlFlow::Break(reason) => return reason,
         }
     }
