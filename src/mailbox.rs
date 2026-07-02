@@ -132,9 +132,10 @@ impl<A: Actor> From<&Signal<A>> for SignalKind {
     fn from(signal: &Signal<A>) -> Self {
         match signal {
             Signal::Message { .. } => SignalKind::Message,
-            Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
-                SignalKind::Lifecycle
-            }
+            Signal::StartupFinished
+            | Signal::Stop
+            | Signal::SupervisorRestart
+            | Signal::Callback { .. } => SignalKind::Lifecycle,
             Signal::LinkDied { .. } => SignalKind::LinkDied,
         }
     }
@@ -584,9 +585,12 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &signal {
             Some(Signal::Message { .. }) => self.messages_received.increment(1),
-            Some(Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart) => {
-                self.lifecycle_signals_received.increment(1)
-            }
+            Some(
+                Signal::StartupFinished
+                | Signal::Stop
+                | Signal::SupervisorRestart
+                | Signal::Callback { .. },
+            ) => self.lifecycle_signals_received.increment(1),
             Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
             None => {}
         }
@@ -616,9 +620,10 @@ impl<A: Actor> MailboxReceiver<A> {
             for signal in &buffer[len - 1 - count..len - 1] {
                 match signal {
                     Signal::Message { .. } => self.messages_received.increment(1),
-                    Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
-                        self.lifecycle_signals_received.increment(1)
-                    }
+                    Signal::StartupFinished
+                    | Signal::Stop
+                    | Signal::SupervisorRestart
+                    | Signal::Callback { .. } => self.lifecycle_signals_received.increment(1),
                     Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
                 }
             }
@@ -646,9 +651,12 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &res {
             Ok(Signal::Message { .. }) => self.messages_received.increment(1),
-            Ok(Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart) => {
-                self.lifecycle_signals_received.increment(1)
-            }
+            Ok(
+                Signal::StartupFinished
+                | Signal::Stop
+                | Signal::SupervisorRestart
+                | Signal::Callback { .. },
+            ) => self.lifecycle_signals_received.increment(1),
             Ok(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
             Err(_) => {}
         }
@@ -675,9 +683,12 @@ impl<A: Actor> MailboxReceiver<A> {
         #[cfg(feature = "metrics")]
         match &signal {
             Some(Signal::Message { .. }) => self.messages_received.increment(1),
-            Some(Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart) => {
-                self.lifecycle_signals_received.increment(1)
-            }
+            Some(
+                Signal::StartupFinished
+                | Signal::Stop
+                | Signal::SupervisorRestart
+                | Signal::Callback { .. },
+            ) => self.lifecycle_signals_received.increment(1),
             Some(Signal::LinkDied { .. }) => self.link_died_signals_received.increment(1),
             None => {}
         }
@@ -707,9 +718,10 @@ impl<A: Actor> MailboxReceiver<A> {
             for signal in &buffer[len - 1 - count..len - 1] {
                 match signal {
                     Signal::Message { .. } => self.messages_received.increment(1),
-                    Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
-                        self.lifecycle_signals_received.increment(1)
-                    }
+                    Signal::StartupFinished
+                    | Signal::Stop
+                    | Signal::SupervisorRestart
+                    | Signal::Callback { .. } => self.lifecycle_signals_received.increment(1),
                     Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
                 }
             }
@@ -795,7 +807,10 @@ impl<A: Actor> MailboxReceiver<A> {
         match &poll {
             Poll::Ready(Some(Signal::Message { .. })) => self.messages_received.increment(1),
             Poll::Ready(Some(
-                Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart,
+                Signal::StartupFinished
+                | Signal::Stop
+                | Signal::SupervisorRestart
+                | Signal::Callback { .. },
             )) => self.lifecycle_signals_received.increment(1),
             Poll::Ready(Some(Signal::LinkDied { .. })) => {
                 self.link_died_signals_received.increment(1)
@@ -834,9 +849,10 @@ impl<A: Actor> MailboxReceiver<A> {
                 for signal in &buffer[len - 1 - count..len - 1] {
                     match signal {
                         Signal::Message { .. } => self.messages_received.increment(1),
-                        Signal::StartupFinished | Signal::Stop | Signal::SupervisorRestart => {
-                            self.lifecycle_signals_received.increment(1)
-                        }
+                        Signal::StartupFinished
+                        | Signal::Stop
+                        | Signal::SupervisorRestart
+                        | Signal::Callback { .. } => self.lifecycle_signals_received.increment(1),
                         Signal::LinkDied { .. } => self.link_died_signals_received.increment(1),
                     }
                 }
@@ -919,6 +935,16 @@ pub enum Signal<A: Actor> {
     Stop,
     /// Signals the actor to restart.
     SupervisorRestart,
+    /// A continuation to run against the actor's state, produced by a resolved
+    /// [`Context::pipe_with`] future.
+    ///
+    /// [`Context::pipe_with`]: crate::message::Context::pipe_with
+    Callback {
+        /// The actor ref, to keep the actor from stopping due to RAII semantics.
+        actor_ref: ActorRef<A>,
+        /// The continuation to run against the actor's state.
+        callback: crate::message::CallbackFn<A>,
+    },
 }
 
 impl<A: Actor> Signal<A> {
