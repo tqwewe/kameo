@@ -91,9 +91,32 @@ pub struct LinksInner {
     /// instead of queuing it in the parent's mailbox, which would deadlock the parent's
     /// `shutdown_children` wait.
     pub parent_shutdown: Arc<AtomicBool>,
+    /// The restart policy our supervisor will apply to us, `Some` only when supervised. Lets the
+    /// actor guess, during its own teardown, whether it will be restarted (see [`Self::will_restart`]).
+    pub restart_policy: Option<RestartPolicy>,
 }
 
 impl LinksInner {
+    /// Best-effort guess, made during the actor's own teardown, of whether its supervisor will
+    /// restart it. Mirrors [`ErasedChildSpec::should_restart`] except for the parent-side
+    /// restart-limit check, which the child can't see; an actor that has exhausted its restart
+    /// limit is therefore guessed as restarting. Callers only use this to pick which message the
+    /// caller of a dropped `ask` receives, so the guess never drops a message, only mislabels it.
+    pub fn will_restart(&self, reason: &ActorStopReason) -> bool {
+        let Some(policy) = self.restart_policy else {
+            return false; // unsupervised: nobody will restart us
+        };
+        if self.parent_shutdown.load(Ordering::Acquire) {
+            return false; // our supervisor is going away too
+        }
+        match policy {
+            RestartPolicy::Never => false,
+            _ if matches!(reason, ActorStopReason::SupervisorRestart) => true,
+            RestartPolicy::Permanent => true,
+            RestartPolicy::Transient => !reason.is_normal(),
+        }
+    }
+
     /// Notify parent or sibblings, depending on supervision status.
     pub fn notify_links<A: Actor>(
         &mut self,
