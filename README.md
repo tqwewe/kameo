@@ -50,7 +50,7 @@ Add Kameo as a dependency in your `Cargo.toml` file:
 
 ```toml
 [dependencies]
-kameo = "0.21"
+kameo = "0.22"
 ```
 
 Alternatively, you can add it via command line:
@@ -134,7 +134,7 @@ Kameo ships a terminal UI, the **kameo console**, for monitoring a running actor
 Enable the `console` feature and start the collector once in `main`:
 
 ```toml
-kameo = { version = "0.21", features = ["console"] }
+kameo = { version = "0.22", features = ["console"] }
 ```
 
 ```rust,ignore

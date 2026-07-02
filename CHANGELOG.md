@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0](https://github.com/tqwewe/kameo/compare/v0.21.1...v0.22.0) - 2026-07-02
+
+### <!-- 0 -->Added
+
+- **BREAKING:** Add `ctx.pipe` and `ctx.pipe_with` for pipe-to-self ([#360](https://github.com/tqwewe/kameo/pull/360)) [</>](https://github.com/tqwewe/kameo/commit/4d897f2c5418fd0b297bd3fbfe49f174c382b3d1)
+
+### <!-- 4 -->Documentation
+
+- Fix spacing between sponsor avatars in README [</>](https://github.com/tqwewe/kameo/commit/c75376967806c8c22fb4f6e3b559b08e798167b4)
+
+
 ## [0.21.1](https://github.com/tqwewe/kameo/compare/v0.21.0...v0.21.1) - 2026-07-01
 
 ### <!-- 0 -->Added
