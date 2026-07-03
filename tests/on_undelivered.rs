@@ -1,3 +1,8 @@
+// The `hotpath` profiling feature wraps the mailbox channel and changes its delivery timing, so
+// messages sent to a blocked actor aren't reliably drained at teardown. These tests exercise that
+// exact path, so they're skipped under `hotpath` (the hook is covered by every other feature combo).
+#![cfg(not(feature = "hotpath"))]
+
 use std::time::Duration;
 
 use kameo::error::{Infallible, SendError};
@@ -21,6 +26,7 @@ struct Work(u32);
 
 struct DrainActor {
     undelivered_tx: mpsc::UnboundedSender<(ActorStopReason, Vec<u32>)>,
+    entered_tx: mpsc::UnboundedSender<()>,
     gate: Option<oneshot::Receiver<()>>,
 }
 
@@ -48,13 +54,16 @@ impl Actor for DrainActor {
     }
 }
 
-// Occupies the actor until the gate is released, so a backlog can build behind it.
+// Occupies the actor until the gate is released, so a backlog can build behind it. It signals once
+// it starts running (which proves startup has finished, so later messages land in the mailbox
+// rather than the startup buffer) and then blocks.
 struct Block;
 
 impl Message<Block> for DrainActor {
     type Reply = ();
 
     async fn handle(&mut self, _: Block, _: &mut Context<Self, Self::Reply>) {
+        let _ = self.entered_tx.send(());
         if let Some(gate) = self.gate.take() {
             let _ = gate.await;
         }
@@ -71,13 +80,17 @@ impl Message<Work> for DrainActor {
 #[tokio::test]
 async fn undelivered_tells_delivered_on_terminal_stop() {
     let (undelivered_tx, mut undelivered_rx) = mpsc::unbounded_channel();
+    let (entered_tx, mut entered_rx) = mpsc::unbounded_channel();
     let (gate_tx, gate_rx) = oneshot::channel();
     let actor = DrainActor::spawn(DrainActor {
         undelivered_tx,
+        entered_tx,
         gate: Some(gate_rx),
     });
 
     actor.tell(Block).await.unwrap();
+    recv(&mut entered_rx).await; // Block is now running and about to block
+
     actor.tell(Work(1)).await.unwrap();
     actor.tell(Work(2)).await.unwrap();
     actor.tell(Work(3)).await.unwrap();
@@ -96,8 +109,10 @@ async fn undelivered_tells_delivered_on_terminal_stop() {
 #[tokio::test]
 async fn undelivered_not_called_when_mailbox_empty() {
     let (undelivered_tx, mut undelivered_rx) = mpsc::unbounded_channel();
+    let (entered_tx, _entered_rx) = mpsc::unbounded_channel();
     let actor = DrainActor::spawn(DrainActor {
         undelivered_tx,
+        entered_tx,
         gate: None,
     });
 
@@ -111,13 +126,17 @@ async fn undelivered_not_called_when_mailbox_empty() {
 #[tokio::test]
 async fn undelivered_asks_bounce_to_caller_not_hook() {
     let (undelivered_tx, mut undelivered_rx) = mpsc::unbounded_channel();
+    let (entered_tx, mut entered_rx) = mpsc::unbounded_channel();
     let (gate_tx, gate_rx) = oneshot::channel();
     let actor = DrainActor::spawn(DrainActor {
         undelivered_tx,
+        entered_tx,
         gate: Some(gate_rx),
     });
 
     actor.tell(Block).await.unwrap();
+    recv(&mut entered_rx).await; // Block is now running and about to block
+
     actor.tell(Work(1)).await.unwrap();
     // Enqueue an ask synchronously so it's queued before the kill.
     let pending = actor.ask(Work(2)).try_enqueue().unwrap();
