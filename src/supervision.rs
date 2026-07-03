@@ -638,6 +638,7 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
         let actor_id = ActorId::generate();
         let links = Links::default();
         let restart_policy = self.restart_policy;
+        links.lock().await.restart_policy = Some(restart_policy);
         let factory = Arc::new(new_factory(
             actor_id,
             mailbox_tx.clone(),

@@ -523,8 +523,8 @@ where
         stop: &'a mut bool,
     ) -> BoxFuture<'a, Result<(), Box<dyn ReplyError>>>;
 
-    /// Casts the type to a `Box<dyn Any>`.
-    fn as_any(self: Box<Self>) -> Box<dyn any::Any>;
+    /// Casts the type to a `Box<dyn Any + Send>`.
+    fn as_any(self: Box<Self>) -> Box<dyn any::Any + Send>;
 }
 
 impl<A, T> DynMessage<A> for T
@@ -558,7 +558,7 @@ where
         .boxed()
     }
 
-    fn as_any(self: Box<Self>) -> Box<dyn any::Any> {
+    fn as_any(self: Box<Self>) -> Box<dyn any::Any + Send> {
         self
     }
 }

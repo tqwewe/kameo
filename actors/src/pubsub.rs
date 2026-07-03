@@ -140,7 +140,8 @@ impl<M> PubSub<M> {
                 Err(SendError::ActorNotRunning(_)) | Err(SendError::ActorStopped) => {
                     self.subscribers.remove(&id);
                 }
-                Err(SendError::MailboxFull(_))
+                Err(SendError::ActorRestarting(_))
+                | Err(SendError::MailboxFull(_))
                 | Err(SendError::HandlerError(_))
                 | Err(SendError::Timeout(_)) => {}
             }
