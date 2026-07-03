@@ -708,6 +708,8 @@ pub enum PanicReason {
     OnLinkDied,
     /// The [`on_stop`](Actor::on_stop) lifecycle hook returned an error.
     OnStop,
+    /// The [`on_undelivered`](Actor::on_undelivered) lifecycle hook returned an error.
+    OnUndelivered,
     /// The [`next`](Actor::next) lifecycle hook returned an error.
     Next,
 }
@@ -734,6 +736,7 @@ impl PanicReason {
                 | PanicReason::OnPanic
                 | PanicReason::OnLinkDied
                 | PanicReason::OnStop
+                | PanicReason::OnUndelivered
         )
     }
 
@@ -765,6 +768,7 @@ impl fmt::Display for PanicReason {
             PanicReason::OnPanic => write!(f, "on_panic returned error"),
             PanicReason::OnLinkDied => write!(f, "on_link_died returned error"),
             PanicReason::OnStop => write!(f, "on_stop returned error"),
+            PanicReason::OnUndelivered => write!(f, "on_undelivered returned error"),
             PanicReason::Next => write!(f, "next returned error"),
         }
     }

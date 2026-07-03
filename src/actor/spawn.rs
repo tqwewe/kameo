@@ -23,6 +23,7 @@ use crate::{
     error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
     links::Links,
     mailbox::{MailboxReceiver, MailboxSender, Signal},
+    message::BoxMessage,
 };
 
 use super::ActorId;
@@ -262,6 +263,32 @@ where
                 actor_ref.links.send_children_shutdown().await;
                 let is_restarting = actor_ref.links.lock().await.will_restart(&reason);
                 drain_until_children_closed(&actor_ref.links, &mut mailbox_rx, is_restarting).await;
+
+                // On a terminal stop (not a restart, where the mailbox is reused by the next
+                // incarnation) hand any leftover tells to `on_undelivered` before `notify_links`
+                // drops them.
+                if !is_restarting {
+                    let undelivered = drain_undelivered(&mut mailbox_rx);
+                    if !undelivered.is_empty() {
+                        let res =
+                            AssertUnwindSafe(actor.on_undelivered(reason.clone(), undelivered))
+                                .catch_unwind()
+                                .await
+                                .map(|res| {
+                                    res.map_err(|err| {
+                                        PanicError::new(Box::new(err), PanicReason::OnUndelivered)
+                                    })
+                                })
+                                .map_err(|err| {
+                                    PanicError::new_from_panic_any(err, PanicReason::OnUndelivered)
+                                })
+                                .and_then(convert::identity);
+                        if let Err(err) = res {
+                            invoke_actor_error_hook(&err);
+                        }
+                    }
+                }
+
                 actor_ref
                     .links
                     .lock()
@@ -398,6 +425,35 @@ async fn drain_until_children_closed<A>(
         }
     }
     mailbox_rx.push_front(preserved);
+}
+
+/// Drains every message remaining in the mailbox on a terminal stop, returning the leftover tells
+/// for [`Actor::on_undelivered`]. Straggler asks are bounced back to their caller with the original
+/// message (`ActorNotRunning`), mirroring [`drain_until_children_closed`], so they aren't handed to
+/// the hook or silently dropped.
+fn drain_undelivered<A>(mailbox_rx: &mut MailboxReceiver<A>) -> Vec<BoxMessage<A>>
+where
+    A: Actor,
+{
+    let mut undelivered = Vec::new();
+    while let Ok(signal) = mailbox_rx.try_recv() {
+        match signal {
+            Signal::Message {
+                message,
+                reply: None,
+                ..
+            } => undelivered.push(message),
+            Signal::Message {
+                message,
+                reply: Some(tx),
+                ..
+            } => {
+                let _ = tx.send(Err(SendError::ActorNotRunning(message.as_any())));
+            }
+            _ => {}
+        }
+    }
+    undelivered
 }
 
 async fn abortable_actor_loop<A>(
