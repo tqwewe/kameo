@@ -336,6 +336,79 @@ pub trait Actor: Sized + Send + 'static {
         async { Ok(()) }
     }
 
+    /// Called when the actor stops for good with messages still left in its mailbox.
+    ///
+    /// This is the "dead letter" hook: it lets the actor observe or act on messages that were never
+    /// processed (persist them, forward them to another actor, count them) instead of losing them
+    /// silently. It runs just before [`on_stop`](Actor::on_stop), with `&mut self`, so it can use
+    /// the actor's state, and it may `.await`.
+    ///
+    /// `undelivered` holds the leftover **tell** messages, each as a [`BoxMessage<Self>`] that can be
+    /// downcast to the concrete message type. `ask` messages are not included: their callers are
+    /// instead returned the message via [`SendError`](crate::error::SendError), so they are already
+    /// accounted for.
+    ///
+    /// The hook fires only on a terminal stop (killed, `ctx.stop()`, a panic, or an unrecovered
+    /// linked-actor death). It does **not** fire when the actor is restarted by a supervisor, since
+    /// the pending messages are preserved and handled by the next incarnation. It is also not called
+    /// if the mailbox is empty, or if the actor failed during [`on_start`](Actor::on_start) (there is
+    /// no actor to run it). A message being handled at the moment [`kill`](crate::actor::ActorRef::kill)
+    /// aborts the actor is not recoverable and is not included.
+    ///
+    /// The error returned by this method is surfaced through the actor error hook, like
+    /// [`on_stop`](Actor::on_stop).
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use kameo::prelude::*;
+    /// use kameo::error::Infallible;
+    ///
+    /// struct MyActor;
+    ///
+    /// impl Actor for MyActor {
+    ///     type Args = Self;
+    ///     type Error = Infallible;
+    ///
+    ///     async fn on_start(args: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+    ///         Ok(args)
+    ///     }
+    ///
+    ///     async fn on_undelivered(
+    ///         &mut self,
+    ///         _reason: ActorStopReason,
+    ///         undelivered: Vec<BoxMessage<Self>>,
+    ///     ) -> Result<(), Self::Error> {
+    ///         for msg in undelivered {
+    ///             if let Ok(work) = msg.as_any().downcast::<Work>() {
+    ///                 // persist, forward, or log `work.0`
+    ///                 let _ = work.0;
+    ///             }
+    ///         }
+    ///         Ok(())
+    ///     }
+    /// }
+    ///
+    /// struct Work(u32);
+    ///
+    /// impl Message<Work> for MyActor {
+    ///     type Reply = ();
+    ///
+    ///     async fn handle(&mut self, _: Work, _: &mut Context<Self, Self::Reply>) {}
+    /// }
+    /// ```
+    ///
+    /// [`on_stop`]: Actor::on_stop
+    #[allow(unused_variables)]
+    #[inline]
+    fn on_undelivered(
+        &mut self,
+        reason: ActorStopReason,
+        undelivered: Vec<BoxMessage<Self>>,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
+        async { Ok(()) }
+    }
+
     /// Awaits the next signal typically from the mailbox.
     ///
     /// This can be overwritten for more advanced actor behaviour, such as awaiting multiple channels, etc.
