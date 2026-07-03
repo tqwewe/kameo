@@ -98,9 +98,13 @@ where
     }
 
     /// Returns whether the actor is currently alive.
+    ///
+    /// Returns `false` once [`stop_gracefully`](Self::stop_gracefully) has been called, even while
+    /// the actor is still draining already-queued messages. Use
+    /// [`wait_for_shutdown`](Self::wait_for_shutdown) to wait for the actor to fully stop.
     #[inline]
     pub fn is_alive(&self) -> bool {
-        !self.mailbox_sender.is_closed()
+        !self.mailbox_sender.is_closed() && self.mailbox_sender.is_accepting()
     }
 
     /// Registers the actor under a given name in the actor registry.
@@ -262,6 +266,9 @@ where
     /// before it shuts down. Any new messages sent after the stop signal will be ignored.
     #[inline]
     pub async fn stop_gracefully(&self) -> Result<(), SendError> {
+        // Reject new user messages before enqueuing the stop signal, so anything sent after this
+        // point fails loudly with `ActorNotRunning` instead of being silently queued then dropped.
+        self.mailbox_sender.stop_accepting();
         self.mailbox_sender
             .send(Signal::Stop)
             .await
