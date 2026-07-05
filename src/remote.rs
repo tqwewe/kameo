@@ -99,7 +99,7 @@ pub(crate) struct RemoteRegistryActorRef {
 impl RemoteRegistryActorRef {
     pub(crate) fn new<A: Actor>(actor_ref: ActorRef<A>, name: Option<Arc<str>>) -> Self {
         let signal_mailbox = actor_ref.weak_signal_mailbox();
-        let links = actor_ref.links.clone();
+        let links = actor_ref.links().clone();
         RemoteRegistryActorRef {
             actor_ref: BoxRegisteredActorRef::Strong(Box::new(actor_ref)),
             name,

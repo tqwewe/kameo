@@ -230,7 +230,7 @@ where
     };
 
     actor_ref
-        .links
+        .links()
         .lock()
         .await
         .sibblings
@@ -254,7 +254,7 @@ where
             .downcast::<A>()?
     };
 
-    actor_ref.links.lock().await.sibblings.remove(&sibling_id);
+    actor_ref.links().lock().await.sibblings.remove(&sibling_id);
 
     Ok(())
 }

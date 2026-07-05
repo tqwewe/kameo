@@ -77,11 +77,7 @@ impl<A: Actor> PreparedActor<A> {
         );
 
         #[cfg(feature = "console")]
-        let monitor = crate::console::registry::register_or_get::<A>(
-            actor_id,
-            actor_ref.mailbox_sender(),
-            &actor_ref.links,
-        );
+        let monitor = crate::console::registry::register_or_get(&actor_ref);
 
         PreparedActor {
             actor_ref,
