@@ -283,10 +283,10 @@ where
     M: Send + 'static,
 {
     type Ok = <A::Reply as Reply>::Ok;
-    type Error = <A::Reply as Reply>::Error;
-    type Value = Result<Self::Ok, SendError<M, Self::Error>>;
+    type Error = SendError<M, <A::Reply as Reply>::Error>;
+    type Value = Result<Self::Ok, Self::Error>;
 
-    fn to_result(self) -> Result<<A::Reply as Reply>::Ok, <A::Reply as Reply>::Error> {
+    fn to_result(self) -> Result<Self::Ok, Self::Error> {
         unimplemented!("a WorkerReply cannot be converted to a result and is only a marker type")
     }
 
