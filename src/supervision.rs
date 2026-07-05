@@ -77,15 +77,18 @@
 
 use std::{
     any::Any,
-    sync::{Arc, atomic::Ordering},
-    time::{Duration, Instant},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 use futures::{FutureExt, future::BoxFuture};
 
 use crate::{
     actor::{Actor, ActorId, ActorRef, DEFAULT_MAILBOX_CAPACITY, PreparedActor},
-    links::{BoxActorRef, ErasedChildSpec, Links, ShutdownFn, SpawnFactory},
+    links::{BoxActorRef, ErasedChildSpec, Links, RestartTracker, ShutdownFn, SpawnFactory},
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -636,9 +639,14 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
         in_thread: bool,
     ) -> ActorRef<C> {
         let actor_id = ActorId::generate();
-        let links = Links::default();
         let restart_policy = self.restart_policy;
-        links.lock().await.restart_policy = Some(restart_policy);
+        let restart_tracker = Arc::new(RestartTracker::new(self.max_restarts, self.restart_window));
+        let parent_shutdown = Arc::new(AtomicBool::new(false));
+        let links = Links::supervised(
+            restart_policy,
+            restart_tracker.clone(),
+            parent_shutdown.clone(),
+        );
         let factory = Arc::new(new_factory(
             actor_id,
             mailbox_tx.clone(),
@@ -658,17 +666,13 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
                 .boxed()
             }
         }) as ShutdownFn);
-        let parent_shutdown = links.lock().await.parent_shutdown.clone();
         let spec = ErasedChildSpec {
             factory: factory.clone(),
             shutdown,
             signal_mailbox: Box::new(mailbox_tx.clone()),
             parent_shutdown,
             restart_policy,
-            restart_count: 0,
-            last_restart: Instant::now(),
-            max_restarts: self.max_restarts,
-            restart_window: self.restart_window,
+            restart_tracker,
         };
         self.supervisor_ref.link_child(actor_id, &links, spec).await;
         *(*factory)(Box::new(mailbox_rx)).await.downcast().unwrap()
