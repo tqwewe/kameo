@@ -247,9 +247,9 @@ impl ActorMonitor {
                     .get(&self.id)
                     .map(|spec| wire::SupervisionInfo {
                         policy: wire_policy(spec.restart_policy),
-                        max_restarts: spec.max_restarts,
-                        restart_window: spec.restart_window,
-                        restart_count: spec.restart_count,
+                        max_restarts: spec.restart_tracker.max_restarts(),
+                        restart_window: spec.restart_tracker.restart_window(),
+                        restart_count: spec.restart_tracker.current_count(),
                     })
             }
             None => None,

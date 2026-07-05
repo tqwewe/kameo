@@ -232,7 +232,7 @@ where
         dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> ControlFlow<ActorStopReason> {
         {
-            let mut links = self.actor_ref.links.lock().await;
+            let links = self.actor_ref.links.lock().await;
 
             // Check if we're already coordinating a restart
             if let CoordinationState::Coordinating {
@@ -256,13 +256,13 @@ where
                 return ControlFlow::Continue(());
             }
 
-            if let Some(spec) = links.children.get_mut(&id) {
+            if let Some(spec) = links.children.get(&id) {
                 let should_restart = spec.should_restart(&reason);
                 let factory = Arc::clone(&spec.factory);
                 #[cfg(feature = "tracing")]
-                let restart_count = spec.restart_count;
+                let restart_count = spec.restart_tracker.current_count();
 
-                // Extract what we need for coordination before dropping mutable borrow
+                // Extract what we need for coordination before borrowing children again
                 let strategy_info = match should_restart {
                     ControlFlow::Continue(()) => match A::supervision_strategy() {
                         SupervisionStrategy::OneForOne => None,

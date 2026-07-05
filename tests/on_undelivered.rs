@@ -3,12 +3,13 @@
 // exact path, so they're skipped under `hotpath` (the hook is covered by every other feature combo).
 #![cfg(not(feature = "hotpath"))]
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use kameo::error::{Infallible, SendError};
 use kameo::prelude::*;
 use kameo::supervision::RestartPolicy;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -173,6 +174,10 @@ struct RestartWorker {
     undelivered_tx: mpsc::UnboundedSender<Vec<u32>>,
     processed_tx: mpsc::UnboundedSender<u32>,
     started_tx: mpsc::UnboundedSender<()>,
+    entered_tx: mpsc::UnboundedSender<()>,
+    // Shared (Clone-friendly) so it survives being cloned into each restarted incarnation. It is
+    // never fired; the exhausted-budget test kills the actor while a Block handler waits on it.
+    gate: Arc<Notify>,
 }
 
 impl Actor for RestartWorker {
@@ -220,6 +225,15 @@ impl Message<Work> for RestartWorker {
     }
 }
 
+impl Message<Block> for RestartWorker {
+    type Reply = ();
+
+    async fn handle(&mut self, _: Block, _: &mut Context<Self, Self::Reply>) {
+        let _ = self.entered_tx.send(());
+        self.gate.notified().await;
+    }
+}
+
 // On a supervisor restart the pending tells are preserved for the next incarnation, so the hook
 // must not fire.
 #[tokio::test]
@@ -235,6 +249,8 @@ async fn undelivered_not_called_on_restart() {
             undelivered_tx,
             processed_tx,
             started_tx,
+            entered_tx: mpsc::unbounded_channel().0,
+            gate: Arc::new(Notify::new()),
         },
     )
     .restart_policy(RestartPolicy::Permanent)
@@ -256,6 +272,101 @@ async fn undelivered_not_called_on_restart() {
 
     // The hook was never called during the restart.
     assert!(undelivered_rx.try_recv().is_err());
+
+    supervisor.kill();
+    supervisor.wait_for_shutdown().await;
+}
+
+// A supervised actor that has exhausted its restart budget is not actually restarted, so its
+// leftover tells must reach on_undelivered rather than being dropped when the supervisor declines
+// the restart. Regression test for the restart-exhaustion leak.
+#[tokio::test]
+async fn undelivered_called_when_restart_budget_exhausted() {
+    let supervisor = Supervisor::spawn(Supervisor);
+    let (undelivered_tx, mut undelivered_rx) = mpsc::unbounded_channel();
+    let (processed_tx, _processed_rx) = mpsc::unbounded_channel();
+    let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+    let (entered_tx, mut entered_rx) = mpsc::unbounded_channel();
+
+    let worker = RestartWorker::supervise(
+        &supervisor,
+        RestartWorker {
+            undelivered_tx,
+            processed_tx,
+            started_tx,
+            entered_tx,
+            gate: Arc::new(Notify::new()),
+        },
+    )
+    .restart_policy(RestartPolicy::Permanent)
+    // A budget of zero means the first death already exceeds the limit, so the supervisor never
+    // restarts it.
+    .restart_limit(0, Duration::from_secs(10))
+    .spawn()
+    .await;
+
+    recv(&mut started_rx).await;
+
+    worker.tell(Block).await.unwrap();
+    recv(&mut entered_rx).await; // Block is running (startup finished) and now blocked
+
+    worker.tell(Work(1)).await.unwrap();
+    worker.tell(Work(2)).await.unwrap();
+    worker.tell(Work(3)).await.unwrap();
+
+    worker.kill();
+    worker.wait_for_shutdown().await;
+
+    // The leftover tells reach the hook instead of being dropped by the declining supervisor.
+    assert_eq!(recv(&mut undelivered_rx).await, vec![1, 2, 3]);
+
+    // It was not restarted (no second startup).
+    assert!(started_rx.try_recv().is_err());
+
+    supervisor.kill();
+    supervisor.wait_for_shutdown().await;
+}
+
+// Like the above, but the budget is spent by a genuine restart first, proving the child reads the
+// same live restart count the supervisor mutates.
+#[tokio::test]
+async fn undelivered_called_after_restart_then_exhausted() {
+    let supervisor = Supervisor::spawn(Supervisor);
+    let (undelivered_tx, mut undelivered_rx) = mpsc::unbounded_channel();
+    let (processed_tx, _processed_rx) = mpsc::unbounded_channel();
+    let (started_tx, mut started_rx) = mpsc::unbounded_channel();
+
+    let worker = RestartWorker::supervise(
+        &supervisor,
+        RestartWorker {
+            undelivered_tx,
+            processed_tx,
+            started_tx,
+            entered_tx: mpsc::unbounded_channel().0,
+            gate: Arc::new(Notify::new()),
+        },
+    )
+    .restart_policy(RestartPolicy::Permanent)
+    .restart_limit(1, Duration::from_secs(10))
+    .spawn()
+    .await;
+
+    recv(&mut started_rx).await; // incarnation 1
+
+    // Spend the single allowed restart with a panic (nothing else queued, so nothing undelivered).
+    worker.tell(PanicMsg).await.unwrap();
+    recv(&mut started_rx).await; // incarnation 2, budget now exhausted
+
+    // Queue tells behind another panic. `PanicMsg` sleeps before panicking, so the tells are in the
+    // mailbox when incarnation 2 dies. Because the budget is exhausted it is not restarted, so the
+    // tells must reach on_undelivered rather than being preserved or dropped.
+    worker.tell(PanicMsg).await.unwrap();
+    worker.tell(Work(1)).await.unwrap();
+    worker.tell(Work(2)).await.unwrap();
+    worker.tell(Work(3)).await.unwrap();
+
+    assert_eq!(recv(&mut undelivered_rx).await, vec![1, 2, 3]);
+    assert!(started_rx.try_recv().is_err()); // not restarted a second time
 
     supervisor.kill();
     supervisor.wait_for_shutdown().await;
