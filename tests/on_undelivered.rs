@@ -1,8 +1,3 @@
-// The `hotpath` profiling feature wraps the mailbox channel and changes its delivery timing, so
-// messages sent to a blocked actor aren't reliably drained at teardown. These tests exercise that
-// exact path, so they're skipped under `hotpath` (the hook is covered by every other feature combo).
-#![cfg(not(feature = "hotpath"))]
-
 use std::sync::Arc;
 use std::time::Duration;
 
