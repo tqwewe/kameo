@@ -1253,9 +1253,6 @@ mod tests {
     }
 
     #[tokio::test]
-    // hotpath wraps the channel with a proxy on a separate background runtime, making the
-    // observable fill count non-deterministic; backpressure semantics are unchanged.
-    #[cfg_attr(feature = "hotpath", ignore)]
     async fn bounded_ask_requests_mailbox_full() -> Result<(), Box<dyn std::error::Error>> {
         struct MyActor;
 
@@ -1346,10 +1343,7 @@ mod tests {
             Ok(())
         );
         // Mailbox is empty, this will make there be one item in the mailbox
-        #[cfg(not(feature = "hotpath"))]
         let fill_count = 1;
-        #[cfg(feature = "hotpath")]
-        let fill_count = 3; // Sadly, hotpath adds some proxy layers, causing the fill count to be 3 instead of 1
         for _ in 0..fill_count {
             assert_eq!(
                 actor_ref

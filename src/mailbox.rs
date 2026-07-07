@@ -18,6 +18,22 @@ use dyn_clone::DynClone;
 use futures::{FutureExt, future::BoxFuture};
 use tokio::sync::mpsc::{self, error::TryRecvError};
 
+/// Channel endpoint types backing the mailbox. With the `hotpath` feature these are
+/// hotpath's instrumented wrappers around tokio mpsc; they mirror tokio's API and
+/// reuse tokio's error types, so only the endpoint types themselves are swapped.
+#[cfg(not(feature = "hotpath"))]
+mod chan {
+    pub(super) use tokio::sync::mpsc::{
+        Receiver, Sender, UnboundedReceiver, UnboundedSender, WeakSender, WeakUnboundedSender,
+    };
+}
+#[cfg(feature = "hotpath")]
+mod chan {
+    pub(super) use hotpath::wrap::tokio::sync::mpsc::{
+        Receiver, Sender, UnboundedReceiver, UnboundedSender, WeakSender, WeakUnboundedSender,
+    };
+}
+
 use crate::{
     Actor,
     actor::{ActorId, ActorRef},
@@ -112,9 +128,9 @@ pub struct MailboxSender<A: Actor> {
 
 enum MailboxSenderInner<A: Actor> {
     /// Bounded mailbox sender.
-    Bounded(mpsc::Sender<Signal<A>>),
+    Bounded(chan::Sender<Signal<A>>),
     /// Unbounded mailbox sender.
-    Unbounded(mpsc::UnboundedSender<Signal<A>>),
+    Unbounded(chan::UnboundedSender<Signal<A>>),
 }
 
 #[cfg(feature = "metrics")]
@@ -475,9 +491,9 @@ pub struct WeakMailboxSender<A: Actor> {
 
 enum WeakMailboxSenderInner<A: Actor> {
     /// Bounded weak mailbox sender.
-    Bounded(mpsc::WeakSender<Signal<A>>),
+    Bounded(chan::WeakSender<Signal<A>>),
     /// Unbounded weak mailbox sender.
-    Unbounded(mpsc::WeakUnboundedSender<Signal<A>>),
+    Unbounded(chan::WeakUnboundedSender<Signal<A>>),
 }
 
 impl<A: Actor> WeakMailboxSender<A> {
@@ -593,9 +609,9 @@ pub struct MailboxReceiver<A: Actor> {
 
 enum MailboxReceiverInner<A: Actor> {
     /// Bounded mailbox receiver.
-    Bounded(mpsc::Receiver<Signal<A>>),
+    Bounded(chan::Receiver<Signal<A>>),
     /// Unbounded mailbox receiver.
-    Unbounded(mpsc::UnboundedReceiver<Signal<A>>),
+    Unbounded(chan::UnboundedReceiver<Signal<A>>),
 }
 
 impl<A: Actor> MailboxReceiver<A> {

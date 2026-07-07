@@ -857,13 +857,10 @@ mod tests {
         let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
         actor_ref.wait_for_startup().await;
         // We need enough messages to both (a) occupy the actor (sleeping 5s
-        // in the handler) and (b) fill the bounded channel.  Without hotpath
-        // the channel capacity is 1, so 2 messages suffice: the first is
-        // dequeued by the actor after the 2ms yield, the second stays queued.
-        #[cfg(not(feature = "hotpath"))]
+        // in the handler) and (b) fill the bounded channel. The channel
+        // capacity is 1, so 2 messages suffice: the first is dequeued by the
+        // actor after the 2ms yield, the second stays queued.
         let fill_count = 2;
-        #[cfg(feature = "hotpath")]
-        let fill_count = 4;
         for _ in 0..fill_count {
             assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
             tokio::time::sleep(Duration::from_millis(2)).await;
@@ -879,9 +876,6 @@ mod tests {
     }
 
     #[tokio::test]
-    // hotpath wraps the channel with a proxy on a separate background runtime, making the
-    // observable fill count non-deterministic; backpressure semantics are unchanged.
-    #[cfg_attr(feature = "hotpath", ignore)]
     async fn bounded_tell_requests_mailbox_timeout() -> Result<(), Box<dyn std::error::Error>> {
         struct MyActor;
 
