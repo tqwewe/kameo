@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/tqwewe/kameo/compare/actors-v0.7.0...actors-v0.8.0) - 2026-07-07
+
+### <!-- 3 -->Fixed
+
+- **BREAKING:** Propagate worker send errors ([#366](https://github.com/tqwewe/kameo/pull/366)) [</>](https://github.com/tqwewe/kameo/commit/ceb672e2bb076fb32fbe7212d1d9b2d9ae327ea2)
+
+
 ## [0.7.0](https://github.com/tqwewe/kameo/compare/actors-v0.6.1...actors-v0.7.0) - 2026-07-05
 
 ### <!-- 1 -->Changed
