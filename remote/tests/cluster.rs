@@ -101,6 +101,50 @@ impl RemoteActor for OtherActor {
     fn remote_messages(_: &mut RemoteMessages<Self>) {}
 }
 
+#[derive(Actor)]
+struct Sequencer {
+    values: Vec<u32>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Push(u32);
+
+impl Message<Push> for Sequencer {
+    type Reply = ();
+
+    async fn handle(&mut self, msg: Push, _: &mut Context<Self, Self::Reply>) {
+        self.values.push(msg.0);
+    }
+}
+
+impl RemoteMessage for Push {
+    const REMOTE_ID: &'static str = "test::Push";
+}
+
+#[derive(Serialize, Deserialize)]
+struct GetAll;
+
+impl Message<GetAll> for Sequencer {
+    type Reply = Vec<u32>;
+
+    async fn handle(&mut self, _: GetAll, _: &mut Context<Self, Self::Reply>) -> Vec<u32> {
+        self.values.clone()
+    }
+}
+
+impl RemoteMessage for GetAll {
+    const REMOTE_ID: &'static str = "test::GetAll";
+}
+
+impl RemoteActor for Sequencer {
+    const REMOTE_ID: &'static str = "test::Sequencer";
+
+    fn remote_messages(handlers: &mut RemoteMessages<Self>) {
+        handlers.add::<Push>();
+        handlers.add::<GetAll>();
+    }
+}
+
 fn test_config(seed_nodes: Vec<String>) -> RemoteNodeConfig {
     RemoteNodeConfig {
         cluster_id: "kameo-test".to_string(),
@@ -321,6 +365,27 @@ async fn same_node_fast_path() {
     assert!(matches!(err, RemoteSendError::HandlerError(_)));
     let err = local.tell(&Undeclared).await.unwrap_err();
     assert!(matches!(err, RemoteSendError::UnknownMessage { .. }));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn per_pair_ordering() {
+    let (node_a, node_b) = spawn_test_cluster().await;
+
+    let sequencer = Sequencer::spawn(Sequencer { values: Vec::new() });
+    node_a.register(&sequencer, "sequencer").await.unwrap();
+
+    let remote = eventually(GOSSIP_DEADLINE, || async {
+        node_b.lookup::<Sequencer>("sequencer").await.unwrap()
+    })
+    .await;
+
+    // Pipelined unacked tells must be delivered in send order, and the final ask
+    // must be ordered after all of them.
+    for i in 0..200 {
+        remote.tell(&Push(i)).send_unacked().await.unwrap();
+    }
+    let values = remote.ask(&GetAll).await.unwrap();
+    assert_eq!(values, (0..200).collect::<Vec<u32>>());
 }
 
 #[tokio::test(flavor = "multi_thread")]

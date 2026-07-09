@@ -19,6 +19,14 @@ use crate::{
 };
 
 /// A reference to an actor registered on a remote node, obtained via lookup.
+///
+/// # Ordering
+///
+/// Messages sent sequentially from one node to one target actor are delivered to the
+/// actor's mailbox in send order (per-pair FIFO ordering, as in Akka). Requests to the
+/// same target actor are processed one at a time per sending node, so an ask delays
+/// subsequent messages to that actor from this node until its reply is sent; requests
+/// to different actors or from different nodes are unaffected.
 pub struct RemoteActorRef<A: RemoteActor> {
     id: RemoteActorId,
     messaging_addr: SocketAddr,
@@ -291,8 +299,8 @@ where
 
     /// Sends the message without waiting for any acknowledgement (at-most-once).
     ///
-    /// Returns once the message is queued to the connection; delivery failures are
-    /// only logged on the receiving node.
+    /// Returns once the message is queued to the connection (or, for local actors,
+    /// delivered to the mailbox); the delivery outcome is only logged, never reported.
     pub async fn send_unacked(self) -> Result<(), RemoteSendError> {
         let frame = self
             .actor_ref
@@ -300,14 +308,13 @@ where
             .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?;
 
         if let Some(dispatch) = &self.actor_ref.local_dispatch {
+            // Awaited rather than spawned so sequential unacked tells keep their order;
+            // the outcome is only logged, matching the fire-and-forget contract.
             match dispatch.resolve(&frame) {
                 Ok(handler) => {
-                    tokio::spawn(async move {
-                        if let Err(err) = handler(frame.payload.into_vec(), InboundKind::Tell).await
-                        {
-                            tracing::warn!("tell dispatch failed: {err:?}");
-                        }
-                    });
+                    if let Err(err) = handler(frame.payload.into_vec(), InboundKind::Tell).await {
+                        tracing::warn!("tell dispatch failed: {err:?}");
+                    }
                 }
                 Err(err) => tracing::warn!("tell dispatch failed: {err:?}"),
             }

@@ -21,7 +21,7 @@ use tokio::{
 use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
 
 use crate::{
-    dispatch::{DispatchTable, InboundKind},
+    dispatch::{DispatchTable, DynHandler, InboundKind},
     messaging::protocol::{self, Frame, RequestFrame, RequestKind, ResponseFrame, WireError},
 };
 
@@ -294,6 +294,11 @@ async fn handle_conn(
     // backpressure to the sender instead of unbounded task spawning.
     let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
+    // One FIFO worker per target actor, so messages from this connection to a given
+    // actor are delivered in arrival order (per-pair FIFO ordering, as in Akka), while
+    // different target actors are processed concurrently.
+    let mut workers: HashMap<u64, mpsc::Sender<WorkItem>> = HashMap::new();
+
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
@@ -307,17 +312,39 @@ async fn handle_conn(
                     Some(Ok(bytes)) => bytes,
                 };
                 match protocol::decode(&bytes) {
-                    Ok(Frame::Request(req)) => {
-                        let permit = tokio::select! {
-                            _ = cancel.cancelled() => break,
-                            permit = semaphore.clone().acquire_owned() => {
-                                permit.expect("semaphore is never closed")
+                    // Resolved inline so dispatch errors reply immediately and workers
+                    // only ever exist for registered actors.
+                    Ok(Frame::Request(req)) => match dispatch.resolve(&req) {
+                        Ok(handler) => {
+                            let permit = tokio::select! {
+                                _ = cancel.cancelled() => break,
+                                permit = semaphore.clone().acquire_owned() => {
+                                    permit.expect("semaphore is never closed")
+                                }
+                            };
+                            let worker = workers
+                                .entry(req.target_sequence_id)
+                                .or_insert_with(|| {
+                                    spawn_worker(reply_tx.clone(), max_concurrent_requests)
+                                });
+                            // Never blocks: queued items hold permits, so a worker
+                            // queue can never exceed its capacity.
+                            if worker.send((handler, req, permit)).await.is_err() {
+                                tracing::warn!("request worker exited unexpectedly");
                             }
-                        };
-                        let dispatch = dispatch.clone();
-                        let reply_tx = reply_tx.clone();
-                        tokio::spawn(handle_request(req, dispatch, reply_tx, permit));
-                    }
+                        }
+                        Err(err) => match req.request_id {
+                            Some(request_id) => {
+                                let _ = reply_tx
+                                    .send(ResponseFrame {
+                                        request_id,
+                                        result: Err(err),
+                                    })
+                                    .await;
+                            }
+                            None => tracing::warn!("tell dispatch failed: {err:?}"),
+                        },
+                    },
                     Ok(Frame::Response(_)) => {
                         tracing::warn!("unexpected response frame on server connection");
                     }
@@ -329,13 +356,26 @@ async fn handle_conn(
             }
         }
     }
+    // Dropping the worker map ends the workers once their queues drain.
+}
+
+type WorkItem = (DynHandler, RequestFrame, OwnedSemaphorePermit);
+
+fn spawn_worker(reply_tx: mpsc::Sender<ResponseFrame>, capacity: usize) -> mpsc::Sender<WorkItem> {
+    let (tx, mut rx) = mpsc::channel::<WorkItem>(capacity);
+    tokio::spawn(async move {
+        while let Some((handler, req, permit)) = rx.recv().await {
+            handle_request(handler, req, &reply_tx).await;
+            drop(permit);
+        }
+    });
+    tx
 }
 
 async fn handle_request(
+    handler: DynHandler,
     req: RequestFrame,
-    dispatch: Arc<DispatchTable>,
-    reply_tx: mpsc::Sender<ResponseFrame>,
-    _permit: OwnedSemaphorePermit,
+    reply_tx: &mpsc::Sender<ResponseFrame>,
 ) {
     let request_id = req.request_id;
     let kind = match req.kind {
@@ -344,10 +384,7 @@ async fn handle_request(
         },
         RequestKind::Tell => InboundKind::Tell,
     };
-    let result = match dispatch.resolve(&req) {
-        Ok(handler) => handler(req.payload.into_vec(), kind).await,
-        Err(err) => Err(err),
-    };
+    let result = handler(req.payload.into_vec(), kind).await;
     match request_id {
         Some(request_id) => {
             let result = result.map(|reply| ByteBuf::from(reply.unwrap_or_default()));

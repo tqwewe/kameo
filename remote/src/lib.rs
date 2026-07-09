@@ -12,7 +12,8 @@
 //!   on mailbox delivery, matching local tell semantics (with
 //!   [`send_unacked`](RemoteTellRequest::send_unacked) as the fire-and-forget path),
 //!   and refs resolving to the local node dispatch in-process without touching the
-//!   network.
+//!   network. Messages from one node to one target actor are delivered in send order
+//!   (per-pair FIFO ordering, as in Akka).
 //!
 //! Nodes join the cluster through seed nodes: a starting node contacts any configured
 //! seed and learns the rest of the membership through gossip.
