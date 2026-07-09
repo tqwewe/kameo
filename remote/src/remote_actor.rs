@@ -105,9 +105,11 @@ impl<A: Actor> RemoteMessages<A> {
                             None => actor_ref.ask(msg).send().await,
                         };
                         match result {
-                            Ok(ok) => Ok(Some(rmp_serde::to_vec_named(&ok).map_err(|err| {
-                                WireError::SerializeReply(err.to_string())
-                            })?)),
+                            Ok(ok) => {
+                                Ok(Some(rmp_serde::to_vec_named(&ok).map_err(|err| {
+                                    WireError::SerializeReply(err.to_string())
+                                })?))
+                            }
                             Err(SendError::HandlerError(err)) => {
                                 match rmp_serde::to_vec_named(&err) {
                                     Ok(bytes) => Err(WireError::HandlerError(ByteBuf::from(bytes))),

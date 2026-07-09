@@ -120,7 +120,9 @@ fn test_config(seed_nodes: Vec<String>) -> RemoteNodeConfig {
 }
 
 async fn spawn_test_node(seed_nodes: Vec<String>) -> RemoteNode {
-    RemoteNode::bootstrap(test_config(seed_nodes)).await.unwrap()
+    RemoteNode::bootstrap(test_config(seed_nodes))
+        .await
+        .unwrap()
 }
 
 /// Spawns two nodes, with the second seeded off the first.
@@ -268,6 +270,57 @@ async fn unknown_message() {
     };
     assert_eq!(actor_remote_id, "test::Counter");
     assert_eq!(message_remote_id, "test::Undeclared");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn acked_tell_surfaces_errors() {
+    let (node_a, node_b) = spawn_test_cluster().await;
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node_a.register(&counter, "counter").await.unwrap();
+
+    let remote = eventually(GOSSIP_DEADLINE, || async {
+        node_b.lookup::<Counter>("counter").await.unwrap()
+    })
+    .await;
+
+    // The delivery ack carries dispatch errors back to the sender.
+    let err = remote.tell(&Undeclared).await.unwrap_err();
+    assert!(
+        matches!(err, RemoteSendError::UnknownMessage { .. }),
+        "expected UnknownMessage, got {err:?}"
+    );
+
+    // Fire-and-forget only reports local failures; the remote error is not observed.
+    remote.tell(&Undeclared).send_unacked().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn same_node_fast_path() {
+    // A bogus messaging advertise address: if any message touched TCP, it would fail
+    // to connect. Local refs must work anyway, proving in-process dispatch.
+    let mut config = test_config(vec![]);
+    config.messaging_advertise_addr = Some("127.0.0.1:1".parse().unwrap());
+    let node = RemoteNode::bootstrap(config).await.unwrap();
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node.register(&counter, "counter").await.unwrap();
+
+    let local = eventually(GOSSIP_DEADLINE, || async {
+        node.lookup::<Counter>("counter").await.unwrap()
+    })
+    .await;
+    assert!(local.is_local());
+
+    assert_eq!(local.ask(&Inc { amount: 4 }).await.unwrap(), 4);
+    local.tell(&Inc { amount: 1 }).await.unwrap();
+    assert_eq!(local.ask(&Get).await.unwrap(), 5);
+
+    // Errors flow through the same dispatch path locally.
+    let err = local.ask(&Fail).await.unwrap_err();
+    assert!(matches!(err, RemoteSendError::HandlerError(_)));
+    let err = local.tell(&Undeclared).await.unwrap_err();
+    assert!(matches!(err, RemoteSendError::UnknownMessage { .. }));
 }
 
 #[tokio::test(flavor = "multi_thread")]

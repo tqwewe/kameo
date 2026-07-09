@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
 use crate::{
+    dispatch::DispatchTable,
     error::RegistryError,
     id::{NodeId, RemoteActorId},
     messaging::transport::ConnectionPool,
@@ -52,6 +53,8 @@ fn providers_from_states<'a, A: RemoteActor>(
     states: impl Iterator<Item = (&'a ChitchatId, &'a NodeState)>,
     name: &str,
     pool: &ConnectionPool,
+    self_id: &ChitchatId,
+    dispatch: &Arc<DispatchTable>,
     saw_mismatch: &mut bool,
 ) -> Vec<RemoteActorRef<A>> {
     let prefix = format!("{ACTOR_KEY_PREFIX}{name}:");
@@ -75,6 +78,8 @@ fn providers_from_states<'a, A: RemoteActor>(
                 *saw_mismatch = true;
                 continue;
             }
+            // Actors on this node incarnation are dispatched in-process, skipping TCP.
+            let local_dispatch = (chitchat_id == self_id).then(|| dispatch.clone());
             refs.push(RemoteActorRef::new(
                 RemoteActorId {
                     node_id: NodeId::from(chitchat_id.node_id.clone()),
@@ -83,6 +88,7 @@ fn providers_from_states<'a, A: RemoteActor>(
                 },
                 value.messaging_addr,
                 pool.clone(),
+                local_dispatch,
             ));
         }
     }
@@ -93,18 +99,20 @@ fn providers_from_states<'a, A: RemoteActor>(
 pub(crate) async fn collect_providers<A: RemoteActor>(
     chitchat: &Arc<Mutex<Chitchat>>,
     pool: &ConnectionPool,
+    dispatch: &Arc<DispatchTable>,
     name: &str,
 ) -> Result<Vec<RemoteActorRef<A>>, RegistryError> {
     let mut saw_mismatch = false;
     let refs = {
         // Everything is copied out under the guard; it is never held across I/O.
         let guard = chitchat.lock().await;
+        let self_id = guard.self_chitchat_id().clone();
         let live: HashSet<ChitchatId> = guard.live_nodes().cloned().collect();
         let states = guard
             .node_states()
             .iter()
             .filter(|(chitchat_id, _)| live.contains(chitchat_id));
-        providers_from_states::<A>(states, name, pool, &mut saw_mismatch)
+        providers_from_states::<A>(states, name, pool, &self_id, dispatch, &mut saw_mismatch)
     };
     if refs.is_empty() && saw_mismatch {
         return Err(RegistryError::BadActorType {
@@ -123,19 +131,35 @@ pub(crate) async fn collect_providers<A: RemoteActor>(
 pub(crate) async fn watch_providers<A: RemoteActor>(
     chitchat: &Arc<Mutex<Chitchat>>,
     pool: ConnectionPool,
+    dispatch: Arc<DispatchTable>,
     name: String,
 ) -> impl Stream<Item = Vec<RemoteActorRef<A>>> + Send + 'static {
-    let stream = chitchat.lock().await.live_nodes_watch_stream();
+    let (stream, self_id) = {
+        let guard = chitchat.lock().await;
+        (
+            guard.live_nodes_watch_stream(),
+            guard.self_chitchat_id().clone(),
+        )
+    };
     stream
         .map(move |snapshot| {
             let mut saw_mismatch = false;
-            providers_from_states::<A>(snapshot.iter(), &name, &pool, &mut saw_mismatch)
+            providers_from_states::<A>(
+                snapshot.iter(),
+                &name,
+                &pool,
+                &self_id,
+                &dispatch,
+                &mut saw_mismatch,
+            )
         })
         .scan(
             None::<Vec<RemoteActorId>>,
             |prev, refs: Vec<RemoteActorRef<A>>| {
-                let mut ids: Vec<RemoteActorId> =
-                    refs.iter().map(|actor_ref| actor_ref.id().clone()).collect();
+                let mut ids: Vec<RemoteActorId> = refs
+                    .iter()
+                    .map(|actor_ref| actor_ref.id().clone())
+                    .collect();
                 ids.sort();
                 let item = if prev.as_ref() == Some(&ids) {
                     // Deduplicate consecutive identical provider sets.

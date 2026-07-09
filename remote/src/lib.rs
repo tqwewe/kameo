@@ -8,7 +8,11 @@
 //!   vanish automatically. Any number of actors may share a name (set semantics);
 //!   [`RemoteNode::lookup_all`] returns them all.
 //! - **Messaging**: [`RemoteActorRef::ask`] and [`RemoteActorRef::tell`] send messages
-//!   over plain TCP, with one pooled connection per node pair.
+//!   over plain TCP, with one pooled connection per node pair. Tells are acknowledged
+//!   on mailbox delivery, matching local tell semantics (with
+//!   [`send_unacked`](RemoteTellRequest::send_unacked) as the fire-and-forget path),
+//!   and refs resolving to the local node dispatch in-process without touching the
+//!   network.
 //!
 //! Nodes join the cluster through seed nodes: a starting node contacts any configured
 //! seed and learns the rest of the membership through gossip.

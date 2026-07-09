@@ -164,8 +164,8 @@ impl RemoteNode {
             max_concurrent_requests,
         } = config;
 
-        let node_name = node_name
-            .unwrap_or_else(|| format!("node-{}", uuid::Uuid::new_v4().simple()));
+        let node_name =
+            node_name.unwrap_or_else(|| format!("node-{}", uuid::Uuid::new_v4().simple()));
         // Milliseconds so fast restarts still get a strictly higher generation.
         let generation_id = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -321,13 +321,19 @@ impl RemoteNode {
 
     /// Looks up all live actors registered under `name`, across all nodes.
     ///
-    /// The result includes actors registered on this node; messages to them loop
-    /// back over TCP.
+    /// The result includes actors registered on this node; messages to them are
+    /// dispatched in-process without touching the network (though still serialized).
     pub async fn lookup_all<A: RemoteActor>(
         &self,
         name: &str,
     ) -> Result<Vec<RemoteActorRef<A>>, RegistryError> {
-        registry::collect_providers(&self.inner.chitchat, &self.inner.pool, name).await
+        registry::collect_providers(
+            &self.inner.chitchat,
+            &self.inner.pool,
+            &self.inner.dispatch,
+            name,
+        )
+        .await
     }
 
     /// Watches the live provider set of `name`, yielding it on every change.
@@ -338,7 +344,13 @@ impl RemoteNode {
         &self,
         name: impl Into<String>,
     ) -> impl Stream<Item = Vec<RemoteActorRef<A>>> + Send + 'static {
-        registry::watch_providers(&self.inner.chitchat, self.inner.pool.clone(), name.into()).await
+        registry::watch_providers(
+            &self.inner.chitchat,
+            self.inner.pool.clone(),
+            self.inner.dispatch.clone(),
+            name.into(),
+        )
+        .await
     }
 
     /// Returns this node's id.

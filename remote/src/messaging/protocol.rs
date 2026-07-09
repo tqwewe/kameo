@@ -12,11 +12,20 @@ pub(crate) enum Frame {
     Response(ResponseFrame),
 }
 
+/// Whether a request expects a reply value (ask) or only a delivery ack (tell).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(crate) enum RequestKind {
+    Ask,
+    Tell,
+}
+
 /// A message sent to an actor on a remote node.
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct RequestFrame {
-    /// `Some(id)` for asks (a response with this id is expected), `None` for tells.
+    /// `Some(id)` when a response with this id is expected: the reply for asks, a
+    /// delivery ack for tells. `None` means fire-and-forget.
     pub request_id: Option<u64>,
+    pub kind: RequestKind,
     /// The generation of the node incarnation the target actor was registered in.
     pub target_generation_id: u64,
     /// The sequence id of the target actor on the receiving node.
@@ -81,6 +90,7 @@ mod tests {
     fn request_frame_round_trip() {
         let frame = round_trip(Frame::Request(RequestFrame {
             request_id: Some(42),
+            kind: RequestKind::Ask,
             target_generation_id: 3,
             target_sequence_id: 7,
             actor_remote_id: "my_actor".to_string(),
@@ -92,6 +102,7 @@ mod tests {
             panic!("expected request frame");
         };
         assert_eq!(req.request_id, Some(42));
+        assert_eq!(req.kind, RequestKind::Ask);
         assert_eq!(req.target_generation_id, 3);
         assert_eq!(req.target_sequence_id, 7);
         assert_eq!(req.actor_remote_id, "my_actor");
@@ -103,7 +114,8 @@ mod tests {
     #[test]
     fn tell_frame_round_trip() {
         let frame = round_trip(Frame::Request(RequestFrame {
-            request_id: None,
+            request_id: Some(43),
+            kind: RequestKind::Tell,
             target_generation_id: 0,
             target_sequence_id: 1,
             actor_remote_id: "a".to_string(),
@@ -114,7 +126,8 @@ mod tests {
         let Frame::Request(req) = frame else {
             panic!("expected request frame");
         };
-        assert_eq!(req.request_id, None);
+        assert_eq!(req.request_id, Some(43));
+        assert_eq!(req.kind, RequestKind::Tell);
         assert_eq!(req.reply_timeout_ms, None);
     }
 

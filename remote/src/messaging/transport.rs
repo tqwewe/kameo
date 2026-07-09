@@ -22,7 +22,7 @@ use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
 
 use crate::{
     dispatch::{DispatchTable, InboundKind},
-    messaging::protocol::{self, Frame, RequestFrame, ResponseFrame, WireError},
+    messaging::protocol::{self, Frame, RequestFrame, RequestKind, ResponseFrame, WireError},
 };
 
 /// An error which can occur when sending a request over the transport.
@@ -82,8 +82,9 @@ impl ConnectionPool {
         self.inner.default_reply_timeout
     }
 
-    /// Sends an ask request and waits for the correlated response.
-    pub(crate) async fn ask(
+    /// Sends a request and waits for the correlated response: the reply for asks, the
+    /// delivery ack for tells.
+    pub(crate) async fn request(
         &self,
         addr: SocketAddr,
         mut req: RequestFrame,
@@ -112,8 +113,8 @@ impl ConnectionPool {
         }
     }
 
-    /// Sends a tell request; returns once the frame is queued to the writer.
-    pub(crate) async fn tell(
+    /// Queues a request without expecting any response (fire-and-forget).
+    pub(crate) async fn enqueue(
         &self,
         addr: SocketAddr,
         mut req: RequestFrame,
@@ -337,11 +338,11 @@ async fn handle_request(
     _permit: OwnedSemaphorePermit,
 ) {
     let request_id = req.request_id;
-    let kind = match request_id {
-        Some(_) => InboundKind::Ask {
+    let kind = match req.kind {
+        RequestKind::Ask => InboundKind::Ask {
             reply_timeout: req.reply_timeout_ms.map(Duration::from_millis),
         },
-        None => InboundKind::Tell,
+        RequestKind::Tell => InboundKind::Tell,
     };
     let result = match dispatch.resolve(&req) {
         Ok(handler) => handler(req.payload.into_vec(), kind).await,

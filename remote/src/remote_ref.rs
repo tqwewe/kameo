@@ -1,6 +1,6 @@
 //! References to actors registered on other nodes.
 
-use std::{fmt, marker::PhantomData, net::SocketAddr, time::Duration};
+use std::{fmt, marker::PhantomData, net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::future::BoxFuture;
 use kameo::{Reply, message::Message};
@@ -8,10 +8,11 @@ use serde::de::DeserializeOwned;
 use serde_bytes::ByteBuf;
 
 use crate::{
+    dispatch::{DispatchTable, InboundKind},
     error::RemoteSendError,
     id::{NodeId, RemoteActorId},
     messaging::{
-        protocol::{RequestFrame, WireError},
+        protocol::{RequestFrame, RequestKind, WireError},
         transport::{ConnectionPool, TransportError},
     },
     remote_actor::{RemoteActor, RemoteMessage},
@@ -22,17 +23,32 @@ pub struct RemoteActorRef<A: RemoteActor> {
     id: RemoteActorId,
     messaging_addr: SocketAddr,
     pool: ConnectionPool,
+    /// Set when the actor lives on this node; messages are dispatched in-process
+    /// (still serialized, but never touching the network).
+    local_dispatch: Option<Arc<DispatchTable>>,
     _marker: PhantomData<fn() -> A>,
 }
 
 impl<A: RemoteActor> RemoteActorRef<A> {
-    pub(crate) fn new(id: RemoteActorId, messaging_addr: SocketAddr, pool: ConnectionPool) -> Self {
+    pub(crate) fn new(
+        id: RemoteActorId,
+        messaging_addr: SocketAddr,
+        pool: ConnectionPool,
+        local_dispatch: Option<Arc<DispatchTable>>,
+    ) -> Self {
         RemoteActorRef {
             id,
             messaging_addr,
             pool,
+            local_dispatch,
             _marker: PhantomData,
         }
+    }
+
+    /// Returns whether the actor lives on the local node, in which case messages skip
+    /// the network and are dispatched in-process.
+    pub fn is_local(&self) -> bool {
+        self.local_dispatch.is_some()
     }
 
     /// Returns the remote actor's identity.
@@ -82,10 +98,12 @@ impl<A: RemoteActor> RemoteActorRef<A> {
     fn request_frame<M: RemoteMessage>(
         &self,
         msg: &M,
+        kind: RequestKind,
         reply_timeout_ms: Option<u64>,
     ) -> Result<RequestFrame, rmp_serde::encode::Error> {
         Ok(RequestFrame {
             request_id: None,
+            kind,
             target_generation_id: self.id.generation_id,
             target_sequence_id: self.id.sequence_id,
             actor_remote_id: A::REMOTE_ID.to_string(),
@@ -102,6 +120,7 @@ impl<A: RemoteActor> Clone for RemoteActorRef<A> {
             id: self.id.clone(),
             messaging_addr: self.messaging_addr,
             pool: self.pool.clone(),
+            local_dispatch: self.local_dispatch.clone(),
             _marker: PhantomData,
         }
     }
@@ -159,22 +178,40 @@ where
             .unwrap_or_else(|| self.actor_ref.pool.default_reply_timeout());
         let frame = self
             .actor_ref
-            .request_frame(self.msg, Some(timeout.as_millis() as u64))
+            .request_frame(self.msg, RequestKind::Ask, Some(timeout.as_millis() as u64))
             .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?;
+
+        if let Some(dispatch) = &self.actor_ref.local_dispatch {
+            let kind = InboundKind::Ask {
+                reply_timeout: Some(timeout),
+            };
+            let result = match dispatch.resolve(&frame) {
+                Ok(handler) => {
+                    match tokio::time::timeout(timeout, handler(frame.payload.into_vec(), kind))
+                        .await
+                    {
+                        Ok(result) => result,
+                        Err(_) => return Err(RemoteSendError::ReplyTimeout),
+                    }
+                }
+                Err(err) => Err(err),
+            };
+            return match result {
+                Ok(reply) => rmp_serde::from_slice(&reply.unwrap_or_default())
+                    .map_err(|err| RemoteSendError::DeserializeReply(err.to_string())),
+                Err(err) => Err(map_wire_error(err, decode_handler_error)),
+            };
+        }
+
         match self
             .actor_ref
             .pool
-            .ask(self.actor_ref.messaging_addr, frame, timeout)
+            .request(self.actor_ref.messaging_addr, frame, timeout)
             .await
         {
             Ok(bytes) => rmp_serde::from_slice(&bytes)
                 .map_err(|err| RemoteSendError::DeserializeReply(err.to_string())),
-            Err(err) => Err(map_transport_error(err, |payload| {
-                match rmp_serde::from_slice(&payload) {
-                    Ok(err) => RemoteSendError::HandlerError(err),
-                    Err(err) => RemoteSendError::DeserializeHandlerError(err.to_string()),
-                }
-            })),
+            Err(err) => Err(map_transport_error(err, decode_handler_error)),
         }
     }
 }
@@ -209,20 +246,79 @@ where
     A: RemoteActor + Message<M>,
     M: RemoteMessage,
 {
-    /// Sends the message, returning once it is queued to the connection.
+    /// Sends the message and waits for the receiving node to acknowledge delivery to
+    /// the actor's mailbox, matching the semantics of a local `tell(..).send()`.
+    ///
+    /// The acknowledgement confirms delivery, not processing. For fire-and-forget
+    /// semantics, use [`send_unacked`](RemoteTellRequest::send_unacked).
     pub async fn send(self) -> Result<(), RemoteSendError> {
+        let timeout = self.actor_ref.pool.default_reply_timeout();
         let frame = self
             .actor_ref
-            .request_frame(self.msg, None)
+            .request_frame(self.msg, RequestKind::Tell, None)
             .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?;
+
+        if let Some(dispatch) = &self.actor_ref.local_dispatch {
+            let result = match dispatch.resolve(&frame) {
+                Ok(handler) => {
+                    match tokio::time::timeout(
+                        timeout,
+                        handler(frame.payload.into_vec(), InboundKind::Tell),
+                    )
+                    .await
+                    {
+                        Ok(result) => result,
+                        Err(_) => return Err(RemoteSendError::ReplyTimeout),
+                    }
+                }
+                Err(err) => Err(err),
+            };
+            return result
+                .map(|_| ())
+                .map_err(|err| map_wire_error(err, |_| RemoteSendError::ConnectionClosed));
+        }
+
         self.actor_ref
             .pool
-            .tell(self.actor_ref.messaging_addr, frame)
+            .request(self.actor_ref.messaging_addr, frame, timeout)
             .await
+            .map(|_| ())
             .map_err(|err| {
-                // Tells receive no response, so remote errors cannot occur here.
+                // The tell path never produces a handler error.
                 map_transport_error(err, |_| RemoteSendError::ConnectionClosed)
             })
+    }
+
+    /// Sends the message without waiting for any acknowledgement (at-most-once).
+    ///
+    /// Returns once the message is queued to the connection; delivery failures are
+    /// only logged on the receiving node.
+    pub async fn send_unacked(self) -> Result<(), RemoteSendError> {
+        let frame = self
+            .actor_ref
+            .request_frame(self.msg, RequestKind::Tell, None)
+            .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?;
+
+        if let Some(dispatch) = &self.actor_ref.local_dispatch {
+            match dispatch.resolve(&frame) {
+                Ok(handler) => {
+                    tokio::spawn(async move {
+                        if let Err(err) = handler(frame.payload.into_vec(), InboundKind::Tell).await
+                        {
+                            tracing::warn!("tell dispatch failed: {err:?}");
+                        }
+                    });
+                }
+                Err(err) => tracing::warn!("tell dispatch failed: {err:?}"),
+            }
+            return Ok(());
+        }
+
+        self.actor_ref
+            .pool
+            .enqueue(self.actor_ref.messaging_addr, frame)
+            .await
+            .map_err(|err| map_transport_error(err, |_| RemoteSendError::ConnectionClosed))
     }
 }
 
@@ -239,6 +335,13 @@ where
     }
 }
 
+fn decode_handler_error<E: DeserializeOwned>(payload: ByteBuf) -> RemoteSendError<E> {
+    match rmp_serde::from_slice(&payload) {
+        Ok(err) => RemoteSendError::HandlerError(err),
+        Err(err) => RemoteSendError::DeserializeHandlerError(err.to_string()),
+    }
+}
+
 fn map_transport_error<E>(
     err: TransportError,
     decode_handler_error: impl FnOnce(ByteBuf) -> RemoteSendError<E>,
@@ -247,26 +350,33 @@ fn map_transport_error<E>(
         TransportError::Connect(err) => RemoteSendError::Connect(err),
         TransportError::ConnectionClosed => RemoteSendError::ConnectionClosed,
         TransportError::ReplyTimeout => RemoteSendError::ReplyTimeout,
-        TransportError::Remote(err) => match err {
-            WireError::ActorNotRunning => RemoteSendError::ActorNotRunning,
-            WireError::ActorStopped => RemoteSendError::ActorStopped,
-            WireError::BadActorType => RemoteSendError::BadActorType,
-            WireError::MailboxFull => RemoteSendError::MailboxFull,
-            WireError::ReplyTimeout => RemoteSendError::ReplyTimeout,
-            WireError::UnknownActor { actor_remote_id } => {
-                RemoteSendError::UnknownActor { actor_remote_id }
-            }
-            WireError::UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            } => RemoteSendError::UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            },
-            WireError::HandlerError(payload) => decode_handler_error(payload),
-            WireError::DeserializeMessage(err) => RemoteSendError::DeserializeMessage(err),
-            WireError::SerializeReply(err) => RemoteSendError::SerializeReply(err),
-            WireError::SerializeHandlerError(err) => RemoteSendError::SerializeHandlerError(err),
+        TransportError::Remote(err) => map_wire_error(err, decode_handler_error),
+    }
+}
+
+fn map_wire_error<E>(
+    err: WireError,
+    decode_handler_error: impl FnOnce(ByteBuf) -> RemoteSendError<E>,
+) -> RemoteSendError<E> {
+    match err {
+        WireError::ActorNotRunning => RemoteSendError::ActorNotRunning,
+        WireError::ActorStopped => RemoteSendError::ActorStopped,
+        WireError::BadActorType => RemoteSendError::BadActorType,
+        WireError::MailboxFull => RemoteSendError::MailboxFull,
+        WireError::ReplyTimeout => RemoteSendError::ReplyTimeout,
+        WireError::UnknownActor { actor_remote_id } => {
+            RemoteSendError::UnknownActor { actor_remote_id }
+        }
+        WireError::UnknownMessage {
+            actor_remote_id,
+            message_remote_id,
+        } => RemoteSendError::UnknownMessage {
+            actor_remote_id,
+            message_remote_id,
         },
+        WireError::HandlerError(payload) => decode_handler_error(payload),
+        WireError::DeserializeMessage(err) => RemoteSendError::DeserializeMessage(err),
+        WireError::SerializeReply(err) => RemoteSendError::SerializeReply(err),
+        WireError::SerializeHandlerError(err) => RemoteSendError::SerializeHandlerError(err),
     }
 }
