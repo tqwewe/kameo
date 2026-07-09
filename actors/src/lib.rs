@@ -3,6 +3,7 @@
 //! This crate provides reusable actor components:
 //!
 //! - `broker`: Topic-based message broker
+//! - `future`: Actor that runs a future to completion as its behaviour
 //! - `message_bus`: Type-based message bus
 //! - `pool`: Actor pool for managing concurrent task execution
 //! - `pubsub`: Publish-subscribe pattern implementation for actor communication
@@ -16,6 +17,7 @@
 use std::time::Duration;
 
 pub mod broker;
+pub mod future;
 pub mod message_bus;
 pub mod message_queue;
 pub mod pool;
