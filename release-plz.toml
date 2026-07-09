@@ -36,6 +36,13 @@ name = "kameo_console"
 git_tag_name = "console-v{{ version }}"
 git_release_name = "console-v{{ version }}"
 
+[[package]]
+name = "kameo_remote"
+git_tag_name = "remote-v{{ version }}"
+git_release_name = "remote-v{{ version }}"
+# Experimental; flip to true when ready to publish to crates.io.
+release = false
+
 [changelog]
 # Ported from the former cliff.toml. In release-plz the git-cliff commit parsing
 # keys live under [changelog] rather than a separate [git] table.
