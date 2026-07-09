@@ -101,8 +101,8 @@ impl RemoteActor for OtherActor {
     fn remote_messages(_: &mut RemoteMessages<Self>) {}
 }
 
-async fn spawn_test_node(seed_nodes: Vec<String>) -> RemoteNode {
-    let config = RemoteNodeConfig {
+fn test_config(seed_nodes: Vec<String>) -> RemoteNodeConfig {
+    RemoteNodeConfig {
         cluster_id: "kameo-test".to_string(),
         gossip_listen_addr: "127.0.0.1:0".parse().unwrap(),
         messaging_listen_addr: "127.0.0.1:0".parse().unwrap(),
@@ -116,8 +116,11 @@ async fn spawn_test_node(seed_nodes: Vec<String>) -> RemoteNode {
             dead_node_grace_period: Duration::from_secs(20),
         },
         ..Default::default()
-    };
-    RemoteNode::bootstrap(config).await.unwrap()
+    }
+}
+
+async fn spawn_test_node(seed_nodes: Vec<String>) -> RemoteNode {
+    RemoteNode::bootstrap(test_config(seed_nodes)).await.unwrap()
 }
 
 /// Spawns two nodes, with the second seeded off the first.
@@ -327,7 +330,9 @@ async fn node_death_removes_registrations() {
     })
     .await;
 
-    node_b.shutdown().await.unwrap();
+    // Dropping the node aborts its gossip and messaging tasks without a clean
+    // departure, simulating a crash.
+    drop(node_b);
 
     // The failure detector on node a must declare node b dead.
     eventually(DEATH_DEADLINE, || async {
@@ -339,6 +344,85 @@ async fn node_death_removes_registrations() {
             .then_some(())
     })
     .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn clean_shutdown_deregisters_quickly() {
+    // A slow failure detector, so fast removal can only come from the gossiped
+    // deletions performed by shutdown, not from failure detection.
+    let mut config_a = test_config(vec![]);
+    config_a.failure_detector_config = FailureDetectorConfig::default();
+    let node_a = RemoteNode::bootstrap(config_a).await.unwrap();
+    let mut config_b = test_config(vec![node_a.gossip_addr().to_string()]);
+    config_b.failure_detector_config = FailureDetectorConfig::default();
+    let node_b = RemoteNode::bootstrap(config_b).await.unwrap();
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node_b.register(&counter, "counter").await.unwrap();
+
+    eventually(GOSSIP_DEADLINE, || async {
+        node_a.lookup::<Counter>("counter").await.unwrap()
+    })
+    .await;
+
+    node_b.shutdown().await.unwrap();
+
+    eventually(Duration::from_secs(3), || async {
+        node_a
+            .lookup::<Counter>("counter")
+            .await
+            .unwrap()
+            .is_none()
+            .then_some(())
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stale_ref_rejected_after_restart() {
+    let node_a = spawn_test_node(vec![]).await;
+
+    // Node b has a fixed name so its restarted incarnation is the "same node".
+    let mut config = test_config(vec![node_a.gossip_addr().to_string()]);
+    config.node_name = Some("fixed-node".to_string());
+    let node_b = RemoteNode::bootstrap(config).await.unwrap();
+    let messaging_addr = node_b.messaging_addr();
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node_b.register(&counter, "counter").await.unwrap();
+
+    let stale = eventually(GOSSIP_DEADLINE, || async {
+        node_a.lookup::<Counter>("counter").await.unwrap()
+    })
+    .await;
+
+    node_b.shutdown().await.unwrap();
+
+    // Restart with the same name and messaging address, and re-register the same
+    // actor so the stale reference's sequence id is valid on the new incarnation.
+    let mut config = test_config(vec![node_a.gossip_addr().to_string()]);
+    config.node_name = Some("fixed-node".to_string());
+    config.messaging_listen_addr = messaging_addr;
+    let node_b2 = RemoteNode::bootstrap(config).await.unwrap();
+    assert_ne!(node_b2.generation_id(), stale.id().generation_id);
+    node_b2.register(&counter, "counter").await.unwrap();
+
+    // A fresh lookup targets the new incarnation and works.
+    let fresh = eventually(GOSSIP_DEADLINE, || async {
+        let remote = node_a.lookup::<Counter>("counter").await.unwrap()?;
+        (remote.id().generation_id == node_b2.generation_id()).then_some(remote)
+    })
+    .await;
+    assert_eq!(fresh.ask(&Get).await.unwrap(), 0);
+
+    // The stale reference carries the old generation and must be rejected, even
+    // though its sequence id matches a registered actor.
+    assert_eq!(stale.id().sequence_id, fresh.id().sequence_id);
+    let err = stale.ask(&Get).await.unwrap_err();
+    assert!(
+        matches!(err, RemoteSendError::ActorNotRunning),
+        "expected ActorNotRunning, got {err:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

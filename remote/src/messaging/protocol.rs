@@ -17,6 +17,8 @@ pub(crate) enum Frame {
 pub(crate) struct RequestFrame {
     /// `Some(id)` for asks (a response with this id is expected), `None` for tells.
     pub request_id: Option<u64>,
+    /// The generation of the node incarnation the target actor was registered in.
+    pub target_generation_id: u64,
     /// The sequence id of the target actor on the receiving node.
     pub target_sequence_id: u64,
     /// The target actor type's `REMOTE_ID`.
@@ -79,6 +81,7 @@ mod tests {
     fn request_frame_round_trip() {
         let frame = round_trip(Frame::Request(RequestFrame {
             request_id: Some(42),
+            target_generation_id: 3,
             target_sequence_id: 7,
             actor_remote_id: "my_actor".to_string(),
             message_remote_id: "my_msg".to_string(),
@@ -89,6 +92,7 @@ mod tests {
             panic!("expected request frame");
         };
         assert_eq!(req.request_id, Some(42));
+        assert_eq!(req.target_generation_id, 3);
         assert_eq!(req.target_sequence_id, 7);
         assert_eq!(req.actor_remote_id, "my_actor");
         assert_eq!(req.message_remote_id, "my_msg");
@@ -100,6 +104,7 @@ mod tests {
     fn tell_frame_round_trip() {
         let frame = round_trip(Frame::Request(RequestFrame {
             request_id: None,
+            target_generation_id: 0,
             target_sequence_id: 1,
             actor_remote_id: "a".to_string(),
             message_remote_id: "m".to_string(),

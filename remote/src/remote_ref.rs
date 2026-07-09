@@ -86,6 +86,7 @@ impl<A: RemoteActor> RemoteActorRef<A> {
     ) -> Result<RequestFrame, rmp_serde::encode::Error> {
         Ok(RequestFrame {
             request_id: None,
+            target_generation_id: self.id.generation_id,
             target_sequence_id: self.id.sequence_id,
             actor_remote_id: A::REMOTE_ID.to_string(),
             message_remote_id: M::REMOTE_ID.to_string(),

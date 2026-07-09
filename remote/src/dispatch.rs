@@ -26,8 +26,10 @@ pub(crate) type DynHandler = Arc<
 >;
 
 /// Registered actors on this node, keyed by their local sequence id.
-#[derive(Default)]
 pub(crate) struct DispatchTable {
+    /// This node incarnation's generation; requests targeting another generation are
+    /// stale references from before a restart and are rejected.
+    generation_id: u64,
     // Sync lock; the guard is never held across an await.
     actors: RwLock<HashMap<u64, ActorEntry>>,
 }
@@ -40,6 +42,13 @@ struct ActorEntry {
 }
 
 impl DispatchTable {
+    pub(crate) fn new(generation_id: u64) -> Self {
+        DispatchTable {
+            generation_id,
+            actors: RwLock::new(HashMap::new()),
+        }
+    }
+
     pub(crate) fn insert(
         &self,
         sequence_id: u64,
@@ -72,6 +81,10 @@ impl DispatchTable {
     /// Resolves a request to its handler. The handler is cloned out so the lock is
     /// released before it is invoked.
     pub(crate) fn resolve(&self, req: &RequestFrame) -> Result<DynHandler, WireError> {
+        if req.target_generation_id != self.generation_id {
+            // A stale reference into a previous incarnation of this node.
+            return Err(WireError::ActorNotRunning);
+        }
         let actors = self.actors.read().unwrap();
         let Some(entry) = actors.get(&req.target_sequence_id) else {
             // The actor was deregistered, stopped, or never existed on this node.

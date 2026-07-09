@@ -55,6 +55,10 @@ pub struct RemoteNodeConfig {
     pub default_reply_timeout: Duration,
     /// Maximum TCP frame length. Default: 16 MiB.
     pub max_frame_len: usize,
+    /// Maximum concurrently processed inbound requests per connection. When the limit
+    /// is reached, further frames are not read, propagating backpressure over TCP.
+    /// Default: 512.
+    pub max_concurrent_requests: usize,
 }
 
 impl Default for RemoteNodeConfig {
@@ -73,6 +77,7 @@ impl Default for RemoteNodeConfig {
             connect_timeout: Duration::from_secs(10),
             default_reply_timeout: Duration::from_secs(30),
             max_frame_len: 16 * 1024 * 1024,
+            max_concurrent_requests: 512,
         }
     }
 }
@@ -126,8 +131,10 @@ pub struct RemoteNode {
 
 pub(crate) struct RemoteNodeInner {
     node_id: NodeId,
+    generation_id: u64,
     gossip_advertise_addr: SocketAddr,
     messaging_advertise_addr: SocketAddr,
+    gossip_interval: Duration,
     chitchat: Arc<tokio::sync::Mutex<Chitchat>>,
     // Option because ChitchatHandle::shutdown consumes the handle.
     chitchat_handle: tokio::sync::Mutex<Option<ChitchatHandle>>,
@@ -154,6 +161,7 @@ impl RemoteNode {
             connect_timeout,
             default_reply_timeout,
             max_frame_len,
+            max_concurrent_requests,
         } = config;
 
         let node_name = node_name
@@ -208,7 +216,7 @@ impl RemoteNode {
         .map_err(BootstrapError::Chitchat)?;
 
         let chitchat = handle.chitchat();
-        let dispatch = Arc::new(DispatchTable::default());
+        let dispatch = Arc::new(DispatchTable::new(generation_id));
         let pool = ConnectionPool::new(connect_timeout, default_reply_timeout, max_frame_len);
         let cancel = CancellationToken::new();
         let server_task = tokio::spawn(run_server(
@@ -216,13 +224,16 @@ impl RemoteNode {
             dispatch.clone(),
             cancel.child_token(),
             max_frame_len,
+            max_concurrent_requests,
         ));
 
         Ok(RemoteNode {
             inner: Arc::new(RemoteNodeInner {
                 node_id: NodeId::from(node_name),
+                generation_id,
                 gossip_advertise_addr,
                 messaging_advertise_addr,
+                gossip_interval,
                 chitchat,
                 chitchat_handle: tokio::sync::Mutex::new(Some(handle)),
                 dispatch,
@@ -335,6 +346,11 @@ impl RemoteNode {
         &self.inner.node_id
     }
 
+    /// Returns this node incarnation's generation id, which increases on restart.
+    pub fn generation_id(&self) -> u64 {
+        self.inner.generation_id
+    }
+
     /// Returns this node's gossip advertise address.
     pub fn gossip_addr(&self) -> SocketAddr {
         self.inner.gossip_advertise_addr
@@ -354,16 +370,38 @@ impl RemoteNode {
             .collect()
     }
 
-    /// Shuts the node down: stops the messaging server and leaves the gossip cluster.
+    /// Shuts the node down: deregisters all registrations, stops the messaging server,
+    /// and leaves the gossip cluster.
     ///
-    /// Idempotent; a second call is a no-op. Registrations are not explicitly removed,
-    /// since other nodes drop them when this node is declared dead.
+    /// The registrations are deleted and given a couple of gossip rounds to propagate,
+    /// so peers observe a clean departure quickly instead of waiting for the failure
+    /// detector. Idempotent; a second call is a no-op.
     pub async fn shutdown(&self) -> Result<(), ShutdownError> {
-        self.inner.cancel.cancel();
         let handle = self.inner.chitchat_handle.lock().await.take();
-        if let Some(handle) = handle {
-            handle.shutdown().await.map_err(ShutdownError::Chitchat)?;
+        let Some(handle) = handle else {
+            self.inner.cancel.cancel();
+            return Ok(());
+        };
+
+        let had_registrations = {
+            let mut chitchat = self.inner.chitchat.lock().await;
+            let state = chitchat.self_node_state();
+            let keys: Vec<String> = state
+                .iter_prefix(registry::ACTOR_KEY_PREFIX)
+                .map(|(key, _)| key.to_string())
+                .collect();
+            for key in &keys {
+                state.delete(key);
+            }
+            !keys.is_empty()
+        };
+        if had_registrations {
+            // Give gossip a couple of rounds to propagate the deletions.
+            tokio::time::sleep(2 * self.inner.gossip_interval).await;
         }
+
+        self.inner.cancel.cancel();
+        handle.shutdown().await.map_err(ShutdownError::Chitchat)?;
         Ok(())
     }
 }

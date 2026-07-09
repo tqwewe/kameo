@@ -54,11 +54,18 @@ impl<'de> Deserialize<'de> for NodeId {
     }
 }
 
-/// The identity of a remote actor: the owning node plus the actor's local sequence id.
+/// The identity of a remote actor: the owning node incarnation plus the actor's local
+/// sequence id.
+///
+/// The `generation_id` identifies the node's incarnation (it increases on restart), so a
+/// stale reference into a previous incarnation can never reach an unrelated actor that
+/// happens to reuse the same sequence id.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct RemoteActorId {
     /// The node the actor lives on.
     pub node_id: NodeId,
+    /// The generation of the node's incarnation the actor was registered in.
+    pub generation_id: u64,
     /// The actor's locally-unique sequence id on that node.
     pub sequence_id: u64,
 }

@@ -78,6 +78,7 @@ fn providers_from_states<'a, A: RemoteActor>(
             refs.push(RemoteActorRef::new(
                 RemoteActorId {
                     node_id: NodeId::from(chitchat_id.node_id.clone()),
+                    generation_id: chitchat_id.generation_id,
                     sequence_id,
                 },
                 value.messaging_addr,

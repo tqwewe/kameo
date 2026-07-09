@@ -16,7 +16,7 @@ use futures::{SinkExt, StreamExt};
 use serde_bytes::ByteBuf;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{mpsc, oneshot},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot},
 };
 use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
 
@@ -36,6 +36,10 @@ pub(crate) enum TransportError {
 
 type PendingReplies = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<ByteBuf, WireError>>>>>;
 
+/// One pooled connection slot per remote address. Dialing holds only this slot's lock,
+/// so an unreachable peer never stalls sends to other peers.
+type Slot = Arc<tokio::sync::Mutex<Option<Connection>>>;
+
 /// A pool of lazily-established connections, one per remote messaging address.
 #[derive(Clone)]
 pub(crate) struct ConnectionPool {
@@ -43,7 +47,8 @@ pub(crate) struct ConnectionPool {
 }
 
 struct PoolInner {
-    connections: tokio::sync::Mutex<HashMap<SocketAddr, Connection>>,
+    // Sync lock guarding the slot map only; never held across an await.
+    slots: Mutex<HashMap<SocketAddr, Slot>>,
     connect_timeout: Duration,
     default_reply_timeout: Duration,
     max_frame_len: usize,
@@ -65,7 +70,7 @@ impl ConnectionPool {
     ) -> Self {
         ConnectionPool {
             inner: Arc::new(PoolInner {
-                connections: tokio::sync::Mutex::new(HashMap::new()),
+                slots: Mutex::new(HashMap::new()),
                 connect_timeout,
                 default_reply_timeout,
                 max_frame_len,
@@ -122,15 +127,24 @@ impl ConnectionPool {
     }
 
     async fn get_or_connect(&self, addr: SocketAddr) -> Result<Connection, TransportError> {
-        // The pool lock is held across connect, serialising new dials; acceptable for v1.
-        let mut connections = self.inner.connections.lock().await;
-        if let Some(conn) = connections.get(&addr) {
-            if !conn.closed.load(Ordering::Relaxed) {
-                return Ok(conn.clone());
-            }
-            connections.remove(&addr);
+        let slot = {
+            let mut slots = self.inner.slots.lock().unwrap();
+            slots.entry(addr).or_default().clone()
+        };
+        // Only this address's slot is locked across the dial; concurrent requests to the
+        // same address queue behind a single dial, other addresses are unaffected.
+        let mut guard = slot.lock().await;
+        if let Some(conn) = guard.as_ref()
+            && !conn.closed.load(Ordering::Relaxed)
+        {
+            return Ok(conn.clone());
         }
+        let conn = self.connect(addr).await?;
+        *guard = Some(conn.clone());
+        Ok(conn)
+    }
 
+    async fn connect(&self, addr: SocketAddr) -> Result<Connection, TransportError> {
         let stream = tokio::time::timeout(self.inner.connect_timeout, TcpStream::connect(addr))
             .await
             .map_err(|_| {
@@ -204,14 +218,12 @@ impl ConnectionPool {
             reader_pending.lock().unwrap().clear();
         });
 
-        let conn = Connection {
+        Ok(Connection {
             outbound: outbound_tx,
             pending,
             next_request_id: Arc::new(AtomicU64::new(0)),
             closed,
-        };
-        connections.insert(addr, conn.clone());
-        Ok(conn)
+        })
     }
 }
 
@@ -221,6 +233,7 @@ pub(crate) async fn run_server(
     dispatch: Arc<DispatchTable>,
     cancel: CancellationToken,
     max_frame_len: usize,
+    max_concurrent_requests: usize,
 ) {
     loop {
         tokio::select! {
@@ -232,6 +245,7 @@ pub(crate) async fn run_server(
                         dispatch.clone(),
                         cancel.child_token(),
                         max_frame_len,
+                        max_concurrent_requests,
                     ));
                 }
                 Err(err) => tracing::warn!("failed to accept connection: {err}"),
@@ -245,6 +259,7 @@ async fn handle_conn(
     dispatch: Arc<DispatchTable>,
     cancel: CancellationToken,
     max_frame_len: usize,
+    max_concurrent_requests: usize,
 ) {
     if let Err(err) = stream.set_nodelay(true) {
         tracing::debug!("failed to set nodelay: {err}");
@@ -273,6 +288,11 @@ async fn handle_conn(
         }
     });
 
+    // Caps concurrently processed requests for this connection. The read loop stops
+    // pulling frames while no permits are available, so overload propagates as TCP
+    // backpressure to the sender instead of unbounded task spawning.
+    let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
+
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
@@ -287,9 +307,15 @@ async fn handle_conn(
                 };
                 match protocol::decode(&bytes) {
                     Ok(Frame::Request(req)) => {
+                        let permit = tokio::select! {
+                            _ = cancel.cancelled() => break,
+                            permit = semaphore.clone().acquire_owned() => {
+                                permit.expect("semaphore is never closed")
+                            }
+                        };
                         let dispatch = dispatch.clone();
                         let reply_tx = reply_tx.clone();
-                        tokio::spawn(handle_request(req, dispatch, reply_tx));
+                        tokio::spawn(handle_request(req, dispatch, reply_tx, permit));
                     }
                     Ok(Frame::Response(_)) => {
                         tracing::warn!("unexpected response frame on server connection");
@@ -308,6 +334,7 @@ async fn handle_request(
     req: RequestFrame,
     dispatch: Arc<DispatchTable>,
     reply_tx: mpsc::Sender<ResponseFrame>,
+    _permit: OwnedSemaphorePermit,
 ) {
     let request_id = req.request_id;
     let kind = match request_id {
