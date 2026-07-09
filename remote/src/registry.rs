@@ -10,6 +10,7 @@ use chitchat::{Chitchat, ChitchatId, NodeState};
 use futures::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     dispatch::DispatchTable,
@@ -132,6 +133,7 @@ pub(crate) async fn watch_providers<A: RemoteActor>(
     chitchat: &Arc<Mutex<Chitchat>>,
     pool: ConnectionPool,
     dispatch: Arc<DispatchTable>,
+    cancel: CancellationToken,
     name: String,
 ) -> impl Stream<Item = Vec<RemoteActorRef<A>>> + Send + 'static {
     let (stream, self_id) = {
@@ -172,6 +174,8 @@ pub(crate) async fn watch_providers<A: RemoteActor>(
             },
         )
         .filter_map(futures::future::ready)
+        // End the stream when the node shuts down; gossip is frozen from then on.
+        .take_until(cancel.cancelled_owned())
 }
 
 #[cfg(test)]

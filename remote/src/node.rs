@@ -197,6 +197,20 @@ impl RemoteNode {
             }
         });
 
+        // An unspecified advertise address is only usable by an isolated single node:
+        // peers would gossip back or connect to 0.0.0.0 and never reach this node.
+        if gossip_advertise_addr.ip().is_unspecified() {
+            tracing::warn!(
+                "gossip advertise address {gossip_advertise_addr} is unspecified; other nodes \
+                 cannot reach this node, set gossip_advertise_addr or a concrete listen address"
+            );
+        } else if messaging_advertise_addr.ip().is_unspecified() {
+            tracing::warn!(
+                "messaging advertise address {messaging_advertise_addr} is unspecified; other \
+                 nodes cannot message this node, set messaging_advertise_addr"
+            );
+        }
+
         let chitchat_config = ChitchatConfig {
             chitchat_id: ChitchatId::new(node_name.clone(), generation_id, gossip_advertise_addr),
             cluster_id,
@@ -362,6 +376,7 @@ impl RemoteNode {
             &self.inner.chitchat,
             self.inner.pool.clone(),
             self.inner.dispatch.clone(),
+            self.inner.cancel.child_token(),
             name.into(),
         )
         .await)
@@ -446,6 +461,9 @@ impl RemoteNode {
         // Release the registry's strong ActorRefs; local fast-path refs now resolve
         // to nothing, consistent with how remote peers observe the departure.
         self.inner.dispatch.clear();
+        // Tear down outbound connections; remote refs obtained through this node
+        // fail with NodeShutdown from here on.
+        self.inner.pool.shutdown();
         result
     }
 }
@@ -478,5 +496,8 @@ impl Drop for RemoteNodeInner {
         // Local fast-path refs may outlive the node's Arc; without this they would
         // keep dispatching (and keep registered actors alive) after the node is gone.
         self.dispatch.clear();
+        // Remote refs hold pool clones; without this their connections and tasks
+        // would outlive the node.
+        self.pool.shutdown();
     }
 }

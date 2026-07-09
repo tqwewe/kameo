@@ -9,11 +9,8 @@
 //!   [`RemoteNode::lookup_all`] returns them all.
 //! - **Messaging**: [`RemoteActorRef::ask`] and [`RemoteActorRef::tell`] send messages
 //!   over plain TCP, with one pooled connection per node pair. Tells are acknowledged
-//!   on mailbox delivery, matching local tell semantics (with
-//!   [`send_unacked`](RemoteTellRequest::send_unacked) as the fire-and-forget path),
-//!   and refs resolving to the local node dispatch in-process without touching the
-//!   network. Messages from one node to one target actor are delivered in send order
-//!   (per-pair FIFO ordering, as in Akka).
+//!   on mailbox delivery, refs resolving to the local node are dispatched in-process,
+//!   and messages from one node to one target actor are delivered in send order.
 //!
 //! Nodes join the cluster through seed nodes: a starting node contacts any configured
 //! seed and learns the rest of the membership through gossip.

@@ -20,13 +20,18 @@ use crate::{
 
 /// A reference to an actor registered on a remote node, obtained via lookup.
 ///
+/// Holding a reference does not affect the actor's lifetime; if the actor stops, sends
+/// fail with an error.
+///
 /// # Ordering
 ///
 /// Messages sent sequentially from one node to one target actor are delivered to the
-/// actor's mailbox in send order (per-pair FIFO ordering, as in Akka). Requests to the
-/// same target actor are processed one at a time per sending node, so an ask delays
-/// subsequent messages to that actor from this node until its reply is sent; requests
-/// to different actors or from different nodes are unaffected.
+/// actor's mailbox in send order. Requests to the same target actor are processed one
+/// at a time per sending node, so an ask delays subsequent messages to that actor from
+/// this node until its reply is sent; requests to different actors or from different
+/// nodes are unaffected. Ordering holds within one connection: if the connection fails
+/// and is re-established, messages already in flight may interleave with newly sent
+/// ones.
 pub struct RemoteActorRef<A: RemoteActor> {
     id: RemoteActorId,
     messaging_addr: SocketAddr,
@@ -257,8 +262,7 @@ where
     /// Sends the message and waits for the receiving node to acknowledge delivery to
     /// the actor's mailbox, matching the semantics of a local `tell(..).send()`.
     ///
-    /// The acknowledgement confirms delivery, not processing. For fire-and-forget
-    /// semantics, use [`send_unacked`](RemoteTellRequest::send_unacked).
+    /// The acknowledgement confirms delivery, not processing.
     pub async fn send(self) -> Result<(), RemoteSendError> {
         let timeout = self.actor_ref.pool.default_reply_timeout();
         let frame = self
@@ -356,6 +360,7 @@ fn map_transport_error<E>(
     match err {
         TransportError::Connect(err) => RemoteSendError::Connect(err),
         TransportError::ConnectionClosed => RemoteSendError::ConnectionClosed,
+        TransportError::NodeShutdown => RemoteSendError::NodeShutdown,
         TransportError::ReplyTimeout => RemoteSendError::ReplyTimeout,
         TransportError::Remote(err) => map_wire_error(err, decode_handler_error),
     }

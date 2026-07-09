@@ -30,6 +30,7 @@ use crate::{
 pub(crate) enum TransportError {
     Connect(io::Error),
     ConnectionClosed,
+    NodeShutdown,
     ReplyTimeout,
     Remote(WireError),
 }
@@ -49,6 +50,7 @@ pub(crate) struct ConnectionPool {
 struct PoolInner {
     // Sync lock guarding the slot map only; never held across an await.
     slots: Mutex<HashMap<SocketAddr, Slot>>,
+    closed: AtomicBool,
     connect_timeout: Duration,
     default_reply_timeout: Duration,
     max_frame_len: usize,
@@ -71,6 +73,7 @@ impl ConnectionPool {
         ConnectionPool {
             inner: Arc::new(PoolInner {
                 slots: Mutex::new(HashMap::new()),
+                closed: AtomicBool::new(false),
                 connect_timeout,
                 default_reply_timeout,
                 max_frame_len,
@@ -80,6 +83,15 @@ impl ConnectionPool {
 
     pub(crate) fn default_reply_timeout(&self) -> Duration {
         self.inner.default_reply_timeout
+    }
+
+    /// Closes the pool: connections are torn down and further requests fail.
+    ///
+    /// Dropping the pooled connections drops their outbound senders, which ends the
+    /// writer and reader tasks and closes the sockets.
+    pub(crate) fn shutdown(&self) {
+        self.inner.closed.store(true, Ordering::Relaxed);
+        self.inner.slots.lock().unwrap().clear();
     }
 
     /// Sends a request and waits for the correlated response: the reply for asks, the
@@ -128,6 +140,9 @@ impl ConnectionPool {
     }
 
     async fn get_or_connect(&self, addr: SocketAddr) -> Result<Connection, TransportError> {
+        if self.inner.closed.load(Ordering::Relaxed) {
+            return Err(TransportError::NodeShutdown);
+        }
         let slot = {
             let mut slots = self.inner.slots.lock().unwrap();
             slots.entry(addr).or_default().clone()
@@ -295,8 +310,8 @@ async fn handle_conn(
     let semaphore = Arc::new(Semaphore::new(max_concurrent_requests));
 
     // One FIFO worker per target actor, so messages from this connection to a given
-    // actor are delivered in arrival order (per-pair FIFO ordering, as in Akka), while
-    // different target actors are processed concurrently.
+    // actor are delivered in arrival order, while different target actors are
+    // processed concurrently.
     let mut workers: HashMap<u64, mpsc::Sender<WorkItem>> = HashMap::new();
 
     loop {
@@ -322,15 +337,20 @@ async fn handle_conn(
                                     permit.expect("semaphore is never closed")
                                 }
                             };
-                            let worker = workers
-                                .entry(req.target_sequence_id)
-                                .or_insert_with(|| {
-                                    spawn_worker(reply_tx.clone(), max_concurrent_requests)
-                                });
+                            let sequence_id = req.target_sequence_id;
+                            let worker = workers.entry(sequence_id).or_insert_with(|| {
+                                spawn_worker(reply_tx.clone(), max_concurrent_requests)
+                            });
                             // Never blocks: queued items hold permits, so a worker
                             // queue can never exceed its capacity.
-                            if worker.send((handler, req, permit)).await.is_err() {
-                                tracing::warn!("request worker exited unexpectedly");
+                            if let Err(err) = worker.send((handler, req, permit)).await {
+                                // The worker died (e.g. a serialize impl panicked in a
+                                // handler); replace it so the actor stays reachable.
+                                tracing::warn!("request worker exited unexpectedly; restarting it");
+                                let worker =
+                                    spawn_worker(reply_tx.clone(), max_concurrent_requests);
+                                let _ = worker.send(err.0).await;
+                                workers.insert(sequence_id, worker);
                             }
                         }
                         Err(err) => match req.request_id {

@@ -93,6 +93,9 @@ pub enum RemoteSendError<E = Infallible> {
     /// The connection closed before a reply was received.
     #[error("connection closed before a reply was received")]
     ConnectionClosed,
+    /// The local node has been shut down; its remote refs can no longer send.
+    #[error("node has been shut down")]
+    NodeShutdown,
 }
 
 impl<E> RemoteSendError<E> {
@@ -124,6 +127,7 @@ impl<E> RemoteSendError<E> {
             }
             RemoteSendError::Connect(err) => RemoteSendError::Connect(err),
             RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
+            RemoteSendError::NodeShutdown => RemoteSendError::NodeShutdown,
         }
     }
 }

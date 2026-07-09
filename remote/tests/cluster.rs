@@ -637,6 +637,43 @@ async fn registry_ops_fail_after_shutdown() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn remote_refs_and_watches_end_after_node_shutdown() {
+    let (node_a, node_b) = spawn_test_cluster().await;
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node_a.register(&counter, "counter").await.unwrap();
+
+    let remote = eventually(GOSSIP_DEADLINE, || async {
+        node_b.lookup::<Counter>("counter").await.unwrap()
+    })
+    .await;
+    assert_eq!(remote.ask(&Inc { amount: 1 }).await.unwrap(), 1);
+
+    let mut watch = Box::pin(node_b.watch::<Counter>("counter").await.unwrap());
+
+    // Shutting down node b (the sender) invalidates the refs and watches it handed out.
+    node_b.shutdown().await.unwrap();
+
+    let err = remote.ask(&Inc { amount: 1 }).await.unwrap_err();
+    assert!(
+        matches!(err, RemoteSendError::NodeShutdown),
+        "expected NodeShutdown, got {err:?}"
+    );
+    let err = remote.tell(&Inc { amount: 1 }).await.unwrap_err();
+    assert!(
+        matches!(err, RemoteSendError::NodeShutdown),
+        "expected NodeShutdown, got {err:?}"
+    );
+
+    // The watch stream ends rather than freezing on stale state.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while watch.next().await.is_some() {}
+    })
+    .await
+    .expect("watch stream should end after shutdown");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn actor_shutdown_auto_deregisters() {
     let (node_a, node_b) = spawn_test_cluster().await;
 
