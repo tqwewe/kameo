@@ -28,5 +28,5 @@ tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-std", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
