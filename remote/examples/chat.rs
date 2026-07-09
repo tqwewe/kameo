@@ -4,19 +4,22 @@
 //! message looks up all providers and tells each one; presence comes from watching
 //! the provider set change as users join and leave.
 //!
-//! Run in two or more terminals:
+//! Run in two or more terminals. With no arguments, instances discover each other on
+//! localhost automatically: each one claims the first free gossip port in a well-known
+//! range and seeds the rest of the range.
 //!
 //! ```sh
-//! cargo run -p kameo_remote --example chat -- alice 127.0.0.1:7400 127.0.0.1:7401
-//! cargo run -p kameo_remote --example chat -- bob 127.0.0.1:7410 127.0.0.1:7411 127.0.0.1:7400
+//! cargo run -p kameo_remote --example chat
+//! cargo run -p kameo_remote --example chat -- alice
+//! cargo run -p kameo_remote --example chat -- alice 127.0.0.1:7400 127.0.0.1:7401 [seeds...]
 //! ```
 //!
-//! Arguments: `<username> <gossip addr> <messaging addr> [seed gossip addr...]`
+//! Arguments: `[username] [<gossip addr> <messaging addr> [seed gossip addr...]]`
 //!
 //! Exit with ctrl-d to leave gracefully (peers see the departure immediately); a
 //! killed process is noticed by the failure detector after a few seconds.
 
-use std::{collections::HashSet, env, error::Error, pin::pin};
+use std::{collections::HashSet, env, error::Error, net::SocketAddr, pin::pin};
 
 use futures::StreamExt;
 use kameo::prelude::*;
@@ -55,16 +58,45 @@ impl RemoteActor for ChatUser {
     }
 }
 
+/// The well-known localhost gossip ports used for zero-config discovery: an instance
+/// claims the first free one and seeds the others, so up to 10 instances find each
+/// other with no configuration.
+const AUTO_PORTS: std::ops::Range<u16> = 7400..7410;
+
+fn auto_network() -> Result<(SocketAddr, Vec<String>), Box<dyn Error>> {
+    for port in AUTO_PORTS {
+        // Best-effort availability check; bootstrap binds it for real right after.
+        if std::net::UdpSocket::bind(("127.0.0.1", port)).is_ok() {
+            let seeds = AUTO_PORTS
+                .filter(|seed_port| *seed_port != port)
+                .map(|seed_port| format!("127.0.0.1:{seed_port}"))
+                .collect();
+            return Ok((SocketAddr::from(([127, 0, 0, 1], port)), seeds));
+        }
+    }
+    Err(format!("no free gossip port in {AUTO_PORTS:?}; the chat room is full").into())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut args = env::args().skip(1);
-    let username = args.next().expect("missing username");
-    let gossip_addr = args.next().expect("missing gossip addr").parse()?;
-    let messaging_addr = args.next().expect("missing messaging addr").parse()?;
-    let seed_nodes: Vec<String> = args.collect();
+    let username = args
+        .next()
+        .unwrap_or_else(|| format!("user-{}", &uuid::Uuid::new_v4().simple().to_string()[..4]));
+    let (gossip_addr, messaging_addr, seed_nodes) = match args.next() {
+        Some(gossip_addr) => {
+            let messaging_addr = args.next().expect("missing messaging addr").parse()?;
+            (gossip_addr.parse()?, messaging_addr, args.collect())
+        }
+        None => {
+            let (gossip_addr, seeds) = auto_network()?;
+            (gossip_addr, "127.0.0.1:0".parse()?, seeds)
+        }
+    };
 
     let node = RemoteNode::bootstrap(
         RemoteNodeConfig::default()
+            .with_cluster_id("chat-example")
             .with_node_name(&username)
             .with_gossip_addr(gossip_addr)
             .with_messaging_addr(messaging_addr)
