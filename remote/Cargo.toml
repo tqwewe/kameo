@@ -1,0 +1,32 @@
+[package]
+name = "kameo_remote"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+description = "Distributed actors for kameo via gossip clustering and TCP messaging"
+readme = "../README.md"
+repository = "https://github.com/tqwewe/kameo"
+license = "MIT OR Apache-2.0"
+keywords = ["actor", "tokio", "distributed", "gossip", "cluster"]
+categories = ["asynchronous", "concurrency", "network-programming"]
+include = ["/src"]
+
+[dependencies]
+anyhow = "1"
+bytes = "1"
+chitchat = "0.11"
+futures.workspace = true
+kameo.workspace = true
+rmp-serde = "1.3"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde_json = "1"
+thiserror = "2"
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
