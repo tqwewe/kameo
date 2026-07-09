@@ -56,9 +56,6 @@ pub(crate) enum WireError {
     BadActorType,
     MailboxFull,
     ReplyTimeout,
-    UnknownActor {
-        actor_remote_id: String,
-    },
     UnknownMessage {
         actor_remote_id: String,
         message_remote_id: String,
@@ -152,9 +149,6 @@ mod tests {
             WireError::BadActorType,
             WireError::MailboxFull,
             WireError::ReplyTimeout,
-            WireError::UnknownActor {
-                actor_remote_id: "a".to_string(),
-            },
             WireError::UnknownMessage {
                 actor_remote_id: "a".to_string(),
                 message_remote_id: "m".to_string(),

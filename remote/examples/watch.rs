@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     .await?;
     println!("watching from {}", node.node_id());
 
-    let mut providers = std::pin::pin!(node.watch::<Incrementor>("incrementor").await);
+    let mut providers = std::pin::pin!(node.watch::<Incrementor>("incrementor").await?);
     while let Some(providers) = providers.next().await {
         println!(
             "providers ({}): {:?}",

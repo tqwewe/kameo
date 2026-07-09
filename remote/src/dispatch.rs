@@ -68,6 +68,12 @@ impl DispatchTable {
             .insert(name);
     }
 
+    /// Removes all entries, dropping the strong `ActorRef` clones held by the handlers
+    /// so registered actors are no longer kept alive by this node.
+    pub(crate) fn clear(&self) {
+        self.actors.write().unwrap().clear();
+    }
+
     pub(crate) fn remove_name(&self, sequence_id: u64, name: &str) {
         let mut actors = self.actors.write().unwrap();
         if let Some(entry) = actors.get_mut(&sequence_id) {

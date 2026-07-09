@@ -371,9 +371,6 @@ fn map_wire_error<E>(
         WireError::BadActorType => RemoteSendError::BadActorType,
         WireError::MailboxFull => RemoteSendError::MailboxFull,
         WireError::ReplyTimeout => RemoteSendError::ReplyTimeout,
-        WireError::UnknownActor { actor_remote_id } => {
-            RemoteSendError::UnknownActor { actor_remote_id }
-        }
         WireError::UnknownMessage {
             actor_remote_id,
             message_remote_id,

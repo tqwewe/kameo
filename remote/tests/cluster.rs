@@ -547,7 +547,7 @@ async fn stale_ref_rejected_after_restart() {
 async fn watch_stream() {
     let (node_a, node_b) = spawn_test_cluster().await;
 
-    let mut watch = Box::pin(node_b.watch::<Counter>("watched").await);
+    let mut watch = Box::pin(node_b.watch::<Counter>("watched").await.unwrap());
 
     let counter = Counter::spawn(Counter { count: 0 });
     node_a.register(&counter, "watched").await.unwrap();
@@ -578,6 +578,62 @@ async fn watch_stream() {
     })
     .await
     .expect("timed out waiting for deregistration");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn registration_keeps_actor_alive_until_shutdown() {
+    let node = spawn_test_node(vec![]).await;
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node.register(&counter, "counter").await.unwrap();
+
+    // The registry holds a strong ref, so the actor survives dropping ours.
+    let weak = counter.downgrade();
+    drop(counter);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        weak.upgrade().is_some(),
+        "registered actor should be kept alive by the registry"
+    );
+
+    // Shutdown releases the registry's refs, letting the actor stop.
+    node.shutdown().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), weak.wait_for_shutdown())
+        .await
+        .expect("actor should stop once its registration is released");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn registry_ops_fail_after_shutdown() {
+    let node = spawn_test_node(vec![]).await;
+
+    let counter = Counter::spawn(Counter { count: 0 });
+    node.register(&counter, "counter").await.unwrap();
+    let local = node.lookup::<Counter>("counter").await.unwrap().unwrap();
+
+    node.shutdown().await.unwrap();
+
+    assert_eq!(
+        node.register(&counter, "counter").await.unwrap_err(),
+        RegistryError::NodeShutdown
+    );
+    assert_eq!(
+        node.deregister(&counter, "counter").await.unwrap_err(),
+        RegistryError::NodeShutdown
+    );
+    assert_eq!(
+        node.lookup::<Counter>("counter").await.unwrap_err(),
+        RegistryError::NodeShutdown
+    );
+    assert!(node.watch::<Counter>("counter").await.is_err());
+
+    // Local fast-path refs held from before the shutdown resolve to nothing, like
+    // remote peers observing the departure.
+    let err = local.ask(&Get).await.unwrap_err();
+    assert!(
+        matches!(err, RemoteSendError::ActorNotRunning),
+        "expected ActorNotRunning, got {err:?}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

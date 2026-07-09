@@ -27,6 +27,9 @@ pub enum RegistryError {
     /// The actor name is empty or contains a `:`.
     #[error("invalid actor name {0:?}: must be non-empty and must not contain ':'")]
     InvalidName(String),
+    /// The node has been shut down; its registry can no longer be used.
+    #[error("node has been shut down")]
+    NodeShutdown,
     /// The name is registered, but under a different actor type.
     #[error("actor registered as {name:?} is not of type {expected_remote_id:?}")]
     BadActorType {
@@ -46,12 +49,6 @@ pub enum RemoteSendError<E = Infallible> {
     /// The remote actor stopped before processing the message.
     #[error("actor stopped before reply")]
     ActorStopped,
-    /// The remote node has no registered actor with this remote id.
-    #[error("remote node has no actor with remote id {actor_remote_id:?}")]
-    UnknownActor {
-        /// The actor `REMOTE_ID` sent in the request.
-        actor_remote_id: String,
-    },
     /// The remote actor does not accept this message type remotely.
     #[error("actor {actor_remote_id:?} does not handle remote message {message_remote_id:?}")]
     UnknownMessage {
@@ -104,9 +101,6 @@ impl<E> RemoteSendError<E> {
         match self {
             RemoteSendError::ActorNotRunning => RemoteSendError::ActorNotRunning,
             RemoteSendError::ActorStopped => RemoteSendError::ActorStopped,
-            RemoteSendError::UnknownActor { actor_remote_id } => {
-                RemoteSendError::UnknownActor { actor_remote_id }
-            }
             RemoteSendError::UnknownMessage {
                 actor_remote_id,
                 message_remote_id,

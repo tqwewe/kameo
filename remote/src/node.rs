@@ -2,7 +2,10 @@
 
 use std::{
     net::SocketAddr,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -142,6 +145,7 @@ pub(crate) struct RemoteNodeInner {
     pool: ConnectionPool,
     server_task: tokio::task::JoinHandle<()>,
     cancel: CancellationToken,
+    shutdown: AtomicBool,
 }
 
 impl RemoteNode {
@@ -240,6 +244,7 @@ impl RemoteNode {
                 pool,
                 server_task,
                 cancel,
+                shutdown: AtomicBool::new(false),
             }),
         })
     }
@@ -248,12 +253,17 @@ impl RemoteNode {
     ///
     /// Multiple actors (on this or other nodes) may register the same name; lookups
     /// return the whole set. The registration is removed when it is explicitly
-    /// deregistered, when the actor stops, or when this node is declared dead.
+    /// deregistered, when the actor stops, or when this node shuts down or dies.
+    ///
+    /// The registry holds a strong reference to the actor, so a registered actor is
+    /// kept alive even if all other [`ActorRef`]s are dropped, until one of the above
+    /// removes the registration.
     pub async fn register<A: RemoteActor>(
         &self,
         actor_ref: &ActorRef<A>,
         name: impl Into<String>,
     ) -> Result<(), RegistryError> {
+        self.check_running()?;
         let name = name.into();
         registry::validate_name(&name)?;
         let sequence_id = actor_ref.id().sequence_id();
@@ -303,6 +313,7 @@ impl RemoteNode {
         actor_ref: &ActorRef<A>,
         name: &str,
     ) -> Result<(), RegistryError> {
+        self.check_running()?;
         registry::validate_name(name)?;
         self.inner
             .remove_registration(actor_ref.id().sequence_id(), name)
@@ -327,6 +338,7 @@ impl RemoteNode {
         &self,
         name: &str,
     ) -> Result<Vec<RemoteActorRef<A>>, RegistryError> {
+        self.check_running()?;
         registry::collect_providers(
             &self.inner.chitchat,
             &self.inner.pool,
@@ -339,18 +351,20 @@ impl RemoteNode {
     /// Watches the live provider set of `name`, yielding it on every change.
     ///
     /// The current set is yielded immediately. Changes include registrations,
-    /// deregistrations, and nodes joining or dying.
+    /// deregistrations, and nodes joining or dying. The stream ends when this node
+    /// shuts down.
     pub async fn watch<A: RemoteActor>(
         &self,
         name: impl Into<String>,
-    ) -> impl Stream<Item = Vec<RemoteActorRef<A>>> + Send + 'static {
-        registry::watch_providers(
+    ) -> Result<impl Stream<Item = Vec<RemoteActorRef<A>>> + Send + 'static, RegistryError> {
+        self.check_running()?;
+        Ok(registry::watch_providers(
             &self.inner.chitchat,
             self.inner.pool.clone(),
             self.inner.dispatch.clone(),
             name.into(),
         )
-        .await
+        .await)
     }
 
     /// Returns this node's id.
@@ -373,7 +387,19 @@ impl RemoteNode {
         self.inner.messaging_advertise_addr
     }
 
+    fn check_running(&self) -> Result<(), RegistryError> {
+        if self.inner.shutdown.load(Ordering::Relaxed) {
+            // After shutdown, gossip is frozen: registrations would never propagate
+            // and lookups would reflect stale liveness, so all registry ops fail.
+            return Err(RegistryError::NodeShutdown);
+        }
+        Ok(())
+    }
+
     /// Returns the ids of the nodes currently considered alive, including this node.
+    ///
+    /// Reflects the last known gossip state; after [`shutdown`](RemoteNode::shutdown)
+    /// this is frozen.
     pub async fn live_nodes(&self) -> Vec<NodeId> {
         let chitchat = self.inner.chitchat.lock().await;
         chitchat
@@ -387,8 +413,11 @@ impl RemoteNode {
     ///
     /// The registrations are deleted and given a couple of gossip rounds to propagate,
     /// so peers observe a clean departure quickly instead of waiting for the failure
-    /// detector. Idempotent; a second call is a no-op.
+    /// detector. The registry's strong references to registered actors are released,
+    /// so actors kept alive only by their registration stop. Idempotent; a second call
+    /// is a no-op.
     pub async fn shutdown(&self) -> Result<(), ShutdownError> {
+        self.inner.shutdown.store(true, Ordering::Relaxed);
         let handle = self.inner.chitchat_handle.lock().await.take();
         let Some(handle) = handle else {
             self.inner.cancel.cancel();
@@ -413,18 +442,25 @@ impl RemoteNode {
         }
 
         self.inner.cancel.cancel();
-        handle.shutdown().await.map_err(ShutdownError::Chitchat)?;
-        Ok(())
+        let result = handle.shutdown().await.map_err(ShutdownError::Chitchat);
+        // Release the registry's strong ActorRefs; local fast-path refs now resolve
+        // to nothing, consistent with how remote peers observe the departure.
+        self.inner.dispatch.clear();
+        result
     }
 }
 
 impl RemoteNodeInner {
     pub(crate) async fn remove_registration(&self, sequence_id: u64, name: &str) {
+        let key = registry::actor_key(name, sequence_id);
         {
             let mut chitchat = self.chitchat.lock().await;
-            chitchat
-                .self_node_state()
-                .delete(&registry::actor_key(name, sequence_id));
+            let state = chitchat.self_node_state();
+            // Guarded so repeated deregistration stays silent and does not bump
+            // tombstone versions.
+            if state.get(&key).is_some() {
+                state.delete(&key);
+            }
         }
         self.dispatch.remove_name(sequence_id, name);
     }
@@ -439,5 +475,8 @@ impl Drop for RemoteNodeInner {
         {
             handle.abort();
         }
+        // Local fast-path refs may outlive the node's Arc; without this they would
+        // keep dispatching (and keep registered actors alive) after the node is gone.
+        self.dispatch.clear();
     }
 }
