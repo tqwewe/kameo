@@ -377,7 +377,15 @@ pub enum ActorStopReason {
     SupervisorRestart,
     /// Actor was killed.
     Killed,
-    /// Actor panicked.
+    /// Actor stopped due to a fault.
+    ///
+    /// This covers two cases, both handled through the same
+    /// [`on_panic`](crate::actor::Actor::on_panic) hook:
+    ///
+    /// - A genuine unwinding panic in a message handler.
+    /// - An error returned from a lifecycle hook or `on_message`.
+    ///
+    /// Use [`PanicError::reason`] (or [`PanicError::is_panic`]) to tell them apart.
     Panicked(PanicError),
     /// Link died.
     LinkDied {
@@ -470,6 +478,11 @@ where
 impl<E> error::Error for HookError<E> where E: error::Error {}
 
 /// A shared error that occurs when an actor panics or returns an error from a hook in the [Actor] trait.
+///
+/// This merges two kinds of fault: a genuine unwinding panic in a message
+/// handler, and an error returned from a lifecycle hook or `on_message`. Call
+/// [`reason`](PanicError::reason) for the specific [`PanicReason`], or
+/// [`is_panic`](PanicError::is_panic) to check whether it was a real panic.
 #[derive(Clone)]
 pub struct PanicError {
     pub(crate) err: Arc<Mutex<Box<dyn ReplyError>>>,
@@ -498,6 +511,14 @@ impl PanicError {
     /// Returns the reason for the panic.
     pub fn reason(&self) -> PanicReason {
         self.reason
+    }
+
+    /// Returns `true` if this was a genuine unwinding panic in a message handler,
+    /// rather than an error returned from a lifecycle hook or `on_message`.
+    ///
+    /// This is a shorthand for `self.reason() == PanicReason::HandlerPanic`.
+    pub fn is_panic(&self) -> bool {
+        matches!(self.reason, PanicReason::HandlerPanic)
     }
 
     /// Calls the passed closure `f` with an option containing the boxed any type downcast into a string,
