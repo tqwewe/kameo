@@ -89,7 +89,7 @@ pub enum RemoteSendError<E = Infallible> {
     DeserializeHandlerError(String),
     /// Failed to connect to the remote node.
     #[error("failed to connect to remote node: {0}")]
-    Connect(io::Error),
+    Connect(#[source] io::Error),
     /// The connection closed before a reply was received.
     #[error("connection closed before a reply was received")]
     ConnectionClosed,

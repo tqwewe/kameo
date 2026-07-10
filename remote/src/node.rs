@@ -298,6 +298,14 @@ impl RemoteNode {
         let value = serde_json::to_string(&value).expect("registration value serializes");
         {
             let mut chitchat = self.inner.chitchat.lock().await;
+            // Re-checked under the lock: shutdown deletes registry keys under this
+            // lock after setting the flag, so a racing registration cannot slip in
+            // after the deletion sweep and gossip out from a shut-down node.
+            if self.inner.shutdown.load(Ordering::Relaxed) {
+                drop(chitchat);
+                self.inner.dispatch.remove_name(sequence_id, &name);
+                return Err(RegistryError::NodeShutdown);
+            }
             chitchat
                 .self_node_state()
                 .set(registry::actor_key(&name, sequence_id), value);
@@ -348,6 +356,11 @@ impl RemoteNode {
     ///
     /// The result includes actors registered on this node; messages to them are
     /// dispatched in-process without touching the network (though still serialized).
+    ///
+    /// Registrations under `name` whose actor type is not `A` are skipped. If the name
+    /// exists but only under other actor types, this fails with
+    /// [`RegistryError::BadActorType`]; a name with no registrations at all yields an
+    /// empty result.
     pub async fn lookup_all<A: RemoteActor>(
         &self,
         name: &str,

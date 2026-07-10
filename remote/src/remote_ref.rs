@@ -156,6 +156,13 @@ impl<A: RemoteActor> PartialEq for RemoteActorRef<A> {
 
 impl<A: RemoteActor> Eq for RemoteActorRef<A> {}
 
+impl<A: RemoteActor> std::hash::Hash for RemoteActorRef<A> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+        self.messaging_addr.hash(state);
+    }
+}
+
 /// A pending ask request to a remote actor.
 pub struct RemoteAskRequest<'a, A, M>
 where

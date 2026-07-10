@@ -12,7 +12,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use serde_bytes::ByteBuf;
 use tokio::{
     net::{TcpListener, TcpStream},
@@ -286,8 +286,9 @@ async fn handle_conn(
     let (mut sink, mut stream) = framed.split();
 
     // Replies come from concurrently spawned request tasks, so they are funnelled
-    // through a channel to a single writer.
-    let (reply_tx, mut reply_rx) = mpsc::channel::<ResponseFrame>(1024);
+    // through a channel to a single writer. Sized to the request cap so replies never
+    // backpressure workers before the request semaphore does.
+    let (reply_tx, mut reply_rx) = mpsc::channel::<ResponseFrame>(max_concurrent_requests);
     tokio::spawn(async move {
         while let Some(res) = reply_rx.recv().await {
             let bytes = match protocol::encode(&Frame::Response(res)) {
@@ -404,7 +405,23 @@ async fn handle_request(
         },
         RequestKind::Tell => InboundKind::Tell,
     };
-    let result = handler(req.payload.into_vec(), kind).await;
+    // Contained so a panicking handler (e.g. in a user serialize impl) cannot kill
+    // the worker and drop the requests queued behind it.
+    let result = match std::panic::AssertUnwindSafe(handler(req.payload.into_vec(), kind))
+        .catch_unwind()
+        .await
+    {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::error!(
+                "handler for {:?} on actor {:?} panicked",
+                req.message_remote_id,
+                req.actor_remote_id
+            );
+            // Panics are not part of the wire vocabulary; an asking caller times out.
+            return;
+        }
+    };
     match request_id {
         Some(request_id) => {
             let result = result.map(|reply| ByteBuf::from(reply.unwrap_or_default()));

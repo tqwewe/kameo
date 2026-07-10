@@ -358,7 +358,8 @@ async fn same_node_fast_path() {
 
     assert_eq!(local.ask(&Inc { amount: 4 }).await.unwrap(), 4);
     local.tell(&Inc { amount: 1 }).await.unwrap();
-    assert_eq!(local.ask(&Get).await.unwrap(), 5);
+    local.tell(&Inc { amount: 1 }).send_unacked().await.unwrap();
+    assert_eq!(local.ask(&Get).await.unwrap(), 6);
 
     // Errors flow through the same dispatch path locally.
     let err = local.ask(&Fail).await.unwrap_err();
