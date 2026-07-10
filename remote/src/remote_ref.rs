@@ -1,6 +1,6 @@
 //! References to actors registered on other nodes.
 
-use std::{fmt, marker::PhantomData, net::SocketAddr, sync::Arc, time::Duration};
+use std::{borrow::Cow, fmt, marker::PhantomData, net::SocketAddr, sync::Arc, time::Duration};
 
 use futures::future::BoxFuture;
 use kameo::{Reply, message::Message};
@@ -119,8 +119,8 @@ impl<A: RemoteActor> RemoteActorRef<A> {
             kind,
             target_generation_id: self.id.generation_id,
             target_sequence_id: self.id.sequence_id,
-            actor_remote_id: A::REMOTE_ID.to_string(),
-            message_remote_id: M::REMOTE_ID.to_string(),
+            actor_remote_id: Cow::Borrowed(A::REMOTE_ID),
+            message_remote_id: Cow::Borrowed(M::REMOTE_ID),
             reply_timeout_ms,
             payload: ByteBuf::from(rmp_serde::to_vec_named(msg)?),
         })
@@ -205,18 +205,7 @@ where
             let kind = InboundKind::Ask {
                 reply_timeout: Some(timeout),
             };
-            let result = match dispatch.resolve(&frame) {
-                Ok(handler) => {
-                    match tokio::time::timeout(timeout, handler(frame.payload.into_vec(), kind))
-                        .await
-                    {
-                        Ok(result) => result,
-                        Err(_) => return Err(RemoteSendError::ReplyTimeout),
-                    }
-                }
-                Err(err) => Err(err),
-            };
-            return match result {
+            return match dispatch_local(dispatch, frame, kind, Some(timeout)).await {
                 Ok(reply) => rmp_serde::from_slice(&reply.unwrap_or_default())
                     .map_err(|err| RemoteSendError::DeserializeReply(err.to_string())),
                 Err(err) => Err(map_wire_error(err, decode_handler_error)),
@@ -278,21 +267,8 @@ where
             .map_err(|err| RemoteSendError::SerializeMessage(err.to_string()))?;
 
         if let Some(dispatch) = &self.actor_ref.local_dispatch {
-            let result = match dispatch.resolve(&frame) {
-                Ok(handler) => {
-                    match tokio::time::timeout(
-                        timeout,
-                        handler(frame.payload.into_vec(), InboundKind::Tell),
-                    )
-                    .await
-                    {
-                        Ok(result) => result,
-                        Err(_) => return Err(RemoteSendError::ReplyTimeout),
-                    }
-                }
-                Err(err) => Err(err),
-            };
-            return result
+            return dispatch_local(dispatch, frame, InboundKind::Tell, Some(timeout))
+                .await
                 .map(|_| ())
                 .map_err(|err| map_wire_error(err, |_| RemoteSendError::ConnectionClosed));
         }
@@ -320,14 +296,10 @@ where
 
         if let Some(dispatch) = &self.actor_ref.local_dispatch {
             // Awaited rather than spawned so sequential unacked tells keep their order;
-            // the outcome is only logged, matching the fire-and-forget contract.
-            match dispatch.resolve(&frame) {
-                Ok(handler) => {
-                    if let Err(err) = handler(frame.payload.into_vec(), InboundKind::Tell).await {
-                        tracing::warn!("tell dispatch failed: {err:?}");
-                    }
-                }
-                Err(err) => tracing::warn!("tell dispatch failed: {err:?}"),
+            // no timeout and the outcome only logged, matching the fire-and-forget
+            // contract of the remote path.
+            if let Err(err) = dispatch_local(dispatch, frame, InboundKind::Tell, None).await {
+                tracing::warn!("tell dispatch failed: {err:?}");
             }
             return Ok(());
         }
@@ -350,6 +322,24 @@ where
 
     fn into_future(self) -> Self::IntoFuture {
         Box::pin(self.send())
+    }
+}
+
+/// Dispatches a frame to an actor on this node, mirroring what the remote server
+/// would do with it.
+async fn dispatch_local(
+    dispatch: &Arc<DispatchTable>,
+    frame: RequestFrame,
+    kind: InboundKind,
+    timeout: Option<Duration>,
+) -> Result<Option<Vec<u8>>, WireError> {
+    let handler = dispatch.resolve(&frame)?;
+    let fut = handler(frame.payload.into_vec(), kind);
+    match timeout {
+        Some(timeout) => tokio::time::timeout(timeout, fut)
+            .await
+            .unwrap_or(Err(WireError::ReplyTimeout)),
+        None => fut.await,
     }
 }
 

@@ -312,12 +312,22 @@ async fn handle_conn(
 
     // One FIFO worker per target actor, so messages from this connection to a given
     // actor are delivered in arrival order, while different target actors are
-    // processed concurrently.
-    let mut workers: HashMap<u64, mpsc::Sender<WorkItem>> = HashMap::new();
+    // processed concurrently. Idle workers are swept periodically so a long-lived
+    // connection does not accumulate tasks for actors it no longer messages.
+    let mut workers: HashMap<u64, Worker> = HashMap::new();
+    let mut idle_sweep = tokio::time::interval(WORKER_IDLE_SWEEP_INTERVAL);
 
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
+            _ = idle_sweep.tick() => {
+                // Only fully drained workers are dropped: this loop is the sole
+                // sender, so processed == sent means nothing is queued or in flight
+                // and removal cannot reorder messages. The next request respawns one.
+                workers.retain(|_, worker| {
+                    worker.processed.load(Ordering::Relaxed) != worker.sent
+                });
+            }
             frame = stream.next() => {
                 let bytes = match frame {
                     None => break,
@@ -344,14 +354,18 @@ async fn handle_conn(
                             });
                             // Never blocks: queued items hold permits, so a worker
                             // queue can never exceed its capacity.
-                            if let Err(err) = worker.send((handler, req, permit)).await {
+                            if let Err(err) = worker.tx.send((handler, req, permit)).await {
                                 // The worker died (e.g. a serialize impl panicked in a
                                 // handler); replace it so the actor stays reachable.
                                 tracing::warn!("request worker exited unexpectedly; restarting it");
-                                let worker =
+                                let mut worker =
                                     spawn_worker(reply_tx.clone(), max_concurrent_requests);
-                                let _ = worker.send(err.0).await;
+                                if worker.tx.send(err.0).await.is_ok() {
+                                    worker.sent += 1;
+                                }
                                 workers.insert(sequence_id, worker);
+                            } else {
+                                worker.sent += 1;
                             }
                         }
                         Err(err) => match req.request_id {
@@ -382,15 +396,31 @@ async fn handle_conn(
 
 type WorkItem = (DynHandler, RequestFrame, OwnedSemaphorePermit);
 
-fn spawn_worker(reply_tx: mpsc::Sender<ResponseFrame>, capacity: usize) -> mpsc::Sender<WorkItem> {
+const WORKER_IDLE_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+
+/// A per-target-actor FIFO worker, with counters tracking whether it is drained.
+struct Worker {
+    tx: mpsc::Sender<WorkItem>,
+    sent: u64,
+    processed: Arc<AtomicU64>,
+}
+
+fn spawn_worker(reply_tx: mpsc::Sender<ResponseFrame>, capacity: usize) -> Worker {
     let (tx, mut rx) = mpsc::channel::<WorkItem>(capacity);
+    let processed = Arc::new(AtomicU64::new(0));
+    let counter = processed.clone();
     tokio::spawn(async move {
         while let Some((handler, req, permit)) = rx.recv().await {
             handle_request(handler, req, &reply_tx).await;
             drop(permit);
+            counter.fetch_add(1, Ordering::Relaxed);
         }
     });
-    tx
+    Worker {
+        tx,
+        sent: 0,
+        processed,
+    }
 }
 
 async fn handle_request(

@@ -99,11 +99,11 @@ impl DispatchTable {
         if entry.actor_remote_id != req.actor_remote_id {
             return Err(WireError::BadActorType);
         }
-        match entry.handlers.get(req.message_remote_id.as_str()) {
+        match entry.handlers.get(req.message_remote_id.as_ref()) {
             Some(handler) => Ok(Arc::clone(handler)),
             None => Err(WireError::UnknownMessage {
-                actor_remote_id: req.actor_remote_id.clone(),
-                message_remote_id: req.message_remote_id.clone(),
+                actor_remote_id: req.actor_remote_id.to_string(),
+                message_remote_id: req.message_remote_id.to_string(),
             }),
         }
     }

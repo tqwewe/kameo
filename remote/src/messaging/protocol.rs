@@ -2,6 +2,8 @@
 //!
 //! Frames are length-delimited (4 byte big-endian prefix) and encoded with MessagePack.
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 
@@ -30,10 +32,12 @@ pub(crate) struct RequestFrame {
     pub target_generation_id: u64,
     /// The sequence id of the target actor on the receiving node.
     pub target_sequence_id: u64,
-    /// The target actor type's `REMOTE_ID`.
-    pub actor_remote_id: String,
-    /// The message type's `REMOTE_ID`.
-    pub message_remote_id: String,
+    /// The target actor type's `REMOTE_ID`. Borrowed on the sending side, owned when
+    /// decoded on the receiving side.
+    pub actor_remote_id: Cow<'static, str>,
+    /// The message type's `REMOTE_ID`. Borrowed on the sending side, owned when
+    /// decoded on the receiving side.
+    pub message_remote_id: Cow<'static, str>,
     /// Reply timeout in milliseconds, asks only.
     pub reply_timeout_ms: Option<u64>,
     /// The MessagePack-encoded message.
@@ -90,8 +94,8 @@ mod tests {
             kind: RequestKind::Ask,
             target_generation_id: 3,
             target_sequence_id: 7,
-            actor_remote_id: "my_actor".to_string(),
-            message_remote_id: "my_msg".to_string(),
+            actor_remote_id: "my_actor".into(),
+            message_remote_id: "my_msg".into(),
             reply_timeout_ms: Some(30_000),
             payload: ByteBuf::from(vec![1, 2, 3]),
         }));
@@ -115,8 +119,8 @@ mod tests {
             kind: RequestKind::Tell,
             target_generation_id: 0,
             target_sequence_id: 1,
-            actor_remote_id: "a".to_string(),
-            message_remote_id: "m".to_string(),
+            actor_remote_id: "a".into(),
+            message_remote_id: "m".into(),
             reply_timeout_ms: None,
             payload: ByteBuf::new(),
         }));
