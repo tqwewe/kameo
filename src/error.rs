@@ -394,9 +394,6 @@ pub enum ActorStopReason {
         /// Actor died reason.
         reason: Box<ActorStopReason>,
     },
-    /// The peer was disconnected.
-    #[cfg(feature = "remote")]
-    PeerDisconnected,
 }
 
 impl ActorStopReason {
@@ -408,8 +405,6 @@ impl ActorStopReason {
             | ActorStopReason::Killed
             | ActorStopReason::Panicked(_)
             | ActorStopReason::LinkDied { .. } => false,
-            #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => false,
         }
     }
 }
@@ -432,8 +427,6 @@ impl fmt::Debug for ActorStopReason {
                 .field("id", id)
                 .field("reason", &reason)
                 .finish(),
-            #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => write!(f, "PeerDisconnected"),
         }
     }
 }
@@ -448,8 +441,6 @@ impl fmt::Display for ActorStopReason {
             ActorStopReason::LinkDied { id, reason: _ } => {
                 write!(f, "link {id} died")
             }
-            #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => write!(f, "peer disconnected"),
         }
     }
 }
@@ -854,347 +845,21 @@ impl Hash for Infallible {
 }
 
 /// An error that can occur when registering & looking up actors by name.
-#[derive(Debug)]
-#[cfg_attr(not(feature = "remote"), derive(Clone))]
+#[derive(Clone, Debug)]
 pub enum RegistryError {
-    /// The actor swarm has not been bootstrapped.
-    #[cfg(feature = "remote")]
-    SwarmNotBootstrapped,
-    /// The remote actor was found given the ID, but was not the correct type.
+    /// The actor was found given the ID, but was not the correct type.
     BadActorType,
     /// An actor has already been registered under the name.
     NameAlreadyRegistered,
-    /// Quorum failed.
-    #[cfg(feature = "remote")]
-    QuorumFailed {
-        /// Required quorum.
-        quorum: std::num::NonZero<usize>,
-    },
-    /// Timeout.
-    #[cfg(feature = "remote")]
-    Timeout,
-    /// Storing the record failed.
-    #[cfg(feature = "remote")]
-    Store(libp2p::kad::store::Error),
-    /// Invalid actor registration.
-    #[cfg(feature = "remote")]
-    InvalidActorRegistration(crate::remote::registry::InvalidActorRegistration),
-    /// Get providers error.
-    #[cfg(feature = "remote")]
-    GetProviders(libp2p::kad::GetProvidersError),
 }
 
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            #[cfg(feature = "remote")]
-            RegistryError::SwarmNotBootstrapped => write!(f, "actor swarm not bootstrapped"),
             RegistryError::NameAlreadyRegistered => write!(f, "name already registered"),
             RegistryError::BadActorType => write!(f, "bad actor type"),
-            #[cfg(feature = "remote")]
-            RegistryError::QuorumFailed { quorum } => {
-                write!(f, "the quorum failed; needed {quorum} peers")
-            }
-            #[cfg(feature = "remote")]
-            RegistryError::Timeout => write!(f, "the request timed out"),
-            #[cfg(feature = "remote")]
-            RegistryError::Store(err) => err.fmt(f),
-            #[cfg(feature = "remote")]
-            RegistryError::InvalidActorRegistration(err) => err.fmt(f),
-            #[cfg(feature = "remote")]
-            RegistryError::GetProviders(err) => err.fmt(f),
         }
     }
 }
 
 impl error::Error for RegistryError {}
-
-#[cfg(feature = "remote")]
-impl From<crate::remote::registry::InvalidActorRegistration> for RegistryError {
-    fn from(err: crate::remote::registry::InvalidActorRegistration) -> Self {
-        RegistryError::InvalidActorRegistration(err)
-    }
-}
-
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::store::Error> for RegistryError {
-    fn from(err: libp2p::kad::store::Error) -> Self {
-        RegistryError::Store(err)
-    }
-}
-
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::AddProviderError> for RegistryError {
-    fn from(err: libp2p::kad::AddProviderError) -> Self {
-        match err {
-            libp2p::kad::AddProviderError::Timeout { .. } => RegistryError::Timeout,
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::PutRecordError> for RegistryError {
-    fn from(err: libp2p::kad::PutRecordError) -> Self {
-        match err {
-            libp2p::kad::PutRecordError::QuorumFailed { quorum, .. } => {
-                RegistryError::QuorumFailed { quorum }
-            }
-            libp2p::kad::PutRecordError::Timeout { .. } => RegistryError::Timeout,
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl From<libp2p::kad::GetProvidersError> for RegistryError {
-    fn from(err: libp2p::kad::GetProvidersError) -> Self {
-        RegistryError::GetProviders(err)
-    }
-}
-
-/// Error that can occur when sending a message to an actor.
-#[cfg(feature = "remote")]
-#[derive(Debug, Serialize, Deserialize)]
-pub enum RemoteSendError<E = Infallible> {
-    /// The actor isn't running.
-    ActorNotRunning,
-    /// The actor panicked or was stopped before a reply could be received.
-    ActorStopped,
-    /// The actor's remote ID was not found.
-    UnknownActor {
-        /// The remote ID of the actor.
-        actor_remote_id: std::borrow::Cow<'static, str>,
-    },
-    /// The message remote ID was not found for the actor.
-    UnknownMessage {
-        /// The remote ID of the actor.
-        actor_remote_id: std::borrow::Cow<'static, str>,
-        /// The remote ID of the message.
-        message_remote_id: std::borrow::Cow<'static, str>,
-    },
-    /// The remote actor was found given the ID, but was not the correct type.
-    BadActorType,
-    /// The actors mailbox is full.
-    MailboxFull,
-    /// Timed out waiting for a reply.
-    ReplyTimeout,
-    /// An error returned by the actor's message handler.
-    HandlerError(E),
-    /// Failed to serialize the message.
-    SerializeMessage(String),
-    /// Failed to deserialize the incoming message.
-    DeserializeMessage(String),
-    /// Failed to serialize the reply.
-    SerializeReply(String),
-    /// Failed to serialize the handler error.
-    SerializeHandlerError(String),
-    /// Failed to deserialize the handler error.
-    DeserializeHandlerError(String),
-
-    /// The actor swarm has not been bootstrapped.
-    SwarmNotBootstrapped,
-    /// The request could not be sent because a dialing attempt failed.
-    DialFailure,
-    /// The request timed out before a response was received.
-    ///
-    /// It is not known whether the request may have been
-    /// received (and processed) by the remote peer.
-    NetworkTimeout,
-    /// The connection closed before a response was received.
-    ///
-    /// It is not known whether the request may have been
-    /// received (and processed) by the remote peer.
-    ConnectionClosed,
-    /// The remote supports none of the requested protocols.
-    UnsupportedProtocols,
-    /// An IO failure happened on an outbound stream.
-    #[serde(skip)]
-    Io(Option<std::io::Error>),
-}
-
-#[cfg(feature = "remote")]
-impl<E> RemoteSendError<E> {
-    /// Maps the inner error to another type if the variant is [`HandlerError`](RemoteSendError::HandlerError).
-    pub fn map_err<F, O>(self, mut op: O) -> RemoteSendError<F>
-    where
-        O: FnMut(E) -> F,
-    {
-        match self {
-            RemoteSendError::ActorNotRunning => RemoteSendError::ActorNotRunning,
-            RemoteSendError::ActorStopped => RemoteSendError::ActorStopped,
-            RemoteSendError::UnknownActor { actor_remote_id } => {
-                RemoteSendError::UnknownActor { actor_remote_id }
-            }
-            RemoteSendError::UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            } => RemoteSendError::UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            },
-            RemoteSendError::BadActorType => RemoteSendError::BadActorType,
-            RemoteSendError::MailboxFull => RemoteSendError::MailboxFull,
-            RemoteSendError::ReplyTimeout => RemoteSendError::ReplyTimeout,
-            RemoteSendError::HandlerError(err) => RemoteSendError::HandlerError(op(err)),
-            RemoteSendError::SerializeMessage(err) => RemoteSendError::SerializeMessage(err),
-            RemoteSendError::DeserializeMessage(err) => RemoteSendError::DeserializeMessage(err),
-            RemoteSendError::SerializeReply(err) => RemoteSendError::SerializeReply(err),
-            RemoteSendError::SerializeHandlerError(err) => {
-                RemoteSendError::SerializeHandlerError(err)
-            }
-            RemoteSendError::DeserializeHandlerError(err) => {
-                RemoteSendError::DeserializeHandlerError(err)
-            }
-            RemoteSendError::SwarmNotBootstrapped => RemoteSendError::SwarmNotBootstrapped,
-            RemoteSendError::DialFailure => RemoteSendError::DialFailure,
-            RemoteSendError::NetworkTimeout => RemoteSendError::NetworkTimeout,
-            RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
-            RemoteSendError::UnsupportedProtocols => RemoteSendError::UnsupportedProtocols,
-            RemoteSendError::Io(err) => RemoteSendError::Io(err),
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<E> RemoteSendError<RemoteSendError<E>> {
-    /// Flattens a nested SendError.
-    pub fn flatten(self) -> RemoteSendError<E> {
-        use RemoteSendError::*;
-        match self {
-            ActorNotRunning | HandlerError(ActorNotRunning) => ActorNotRunning,
-            ActorStopped | HandlerError(ActorStopped) => ActorStopped,
-            UnknownActor { actor_remote_id } | HandlerError(UnknownActor { actor_remote_id }) => {
-                UnknownActor { actor_remote_id }
-            }
-            UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            }
-            | HandlerError(UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            }) => UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            },
-            BadActorType | HandlerError(BadActorType) => BadActorType,
-            MailboxFull | HandlerError(MailboxFull) => MailboxFull,
-            ReplyTimeout | HandlerError(ReplyTimeout) => ReplyTimeout,
-            HandlerError(HandlerError(err)) => HandlerError(err),
-            SerializeMessage(err) | HandlerError(SerializeMessage(err)) => SerializeMessage(err),
-            DeserializeMessage(err) | HandlerError(DeserializeMessage(err)) => {
-                DeserializeMessage(err)
-            }
-            SerializeReply(err) | HandlerError(SerializeReply(err)) => SerializeReply(err),
-            SerializeHandlerError(err) | HandlerError(SerializeHandlerError(err)) => {
-                SerializeHandlerError(err)
-            }
-            DeserializeHandlerError(err) | HandlerError(DeserializeHandlerError(err)) => {
-                RemoteSendError::DeserializeHandlerError(err)
-            }
-            SwarmNotBootstrapped | HandlerError(SwarmNotBootstrapped) => SwarmNotBootstrapped,
-            DialFailure | HandlerError(DialFailure) => DialFailure,
-            NetworkTimeout | HandlerError(NetworkTimeout) => NetworkTimeout,
-            ConnectionClosed | HandlerError(ConnectionClosed) => ConnectionClosed,
-            UnsupportedProtocols | HandlerError(UnsupportedProtocols) => UnsupportedProtocols,
-            Io(err) | HandlerError(Io(err)) => Io(err),
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<M, E> From<SendError<M, E>> for RemoteSendError<E> {
-    fn from(err: SendError<M, E>) -> Self {
-        match err {
-            SendError::ActorNotRunning(_) => RemoteSendError::ActorNotRunning,
-            SendError::ActorStopped => RemoteSendError::ActorStopped,
-            SendError::ActorRestarting(_) => RemoteSendError::ActorNotRunning,
-            SendError::MailboxFull(_) => RemoteSendError::MailboxFull,
-            SendError::HandlerError(err) => RemoteSendError::HandlerError(err),
-            SendError::Timeout(_) => RemoteSendError::ReplyTimeout,
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<E> From<libp2p::request_response::OutboundFailure> for RemoteSendError<E> {
-    fn from(err: libp2p::request_response::OutboundFailure) -> Self {
-        match err {
-            libp2p::request_response::OutboundFailure::DialFailure => RemoteSendError::DialFailure,
-            libp2p::request_response::OutboundFailure::Timeout => RemoteSendError::NetworkTimeout,
-            libp2p::request_response::OutboundFailure::ConnectionClosed => {
-                RemoteSendError::ConnectionClosed
-            }
-            libp2p::request_response::OutboundFailure::UnsupportedProtocols => {
-                RemoteSendError::UnsupportedProtocols
-            }
-            libp2p::request_response::OutboundFailure::Io(err) => RemoteSendError::Io(Some(err)),
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<E> fmt::Display for RemoteSendError<E>
-where
-    E: fmt::Display,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            RemoteSendError::ActorNotRunning => write!(f, "actor not running"),
-            RemoteSendError::ActorStopped => write!(f, "actor stopped"),
-            RemoteSendError::UnknownActor { actor_remote_id } => {
-                write!(f, "unknown actor '{actor_remote_id}'")
-            }
-            RemoteSendError::UnknownMessage {
-                actor_remote_id,
-                message_remote_id,
-            } => write!(
-                f,
-                "unknown message '{message_remote_id}' for actor '{actor_remote_id}'"
-            ),
-            RemoteSendError::BadActorType => write!(f, "bad actor type"),
-            RemoteSendError::MailboxFull => write!(f, "mailbox full"),
-            RemoteSendError::ReplyTimeout => write!(f, "timeout"),
-            RemoteSendError::HandlerError(err) => err.fmt(f),
-            RemoteSendError::SerializeMessage(err) => {
-                write!(f, "failed to serialize message: {err}")
-            }
-            RemoteSendError::DeserializeMessage(err) => {
-                write!(f, "failed to deserialize message: {err}")
-            }
-            RemoteSendError::SerializeReply(err) => {
-                write!(f, "failed to serialize reply: {err}")
-            }
-            RemoteSendError::SerializeHandlerError(err) => {
-                write!(f, "failed to serialize handler error: {err}")
-            }
-            RemoteSendError::DeserializeHandlerError(err) => {
-                write!(f, "failed to deserialize handler error: {err}")
-            }
-            RemoteSendError::SwarmNotBootstrapped => write!(f, "swarm not bootstrapped"),
-            RemoteSendError::DialFailure => write!(f, "dial failure"),
-            RemoteSendError::NetworkTimeout => write!(f, "network timeout"),
-            RemoteSendError::ConnectionClosed => write!(f, "connection closed"),
-            RemoteSendError::UnsupportedProtocols => write!(f, "unsupported protocols"),
-            RemoteSendError::Io(Some(err)) => err.fmt(f),
-            RemoteSendError::Io(None) => write!(f, "io error"),
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<E> error::Error for RemoteSendError<E> where E: fmt::Debug + fmt::Display {}
-
-/// An error returned when the remote system has already been bootstrapped.
-#[cfg(feature = "remote")]
-#[derive(Clone, Copy, Debug)]
-pub struct SwarmAlreadyBootstrappedError;
-
-#[cfg(feature = "remote")]
-impl fmt::Display for SwarmAlreadyBootstrappedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "swarm already bootstrapped")
-    }
-}
-
-#[cfg(feature = "remote")]
-impl error::Error for SwarmAlreadyBootstrappedError {}

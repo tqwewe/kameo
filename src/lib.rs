@@ -12,17 +12,14 @@ pub mod error;
 pub(crate) mod links;
 pub mod mailbox;
 pub mod message;
-#[cfg(not(feature = "remote"))]
 pub mod registry;
-#[cfg(feature = "remote")]
-pub mod remote;
 pub mod reply;
 pub mod request;
 pub mod supervision;
 
 pub use actor::Actor;
 #[cfg(feature = "macros")]
-pub use kameo_macros::{Actor, RemoteActor, Reply, messages, remote_message};
+pub use kameo_macros::{Actor, Reply, messages};
 pub use reply::Reply;
 
 #[cfg(all(feature = "otel", not(feature = "tracing")))]
@@ -38,20 +35,14 @@ compile_error!("the `otel` feature requires the `tracing` feature to be enabled"
 /// and traits needed for typical actor system usage.
 pub mod prelude {
     #[cfg(feature = "macros")]
-    pub use kameo_macros::{Actor, RemoteActor, Reply, messages, remote_message};
+    pub use kameo_macros::{Actor, Reply, messages};
 
-    #[cfg(feature = "remote")]
-    pub use crate::actor::RemoteActorRef;
     pub use crate::actor::{
         Actor, ActorId, ActorRef, PreparedActor, Recipient, ReplyRecipient, Spawn, WeakActorRef,
         WeakRecipient, WeakReplyRecipient,
     };
-    #[cfg(feature = "remote")]
-    pub use crate::error::RemoteSendError;
     pub use crate::error::{ActorStopReason, PanicError, PanicReason, SendError};
     pub use crate::mailbox::{self, MailboxReceiver, MailboxSender};
     pub use crate::message::{BoxMessage, Context, Message};
-    #[cfg(feature = "remote")]
-    pub use crate::remote::{self, RemoteActor, RemoteMessage};
     pub use crate::reply::{DelegatedReply, ForwardedReply, Reply, ReplyError, ReplySender};
 }

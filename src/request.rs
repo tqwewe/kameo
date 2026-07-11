@@ -5,12 +5,6 @@ use std::time::Duration;
 mod ask;
 mod tell;
 
-#[cfg(feature = "remote")]
-pub use ask::RemoteAskRequest;
-
-#[cfg(feature = "remote")]
-pub use tell::RemoteTellRequest;
-
 pub use ask::{AskRequest, BlockingPendingReply, PendingReply, ReplyRecipientAskRequest};
 pub use tell::{RecipientTellRequest, ReplyRecipientTellRequest, TellRequest};
 
@@ -22,41 +16,6 @@ pub struct WithoutRequestTimeout;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WithRequestTimeout(Option<Duration>);
 
-/// A type which might contain a request timeout.
-///
-/// This type is used internally for remote messaging and will panic if used incorrectly with any MessageSend trait.
-#[derive(Clone, Copy, Debug)]
-pub enum MaybeRequestTimeout {
-    /// No timeout set.
-    NoTimeout,
-    /// A timeout with a duration.
-    Timeout(Duration),
-}
-
-impl From<Option<Duration>> for MaybeRequestTimeout {
-    fn from(timeout: Option<Duration>) -> Self {
-        match timeout {
-            Some(timeout) => MaybeRequestTimeout::Timeout(timeout),
-            None => MaybeRequestTimeout::NoTimeout,
-        }
-    }
-}
-
-impl From<WithoutRequestTimeout> for MaybeRequestTimeout {
-    fn from(_: WithoutRequestTimeout) -> Self {
-        MaybeRequestTimeout::NoTimeout
-    }
-}
-
-impl From<WithRequestTimeout> for MaybeRequestTimeout {
-    fn from(WithRequestTimeout(timeout): WithRequestTimeout) -> Self {
-        match timeout {
-            Some(timeout) => MaybeRequestTimeout::Timeout(timeout),
-            None => MaybeRequestTimeout::NoTimeout,
-        }
-    }
-}
-
 impl From<WithoutRequestTimeout> for Option<Duration> {
     fn from(_: WithoutRequestTimeout) -> Self {
         None
@@ -66,14 +25,5 @@ impl From<WithoutRequestTimeout> for Option<Duration> {
 impl From<WithRequestTimeout> for Option<Duration> {
     fn from(WithRequestTimeout(duration): WithRequestTimeout) -> Self {
         duration
-    }
-}
-
-impl From<MaybeRequestTimeout> for Option<Duration> {
-    fn from(timeout: MaybeRequestTimeout) -> Self {
-        match timeout {
-            MaybeRequestTimeout::NoTimeout => None,
-            MaybeRequestTimeout::Timeout(duration) => Some(duration),
-        }
     }
 }

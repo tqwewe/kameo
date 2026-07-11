@@ -183,24 +183,18 @@ impl Actor for WorkerA {
 
 **Default behavior:** Actors stop when a link dies (except on normal shutdown). Return `ControlFlow::Continue(())` to keep running or `ControlFlow::Break(reason)` to stop.
 
-### Remote Linking and Unlinking
+### Unlinking
 
 ```rust
-// Link remote actors
-local_actor.link_remote(&remote_actor_ref).await;
-
 // Unlink when no longer needed
 worker_a.unlink(&worker_b).await;
-local_actor.unlink_remote(&remote_actor_ref).await;
 ```
-
-When a remote node disconnects, linked actors receive `ActorStopReason::PeerDisconnected`.
 
 ## Best Practices
 
 **Supervision vs Linking:**
 - **Use supervision** for automatic restart and lifecycle management
-- **Use linking** for peer notification without restart, or cross-node monitoring
+- **Use linking** for peer notification without restart
 - **Combine both** when supervised children need to coordinate
 
 **Designing Trees:**

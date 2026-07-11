@@ -442,10 +442,6 @@ where
             ActorStopReason::LinkDied { id, reason } => {
                 ControlFlow::Break(ActorStopReason::LinkDied { id, reason })
             }
-            #[cfg(feature = "remote")]
-            ActorStopReason::PeerDisconnected => {
-                ControlFlow::Break(ActorStopReason::PeerDisconnected)
-            }
         }
     }
 
