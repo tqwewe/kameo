@@ -67,7 +67,7 @@ impl<A: Actor> PreparedActor<A> {
     ) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         let lifecycle = Arc::new(ActorLifecycle::new(abort_handle));
-        let startup_result = lifecycle.startup_result.clone();
+        let startup_result = lifecycle.startup_result().clone();
         let actor_ref = ActorRef::new(actor_id, mailbox_tx, links, lifecycle);
 
         #[cfg(feature = "console")]
@@ -329,8 +329,7 @@ where
                     Ok(()) => {
                         if !is_restarting {
                             actor_ref
-                                .lifecycle
-                                .shutdown_result
+                                .shutdown_result()
                                 .set(Ok(reason.clone()))
                                 .expect("nothing else should set the shutdown result");
                         }
@@ -340,8 +339,7 @@ where
 
                         if !is_restarting {
                             actor_ref
-                                .lifecycle
-                                .shutdown_result
+                                .shutdown_result()
                                 .set(Err(err))
                                 .expect("nothing else should set the shutdown result");
                         }
@@ -383,8 +381,7 @@ where
 
                 if !is_restarting {
                     actor_ref
-                        .lifecycle
-                        .shutdown_result
+                        .shutdown_result()
                         .set(Err(err.clone()))
                         .expect("nothing should set the shutdown result");
                 }
