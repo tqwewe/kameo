@@ -88,7 +88,7 @@ use futures::{FutureExt, future::BoxFuture};
 
 use crate::{
     actor::{Actor, ActorId, ActorRef, DEFAULT_MAILBOX_CAPACITY, PreparedActor},
-    links::{BoxActorRef, ErasedChildSpec, Links, RestartTracker, ShutdownFn, SpawnFactory},
+    links::{ErasedChildSpec, Links, RestartTracker, ShutdownFn, SpawnFactory},
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
 };
 
@@ -647,9 +647,12 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
             restart_tracker.clone(),
             parent_shutdown.clone(),
         );
+        let prepared =
+            PreparedActor::new_with(actor_id, (mailbox_tx.clone(), mailbox_rx), links.clone());
+        let actor_ref = prepared.actor_ref().clone();
+        let args = self.args_factory.get();
         let factory = Arc::new(new_factory(
-            actor_id,
-            mailbox_tx.clone(),
+            actor_ref.clone(),
             links.clone(),
             self.args_factory,
             in_thread,
@@ -675,20 +678,24 @@ impl<'a, S: Actor, C: Actor> SupervisedActorBuilder<'a, S, C> {
             restart_tracker,
         };
         self.supervisor_ref.link_child(actor_id, &links, spec).await;
-        *(*factory)(Box::new(mailbox_rx)).await.downcast().unwrap()
+        if in_thread {
+            prepared.spawn_in_thread(args);
+        } else {
+            prepared.spawn(args);
+        }
+        actor_ref
     }
 }
 
 fn new_factory<C: Actor>(
-    actor_id: ActorId,
-    mailbox_tx: MailboxSender<C>,
+    actor_ref: ActorRef<C>,
     links: Links,
     args_factory: SupervisorFactory<C::Args>,
     in_thread: bool,
 ) -> SpawnFactory {
     Box::new(move |rx: Box<dyn Any + Send>| {
         let mailbox_rx = *rx.downcast::<MailboxReceiver<C>>().unwrap();
-        let mailbox_tx = mailbox_tx.clone();
+        let actor_ref = actor_ref.clone();
         let links = links.clone();
         let args = args_factory.get();
 
@@ -703,15 +710,13 @@ fn new_factory<C: Actor>(
                 // left by a previous supervisor shutdown.
                 inner.parent_shutdown.store(false, Ordering::Release);
             }
-            let prepared = PreparedActor::new_with(actor_id, (mailbox_tx, mailbox_rx), links);
-            let actor_ref = prepared.actor_ref().clone();
+            let prepared = PreparedActor::restart(actor_ref, mailbox_rx);
             if in_thread {
                 prepared.spawn_in_thread(args);
             } else {
                 prepared.spawn(args);
             }
-            Box::new(actor_ref) as BoxActorRef
-        }) as BoxFuture<'static, BoxActorRef>
+        }) as BoxFuture<'static, ()>
     })
 }
 

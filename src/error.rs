@@ -373,6 +373,8 @@ where
 pub enum ActorStopReason {
     /// Actor stopped normally.
     Normal,
+    /// Actor was gracefully shut down through its actor reference.
+    Shutdown,
     /// Supervisor restarted.
     SupervisorRestart,
     /// Actor was killed.
@@ -403,7 +405,7 @@ impl ActorStopReason {
     /// Returns true if the actor's stop reason is normal and not caused by an error.
     pub fn is_normal(&self) -> bool {
         match self {
-            ActorStopReason::Normal => true,
+            ActorStopReason::Normal | ActorStopReason::Shutdown => true,
             ActorStopReason::SupervisorRestart
             | ActorStopReason::Killed
             | ActorStopReason::Panicked(_)
@@ -418,6 +420,7 @@ impl fmt::Debug for ActorStopReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActorStopReason::Normal => write!(f, "Normal"),
+            ActorStopReason::Shutdown => write!(f, "Shutdown"),
             ActorStopReason::SupervisorRestart => write!(f, "SupervisorRestart"),
             ActorStopReason::Killed => write!(f, "Killed"),
             ActorStopReason::Panicked(err) => {
@@ -442,6 +445,7 @@ impl fmt::Display for ActorStopReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ActorStopReason::Normal => write!(f, "actor stopped normally"),
+            ActorStopReason::Shutdown => write!(f, "actor shut down gracefully"),
             ActorStopReason::SupervisorRestart => write!(f, "actor restarted by supervisor"),
             ActorStopReason::Killed => write!(f, "actor was killed"),
             ActorStopReason::Panicked(err) => err.fmt(f),

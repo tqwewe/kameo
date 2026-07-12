@@ -149,8 +149,7 @@ pub(crate) struct ActorMonitor {
     mailbox_kind: wire::MailboxKind,
     mailbox_capacity: Option<usize>,
     links: Links,
-    /// Swapped out on restart: each incarnation has its own `ActorRef` allocation, so the
-    /// probe must track the latest one for its handle counts to stay meaningful.
+    /// Refreshed on restart so the monitor keeps a weak handle to the stable logical actor ref.
     probe: Mutex<Box<dyn LiveProbe>>,
     status: AtomicU8,
     stopped: Mutex<Option<Stopped>>,
@@ -381,7 +380,7 @@ pub(crate) fn register_or_get<A: Actor>(actor_ref: &ActorRef<A>) -> Arc<ActorMon
         // handler here — otherwise the restarted actor would show as forever handling the old
         // message (an ever-growing "Stuck" elapsed).
         *monitor.current_handler.lock().unwrap() = None;
-        // The new incarnation is a new allocation; repoint the probe so handle counts track it.
+        // Refresh the weak probe for the restarted logical actor.
         *monitor.probe.lock().unwrap() = Box::new(actor_ref.downgrade());
         monitor.status.store(RESTARTING, Ordering::Relaxed);
         return Arc::clone(monitor);

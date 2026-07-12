@@ -232,7 +232,7 @@ where
         dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> ControlFlow<ActorStopReason> {
         {
-            let links = self.actor_ref.links.lock().await;
+            let mut links = self.actor_ref.links.lock().await;
 
             // Check if we're already coordinating a restart
             if let CoordinationState::Coordinating {
@@ -339,6 +339,15 @@ where
                     ControlFlow::Break(no_restart_reason) => {
                         #[cfg(feature = "tracing")]
                         match no_restart_reason {
+                            crate::links::NoRestartReason::Shutdown => {
+                                tracing::debug!(
+                                    %id,
+                                    name = A::name(),
+                                    ?reason,
+                                    decision = %no_restart_reason,
+                                    "actor not restarted"
+                                );
+                            }
                             crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
                                 tracing::debug!(
                                     %id,
@@ -380,6 +389,7 @@ where
                                 while let Some(()) = notify_futs.next().await {}
                             });
                         }
+                        links.children.remove(&id);
                     }
                 }
             }
@@ -405,10 +415,13 @@ where
         }
     }
 
-    pub(crate) async fn handle_stop(&mut self) -> ControlFlow<ActorStopReason> {
+    pub(crate) async fn handle_stop(
+        &mut self,
+        reason: ActorStopReason,
+    ) -> ControlFlow<ActorStopReason> {
         self.actor_ref.links.set_children_parent_shutdown().await;
         match self.handle_startup_finished().await {
-            ControlFlow::Continue(_) => ControlFlow::Break(ActorStopReason::Normal),
+            ControlFlow::Continue(_) => ControlFlow::Break(reason),
             ControlFlow::Break(reason) => ControlFlow::Break(reason),
         }
     }
@@ -419,6 +432,7 @@ where
     ) -> ControlFlow<ActorStopReason> {
         match reason {
             ActorStopReason::Normal => ControlFlow::Break(ActorStopReason::Normal),
+            ActorStopReason::Shutdown => ControlFlow::Break(ActorStopReason::Shutdown),
             ActorStopReason::SupervisorRestart => {
                 ControlFlow::Break(ActorStopReason::SupervisorRestart)
             }

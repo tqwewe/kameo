@@ -301,9 +301,9 @@ pub trait Actor: Sized + Send + 'static {
     ) -> impl Future<Output = Result<ControlFlow<ActorStopReason>, Self::Error>> + Send {
         async move {
             match &reason {
-                ActorStopReason::Normal | ActorStopReason::SupervisorRestart => {
-                    Ok(ControlFlow::Continue(()))
-                }
+                ActorStopReason::Normal
+                | ActorStopReason::Shutdown
+                | ActorStopReason::SupervisorRestart => Ok(ControlFlow::Continue(())),
                 ActorStopReason::Killed
                 | ActorStopReason::Panicked(_)
                 | ActorStopReason::LinkDied { .. } => {

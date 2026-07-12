@@ -25,9 +25,7 @@ use crate::{
 };
 
 pub type BoxMailboxReceiver = Box<dyn Any + Send>;
-pub type BoxActorRef = Box<dyn Any + Send>;
-pub type SpawnFactory =
-    Box<dyn Fn(BoxMailboxReceiver) -> BoxFuture<'static, BoxActorRef> + Send + Sync>;
+pub type SpawnFactory = Box<dyn Fn(BoxMailboxReceiver) -> BoxFuture<'static, ()> + Send + Sync>;
 pub type ShutdownFn = Box<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// A collection of links to other actors that are notified when the actor dies.
@@ -139,6 +137,9 @@ impl LinksInner {
         };
         if self.parent_shutdown.load(Ordering::Acquire) {
             return false; // our supervisor is going away too
+        }
+        if matches!(reason, ActorStopReason::Shutdown) {
+            return false; // explicit graceful shutdown is terminal
         }
         match policy {
             RestartPolicy::Never => false,
@@ -291,6 +292,10 @@ impl ErasedChildSpec {
             return ControlFlow::Break(NoRestartReason::NeverPolicy);
         }
 
+        if matches!(reason, ActorStopReason::Shutdown) {
+            return ControlFlow::Break(NoRestartReason::Shutdown);
+        }
+
         // Always restart if supervisor initiated the shutdown for coordination
         if matches!(reason, ActorStopReason::SupervisorRestart) {
             return ControlFlow::Continue(());
@@ -396,6 +401,8 @@ impl RestartTracker {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NoRestartReason {
+    /// Explicit graceful shutdown is terminal
+    Shutdown,
     /// Transient policy but stop was normal
     NormalExitUnderTransientPolicy,
     /// Restart intensity threshold exceeded
@@ -410,6 +417,7 @@ pub enum NoRestartReason {
 impl fmt::Display for NoRestartReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            NoRestartReason::Shutdown => write!(f, "graceful shutdown"),
             NoRestartReason::NormalExitUnderTransientPolicy => {
                 write!(f, "normal exit under transient policy")
             }

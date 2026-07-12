@@ -19,7 +19,7 @@ use tracing::{Instrument, error, trace};
 use crate::remote;
 
 use crate::{
-    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
+    actor::{Actor, ActorLifecycle, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
     error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
     links::Links,
     mailbox::{MailboxReceiver, MailboxSender, Signal},
@@ -40,6 +40,7 @@ pub struct PreparedActor<A: Actor> {
     actor_ref: ActorRef<A>,
     mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
+    startup_result: Arc<SetOnce<Result<(), PanicError>>>,
     #[cfg(feature = "console")]
     monitor: Arc<crate::console::registry::ActorMonitor>,
 }
@@ -65,16 +66,9 @@ impl<A: Actor> PreparedActor<A> {
         links: Links,
     ) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let startup_result = Arc::new(SetOnce::new());
-        let shutdown_result = Arc::new(SetOnce::new());
-        let actor_ref = ActorRef::new(
-            actor_id,
-            mailbox_tx,
-            abort_handle,
-            links,
-            startup_result,
-            shutdown_result,
-        );
+        let lifecycle = Arc::new(ActorLifecycle::new(abort_handle));
+        let startup_result = lifecycle.startup_result.clone();
+        let actor_ref = ActorRef::new(actor_id, mailbox_tx, links, lifecycle);
 
         #[cfg(feature = "console")]
         let monitor = crate::console::registry::register_or_get(&actor_ref);
@@ -83,6 +77,25 @@ impl<A: Actor> PreparedActor<A> {
             actor_ref,
             mailbox_rx,
             abort_registration,
+            startup_result,
+            #[cfg(feature = "console")]
+            monitor,
+        }
+    }
+
+    pub(crate) fn restart(actor_ref: ActorRef<A>, mailbox_rx: MailboxReceiver<A>) -> Self {
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        actor_ref.replace_abort_handle(abort_handle);
+        let startup_result = Arc::new(SetOnce::new());
+
+        #[cfg(feature = "console")]
+        let monitor = crate::console::registry::register_or_get(&actor_ref);
+
+        PreparedActor {
+            actor_ref,
+            mailbox_rx,
+            abort_registration,
+            startup_result,
             #[cfg(feature = "console")]
             monitor,
         }
@@ -150,6 +163,7 @@ impl<A: Actor> PreparedActor<A> {
             self.actor_ref,
             self.mailbox_rx,
             self.abort_registration,
+            self.startup_result,
             #[cfg(feature = "console")]
             self.monitor,
         )
@@ -201,6 +215,7 @@ async fn run_actor_lifecycle<A>(
     actor_ref: ActorRef<A>,
     mut mailbox_rx: MailboxReceiver<A>,
     abort_registration: AbortRegistration,
+    startup_result: Arc<SetOnce<Result<(), PanicError>>>,
     #[cfg(feature = "console")] monitor: Arc<crate::console::registry::ActorMonitor>,
 ) -> Result<(A, ActorStopReason), PanicError>
 where
@@ -241,7 +256,7 @@ where
                     abortable_actor_loop(
                         &mut state,
                         &mut mailbox_rx,
-                        &actor_ref.startup_result,
+                        &startup_result,
                         startup_finished,
                         #[cfg(feature = "console")]
                         &monitor,
@@ -259,6 +274,7 @@ where
                 actor_ref.links.send_children_shutdown().await;
                 let is_restarting = actor_ref.links.lock().await.will_restart(&reason);
                 drain_until_children_closed(&actor_ref.links, &mut mailbox_rx, is_restarting).await;
+                actor_ref.links.lock().await.children.clear();
 
                 // On a terminal stop (not a restart, where the mailbox is reused by the next
                 // incarnation) hand any leftover tells to `on_undelivered` before `notify_links`
@@ -305,30 +321,37 @@ where
                 #[cfg(feature = "console")]
                 monitor.set_stopped(&reason);
 
-                unregister_actor(&id).await;
+                if !is_restarting {
+                    unregister_actor(&id).await;
+                }
 
                 match on_stop_res {
                     Ok(()) => {
-                        actor_ref
-                            .shutdown_result
-                            .set(Ok(reason.clone()))
-                            .expect("nothing else should set the shutdown result");
+                        if !is_restarting {
+                            actor_ref
+                                .lifecycle
+                                .shutdown_result
+                                .set(Ok(reason.clone()))
+                                .expect("nothing else should set the shutdown result");
+                        }
                     }
                     Err(err) => {
                         invoke_actor_error_hook(&err);
 
-                        actor_ref
-                            .shutdown_result
-                            .set(Err(err))
-                            .expect("nothing else should set the shutdown result");
+                        if !is_restarting {
+                            actor_ref
+                                .lifecycle
+                                .shutdown_result
+                                .set(Err(err))
+                                .expect("nothing else should set the shutdown result");
+                        }
                     }
                 }
 
                 Ok((actor, reason))
             }
             Err(err) => {
-                actor_ref
-                    .startup_result
+                startup_result
                     .set(Err(err.clone()))
                     .expect("nothing should set the startup result");
 
@@ -340,6 +363,7 @@ where
                 // startup failed; the supervisor may still restart us per policy
                 let is_restarting = actor_ref.links.lock().await.will_restart(&reason);
                 drain_until_children_closed(&actor_ref.links, &mut mailbox_rx, is_restarting).await;
+                actor_ref.links.lock().await.children.clear();
                 actor_ref
                     .links
                     .lock()
@@ -349,16 +373,21 @@ where
                 #[cfg(feature = "console")]
                 monitor.set_stopped(&reason);
 
-                unregister_actor(&id).await;
+                if !is_restarting {
+                    unregister_actor(&id).await;
+                }
 
                 let ActorStopReason::Panicked(err) = reason else {
                     unreachable!()
                 };
 
-                actor_ref
-                    .shutdown_result
-                    .set(Err(err.clone()))
-                    .expect("nothing should set the startup result");
+                if !is_restarting {
+                    actor_ref
+                        .lifecycle
+                        .shutdown_result
+                        .set(Err(err.clone()))
+                        .expect("nothing should set the shutdown result");
+                }
 
                 Err(err)
             }
@@ -551,8 +580,17 @@ where
                     return reason;
                 }
             }
-            ControlFlow::Continue(Signal::Stop | Signal::SupervisorRestart) => {
-                if let ControlFlow::Break(reason) = state.handle_stop().await {
+            ControlFlow::Continue(Signal::Stop) => {
+                if let ControlFlow::Break(reason) =
+                    state.handle_stop(ActorStopReason::Shutdown).await
+                {
+                    return reason;
+                }
+            }
+            ControlFlow::Continue(Signal::SupervisorRestart) => {
+                if let ControlFlow::Break(reason) =
+                    state.handle_stop(ActorStopReason::SupervisorRestart).await
+                {
                     return reason;
                 }
             }
@@ -591,6 +629,7 @@ async fn unregister_actor(id: &ActorId) {
 fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
     match reason {
         reason @ (ActorStopReason::Normal
+        | ActorStopReason::Shutdown
         | ActorStopReason::SupervisorRestart
         | ActorStopReason::Killed
         | ActorStopReason::LinkDied { .. }) => {
