@@ -92,6 +92,10 @@ impl Links {
 
         join_all(mailboxes.iter().map(|m| m.closed())).await;
     }
+
+    pub(crate) async fn clear_children(&self) {
+        self.lock().await.children.clear();
+    }
 }
 
 #[derive(Default)]
