@@ -2,7 +2,7 @@ use std::{
     cell::Cell,
     cmp, fmt,
     hash::{Hash, Hasher},
-    sync::{Arc, RwLock, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 
@@ -65,7 +65,7 @@ struct ActorRefInner<A: Actor> {
 }
 
 pub(crate) struct ActorLifecycle {
-    abort_handle: RwLock<AbortHandle>,
+    abort_handle: Mutex<AbortHandle>,
     startup_result: Arc<SetOnce<Result<(), PanicError>>>,
     shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
 }
@@ -73,7 +73,7 @@ pub(crate) struct ActorLifecycle {
 impl ActorLifecycle {
     pub(crate) fn new(abort_handle: AbortHandle) -> Self {
         ActorLifecycle {
-            abort_handle: RwLock::new(abort_handle),
+            abort_handle: Mutex::new(abort_handle),
             startup_result: Arc::new(SetOnce::new()),
             shutdown_result: Arc::new(SetOnce::new()),
         }
@@ -81,12 +81,12 @@ impl ActorLifecycle {
 
     #[inline]
     pub(crate) fn replace_abort_handle(&self, abort_handle: AbortHandle) {
-        *self.abort_handle.write().unwrap() = abort_handle;
+        *self.abort_handle.lock().unwrap() = abort_handle;
     }
 
     #[inline]
     pub(crate) fn abort(&self) {
-        self.abort_handle.read().unwrap().abort();
+        self.abort_handle.lock().unwrap().abort();
     }
 
     #[inline]
