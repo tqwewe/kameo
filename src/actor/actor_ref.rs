@@ -7,7 +7,11 @@ use std::{
 };
 
 use dyn_clone::DynClone;
-use futures::{FutureExt, Stream, StreamExt, TryFutureExt, future::BoxFuture, stream::AbortHandle};
+use futures::{
+    FutureExt, Stream, StreamExt, TryFutureExt,
+    future::BoxFuture,
+    stream::{AbortHandle, AbortRegistration},
+};
 use tokio::{sync::SetOnce, task::JoinHandle, task_local};
 
 #[cfg(feature = "remote")]
@@ -64,14 +68,14 @@ struct ActorRefInner<A: Actor> {
     lifecycle: Arc<ActorLifecycle>,
 }
 
-pub(crate) struct ActorLifecycle {
+struct ActorLifecycle {
     abort_handle: Mutex<AbortHandle>,
     startup_result: Arc<SetOnce<Result<(), PanicError>>>,
     shutdown_result: Arc<SetOnce<Result<ActorStopReason, PanicError>>>,
 }
 
 impl ActorLifecycle {
-    pub(crate) fn new(abort_handle: AbortHandle) -> Self {
+    fn new(abort_handle: AbortHandle) -> Self {
         ActorLifecycle {
             abort_handle: Mutex::new(abort_handle),
             startup_result: Arc::new(SetOnce::new()),
@@ -80,23 +84,15 @@ impl ActorLifecycle {
     }
 
     #[inline]
-    pub(crate) fn replace_abort_handle(&self, abort_handle: AbortHandle) {
+    fn reset_abort_handle(&self) -> AbortRegistration {
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
         *self.abort_handle.lock().unwrap() = abort_handle;
+        abort_registration
     }
 
     #[inline]
-    pub(crate) fn abort(&self) {
+    fn abort(&self) {
         self.abort_handle.lock().unwrap().abort();
-    }
-
-    #[inline]
-    pub(crate) fn startup_result(&self) -> &Arc<SetOnce<Result<(), PanicError>>> {
-        &self.startup_result
-    }
-
-    #[inline]
-    pub(crate) fn shutdown_result(&self) -> &SetOnce<Result<ActorStopReason, PanicError>> {
-        &self.shutdown_result
     }
 }
 
@@ -109,22 +105,27 @@ where
         id: ActorId,
         mailbox: MailboxSender<A>,
         links: Links,
-        lifecycle: Arc<ActorLifecycle>,
+        abort_handle: AbortHandle,
     ) -> Self {
         ActorRef {
             inner: Arc::new(ActorRefInner {
                 id,
                 mailbox_sender: mailbox,
                 links,
-                lifecycle,
+                lifecycle: Arc::new(ActorLifecycle::new(abort_handle)),
             }),
             default_reply_timeout: None,
         }
     }
 
     #[inline]
-    pub(crate) fn replace_abort_handle(&self, abort_handle: AbortHandle) {
-        self.inner.lifecycle.replace_abort_handle(abort_handle);
+    pub(crate) fn startup_result(&self) -> Arc<SetOnce<Result<(), PanicError>>> {
+        Arc::clone(&self.inner.lifecycle.startup_result)
+    }
+
+    #[inline]
+    pub(crate) fn reset_abort_handle(&self) -> AbortRegistration {
+        self.inner.lifecycle.reset_abort_handle()
     }
 
     /// Returns a reference to the actor's links.
@@ -383,7 +384,7 @@ where
     where
         A::Error: Clone,
     {
-        match self.inner.lifecycle.startup_result().get()? {
+        match self.inner.lifecycle.startup_result.get()? {
             Ok(()) => Some(Ok(())),
             Err(err) => Some(Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -436,7 +437,7 @@ where
     where
         F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
     {
-        match self.inner.lifecycle.startup_result().get()? {
+        match self.inner.lifecycle.startup_result.get()? {
             Ok(()) => Some(f(Ok(()))),
             Err(err) => Some(handle_hook_panic(f, err)),
         }
@@ -489,7 +490,7 @@ where
     where
         A::Error: Clone,
     {
-        match self.inner.lifecycle.shutdown_result().get()? {
+        match self.inner.lifecycle.shutdown_result.get()? {
             Ok(reason) => Some(Ok(reason.clone())),
             Err(err) => Some(Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -545,7 +546,7 @@ where
     where
         F: FnOnce(Result<&ActorStopReason, HookError<&A::Error>>) -> R,
     {
-        match self.inner.lifecycle.shutdown_result().get()? {
+        match self.inner.lifecycle.shutdown_result.get()? {
             Ok(reason) => Some(f(Ok(reason))),
             Err(err) => Some(handle_hook_panic(f, err)),
         }
@@ -589,7 +590,7 @@ where
     /// ```
     #[inline]
     pub async fn wait_for_startup(&self) {
-        self.inner.lifecycle.startup_result().wait().await;
+        self.inner.lifecycle.startup_result.wait().await;
     }
 
     /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
@@ -629,7 +630,7 @@ where
     where
         A::Error: Clone,
     {
-        match self.inner.lifecycle.startup_result().wait().await {
+        match self.inner.lifecycle.startup_result.wait().await {
             Ok(()) => Ok(()),
             Err(err) => Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -676,7 +677,7 @@ where
     where
         F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
     {
-        match self.inner.lifecycle.startup_result().wait().await {
+        match self.inner.lifecycle.startup_result.wait().await {
             Ok(()) => f(Ok(())),
             Err(err) => handle_hook_panic(f, err),
         }
@@ -766,7 +767,7 @@ where
         A::Error: Clone,
     {
         self.inner.mailbox_sender.closed().await;
-        match self.inner.lifecycle.shutdown_result().wait().await {
+        match self.inner.lifecycle.shutdown_result.wait().await {
             Ok(reason) => Ok(reason.clone()),
             Err(err) => Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -847,7 +848,7 @@ where
         F: FnOnce(Result<&ActorStopReason, HookError<&A::Error>>) -> R,
     {
         self.inner.mailbox_sender.closed().await;
-        match self.inner.lifecycle.shutdown_result().wait().await {
+        match self.inner.lifecycle.shutdown_result.wait().await {
             Ok(reason) => f(Ok(reason)),
             Err(err) => handle_hook_panic(f, err),
         }
@@ -2206,7 +2207,7 @@ pub struct WeakActorRef<A: Actor> {
 impl<A: Actor> WeakActorRef<A> {
     #[inline]
     pub(crate) fn shutdown_result(&self) -> &SetOnce<Result<ActorStopReason, PanicError>> {
-        self.lifecycle.shutdown_result()
+        &self.lifecycle.shutdown_result
     }
 
     /// Returns the actor identifier.
@@ -2217,7 +2218,7 @@ impl<A: Actor> WeakActorRef<A> {
     /// Returns whether the actor is currently alive.
     #[inline]
     pub fn is_alive(&self) -> bool {
-        !self.lifecycle.shutdown_result().initialized()
+        !self.lifecycle.shutdown_result.initialized()
     }
 
     /// Tries to convert a `WeakActorRef` into a [`ActorRef`]. This will return `Some`
@@ -2269,7 +2270,7 @@ impl<A: Actor> WeakActorRef<A> {
     /// See [`ActorRef::wait_for_startup`] for full details and examples.
     #[inline]
     pub async fn wait_for_startup(&self) {
-        self.lifecycle.startup_result().wait().await;
+        self.lifecycle.startup_result.wait().await;
     }
 
     /// Waits for the actor to finish startup, returning the startup result with a clone of the error.
@@ -2279,7 +2280,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         A::Error: Clone,
     {
-        match self.lifecycle.startup_result().wait().await {
+        match self.lifecycle.startup_result.wait().await {
             Ok(()) => Ok(()),
             Err(err) => Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -2294,7 +2295,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
     {
-        match self.lifecycle.startup_result().wait().await {
+        match self.lifecycle.startup_result.wait().await {
             Ok(()) => f(Ok(())),
             Err(err) => handle_hook_panic(f, err),
         }
@@ -2308,7 +2309,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         A::Error: Clone,
     {
-        match self.lifecycle.startup_result().get()? {
+        match self.lifecycle.startup_result.get()? {
             Ok(()) => Some(Ok(())),
             Err(err) => Some(Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -2324,7 +2325,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         F: FnOnce(Result<(), HookError<&A::Error>>) -> R,
     {
-        match self.lifecycle.startup_result().get()? {
+        match self.lifecycle.startup_result.get()? {
             Ok(()) => Some(f(Ok(()))),
             Err(err) => Some(handle_hook_panic(f, err)),
         }
@@ -2335,7 +2336,7 @@ impl<A: Actor> WeakActorRef<A> {
     /// See [`ActorRef::wait_for_shutdown`] for full details and examples.
     #[inline]
     pub async fn wait_for_shutdown(&self) {
-        self.lifecycle.shutdown_result().wait().await;
+        self.lifecycle.shutdown_result.wait().await;
     }
 
     /// Waits for the actor to finish shutdown, returning the shutdown result with a clone of the error.
@@ -2345,7 +2346,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         A::Error: Clone,
     {
-        match self.lifecycle.shutdown_result().wait().await {
+        match self.lifecycle.shutdown_result.wait().await {
             Ok(reason) => Ok(reason.clone()),
             Err(err) => Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -2360,7 +2361,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         F: FnOnce(Result<&ActorStopReason, HookError<&A::Error>>) -> R,
     {
-        match self.lifecycle.shutdown_result().wait().await {
+        match self.lifecycle.shutdown_result.wait().await {
             Ok(reason) => f(Ok(reason)),
             Err(err) => handle_hook_panic(f, err),
         }
@@ -2374,7 +2375,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         A::Error: Clone,
     {
-        match self.lifecycle.shutdown_result().get()? {
+        match self.lifecycle.shutdown_result.get()? {
             Ok(reason) => Some(Ok(reason.clone())),
             Err(err) => Some(Err(err
                 .with_downcast_ref(|err: &A::Error| HookError::Error(err.clone()))
@@ -2390,7 +2391,7 @@ impl<A: Actor> WeakActorRef<A> {
     where
         F: FnOnce(Result<&ActorStopReason, HookError<&A::Error>>) -> R,
     {
-        match self.lifecycle.shutdown_result().get()? {
+        match self.lifecycle.shutdown_result.get()? {
             Ok(reason) => Some(f(Ok(reason))),
             Err(err) => Some(handle_hook_panic(f, err)),
         }

@@ -19,7 +19,7 @@ use tracing::{Instrument, error, trace};
 use crate::remote;
 
 use crate::{
-    actor::{Actor, ActorLifecycle, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
+    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
     error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
     links::Links,
     mailbox::{MailboxReceiver, MailboxSender, Signal},
@@ -66,9 +66,8 @@ impl<A: Actor> PreparedActor<A> {
         links: Links,
     ) -> Self {
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let lifecycle = Arc::new(ActorLifecycle::new(abort_handle));
-        let startup_result = lifecycle.startup_result().clone();
-        let actor_ref = ActorRef::new(actor_id, mailbox_tx, links, lifecycle);
+        let actor_ref = ActorRef::new(actor_id, mailbox_tx, links, abort_handle);
+        let startup_result = actor_ref.startup_result();
 
         #[cfg(feature = "console")]
         let monitor = crate::console::registry::register_or_get(&actor_ref);
@@ -84,8 +83,7 @@ impl<A: Actor> PreparedActor<A> {
     }
 
     pub(crate) fn restart(actor_ref: ActorRef<A>, mailbox_rx: MailboxReceiver<A>) -> Self {
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        actor_ref.replace_abort_handle(abort_handle);
+        let abort_registration = actor_ref.reset_abort_handle();
         let startup_result = Arc::new(SetOnce::new());
 
         #[cfg(feature = "console")]
