@@ -54,7 +54,8 @@ pub struct RemoteNodeConfig {
     pub failure_detector_config: FailureDetectorConfig,
     /// Grace period before deleted registry keys are garbage collected. Default: 1h.
     pub marked_for_deletion_grace_period: Duration,
-    /// TCP connect timeout. Default: 10s.
+    /// Timeout for establishing a ready outbound connection: TCP connect, TLS when
+    /// enabled, and the connection handshake. Default: 10s.
     pub connect_timeout: Duration,
     /// Default ask reply timeout when not set per-request. Default: 30s.
     pub default_reply_timeout: Duration,

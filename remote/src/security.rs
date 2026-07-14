@@ -16,6 +16,12 @@ const KDF_SALT: &[u8] = b"kameo-remote v1";
 /// encrypted and authenticated with a key derived from it, and messaging connections
 /// prove possession of it during the handshake without ever sending it over the wire.
 ///
+/// The key must be 32 uniformly random bytes (from [`generate`](ClusterKey::generate)
+/// or a secret manager's random generator), not a passphrase: handshake MACs and
+/// gossip packets are observable by anyone on the network, so a guessable key can be
+/// brute-forced offline. If a passphrase is all you have, run it through a password
+/// KDF (argon2, scrypt) first.
+///
 /// The key is redacted from `Debug` output and zeroed on drop. Distributing it to
 /// nodes (environment, secret manager, ...) is up to the application.
 #[derive(Clone)]

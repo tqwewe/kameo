@@ -34,7 +34,7 @@ const AAD_PREFIX: &[u8] = b"kameo-remote gossip v1";
 /// The largest payload that fits in a single UDP datagram, mirroring chitchat's
 /// internal constant.
 const MAX_UDP_PAYLOAD: usize = 65_507;
-const RECV_WARN_INTERVAL: Duration = Duration::from_secs(10);
+const WARN_INTERVAL: Duration = Duration::from_secs(10);
 
 pub(crate) struct EncryptedUdpTransport {
     key: GossipKey,
@@ -62,6 +62,7 @@ impl Transport for EncryptedUdpTransport {
             buf_send: Vec::with_capacity(MAX_UDP_PAYLOAD),
             buf_recv: Box::new([0u8; MAX_UDP_PAYLOAD]),
             last_recv_warn: None,
+            last_send_warn: None,
         }))
     }
 }
@@ -73,6 +74,7 @@ struct EncryptedUdpSocket {
     buf_send: Vec<u8>,
     buf_recv: Box<[u8; MAX_UDP_PAYLOAD]>,
     last_recv_warn: Option<Instant>,
+    last_send_warn: Option<Instant>,
 }
 
 #[async_trait]
@@ -80,9 +82,28 @@ impl Socket for EncryptedUdpSocket {
     async fn send(&mut self, to_addr: SocketAddr, message: ChitchatMessage) -> anyhow::Result<()> {
         self.buf_send.clear();
         message.serialize(&mut self.buf_send);
-        // The 41-byte overhead can push a message chitchat budgeted at exactly the
-        // datagram maximum over the limit; real gossip messages are far smaller.
         let packet = seal(&self.cipher, &self.aad, &self.buf_send);
+        // The 41-byte overhead can push a message chitchat budgeted at the datagram
+        // maximum over the limit. Sending would fail with EMSGSIZE and chitchat would
+        // rebuild the same saturated delta every round, so a peer needing a >~64 KiB
+        // catch-up would stall silently; warn instead so the operator can see it.
+        // Only reachable with an enormous registry state.
+        if packet.len() > MAX_UDP_PAYLOAD {
+            let now = Instant::now();
+            if self
+                .last_send_warn
+                .is_none_or(|last| now.duration_since(last) >= WARN_INTERVAL)
+            {
+                self.last_send_warn = Some(now);
+                tracing::warn!(
+                    to = %to_addr,
+                    len = packet.len(),
+                    "sealed gossip packet exceeds the udp datagram limit and was \
+                     dropped; the peer cannot catch up until registry state shrinks"
+                );
+            }
+            return Ok(());
+        }
         self.socket
             .send_to(&packet, to_addr)
             .await
@@ -131,7 +152,7 @@ impl EncryptedUdpSocket {
         let now = Instant::now();
         let warn = self
             .last_recv_warn
-            .is_none_or(|last| now.duration_since(last) >= RECV_WARN_INTERVAL);
+            .is_none_or(|last| now.duration_since(last) >= WARN_INTERVAL);
         if warn {
             self.last_recv_warn = Some(now);
             tracing::warn!(from = %from_addr, "dropping unauthenticated gossip packet");

@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    future::Future,
     io,
     net::SocketAddr,
     sync::{
@@ -183,11 +184,17 @@ impl ConnectionPool {
                 // The name is required by the API but ignored by the verifier, which
                 // checks the cert chain against the cluster CA instead.
                 let server_name = rustls_pki_types::ServerName::IpAddress(addr.ip().into());
+                // A handshake error, not a connect error: the peer is reachable but
+                // rejected us (or presented a bad cert), so retrying won't help.
                 let stream = tls
                     .connector()
                     .connect(server_name, stream)
                     .await
-                    .map_err(TransportError::Connect)?;
+                    .map_err(|err| {
+                        TransportError::Handshake(HandshakeError::Protocol(format!(
+                            "tls connect: {err}"
+                        )))
+                    })?;
                 return self.establish(stream).await;
             }
             self.establish(stream).await
@@ -314,26 +321,45 @@ async fn handle_conn(stream: TcpStream, ctx: Arc<ServerContext>, cancel: Cancell
     if let Err(err) = stream.set_nodelay(true) {
         tracing::debug!("failed to set nodelay: {err}");
     }
-    // The timeout covers TLS and the hello exchange, so a connect-and-stall client
-    // cannot hold the socket open indefinitely.
     #[cfg(feature = "tls")]
     if let Some(tls) = ctx.security.tls.clone() {
-        let accept = async {
-            let stream = tls
-                .acceptor()
-                .accept(stream)
-                .await
-                .map_err(|err| HandshakeError::Protocol(format!("tls accept: {err}")))?;
-            accept_handshake(stream, &ctx).await
+        let handshake = {
+            let ctx = ctx.clone();
+            async move {
+                let stream = tls
+                    .acceptor()
+                    .accept(stream)
+                    .await
+                    .map_err(|err| HandshakeError::Protocol(format!("tls accept: {err}")))?;
+                accept_handshake(stream, &ctx).await
+            }
         };
-        match tokio::time::timeout(ctx.handshake_timeout, accept).await {
-            Ok(Ok(framed)) => serve_conn(framed, ctx, cancel).await,
-            Ok(Err(err)) => tracing::warn!(?peer_addr, "handshake failed: {err}"),
-            Err(_) => tracing::warn!(?peer_addr, "handshake timed out"),
-        }
+        handshake_and_serve(handshake, ctx, cancel, peer_addr).await;
         return;
     }
-    match tokio::time::timeout(ctx.handshake_timeout, accept_handshake(stream, &ctx)).await {
+    let handshake = {
+        let ctx = ctx.clone();
+        async move { accept_handshake(stream, &ctx).await }
+    };
+    handshake_and_serve(handshake, ctx, cancel, peer_addr).await;
+}
+
+/// Runs a handshake future under the handshake timeout and node cancellation, then
+/// serves the connection. The timeout covers TLS and the hello exchange, so a
+/// connect-and-stall client cannot hold the socket open indefinitely.
+async fn handshake_and_serve<S>(
+    handshake: impl Future<Output = Result<Framed<S, LengthDelimitedCodec>, HandshakeError>>,
+    ctx: Arc<ServerContext>,
+    cancel: CancellationToken,
+    peer_addr: Option<SocketAddr>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let result = tokio::select! {
+        _ = cancel.cancelled() => return,
+        result = tokio::time::timeout(ctx.handshake_timeout, handshake) => result,
+    };
+    match result {
         Ok(Ok(framed)) => serve_conn(framed, ctx, cancel).await,
         Ok(Err(err)) => tracing::warn!(?peer_addr, "handshake failed: {err}"),
         Err(_) => tracing::warn!(?peer_addr, "handshake timed out"),

@@ -87,9 +87,25 @@ pub(crate) enum HandshakeError {
     Protocol(String),
 }
 
-/// The MAC proving key possession, bound to this connection's nonces and cluster.
-/// Direction labels prevent reflecting a peer's MAC back at it; the length-prefixed
-/// cluster id prevents boundary ambiguity with the nonces.
+/// The MAC transcript proving key possession, bound to this connection's nonces and
+/// cluster. Direction labels prevent reflecting a peer's MAC back at it; the
+/// length-prefixed cluster id prevents boundary ambiguity with the nonces.
+fn mac_transcript(
+    key: &HandshakeKey,
+    label: &[u8],
+    cluster_id: &str,
+    first_nonce: &[u8],
+    second_nonce: &[u8],
+) -> Hmac<Sha256> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key.0).expect("hmac accepts any key length");
+    mac.update(label);
+    mac.update(&(cluster_id.len() as u32).to_le_bytes());
+    mac.update(cluster_id.as_bytes());
+    mac.update(first_nonce);
+    mac.update(second_nonce);
+    mac
+}
+
 fn compute_mac(
     key: &HandshakeKey,
     label: &[u8],
@@ -97,13 +113,10 @@ fn compute_mac(
     first_nonce: &[u8],
     second_nonce: &[u8],
 ) -> Vec<u8> {
-    let mut mac = Hmac::<Sha256>::new_from_slice(&key.0).expect("hmac accepts any key length");
-    mac.update(label);
-    mac.update(&(cluster_id.len() as u32).to_le_bytes());
-    mac.update(cluster_id.as_bytes());
-    mac.update(first_nonce);
-    mac.update(second_nonce);
-    mac.finalize().into_bytes().to_vec()
+    mac_transcript(key, label, cluster_id, first_nonce, second_nonce)
+        .finalize()
+        .into_bytes()
+        .to_vec()
 }
 
 /// Constant-time MAC verification.
@@ -115,13 +128,9 @@ fn verify_mac(
     second_nonce: &[u8],
     provided: &[u8],
 ) -> bool {
-    let mut mac = Hmac::<Sha256>::new_from_slice(&key.0).expect("hmac accepts any key length");
-    mac.update(label);
-    mac.update(&(cluster_id.len() as u32).to_le_bytes());
-    mac.update(cluster_id.as_bytes());
-    mac.update(first_nonce);
-    mac.update(second_nonce);
-    mac.verify_slice(provided).is_ok()
+    mac_transcript(key, label, cluster_id, first_nonce, second_nonce)
+        .verify_slice(provided)
+        .is_ok()
 }
 
 fn nonce() -> ByteBuf {
@@ -284,8 +293,10 @@ where
         return Err(HandshakeError::ClusterMismatch);
     }
 
-    // Answering with a MAC before the client authenticates reveals nothing useful:
-    // it is an HMAC over random nonces, worthless without the key.
+    // Answering with a MAC before the client authenticates is safe for a
+    // full-entropy key: an HMAC over random nonces cannot be inverted. It does hand
+    // an unauthenticated prober material for offline brute-force of a guessable key,
+    // which is why ClusterKey requires uniformly random bytes.
     let server_nonce = nonce();
     let server_mac = security.handshake_key.as_ref().map(|key| {
         ByteBuf::from(compute_mac(
