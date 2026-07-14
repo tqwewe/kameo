@@ -90,6 +90,16 @@ pub enum RemoteSendError<E = Infallible> {
     /// Failed to connect to the remote node.
     #[error("failed to connect to remote node: {0}")]
     Connect(#[source] io::Error),
+    /// The remote node belongs to a different cluster.
+    #[error("cluster id mismatch")]
+    ClusterMismatch,
+    /// Cluster key authentication with the remote node failed: the keys do not match,
+    /// or only one side has a key configured.
+    #[error("cluster authentication failed")]
+    AuthFailed,
+    /// The connection handshake with the remote node failed.
+    #[error("handshake failed: {0}")]
+    Handshake(String),
     /// The connection closed before a reply was received.
     #[error("connection closed before a reply was received")]
     ConnectionClosed,
@@ -126,6 +136,9 @@ impl<E> RemoteSendError<E> {
                 RemoteSendError::DeserializeHandlerError(err)
             }
             RemoteSendError::Connect(err) => RemoteSendError::Connect(err),
+            RemoteSendError::ClusterMismatch => RemoteSendError::ClusterMismatch,
+            RemoteSendError::AuthFailed => RemoteSendError::AuthFailed,
+            RemoteSendError::Handshake(err) => RemoteSendError::Handshake(err),
             RemoteSendError::ConnectionClosed => RemoteSendError::ConnectionClosed,
             RemoteSendError::NodeShutdown => RemoteSendError::NodeShutdown,
         }

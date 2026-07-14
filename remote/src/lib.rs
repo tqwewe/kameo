@@ -15,6 +15,32 @@
 //! Nodes join the cluster through seed nodes: a starting node contacts any configured
 //! seed and learns the rest of the membership through gossip.
 //!
+//! # Security
+//!
+//! By default a node is open: anyone who can reach its ports can join the cluster and
+//! send messages. Two independent settings close this, and full security requires
+//! both:
+//!
+//! - [`RemoteNodeConfig::cluster_key`] — a 32-byte pre-shared secret
+//!   ([`ClusterKey`]). Gossip datagrams are encrypted and authenticated with a key
+//!   derived from it, so nodes without the key can neither read nor poison the
+//!   registry. Messaging connections mutually prove possession of it during the
+//!   connection handshake (an HMAC challenge-response; the key never crosses the
+//!   wire). Message payloads themselves are only encrypted when TLS is also enabled.
+//! - `RemoteNodeConfig::tls` (cargo feature `tls`) — mutual TLS for the messaging
+//!   layer via `TlsConfig`: connections are encrypted with TLS 1.3 and both peers
+//!   must present a certificate signed by the cluster CA. Certificates are verified
+//!   against the CA without hostname verification, since nodes are dialed by
+//!   gossip-advertised IPs; possession of a CA-signed certificate is what makes a
+//!   peer a cluster member.
+//!
+//! With only `cluster_key`, membership is authenticated and gossip is confidential,
+//! but message payloads cross the network in plaintext. With only `tls`, messaging is
+//! encrypted but gossip is open, so anyone reaching the gossip port can poison the
+//! registry (a warning is logged at bootstrap). Key and certificate distribution are
+//! up to the application; rotating the cluster key requires a rolling restart, during
+//! which old-key and new-key nodes temporarily cannot see each other.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -72,12 +98,16 @@
 
 mod dispatch;
 mod error;
+mod gossip;
 mod id;
 mod messaging;
 mod node;
 mod registry;
 mod remote_actor;
 mod remote_ref;
+mod security;
+#[cfg(feature = "tls")]
+mod tls;
 
 pub use chitchat::FailureDetectorConfig;
 
@@ -86,3 +116,6 @@ pub use id::{NodeId, RemoteActorId};
 pub use node::{RemoteNode, RemoteNodeConfig};
 pub use remote_actor::{RemoteActor, RemoteMessage, RemoteMessages};
 pub use remote_ref::{RemoteActorRef, RemoteAskRequest, RemoteTellRequest};
+pub use security::ClusterKey;
+#[cfg(feature = "tls")]
+pub use tls::{TlsConfig, TlsError};

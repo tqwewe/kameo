@@ -21,11 +21,13 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     dispatch::DispatchTable,
     error::{BootstrapError, RegistryError, ShutdownError},
+    gossip::EncryptedUdpTransport,
     id::NodeId,
-    messaging::transport::{ConnectionPool, run_server},
+    messaging::transport::{ConnectionPool, ServerContext, run_server},
     registry::{self, RegistrationValue},
     remote_actor::{RemoteActor, RemoteMessages},
     remote_ref::RemoteActorRef,
+    security::{ClusterKey, ConnSecurity},
 };
 
 /// Configuration for a [`RemoteNode`].
@@ -52,7 +54,8 @@ pub struct RemoteNodeConfig {
     pub failure_detector_config: FailureDetectorConfig,
     /// Grace period before deleted registry keys are garbage collected. Default: 1h.
     pub marked_for_deletion_grace_period: Duration,
-    /// TCP connect timeout. Default: 10s.
+    /// Timeout for establishing a ready outbound connection: TCP connect, TLS when
+    /// enabled, and the connection handshake. Default: 10s.
     pub connect_timeout: Duration,
     /// Default ask reply timeout when not set per-request. Default: 30s.
     pub default_reply_timeout: Duration,
@@ -62,6 +65,17 @@ pub struct RemoteNodeConfig {
     /// is reached, further frames are not read, propagating backpressure over TCP.
     /// Default: 512.
     pub max_concurrent_requests: usize,
+    /// Pre-shared cluster key: encrypts and authenticates gossip, and authenticates
+    /// messaging connections. Nodes with a different key (or none) cannot join or
+    /// message this node. Default: `None` (open cluster, trusted networks only).
+    pub cluster_key: Option<ClusterKey>,
+    /// Server-side timeout for a new connection to complete the handshake (including
+    /// TLS when enabled). Default: 10s.
+    pub handshake_timeout: Duration,
+    /// Mutual TLS for the messaging layer: encrypts connections and authenticates
+    /// both peers against the cluster CA. Default: `None` (plaintext).
+    #[cfg(feature = "tls")]
+    pub tls: Option<crate::tls::TlsConfig>,
 }
 
 impl Default for RemoteNodeConfig {
@@ -81,6 +95,10 @@ impl Default for RemoteNodeConfig {
             default_reply_timeout: Duration::from_secs(30),
             max_frame_len: 16 * 1024 * 1024,
             max_concurrent_requests: 512,
+            cluster_key: None,
+            handshake_timeout: Duration::from_secs(10),
+            #[cfg(feature = "tls")]
+            tls: None,
         }
     }
 }
@@ -118,6 +136,19 @@ impl RemoteNodeConfig {
         self.seed_nodes = seed_nodes.into_iter().map(Into::into).collect();
         self
     }
+
+    /// Sets the pre-shared cluster key.
+    pub fn with_cluster_key(mut self, cluster_key: impl Into<ClusterKey>) -> Self {
+        self.cluster_key = Some(cluster_key.into());
+        self
+    }
+
+    /// Sets the mutual TLS configuration for the messaging layer.
+    #[cfg(feature = "tls")]
+    pub fn with_tls(mut self, tls: crate::tls::TlsConfig) -> Self {
+        self.tls = Some(tls);
+        self
+    }
 }
 
 /// A node in a kameo cluster.
@@ -151,6 +182,8 @@ pub(crate) struct RemoteNodeInner {
 impl RemoteNode {
     /// Starts a node: binds the gossip and messaging listeners and joins the cluster.
     pub async fn bootstrap(config: RemoteNodeConfig) -> Result<Self, BootstrapError> {
+        #[cfg(feature = "tls")]
+        let tls = config.tls.clone();
         let RemoteNodeConfig {
             cluster_id,
             node_name,
@@ -166,7 +199,31 @@ impl RemoteNode {
             default_reply_timeout,
             max_frame_len,
             max_concurrent_requests,
+            cluster_key,
+            handshake_timeout,
+            ..
         } = config;
+
+        #[cfg(feature = "tls")]
+        if tls.is_some() && cluster_key.is_none() {
+            tracing::warn!(
+                "tls is enabled but no cluster_key is set; gossip is unauthenticated and \
+                 the registry can be poisoned by anyone who can reach the gossip port"
+            );
+        }
+        let (gossip_key, handshake_key) = match &cluster_key {
+            Some(key) => {
+                let (gossip_key, handshake_key) = crate::security::derive_keys(key);
+                (Some(gossip_key), Some(handshake_key))
+            }
+            None => (None, None),
+        };
+        let security = Arc::new(ConnSecurity {
+            cluster_id: cluster_id.clone(),
+            handshake_key,
+            #[cfg(feature = "tls")]
+            tls,
+        });
 
         let node_name =
             node_name.unwrap_or_else(|| format!("node-{}", uuid::Uuid::new_v4().simple()));
@@ -222,27 +279,43 @@ impl RemoteNode {
             catchup_callback: None,
             extra_liveness_predicate: None,
         };
+        let gossip_transport: Box<dyn chitchat::transport::Transport> = match gossip_key {
+            Some(gossip_key) => Box::new(EncryptedUdpTransport::new(
+                gossip_key,
+                security.cluster_id.clone(),
+            )),
+            None => Box::new(UdpTransport),
+        };
         let handle = spawn_chitchat(
             chitchat_config,
             vec![(
                 "kameo:messaging_addr".to_string(),
                 messaging_advertise_addr.to_string(),
             )],
-            &UdpTransport,
+            &*gossip_transport,
         )
         .await
         .map_err(BootstrapError::Chitchat)?;
 
         let chitchat = handle.chitchat();
         let dispatch = Arc::new(DispatchTable::new(generation_id));
-        let pool = ConnectionPool::new(connect_timeout, default_reply_timeout, max_frame_len);
+        let pool = ConnectionPool::new(
+            connect_timeout,
+            default_reply_timeout,
+            max_frame_len,
+            security.clone(),
+        );
         let cancel = CancellationToken::new();
         let server_task = tokio::spawn(run_server(
             listener,
-            dispatch.clone(),
+            Arc::new(ServerContext {
+                dispatch: dispatch.clone(),
+                security,
+                max_frame_len,
+                max_concurrent_requests,
+                handshake_timeout,
+            }),
             cancel.child_token(),
-            max_frame_len,
-            max_concurrent_requests,
         ));
 
         Ok(RemoteNode {
