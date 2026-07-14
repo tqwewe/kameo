@@ -12,6 +12,7 @@ use crate::{
     error::RemoteSendError,
     id::{NodeId, RemoteActorId},
     messaging::{
+        handshake::HandshakeError,
         protocol::{RequestFrame, RequestKind, WireError},
         transport::{ConnectionPool, TransportError},
     },
@@ -356,6 +357,15 @@ fn map_transport_error<E>(
 ) -> RemoteSendError<E> {
     match err {
         TransportError::Connect(err) => RemoteSendError::Connect(err),
+        TransportError::Handshake(err) => match err {
+            HandshakeError::ClusterMismatch => RemoteSendError::ClusterMismatch,
+            // Both mean the keys don't match between the two nodes; the rejecting
+            // side's log carries the precise reason.
+            HandshakeError::AuthRequired | HandshakeError::AuthFailed => {
+                RemoteSendError::AuthFailed
+            }
+            err => RemoteSendError::Handshake(err.to_string()),
+        },
         TransportError::ConnectionClosed => RemoteSendError::ConnectionClosed,
         TransportError::NodeShutdown => RemoteSendError::NodeShutdown,
         TransportError::ReplyTimeout => RemoteSendError::ReplyTimeout,

@@ -15,20 +15,29 @@ use bytes::Bytes;
 use futures::{FutureExt, SinkExt, StreamExt};
 use serde_bytes::ByteBuf;
 use tokio::{
+    io::{AsyncRead, AsyncWrite},
     net::{TcpListener, TcpStream},
     sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot},
 };
-use tokio_util::{codec::LengthDelimitedCodec, sync::CancellationToken};
+use tokio_util::{
+    codec::{Framed, LengthDelimitedCodec},
+    sync::CancellationToken,
+};
 
 use crate::{
     dispatch::{DispatchTable, DynHandler, InboundKind},
-    messaging::protocol::{self, Frame, RequestFrame, RequestKind, ResponseFrame, WireError},
+    messaging::{
+        handshake::{self, HandshakeError},
+        protocol::{self, Frame, RequestFrame, RequestKind, ResponseFrame, WireError},
+    },
+    security::ConnSecurity,
 };
 
 /// An error which can occur when sending a request over the transport.
 #[derive(Debug)]
 pub(crate) enum TransportError {
     Connect(io::Error),
+    Handshake(HandshakeError),
     ConnectionClosed,
     NodeShutdown,
     ReplyTimeout,
@@ -54,6 +63,7 @@ struct PoolInner {
     connect_timeout: Duration,
     default_reply_timeout: Duration,
     max_frame_len: usize,
+    security: Arc<ConnSecurity>,
 }
 
 #[derive(Clone)]
@@ -69,6 +79,7 @@ impl ConnectionPool {
         connect_timeout: Duration,
         default_reply_timeout: Duration,
         max_frame_len: usize,
+        security: Arc<ConnSecurity>,
     ) -> Self {
         ConnectionPool {
             inner: Arc::new(PoolInner {
@@ -77,6 +88,7 @@ impl ConnectionPool {
                 connect_timeout,
                 default_reply_timeout,
                 max_frame_len,
+                security,
             }),
         }
     }
@@ -161,7 +173,27 @@ impl ConnectionPool {
     }
 
     async fn connect(&self, addr: SocketAddr) -> Result<Connection, TransportError> {
-        let stream = tokio::time::timeout(self.inner.connect_timeout, TcpStream::connect(addr))
+        let connect = async {
+            let stream = TcpStream::connect(addr)
+                .await
+                .map_err(TransportError::Connect)?;
+            stream.set_nodelay(true).map_err(TransportError::Connect)?;
+            #[cfg(feature = "tls")]
+            if let Some(tls) = &self.inner.security.tls {
+                // The name is required by the API but ignored by the verifier, which
+                // checks the cert chain against the cluster CA instead.
+                let server_name = rustls_pki_types::ServerName::IpAddress(addr.ip().into());
+                let stream = tls
+                    .connector()
+                    .connect(server_name, stream)
+                    .await
+                    .map_err(TransportError::Connect)?;
+                return self.establish(stream).await;
+            }
+            self.establish(stream).await
+        };
+        // The timeout covers dial to ready: TCP connect, TLS, and the hello exchange.
+        tokio::time::timeout(self.inner.connect_timeout, connect)
             .await
             .map_err(|_| {
                 TransportError::Connect(io::Error::new(
@@ -169,12 +201,18 @@ impl ConnectionPool {
                     "connect timed out",
                 ))
             })?
-            .map_err(TransportError::Connect)?;
-        stream.set_nodelay(true).map_err(TransportError::Connect)?;
+    }
 
-        let framed = LengthDelimitedCodec::builder()
+    async fn establish<S>(&self, stream: S) -> Result<Connection, TransportError>
+    where
+        S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    {
+        let mut framed = LengthDelimitedCodec::builder()
             .max_frame_length(self.inner.max_frame_len)
             .new_framed(stream);
+        handshake::client(&mut framed, &self.inner.security)
+            .await
+            .map_err(TransportError::Handshake)?;
         let (mut sink, mut stream) = framed.split();
 
         let (outbound_tx, mut outbound_rx) = mpsc::channel::<Frame>(1024);
@@ -243,26 +281,27 @@ impl ConnectionPool {
     }
 }
 
+/// Everything the messaging server needs to accept and serve connections.
+pub(crate) struct ServerContext {
+    pub(crate) dispatch: Arc<DispatchTable>,
+    pub(crate) security: Arc<ConnSecurity>,
+    pub(crate) max_frame_len: usize,
+    pub(crate) max_concurrent_requests: usize,
+    pub(crate) handshake_timeout: Duration,
+}
+
 /// Accepts inbound connections and dispatches their requests until cancelled.
 pub(crate) async fn run_server(
     listener: TcpListener,
-    dispatch: Arc<DispatchTable>,
+    ctx: Arc<ServerContext>,
     cancel: CancellationToken,
-    max_frame_len: usize,
-    max_concurrent_requests: usize,
 ) {
     loop {
         tokio::select! {
             _ = cancel.cancelled() => break,
             result = listener.accept() => match result {
                 Ok((stream, _)) => {
-                    tokio::spawn(handle_conn(
-                        stream,
-                        dispatch.clone(),
-                        cancel.child_token(),
-                        max_frame_len,
-                        max_concurrent_requests,
-                    ));
+                    tokio::spawn(handle_conn(stream, ctx.clone(), cancel.child_token()));
                 }
                 Err(err) => tracing::warn!("failed to accept connection: {err}"),
             }
@@ -270,19 +309,66 @@ pub(crate) async fn run_server(
     }
 }
 
-async fn handle_conn(
-    stream: TcpStream,
-    dispatch: Arc<DispatchTable>,
-    cancel: CancellationToken,
-    max_frame_len: usize,
-    max_concurrent_requests: usize,
-) {
+async fn handle_conn(stream: TcpStream, ctx: Arc<ServerContext>, cancel: CancellationToken) {
+    let peer_addr = stream.peer_addr().ok();
     if let Err(err) = stream.set_nodelay(true) {
         tracing::debug!("failed to set nodelay: {err}");
     }
-    let framed = LengthDelimitedCodec::builder()
-        .max_frame_length(max_frame_len)
+    // The timeout covers TLS and the hello exchange, so a connect-and-stall client
+    // cannot hold the socket open indefinitely.
+    #[cfg(feature = "tls")]
+    if let Some(tls) = ctx.security.tls.clone() {
+        let accept = async {
+            let stream = tls
+                .acceptor()
+                .accept(stream)
+                .await
+                .map_err(|err| HandshakeError::Protocol(format!("tls accept: {err}")))?;
+            accept_handshake(stream, &ctx).await
+        };
+        match tokio::time::timeout(ctx.handshake_timeout, accept).await {
+            Ok(Ok(framed)) => serve_conn(framed, ctx, cancel).await,
+            Ok(Err(err)) => tracing::warn!(?peer_addr, "handshake failed: {err}"),
+            Err(_) => tracing::warn!(?peer_addr, "handshake timed out"),
+        }
+        return;
+    }
+    match tokio::time::timeout(ctx.handshake_timeout, accept_handshake(stream, &ctx)).await {
+        Ok(Ok(framed)) => serve_conn(framed, ctx, cancel).await,
+        Ok(Err(err)) => tracing::warn!(?peer_addr, "handshake failed: {err}"),
+        Err(_) => tracing::warn!(?peer_addr, "handshake timed out"),
+    }
+}
+
+/// Frames the stream and runs the server side of the hello exchange.
+async fn accept_handshake<S>(
+    stream: S,
+    ctx: &ServerContext,
+) -> Result<Framed<S, LengthDelimitedCodec>, HandshakeError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut framed = LengthDelimitedCodec::builder()
+        .max_frame_length(ctx.max_frame_len)
         .new_framed(stream);
+    handshake::server(&mut framed, &ctx.security).await?;
+    Ok(framed)
+}
+
+/// Serves a handshaken connection's requests until it closes or the node shuts down.
+async fn serve_conn<S>(
+    framed: Framed<S, LengthDelimitedCodec>,
+    ctx: Arc<ServerContext>,
+    cancel: CancellationToken,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let ServerContext {
+        dispatch,
+        max_concurrent_requests,
+        ..
+    } = &*ctx;
+    let max_concurrent_requests = *max_concurrent_requests;
     let (mut sink, mut stream) = framed.split();
 
     // Replies come from concurrently spawned request tasks, so they are funnelled
