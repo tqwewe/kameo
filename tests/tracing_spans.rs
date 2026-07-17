@@ -79,15 +79,22 @@ impl SpanCapture {
             );
         }
 
-        let follows = self.follows.lock().unwrap();
-        let lifecycle_links = follows
-            .iter()
-            .filter(|(name, from)| *name == "actor.handle_message" && *from == "actor.lifecycle")
-            .count();
-        assert_eq!(
-            lifecycle_links, handle_messages,
-            "every actor.handle_message span should follow from actor.lifecycle, got: {follows:?}"
-        );
+        // With the otel feature, the lifecycle relationship is an OTel link added via
+        // `add_link` rather than a tracing follows-from, which a `Layer` cannot observe.
+        #[cfg(not(feature = "otel"))]
+        {
+            let follows = self.follows.lock().unwrap();
+            let lifecycle_links = follows
+                .iter()
+                .filter(|(name, from)| {
+                    *name == "actor.handle_message" && *from == "actor.lifecycle"
+                })
+                .count();
+            assert_eq!(
+                lifecycle_links, handle_messages,
+                "every actor.handle_message span should follow from actor.lifecycle, got: {follows:?}"
+            );
+        }
     }
 }
 
