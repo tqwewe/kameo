@@ -142,7 +142,7 @@ where
                     message = message_name,
                 );
                 span.follows_from(&caller_span);
-                span.follows_from(&tracing::Span::current());
+                span.follows_from(tracing::Span::current());
                 span
             }
 
