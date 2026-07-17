@@ -1,12 +1,12 @@
-//! Regression tests for https://github.com/tqwewe/kameo/issues/323
+//! Regression tests for https://github.com/tqwewe/kameo/issues/323 and
+//! https://github.com/tqwewe/kameo/issues/381
 //!
-//! When an actor sends messages that loop back to it (a plain self-`tell`, or a delayed
-//! `send_after`), each `actor.handle_message` span used to be created as a child of the
-//! sending handler's span. Over a loop this nested the spans without bound, producing log
-//! lines like `actor.handle_message:actor.handle_message:actor.handle_message:...`.
+//! `actor.handle_message` spans used to be children of the sending handler's span (#323), which
+//! nested without bound on self-send loops, and later children of `actor.lifecycle` (#381), which
+//! accumulated every message of a long-lived actor into one giant trace.
 //!
-//! Every `actor.handle_message` span must instead be a direct child of the actor's
-//! `actor.lifecycle` span, so the depth stays constant regardless of how messages chain.
+//! Every `actor.handle_message` span must instead be a root span (its own trace), connected to
+//! `actor.lifecycle` via a follows-from link.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,10 +23,14 @@ use tracing_subscriber::registry::LookupSpan;
 /// A span's name paired with its parent span's name.
 type SpanRecord = (&'static str, Option<&'static str>);
 
-/// Records, for every span as it is created, its name and its parent span's name.
+/// A span's name paired with the name of a span it follows from.
+type FollowsRecord = (&'static str, &'static str);
+
+/// Records every span's name and parent name on creation, and every follows-from link.
 #[derive(Clone, Default)]
 struct SpanCapture {
     records: Arc<Mutex<Vec<SpanRecord>>>,
+    follows: Arc<Mutex<Vec<FollowsRecord>>>,
 }
 
 impl<S> Layer<S> for SpanCapture
@@ -39,12 +43,21 @@ where
             self.records.lock().unwrap().push((span.name(), parent));
         }
     }
+
+    fn on_follows_from(&self, id: &span::Id, follows: &span::Id, ctx: LayerContext<'_, S>) {
+        if let (Some(span), Some(follows)) = (ctx.span(id), ctx.span(follows)) {
+            self.follows
+                .lock()
+                .unwrap()
+                .push((span.name(), follows.name()));
+        }
+    }
 }
 
 impl SpanCapture {
-    /// Asserts no `actor.handle_message` span is nested under another, and that every one is a
-    /// direct child of `actor.lifecycle`.
-    fn assert_no_handle_message_nesting(&self) {
+    /// Asserts every `actor.handle_message` span is a root span (no parent) that follows from
+    /// `actor.lifecycle`.
+    fn assert_handle_message_spans_are_roots(&self) {
         let records = self.records.lock().unwrap();
 
         let handle_messages = records
@@ -60,15 +73,26 @@ impl SpanCapture {
             if *name != "actor.handle_message" {
                 continue;
             }
-            assert_ne!(
-                *parent,
-                Some("actor.handle_message"),
-                "actor.handle_message span nested under another actor.handle_message span"
-            );
             assert_eq!(
-                *parent,
-                Some("actor.lifecycle"),
-                "actor.handle_message span should be a child of actor.lifecycle, got parent {parent:?}"
+                *parent, None,
+                "actor.handle_message span should be a root span, got parent {parent:?}"
+            );
+        }
+
+        // With the otel feature, the lifecycle relationship is an OTel link added via
+        // `add_link` rather than a tracing follows-from, which a `Layer` cannot observe.
+        #[cfg(not(feature = "otel"))]
+        {
+            let follows = self.follows.lock().unwrap();
+            let lifecycle_links = follows
+                .iter()
+                .filter(|(name, from)| {
+                    *name == "actor.handle_message" && *from == "actor.lifecycle"
+                })
+                .count();
+            assert_eq!(
+                lifecycle_links, handle_messages,
+                "every actor.handle_message span should follow from actor.lifecycle, got: {follows:?}"
             );
         }
     }
@@ -152,11 +176,11 @@ async fn run_loop(use_send_after: bool) -> SpanCapture {
 #[tokio::test(flavor = "current_thread")]
 async fn handle_message_spans_do_not_nest_on_self_tell() {
     let capture = run_loop(false).await;
-    capture.assert_no_handle_message_nesting();
+    capture.assert_handle_message_spans_are_roots();
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn handle_message_spans_do_not_nest_on_send_after() {
     let capture = run_loop(true).await;
-    capture.assert_no_handle_message_nesting();
+    capture.assert_handle_message_spans_are_roots();
 }
