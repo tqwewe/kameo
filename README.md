@@ -99,32 +99,6 @@ let count = actor_ref.ask(Inc { amount: 42 }).await?;
 assert_eq!(count, 42);
 ```
 
-## Distributed Actor Communication
-
-Kameo provides built-in support for distributed actors, allowing you to send messages across network boundaries as if they were local.
-
-### Registering an Actor
-
-```rust,ignore
-// Spawn and register the actor
-let actor_ref = MyActor::spawn(MyActor::default());
-actor_ref.register("my_actor").await?;
-```
-
-### Looking Up and Messaging a Remote Actor
-
-```rust,ignore
-// Lookup the remote actor
-if let Some(remote_actor_ref) = RemoteActorRef::<MyActor>::lookup("my_actor").await? {
-    let count = remote_actor_ref.ask(&Inc { amount: 10 }).await?;
-    println!("Incremented! Count is {count}");
-}
-```
-
-### Under the Hood
-
-Kameo uses [libp2p](https://libp2p.io) for peer-to-peer networking, enabling actors to communicate over various protocols (TCP/IP, WebSockets, QUIC, etc.) using multiaddresses. This abstraction allows you to focus on your application's logic without worrying about the complexities of network programming.
-
 ## Monitoring with the Console
 
 Kameo ships a terminal UI, the **kameo console**, for monitoring a running actor system in real time.

@@ -15,9 +15,6 @@ use tokio::{
 #[cfg(feature = "tracing")]
 use tracing::{Instrument, error, trace};
 
-#[cfg(feature = "remote")]
-use crate::remote;
-
 use crate::{
     actor::{Actor, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
     error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
@@ -570,20 +567,11 @@ where
     }
 }
 
-#[allow(unused_variables)]
 async fn unregister_actor(id: &ActorId) {
-    #[cfg(not(feature = "remote"))]
     crate::registry::ACTOR_REGISTRY
         .lock()
         .unwrap()
         .remove_by_id(id);
-    #[cfg(feature = "remote")]
-    if let Some(entry) = remote::REMOTE_REGISTRY.lock().await.remove(id)
-        && let Some(registered_name) = entry.name
-        && let Some(swarm) = remote::ActorSwarm::get()
-    {
-        _ = swarm.unregister(registered_name);
-    }
 }
 
 #[inline]
@@ -598,10 +586,6 @@ fn log_actor_stop_reason(id: ActorId, name: &str, reason: &ActorStopReason) {
         }
         reason @ ActorStopReason::Panicked(_) => {
             error!(%id, %name, ?reason, "actor stopped")
-        }
-        #[cfg(feature = "remote")]
-        reason @ ActorStopReason::PeerDisconnected => {
-            trace!(%id, %name, ?reason, "actor stopped");
         }
     }
 }

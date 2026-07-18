@@ -10,14 +10,6 @@ use dyn_clone::DynClone;
 use futures::{FutureExt, Stream, StreamExt, TryFutureExt, future::BoxFuture, stream::AbortHandle};
 use tokio::{sync::SetOnce, task::JoinHandle, task_local};
 
-#[cfg(feature = "remote")]
-use std::marker::PhantomData;
-
-#[cfg(feature = "remote")]
-use crate::remote;
-#[cfg(feature = "remote")]
-use crate::request;
-
 use crate::{
     Actor, Reply,
     error::{self, ActorStopReason, HookError, Infallible, PanicError, SendError},
@@ -93,7 +85,7 @@ where
     }
 
     /// Returns a reference to the actor's links.
-    #[cfg(any(feature = "console", feature = "remote"))]
+    #[cfg(feature = "console")]
     #[inline]
     pub(crate) fn links(&self) -> &Links {
         &self.inner.links
@@ -130,7 +122,6 @@ where
     /// Registers the actor under a given name in the actor registry.
     ///
     /// This makes the actor discoverable by parts of the app by name.
-    #[cfg(not(feature = "remote"))]
     pub fn register(
         &self,
         name: impl Into<std::borrow::Cow<'static, str>>,
@@ -146,44 +137,15 @@ where
         }
     }
 
-    /// Registers the actor under a given name within the actor swarm.
-    ///
-    /// This makes the actor discoverable by other nodes in the distributed system.
-    #[cfg(feature = "remote")]
-    pub async fn register(&self, name: impl Into<Arc<str>>) -> Result<(), error::RegistryError>
-    where
-        A: remote::RemoteActor + 'static,
-    {
-        remote::ActorSwarm::get()
-            .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .register(self.clone(), name.into())
-            .await
-    }
-
     /// Looks up an actor registered locally by its name.
     ///
     /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
-    #[cfg(not(feature = "remote"))]
     pub fn lookup<Q>(name: &Q) -> Result<Option<Self>, error::RegistryError>
     where
         Q: std::hash::Hash + Eq + ?Sized,
         std::borrow::Cow<'static, str>: std::borrow::Borrow<Q>,
     {
         crate::registry::ACTOR_REGISTRY.lock().unwrap().get(name)
-    }
-
-    /// Looks up an actor registered locally by its name.
-    ///
-    /// Returns `Some` if the actor exists, or `None` if no actor with the given name is registered.
-    #[cfg(feature = "remote")]
-    pub async fn lookup(name: impl Into<Arc<str>>) -> Result<Option<Self>, error::RegistryError>
-    where
-        A: remote::RemoteActor + 'static,
-    {
-        remote::ActorSwarm::get()
-            .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .lookup_local(name.into())
-            .await
     }
 
     /// Creates a message-specific recipient for this actor.
@@ -1042,57 +1004,6 @@ where
         }
     }
 
-    /// Links the local actor with a remote actor, ensuring they notify each other if either one dies.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use kameo::Actor;
-    /// # use kameo::actor::{RemoteActorRef, Spawn};
-    /// #
-    /// # #[derive(Actor, kameo::RemoteActor)]
-    /// # struct MyActor;
-    /// #
-    /// # #[derive(Actor, kameo::RemoteActor)]
-    /// # struct OtherActor;
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
-    ///
-    /// actor_ref.link_remote(&sibling_ref).await?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    #[cfg(feature = "remote")]
-    pub async fn link_remote<B>(
-        &self,
-        sibling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), error::RemoteSendError<error::Infallible>>
-    where
-        A: remote::RemoteActor,
-        B: Actor + remote::RemoteActor,
-    {
-        if self.inner.id == sibling_ref.id {
-            return Ok(());
-        }
-
-        remote::REMOTE_REGISTRY
-            .lock()
-            .await
-            .entry(self.inner.id)
-            .or_insert_with(|| remote::RemoteRegistryActorRef::new(self.clone(), None));
-
-        self.inner.links.lock().await.sibblings.insert(
-            sibling_ref.id,
-            Link::Remote(std::borrow::Cow::Borrowed(B::REMOTE_ID)),
-        );
-        remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(self.inner.id, sibling_ref.id)
-            .await
-    }
-
     /// Unlinks two previously linked sibling actors.
     ///
     /// # Example
@@ -1181,53 +1092,6 @@ where
             this_links.sibblings.remove(&sibling_ref.inner.id);
             sibling_links.sibblings.remove(&self.inner.id);
         }
-    }
-
-    /// Unlinks the local actor with a previously linked remote actor.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use kameo::Actor;
-    /// # use kameo::actor::{RemoteActorRef, Spawn};
-    /// #
-    /// # #[derive(Actor, kameo::RemoteActor)]
-    /// # struct MyActor;
-    /// #
-    /// # #[derive(Actor, kameo::RemoteActor)]
-    /// # struct OtherActor;
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let actor_ref = MyActor::spawn(MyActor);
-    /// let sibling_ref = RemoteActorRef::<OtherActor>::lookup("other_actor").await?.unwrap();
-    ///
-    /// actor_ref.unlink_remote(&sibling_ref).await?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    #[cfg(feature = "remote")]
-    pub async fn unlink_remote<B>(
-        &self,
-        sibling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), error::RemoteSendError<error::Infallible>>
-    where
-        A: remote::RemoteActor,
-        B: Actor + remote::RemoteActor,
-    {
-        if self.inner.id == sibling_ref.id {
-            return Ok(());
-        }
-
-        self.inner
-            .links
-            .lock()
-            .await
-            .sibblings
-            .remove(&sibling_ref.id);
-        remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.inner.id, sibling_ref.id)
-            .await
     }
 
     /// Attaches a stream of messages to the actor, forwarding each item in the stream.
@@ -1321,51 +1185,6 @@ where
     /// Returns a reference to the mailbox sender.
     pub fn mailbox_sender(&self) -> &MailboxSender<A> {
         &self.inner.mailbox_sender
-    }
-
-    /// Converts this ActorRef to a RemoteActorRef, registering it in the actor registry.
-    ///
-    /// This method is async because it needs to acquire a lock on the shared registry.
-    #[cfg(feature = "remote")]
-    pub async fn into_remote_ref(&self) -> RemoteActorRef<A>
-    where
-        A: remote::RemoteActor,
-    {
-        let remote_ref = RemoteActorRef::new(
-            self.id(),
-            remote::ActorSwarm::get().unwrap().sender().clone(),
-        );
-
-        remote::REMOTE_REGISTRY
-            .lock()
-            .await
-            .entry(self.id())
-            .or_insert_with(|| remote::RemoteRegistryActorRef::new_weak(self.downgrade(), None));
-
-        remote_ref
-    }
-
-    /// Blocking version of `into_remote_ref` for use in synchronous contexts.
-    ///
-    /// # Panics
-    ///
-    /// This function panics if called within an asynchronous execution context.
-    #[cfg(feature = "remote")]
-    pub fn into_remote_ref_blocking(&self) -> RemoteActorRef<A>
-    where
-        A: remote::RemoteActor,
-    {
-        let remote_ref = RemoteActorRef::new(
-            self.id(),
-            remote::ActorSwarm::get().unwrap().sender().clone(),
-        );
-
-        remote::REMOTE_REGISTRY
-            .blocking_lock()
-            .entry(self.id())
-            .or_insert_with(|| remote::RemoteRegistryActorRef::new_weak(self.downgrade(), None));
-
-        remote_ref
     }
 
     #[inline]
@@ -1760,395 +1579,6 @@ impl<M: Send + 'static> Hash for Recipient<M> {
     }
 }
 
-/// A reference to an actor running remotely.
-///
-/// `RemoteActorRef` allows sending messages to actors on different nodes in a distributed system.
-/// It supports the same messaging patterns as `ActorRef` for local actors, including `ask` and `tell` messaging.
-#[cfg(feature = "remote")]
-pub struct RemoteActorRef<A: Actor> {
-    id: ActorId,
-    swarm_tx: remote::SwarmSender,
-    phantom: PhantomData<fn(&mut A)>,
-}
-
-#[cfg(feature = "remote")]
-impl<A> RemoteActorRef<A>
-where
-    A: Actor + remote::RemoteActor,
-{
-    pub(crate) fn new(id: ActorId, swarm_tx: remote::SwarmSender) -> Self {
-        RemoteActorRef {
-            id,
-            swarm_tx,
-            phantom: PhantomData,
-        }
-    }
-
-    /// Returns the unique identifier of the remote actor.
-    pub fn id(&self) -> ActorId {
-        self.id
-    }
-
-    /// Looks up a single actor registered by name across the distributed network.
-    ///
-    /// If multiple actors are registered under the same name, returns one of them.
-    /// The specific actor returned is not deterministic and may vary between calls.
-    ///
-    /// Returns `None` if no actor with the given name is found.
-    ///
-    /// Use [`lookup_all`] when multiple actors might exist and you need deterministic behavior.
-    ///
-    /// [`lookup_all`]: Self::lookup_all
-    pub async fn lookup(name: impl Into<Arc<str>>) -> Result<Option<Self>, error::RegistryError>
-    where
-        A: remote::RemoteActor + 'static,
-    {
-        remote::ActorSwarm::get()
-            .ok_or(error::RegistryError::SwarmNotBootstrapped)?
-            .lookup(name.into())
-            .await
-    }
-
-    /// Looks up all actors registered by name across the distributed network.
-    ///
-    /// Returns a stream of all remote actor refs found under the given name.
-    /// The stream completes when all known actors have been discovered.
-    ///
-    /// Use this when multiple actors may be registered under the same name
-    /// and you need to handle all of them or make deterministic choices.
-    pub fn lookup_all(name: impl Into<Arc<str>>) -> remote::LookupStream<A>
-    where
-        A: remote::RemoteActor + 'static,
-    {
-        match remote::ActorSwarm::get() {
-            Some(swarm) => swarm.lookup_all(name.into()),
-            None => remote::LookupStream::new_err(),
-        }
-    }
-
-    /// Sends a message to the remote actor and waits for a reply.
-    ///
-    /// The `ask` pattern is used when a response is expected from the remote actor. This method
-    /// returns an `AskRequest`, which can be awaited asynchronously, or sent in a blocking manner using one of the [`request`](crate::request) traits.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use kameo::actor::RemoteActorRef;
-    ///
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # struct MyActor;
-    /// #
-    /// # #[derive(serde::Serialize, serde::Deserialize)]
-    /// # struct Msg;
-    /// #
-    /// # #[kameo::remote_message("id")]
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
-    /// # let msg = Msg;
-    /// let reply = remote_actor_ref.ask(&msg).await?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    #[inline]
-    #[track_caller]
-    #[doc(alias = "send")]
-    pub fn ask<'a, M>(
-        &'a self,
-        msg: &'a M,
-    ) -> request::RemoteAskRequest<'a, A, M, WithoutRequestTimeout, WithoutRequestTimeout>
-    where
-        A: remote::RemoteActor + Message<M> + remote::RemoteMessage<M>,
-        M: serde::Serialize + Send + 'static,
-    {
-        request::RemoteAskRequest::new(
-            self,
-            msg,
-            #[cfg(all(debug_assertions, feature = "tracing"))]
-            std::panic::Location::caller(),
-        )
-    }
-
-    /// Sends a message to the remote actor without waiting for a reply.
-    ///
-    /// The `tell` pattern is used when no response is expected from the remote actor. This method
-    /// returns a `TellRequest`, which can be awaited asynchronously, or configured using one of the [`request`](crate::request) traits.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use kameo::actor::RemoteActorRef;
-    ///
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # struct MyActor;
-    /// #
-    /// # #[derive(serde::Serialize, serde::Deserialize)]
-    /// # struct Msg;
-    /// #
-    /// # #[kameo::remote_message("id")]
-    /// # impl kameo::message::Message<Msg> for MyActor {
-    /// #     type Reply = ();
-    /// #     async fn handle(&mut self, msg: Msg, ctx: &mut kameo::message::Context<Self, Self::Reply>) -> Self::Reply { }
-    /// # }
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let remote_actor_ref = RemoteActorRef::<MyActor>::lookup("my_actor").await?.unwrap();
-    /// # let msg = Msg;
-    /// remote_actor_ref.tell(&msg).send()?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    #[inline]
-    #[track_caller]
-    #[doc(alias = "send_async")]
-    pub fn tell<'a, M>(
-        &'a self,
-        msg: &'a M,
-    ) -> request::RemoteTellRequest<'a, A, M, WithoutRequestTimeout>
-    where
-        A: Message<M> + remote::RemoteMessage<M>,
-        M: Send + 'static,
-    {
-        request::RemoteTellRequest::new(
-            self,
-            msg,
-            #[cfg(all(debug_assertions, feature = "tracing"))]
-            std::panic::Location::caller(),
-        )
-    }
-
-    /// Links two remote actors, ensuring they notify each other if either one dies.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use kameo::actor::RemoteActorRef;
-    /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # struct ActorA;
-    /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # struct ActorB;
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let actor_a = RemoteActorRef::<ActorA>::lookup("actor_a").await?.unwrap();
-    /// let actor_b = RemoteActorRef::<ActorB>::lookup("actor_b").await?.unwrap();
-    ///
-    /// actor_a.unlink_remote(&actor_b).await?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    pub async fn link_remote<B>(
-        &self,
-        sibling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), error::RemoteSendError<error::Infallible>>
-    where
-        A: remote::RemoteActor,
-        B: Actor + remote::RemoteActor,
-    {
-        if self.id == sibling_ref.id {
-            return Ok(());
-        }
-
-        let fut_a = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<A, B>(self.id, sibling_ref.id);
-        let fut_b = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .link::<B, A>(sibling_ref.id, self.id);
-
-        tokio::try_join!(fut_a, fut_b)?;
-
-        Ok(())
-    }
-
-    /// Unlinks two previously linked remote actors.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// # use kameo::actor::RemoteActorRef;
-    /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # struct ActorA;
-    /// #
-    /// # #[derive(kameo::Actor, kameo::RemoteActor)]
-    /// # struct ActorB;
-    /// #
-    /// # tokio_test::block_on(async {
-    /// let actor_a = RemoteActorRef::<ActorA>::lookup("actor_a").await?.unwrap();
-    /// let actor_b = RemoteActorRef::<ActorB>::lookup("actor_b").await?.unwrap();
-    ///
-    /// actor_a.unlink_remote(&actor_b).await?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// # });
-    /// ```
-    pub async fn unlink_remote<B>(
-        &self,
-        sibling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), error::RemoteSendError<error::Infallible>>
-    where
-        A: remote::RemoteActor,
-        B: Actor + remote::RemoteActor,
-    {
-        if self.id == sibling_ref.id {
-            return Ok(());
-        }
-
-        let fut_a = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibling_ref.id);
-        let fut_b = remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<A>(sibling_ref.id, self.id);
-
-        tokio::try_join!(fut_a, fut_b)?;
-
-        Ok(())
-    }
-
-    pub(crate) fn send_to_swarm(&self, msg: remote::SwarmCommand) {
-        self.swarm_tx.send(msg)
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> Clone for RemoteActorRef<A> {
-    fn clone(&self) -> Self {
-        RemoteActorRef {
-            id: self.id,
-            swarm_tx: self.swarm_tx.clone(),
-            phantom: PhantomData,
-        }
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> fmt::Debug for RemoteActorRef<A> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut d = f.debug_struct("RemoteActorRef");
-        d.field("id", &self.id);
-        d.finish()
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> PartialEq for RemoteActorRef<A> {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> Eq for RemoteActorRef<A> {}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> PartialOrd for RemoteActorRef<A> {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> Ord for RemoteActorRef<A> {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.id.cmp(&other.id)
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> Hash for RemoteActorRef<A> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.id.hash(state);
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<A: Actor> serde::Serialize for RemoteActorRef<A> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-
-        let mut ser = serializer.serialize_struct("RemoteActorRef", 1)?;
-        ser.serialize_field("id", &self.id)?;
-        ser.end()
-    }
-}
-
-#[cfg(feature = "remote")]
-impl<'de, A: Actor> serde::Deserialize<'de> for RemoteActorRef<A> {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        struct IdVisitor<A>(std::marker::PhantomData<A>);
-
-        impl<'de, A: Actor> serde::de::Visitor<'de> for IdVisitor<A> {
-            type Value = RemoteActorRef<A>;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct RemoteActorRef")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
-            where
-                V: serde::de::MapAccess<'de>,
-            {
-                let mut id = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        "id" => {
-                            if id.is_some() {
-                                return Err(serde::de::Error::duplicate_field("id"));
-                            }
-                            id = Some(map.next_value()?);
-                        }
-                        _ => {
-                            let _ = map.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
-                let swarm = remote::ActorSwarm::get()
-                    .ok_or_else(|| serde::de::Error::custom("actor swarm not bootstrapped"))?;
-
-                Ok(RemoteActorRef {
-                    id,
-                    swarm_tx: swarm.sender().clone(),
-                    phantom: PhantomData,
-                })
-            }
-
-            fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
-            where
-                S: serde::de::SeqAccess<'de>,
-            {
-                let id: Option<ActorId> = seq.next_element()?;
-                let id = id.ok_or_else(|| serde::de::Error::missing_field("id"))?;
-
-                let swarm = remote::ActorSwarm::get()
-                    .ok_or_else(|| serde::de::Error::custom("actor swarm not bootstrapped"))?;
-
-                Ok(RemoteActorRef {
-                    id,
-                    swarm_tx: swarm.sender().clone(),
-                    phantom: PhantomData,
-                })
-            }
-        }
-
-        let visitor = IdVisitor(std::marker::PhantomData);
-        deserializer.deserialize_struct("RemoteActorRef", &["id"], visitor)
-    }
-}
-
 /// A actor ref that does not prevent the actor from being stopped.
 ///
 /// If all [`ActorRef`] instances of an actor were dropped and only
@@ -2408,41 +1838,12 @@ impl<A: Actor> WeakActorRef<A> {
         }
     }
 
-    /// Unlinks the local actor with a previously linked remote actor.
-    ///
-    /// See [`ActorRef::unlink_remote`] for full details and examples.
-    #[cfg(feature = "remote")]
-    pub async fn unlink_remote<B>(
-        &self,
-        sibling_ref: &RemoteActorRef<B>,
-    ) -> Result<(), error::RemoteSendError<error::Infallible>>
-    where
-        A: remote::RemoteActor,
-        B: Actor + remote::RemoteActor,
-    {
-        if self.id == sibling_ref.id {
-            return Ok(());
-        }
-
-        self.links.lock().await.sibblings.remove(&sibling_ref.id);
-        remote::ActorSwarm::get()
-            .ok_or(error::RemoteSendError::SwarmNotBootstrapped)?
-            .unlink::<B>(self.id, sibling_ref.id)
-            .await
-    }
-
     /// Returns a reference to the weak mailbox sender.
     ///
     /// See [`ActorRef::mailbox_sender`] for full details.
     #[inline]
     pub fn mailbox_sender(&self) -> &WeakMailboxSender<A> {
         &self.mailbox_sender
-    }
-
-    #[cfg(feature = "remote")]
-    #[inline]
-    pub(crate) fn weak_signal_mailbox(&self) -> Box<dyn SignalMailbox> {
-        Box::new(self.mailbox_sender.clone())
     }
 }
 

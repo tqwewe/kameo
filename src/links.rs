@@ -217,12 +217,10 @@ impl ops::Deref for Links {
 #[allow(missing_debug_implementations)]
 pub enum Link {
     Local(Box<dyn SignalMailbox>),
-    #[cfg(feature = "remote")]
-    Remote(std::borrow::Cow<'static, str>),
 }
 
 impl Link {
-    #[cfg_attr(not(feature = "remote"), allow(unused_variables))]
+    #[allow(unused_variables)]
     pub async fn notify(
         self,
         link_actor_id: ActorId,
@@ -244,24 +242,6 @@ impl Link {
                         _ => {
                             tracing::error!("failed to notify actor a link died: {err}");
                         }
-                    }
-                }
-            }
-            #[cfg(feature = "remote")]
-            Link::Remote(notified_actor_remote_id) => {
-                if let Some(swarm) = crate::remote::ActorSwarm::get() {
-                    let res = swarm
-                        .signal_link_died(
-                            dead_actor_id,
-                            link_actor_id,
-                            notified_actor_remote_id,
-                            reason,
-                        )
-                        .await;
-                    #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
-                    if let Err(err) = res {
-                        #[cfg(feature = "tracing")]
-                        tracing::error!("failed to notify actor a link died: {err}");
                     }
                 }
             }

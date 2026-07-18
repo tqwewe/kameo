@@ -61,36 +61,6 @@
       ]
     },
     {
-      "group": "Distributed Actors",
-      "pages": [
-        {
-          "title": "Overview",
-          "href": "/distributed-actors",
-          "icon": "network-wired"
-        },
-        {
-          "title": "Bootstrapping the Actor Swarm",
-          "href": "/distributed-actors/bootstrapping-actor-swarm",
-          "icon": "play-circle"
-        },
-        {
-          "title": "Custom Swarm Configuration",
-          "href": "/distributed-actors/custom-swarm-configuration",
-          "icon": "cogs"
-        },
-        {
-          "title": "Registering and Looking up Actors",
-          "href": "/distributed-actors/registering-looking-up-actors",
-          "icon": "user-tag"
-        },
-        {
-          "title": "Messaging Remote Actors",
-          "href": "/distributed-actors/messaging-remote-actors",
-          "icon": "envelope-open-text"
-        }
-      ]
-    },
-    {
       "group": "Additional Resources",
       "pages": [
         {

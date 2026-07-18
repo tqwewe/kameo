@@ -2,12 +2,6 @@
 title: Frequently Asked Questions (FAQ)
 ---
 
-## How does Kameo handle communication over a network?
-
-Kameo uses [libp2p](https://libp2p.io) for networking, with Kademlia Distributed Hash Table (DHT) under the hood for actor registration and lookup. This allows actors to communicate across nodes without needing a predefined schema, and messages are routed using multiaddresses, supporting a variety of protocols such as TCP/IP and QUIC.
-
----
-
 ## How do I query an actor's state?
 
 You can query an actor’s state by sending a message using the `ask` pattern, which allows you to request a response without modifying the actor's state.
@@ -21,21 +15,9 @@ However, it’s often better to design actors in a way where they notify each ot
 
 ---
 
-## How is Kameo different from gRPC?
-
-Unlike gRPC, which requires predefined schemas and often involves significant boilerplate, Kameo allows dynamic communication with actors across nodes without the need for code generation or schema management. Actors communicate via `RemoteActorRef`, and messages are passed just like with local actors, making it more flexible and less rigid than gRPC.
-
----
-
 ## Why does Kameo use async for actors?
 
 Kameo's async nature allows multiple actors to run on a single thread using Tokio's runtime, which is highly efficient for handling IO-bound tasks. While many actors may be CPU-bound, async ensures that non-blocking tasks, such as network operations, can proceed without stalling other actors.
-
----
-
-## Can Kameo be used for distributed systems?
-
-Yes, Kameo is built for distributed systems. Using libp2p and Kademlia DHT, actors can be registered and discovered across nodes, and they can communicate as if they were local. This makes Kameo ideal for distributed microservices or systems where actors are spread across different machines.
 
 ---
 

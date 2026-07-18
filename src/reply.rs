@@ -760,13 +760,6 @@ impl_infallible_reply!([
     {A: 'static + Send, B: 'static + Send, C: 'static + Send, D: 'static + Send, E: 'static + Send, F: 'static + Send, G: 'static + Send, H: 'static + Send, I: 'static + Send, J: 'static + Send, K: 'static + Send, L: 'static + Send, M: 'static + Send, N: 'static + Send, O: 'static + Send, P: 'static + Send, Q: 'static + Send, R: 'static + Send, S: 'static + Send, T: 'static + Send, U: 'static + Send, V: 'static + Send, W: 'static + Send, X: 'static + Send, Y: 'static + Send, Z: 'static + Send} (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z),
 ]);
 
-#[cfg(feature = "remote")]
-impl_infallible_reply!([
-    {A: Actor + crate::remote::RemoteActor} crate::actor::RemoteActorRef<A>,
-    {E: 'static + Send} crate::error::RemoteSendError<E>,
-    crate::remote::ActorSwarm,
-]);
-
 #[cfg(target_has_atomic = "8")]
 impl_infallible_reply!([AtomicI8, AtomicU8]);
 #[cfg(target_has_atomic = "16")]
