@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1](https://github.com/tqwewe/kameo/compare/actors-v0.8.0...actors-v0.8.1) - 2026-07-17
+
+### <!-- 0 -->Added
+
+- Add FutureActor for running futures as actors ([#372](https://github.com/tqwewe/kameo/pull/372)) [</>](https://github.com/tqwewe/kameo/commit/1c66bf9d16f80cd374283616fdbbebd49a4df61b)
+
+
 ## [0.8.0](https://github.com/tqwewe/kameo/compare/actors-v0.7.0...actors-v0.8.0) - 2026-07-07
 
 ### <!-- 3 -->Fixed

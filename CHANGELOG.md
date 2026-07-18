@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.2](https://github.com/tqwewe/kameo/compare/v0.22.1...v0.22.2) - 2026-07-17
+
+### <!-- 3 -->Fixed
+
+- Make `actor.handle_message` a root span linked to `actor.lifecycle` ([#382](https://github.com/tqwewe/kameo/pull/382)) [</>](https://github.com/tqwewe/kameo/commit/1315c811994d6ded956c4f821438a8e5f63e3556)
+
+### <!-- 4 -->Documentation
+
+- Clarify `ActorStopReason::Panicked` covers hook errors, add `PanicError::is_panic` ([#375](https://github.com/tqwewe/kameo/pull/375)) [</>](https://github.com/tqwewe/kameo/commit/0dff64a050d59738422b1fec43866cc57df7f923)
+
+
 ## [0.22.1](https://github.com/tqwewe/kameo/compare/v0.22.0...v0.22.1) - 2026-07-07
 
 ### <!-- 5 -->Misc
