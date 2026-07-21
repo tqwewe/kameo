@@ -158,7 +158,7 @@ impl Parse for RemoteMessage {
         let input_span = item_impl.span();
         let actor_ty = item_impl.self_ty.clone();
         let actor_generics = item_impl.generics.clone();
-        let (_, trait_path, _) = item_impl.trait_.as_ref().ok_or_else(|| {
+        let (trait_path, _) = item_impl.trait_.as_ref().ok_or_else(|| {
             syn::Error::new(
                 input_span,
                 "remote message can only be used on an impl for kameo::message::Message",
