@@ -3,7 +3,7 @@ resolver = "2"
 members = [".", "actors", "console", "macros"]
 
 [workspace.dependencies]
-kameo = { path = ".", version = "0.22.2" }
+kameo = { path = ".", version = "0.22.3" }
 
 futures = "0.3"
 tokio = "1.47"
@@ -18,7 +18,7 @@ all-features = true
 
 [package]
 name = "kameo"
-version = "0.22.2"
+version = "0.22.3"
 edition = "2024"
 rust-version = "1.88.0"
 description = "Fault-tolerant Async Actors Built on Tokio"
@@ -47,7 +47,7 @@ metrics = ["dep:metrics"]
 hotpath = ["dep:hotpath", "hotpath/hotpath"]
 
 [dependencies]
-kameo_macros = { version = "0.21.1", path = "./macros", optional = true }
+kameo_macros = { version = "0.21.2", path = "./macros", optional = true }
 
 const-fnv1a-hash = { version = "1.1.0", optional = true }
 const-str = { version = "1.1", features = ["proc"], optional = true }
