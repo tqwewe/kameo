@@ -285,12 +285,6 @@ where
                     }
                 }
 
-                actor_ref
-                    .links
-                    .lock()
-                    .await
-                    .notify_links(id, reason.clone(), mailbox_rx);
-
                 log_actor_stop_reason(id, name, &reason);
                 let on_stop_res =
                     AssertUnwindSafe(actor.on_stop(actor_ref.clone(), reason.clone()))
@@ -324,6 +318,12 @@ where
                     }
                 }
 
+                actor_ref
+                    .links
+                    .lock()
+                    .await
+                    .notify_links(id, reason.clone(), mailbox_rx);
+
                 Ok((actor, reason))
             }
             Err(err) => {
@@ -332,7 +332,7 @@ where
                     .set(Err(err.clone()))
                     .expect("nothing should set the startup result");
 
-                let reason = ActorStopReason::Panicked(err);
+                let reason = ActorStopReason::Panicked(err.clone());
                 log_actor_stop_reason(id, name, &reason);
 
                 actor_ref.links.set_children_parent_shutdown().await;
@@ -340,25 +340,22 @@ where
                 // startup failed; the supervisor may still restart us per policy
                 let is_restarting = actor_ref.links.lock().await.will_restart(&reason);
                 drain_until_children_closed(&actor_ref.links, &mut mailbox_rx, is_restarting).await;
-                actor_ref
-                    .links
-                    .lock()
-                    .await
-                    .notify_links(id, reason.clone(), mailbox_rx);
 
                 #[cfg(feature = "console")]
                 monitor.set_stopped(&reason);
 
                 unregister_actor(&id).await;
 
-                let ActorStopReason::Panicked(err) = reason else {
-                    unreachable!()
-                };
-
                 actor_ref
                     .shutdown_result
                     .set(Err(err.clone()))
                     .expect("nothing should set the startup result");
+
+                actor_ref
+                    .links
+                    .lock()
+                    .await
+                    .notify_links(id, reason, mailbox_rx);
 
                 Err(err)
             }
