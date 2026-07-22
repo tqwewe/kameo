@@ -512,13 +512,13 @@ fn validate_param(ty: &Type) -> syn::Result<()> {
 fn contains_generic_in_param(ty: &Type, generics: &[GenericParam]) -> Vec<GenericParam> {
     match ty {
         Type::Array(array) => contains_generic_in_param(&array.elem, generics),
-        Type::BareFn(bare_fn) => {
-            let mut params: Vec<_> = bare_fn
+        Type::FnPtr(fn_ptr) => {
+            let mut params: Vec<_> = fn_ptr
                 .inputs
                 .iter()
                 .flat_map(|input| contains_generic_in_param(&input.ty, generics))
                 .collect();
-            if let ReturnType::Type(_, ty) = &bare_fn.output {
+            if let ReturnType::Type(_, ty) = &fn_ptr.output {
                 params.extend(contains_generic_in_param(ty, generics));
             }
             params
