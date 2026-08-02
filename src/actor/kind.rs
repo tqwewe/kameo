@@ -242,7 +242,7 @@ where
         dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> ControlFlow<ActorStopReason> {
         {
-            let links = self.actor_ref.links.lock().await;
+            let mut links = self.actor_ref.links.lock().await;
 
             // Check if we're already coordinating a restart
             if let CoordinationState::Coordinating {
@@ -347,6 +347,12 @@ where
                     }
                     #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
                     ControlFlow::Break(no_restart_reason) => {
+                        // `LinkDied` is serialized by the parent's actor loop. Removing here is
+                        // the terminal-child linearization point: a later stale notification sees
+                        // no child entry, while dropping the spec releases its factory, mailbox
+                        // sender, cloned args, logical ref, and restart metadata exactly once.
+                        drop(links.children.remove(&id));
+
                         #[cfg(feature = "tracing")]
                         match no_restart_reason {
                             crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
