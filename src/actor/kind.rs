@@ -470,3 +470,138 @@ where
         self.state
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use tokio::sync::mpsc;
+
+    use crate::{
+        actor::{Actor, ActorRef, Spawn, WeakActorRef},
+        error::{ActorStopReason, Infallible},
+        links::Links,
+        supervision::RestartPolicy,
+    };
+
+    const EVENT_TIMEOUT: Duration = Duration::from_secs(2);
+
+    struct LockScopeSupervisor;
+
+    impl Actor for LockScopeSupervisor {
+        type Args = Self;
+        type Error = Infallible;
+
+        async fn on_start(this: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            Ok(this)
+        }
+    }
+
+    struct ParentLinksDropProbe {
+        parent_links: Links,
+        lock_was_free_tx: mpsc::UnboundedSender<bool>,
+    }
+
+    impl Drop for ParentLinksDropProbe {
+        fn drop(&mut self) {
+            let _ = self
+                .lock_was_free_tx
+                .send(self.parent_links.try_lock().is_ok());
+        }
+    }
+
+    #[derive(Clone)]
+    struct LockScopeChildArgs {
+        ready_tx: mpsc::UnboundedSender<()>,
+        stopped_tx: mpsc::UnboundedSender<()>,
+        drop_probe: Arc<ParentLinksDropProbe>,
+    }
+
+    struct LockScopeChild {
+        stopped_tx: mpsc::UnboundedSender<()>,
+    }
+
+    impl Actor for LockScopeChild {
+        type Args = LockScopeChildArgs;
+        type Error = Infallible;
+
+        async fn on_start(args: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            let LockScopeChildArgs {
+                ready_tx,
+                stopped_tx,
+                drop_probe,
+            } = args;
+
+            // Readiness is sent after the initial cloned args release its probe reference. The
+            // factory-captured original args is now the only probe owner.
+            drop(drop_probe);
+            let _ = ready_tx.send(());
+            Ok(Self { stopped_tx })
+        }
+
+        async fn on_stop(
+            &mut self,
+            _: WeakActorRef<Self>,
+            _: ActorStopReason,
+        ) -> Result<(), Self::Error> {
+            let _ = self.stopped_tx.send(());
+            Ok(())
+        }
+    }
+
+    async fn recv<T>(receiver: &mut mpsc::UnboundedReceiver<T>, waiting_for: &str) -> T {
+        tokio::time::timeout(EVENT_TIMEOUT, receiver.recv())
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting for {waiting_for}"))
+            .unwrap_or_else(|| panic!("channel closed while waiting for {waiting_for}"))
+    }
+
+    async fn shutdown_supervisor(
+        supervisor: &ActorRef<LockScopeSupervisor>,
+    ) -> Result<(), &'static str> {
+        supervisor.kill();
+        tokio::time::timeout(EVENT_TIMEOUT, supervisor.wait_for_shutdown())
+            .await
+            .map_err(|_| "timed out waiting for supervisor shutdown")
+    }
+
+    #[tokio::test]
+    async fn terminal_child_spec_drops_after_parent_links_unlock() {
+        let supervisor = LockScopeSupervisor::spawn(LockScopeSupervisor);
+        let (ready_tx, mut ready_rx) = mpsc::unbounded_channel();
+        let (stopped_tx, mut stopped_rx) = mpsc::unbounded_channel();
+        let (lock_was_free_tx, mut lock_was_free_rx) = mpsc::unbounded_channel();
+        let args = LockScopeChildArgs {
+            ready_tx,
+            stopped_tx,
+            drop_probe: Arc::new(ParentLinksDropProbe {
+                parent_links: supervisor.downgrade().links.clone(),
+                lock_was_free_tx,
+            }),
+        };
+        let child = LockScopeChild::supervise(&supervisor, args)
+            .restart_policy(RestartPolicy::Transient)
+            .spawn()
+            .await;
+
+        recv(&mut ready_rx, "child startup").await;
+        child
+            .stop_gracefully()
+            .await
+            .expect("terminal transient child accepts graceful stop");
+        recv(&mut stopped_rx, "child terminal stop").await;
+        tokio::time::timeout(EVENT_TIMEOUT, child.wait_for_shutdown())
+            .await
+            .expect("timed out waiting for child shutdown");
+
+        let lock_was_free_during_drop =
+            recv(&mut lock_was_free_rx, "factory-captured drop probe").await;
+        let cleanup = shutdown_supervisor(&supervisor).await;
+
+        assert!(
+            lock_was_free_during_drop,
+            "terminal child spec Drop ran while the parent Links mutex was still held"
+        );
+        assert!(cleanup.is_ok(), "supervisor cleanup must finish");
+    }
+}
