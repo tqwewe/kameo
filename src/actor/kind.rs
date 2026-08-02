@@ -241,7 +241,7 @@ where
         mailbox_rx: Option<Box<dyn Any + Send>>,
         dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> ControlFlow<ActorStopReason> {
-        {
+        let terminal_child = {
             let mut links = self.actor_ref.links.lock().await;
 
             // Check if we're already coordinating a restart
@@ -346,58 +346,62 @@ where
                         return ControlFlow::Continue(());
                     }
                     #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
-                    ControlFlow::Break(no_restart_reason) => {
-                        // `LinkDied` is serialized by the parent's actor loop. Removing here is
-                        // the terminal-child linearization point: a later stale notification sees
-                        // no child entry, while dropping the spec releases its factory, mailbox
-                        // sender, cloned args, logical ref, and restart metadata exactly once.
-                        drop(links.children.remove(&id));
-
-                        #[cfg(feature = "tracing")]
-                        match no_restart_reason {
-                            crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
-                                tracing::debug!(
-                                    %id,
-                                    name = A::name(),
-                                    ?reason,
-                                    decision = %no_restart_reason,
-                                    "actor not restarted"
-                                );
-                            }
-                            crate::links::NoRestartReason::MaxRestartsExceeded { .. } => {
-                                tracing::warn!(
-                                    %id,
-                                    name = A::name(),
-                                    ?reason,
-                                    decision = %no_restart_reason,
-                                    "actor not restarted"
-                                );
-                            }
-                            crate::links::NoRestartReason::NeverPolicy => {
-                                tracing::debug!(
-                                    %id,
-                                    name = A::name(),
-                                    ?reason,
-                                    decision = %no_restart_reason,
-                                    "actor not restarted"
-                                );
-                            }
-                        }
-                        // Notify the dead child's own peer links
-                        if let Some(sibblings) = dead_actor_sibblings {
-                            let mut notify_futs: FuturesUnordered<_> = sibblings
-                                .into_iter()
-                                .map(|(sibbling_actor_id, link)| {
-                                    link.notify(sibbling_actor_id, id, reason.clone(), None, None)
-                                        .boxed()
-                                })
-                                .collect();
-                            tokio::spawn(async move {
-                                while let Some(()) = notify_futs.next().await {}
-                            });
-                        }
-                    }
+                    ControlFlow::Break(no_restart_reason) => links
+                        .children
+                        .remove(&id)
+                        .map(|terminal_child_spec| (terminal_child_spec, no_restart_reason)),
                 }
+            } else {
+                None
+            }
+        };
+
+        if let Some((terminal_child_spec, no_restart_reason)) = terminal_child {
+            // `LinkDied` is serialized by the parent's actor loop. Removing from the table is
+            // the terminal-child linearization point; dropping after the guard releases makes
+            // user-provided destructors unable to re-enter the parent Links mutex while held.
+            drop(terminal_child_spec);
+
+            #[cfg(feature = "tracing")]
+            match no_restart_reason {
+                crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
+                    tracing::debug!(
+                        %id,
+                        name = A::name(),
+                        ?reason,
+                        decision = %no_restart_reason,
+                        "actor not restarted"
+                    );
+                }
+                crate::links::NoRestartReason::MaxRestartsExceeded { .. } => {
+                    tracing::warn!(
+                        %id,
+                        name = A::name(),
+                        ?reason,
+                        decision = %no_restart_reason,
+                        "actor not restarted"
+                    );
+                }
+                crate::links::NoRestartReason::NeverPolicy => {
+                    tracing::debug!(
+                        %id,
+                        name = A::name(),
+                        ?reason,
+                        decision = %no_restart_reason,
+                        "actor not restarted"
+                    );
+                }
+            }
+            // Notify the dead child's own peer links only after its spec is fully released.
+            if let Some(sibblings) = dead_actor_sibblings {
+                let mut notify_futs: FuturesUnordered<_> = sibblings
+                    .into_iter()
+                    .map(|(sibbling_actor_id, link)| {
+                        link.notify(sibbling_actor_id, id, reason.clone(), None, None)
+                            .boxed()
+                    })
+                    .collect();
+                tokio::spawn(async move { while let Some(()) = notify_futs.next().await {} });
             }
         }
 
