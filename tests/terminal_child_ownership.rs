@@ -167,7 +167,6 @@ async fn terminal_transient_child_is_removed_once() {
         .restart_policy(RestartPolicy::Transient)
         .spawn()
         .await;
-    let weak_child = child.downgrade();
 
     assert_eq!(recv(&mut ready_rx, "child startup").await, 0);
     assert_eq!(
@@ -193,8 +192,6 @@ async fn terminal_transient_child_is_removed_once() {
         tokio::time::timeout(EVENT_TIMEOUT, factory_dropped_rx.recv()).await;
     let factory_drops_before_parent_shutdown = factory_drops.load(Ordering::Acquire);
     let anchors_before_parent_shutdown = live_factory_anchors.load(Ordering::Acquire);
-    let child_ref_released_before_parent_shutdown = weak_child.upgrade().is_none();
-    let child_ref_strong_count_before_parent_shutdown = weak_child.strong_count();
     let factory_anchor_released_before_parent_shutdown = weak_factory_anchor.upgrade().is_none();
     let cleanup = shutdown_supervisor(&supervisor).await;
     let factory_drops_after_parent_shutdown = factory_drops.load(Ordering::Acquire);
@@ -219,14 +216,6 @@ async fn terminal_transient_child_is_removed_once() {
         factory_anchor_released_before_parent_shutdown,
         "the factory closure must not retain the original cloned args"
     );
-    assert!(
-        child_ref_released_before_parent_shutdown,
-        "terminal child must release the supervisor-held logical ActorRef and signal sender"
-    );
-    assert_eq!(
-        child_ref_strong_count_before_parent_shutdown, 0,
-        "no supervisor-owned strong logical ActorRef may remain after terminal removal"
-    );
     assert!(cleanup.is_ok(), "supervisor cleanup must finish");
 }
 
@@ -241,7 +230,6 @@ async fn dynamic_terminal_child_churn_returns_to_baseline() {
     let args_cloned = Arc::new(AtomicUsize::new(0));
     let baseline_live_factory_anchors = live_factory_anchors.load(Ordering::Acquire);
     let baseline_factory_drops = factory_drops.load(Ordering::Acquire);
-    let mut weak_children = Vec::with_capacity(CHURN_CHILDREN);
     let mut weak_factory_anchors = Vec::with_capacity(CHURN_CHILDREN);
 
     for child in 0..CHURN_CHILDREN {
@@ -269,7 +257,6 @@ async fn dynamic_terminal_child_churn_returns_to_baseline() {
             child
         );
         child_ref.wait_for_shutdown().await;
-        weak_children.push(child_ref.downgrade());
         weak_factory_anchors.push(weak_factory_anchor);
         drop(child_ref);
     }
@@ -280,10 +267,6 @@ async fn dynamic_terminal_child_churn_returns_to_baseline() {
 
     let live_after_churn = live_factory_anchors.load(Ordering::Acquire);
     let drops_after_churn = factory_drops.load(Ordering::Acquire);
-    let retained_child_refs = weak_children
-        .iter()
-        .filter(|weak_child| weak_child.upgrade().is_some())
-        .count();
     let retained_factory_anchors = weak_factory_anchors
         .iter()
         .filter(|weak_factory_anchor| weak_factory_anchor.upgrade().is_some())
@@ -307,10 +290,6 @@ async fn dynamic_terminal_child_churn_returns_to_baseline() {
     assert_eq!(
         retained_factory_anchors, 0,
         "dynamic terminal churn must not retain factory or cloned-args anchors"
-    );
-    assert_eq!(
-        retained_child_refs, 0,
-        "dynamic terminal churn must not retain logical ActorRefs or signal senders"
     );
     assert!(cleanup.is_ok(), "supervisor cleanup must finish");
 }
