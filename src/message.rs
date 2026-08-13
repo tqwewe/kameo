@@ -44,7 +44,7 @@ pub type BoxReply = Box<dyn any::Any + Send>;
 /// Messages are processed sequentially one at a time, with exclusive mutable access to the actors state.
 ///
 /// The reply type must implement [Reply].
-pub trait Message<T: Send + 'static>: Actor {
+pub trait Message<T>: Actor {
     /// The reply sent back to the message caller.
     type Reply: Reply;
 
@@ -221,7 +221,7 @@ where
     ///         ctx.spawn(async move {
     ///             // This runs independently of the actor
     ///             tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-    ///             
+    ///
     ///             // Process the data...
     ///             if msg.data.is_empty() {
     ///                 Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Empty data"))
