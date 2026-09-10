@@ -35,6 +35,7 @@ impl ToTokens for DeriveActor {
                     #name
                 }
 
+                #[allow(clippy::unused_async_trait_impl, reason = "kameo trait methods are async by design")]
                 async fn on_start(
                     state: Self::Args,
                     _actor_ref: ::kameo::actor::ActorRef<Self>,

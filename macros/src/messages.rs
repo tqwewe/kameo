@@ -259,8 +259,10 @@ impl Messages {
                             return None;
                         }
 
-                        impl_item_fn.attrs.push(parse_quote! ( #[allow(clippy::unused_self, reason = "self required for message handlers")] ));
-                        impl_item_fn.attrs.push(parse_quote! ( #[allow(clippy::needless_pass_by_value, reason = "references are not allowed in message handlers")] ));
+                        impl_item_fn.attrs.extend([
+                            parse_quote!(#[allow(clippy::unused_self, reason = "self required for message handlers")]),
+                            parse_quote!(#[allow(clippy::needless_pass_by_value, reason = "references are not allowed in message handlers")]),
+                        ]);
 
                         let mut generics = vec![];
                         let impl_item_generics: Vec<_> = item_impl.generics
@@ -492,6 +494,7 @@ impl Messages {
                     impl #impl_generics ::kameo::message::#trait_name<#msg_ident #msg_ty_generics> for #actor_ident #actor_ty_generics #where_clause {
                         type Reply = #reply;
 
+                        #[allow(clippy::unused_async_trait_impl, reason = "kameo trait methods are async by design")]
                         async fn handle(#self_ref, #[allow(unused_variables)] #msg, #ctx_ident: &mut ::kameo::message::Context<Self, Self::Reply>) -> Self::Reply {
                             self.#fn_ident(#( #params ),*) #await_tokens
                         }
@@ -793,6 +796,7 @@ impl Messages {
             {
                 type Reply = #response_enum_name #response_enum_ty_generics;
 
+                #[allow(clippy::unused_async_trait_impl, reason = "kameo trait methods are async by design")]
                 async fn handle(
                     &mut self,
                     msg: #msg_enum_name #msg_enum_ty_generics,
