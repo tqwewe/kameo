@@ -632,21 +632,6 @@ impl Behaviour {
                         | Err(kad::GetRecordError::NotFound { .. }) => {
                             // No progress event needed
                         }
-                        // Error cases are still useful to report
-                        Err(kad::GetRecordError::QuorumFailed { quorum, .. }) => {
-                            match &lookup_query.reply {
-                                Some(tx) => {
-                                    let _ = tx.send(Err(RegistryError::QuorumFailed { quorum }));
-                                }
-                                None => {
-                                    self.pending_events.push_back(Event::LookupProgressed {
-                                        provider_query_id,
-                                        get_query_id: id,
-                                        result: Err(RegistryError::QuorumFailed { quorum }),
-                                    });
-                                }
-                            }
-                        }
                         Err(kad::GetRecordError::Timeout { .. }) => match &lookup_query.reply {
                             Some(tx) => {
                                 let _ = tx.send(Err(RegistryError::Timeout));
