@@ -125,7 +125,7 @@ pub enum Event {
         /// table, or whether it is an existing peer who's addresses changed.
         is_new_peer: bool,
         /// The full list of known addresses of `peer`.
-        addresses: kad::Addresses,
+        addresses: Box<kad::Addresses>,
         /// Returns the minimum inclusive and maximum inclusive distance for
         /// the bucket of the peer.
         bucket_range: (kad::KBucketDistance, kad::KBucketDistance),
@@ -735,7 +735,7 @@ impl Behaviour {
                 Some(Event::RoutingUpdated {
                     peer,
                     is_new_peer,
-                    addresses,
+                    addresses: Box::new(addresses),
                     bucket_range,
                     old_peer,
                 }),

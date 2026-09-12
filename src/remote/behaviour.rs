@@ -287,7 +287,7 @@ pub enum Event {
     ///
     /// These events relate to actor registration and discovery operations,
     /// including successful registrations, lookup results, and network topology changes.
-    Registry(registry::Event),
+    Registry(Box<registry::Event>),
 }
 
 impl NetworkBehaviour for Behaviour {
@@ -426,7 +426,10 @@ impl NetworkBehaviour for Behaviour {
 
         match self.registry.poll(cx) {
             task::Poll::Ready(ev) => {
-                return task::Poll::Ready(ev.map_in(Either::Right).map_out(Event::Registry));
+                return task::Poll::Ready(
+                    ev.map_in(Either::Right)
+                        .map_out(|event| Event::Registry(Box::new(event))),
+                );
             }
             task::Poll::Pending => {}
         }

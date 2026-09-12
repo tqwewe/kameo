@@ -174,6 +174,7 @@ impl<A: Actor> MailboxSender<A> {
     ///
     /// [`mpsc::Sender::send`]: tokio::sync::mpsc::Sender::send
     /// [`mpsc::UnboundedSender::send`]: tokio::sync::mpsc::UnboundedSender::send
+    #[allow(clippy::result_large_err)]
     pub async fn send(&self, signal: Signal<A>) -> Result<(), mpsc::error::SendError<Signal<A>>> {
         if !self.is_accepting() && matches!(signal, Signal::Message { .. }) {
             return Err(mpsc::error::SendError(signal));
