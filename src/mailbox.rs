@@ -233,6 +233,7 @@ impl<A: Actor> MailboxSender<A> {
     ///
     /// [`mpsc::Sender::try_send`]: tokio::sync::mpsc::Sender::try_send
     /// [`mpsc::UnboundedSender::send`]: tokio::sync::mpsc::UnboundedSender::send
+    #[allow(clippy::result_large_err)]
     pub async fn send_timeout(
         &self,
         signal: Signal<A>,
