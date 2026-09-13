@@ -241,8 +241,8 @@ where
         mailbox_rx: Option<Box<dyn Any + Send>>,
         dead_actor_sibblings: Option<HashMap<ActorId, Link>>,
     ) -> ControlFlow<ActorStopReason> {
-        {
-            let links = self.actor_ref.links.lock().await;
+        let terminal_child = {
+            let mut links = self.actor_ref.links.lock().await;
 
             // Check if we're already coordinating a restart
             if let CoordinationState::Coordinating {
@@ -346,52 +346,62 @@ where
                         return ControlFlow::Continue(());
                     }
                     #[cfg_attr(not(feature = "tracing"), allow(unused_variables))]
-                    ControlFlow::Break(no_restart_reason) => {
-                        #[cfg(feature = "tracing")]
-                        match no_restart_reason {
-                            crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
-                                tracing::debug!(
-                                    %id,
-                                    name = A::name(),
-                                    ?reason,
-                                    decision = %no_restart_reason,
-                                    "actor not restarted"
-                                );
-                            }
-                            crate::links::NoRestartReason::MaxRestartsExceeded { .. } => {
-                                tracing::warn!(
-                                    %id,
-                                    name = A::name(),
-                                    ?reason,
-                                    decision = %no_restart_reason,
-                                    "actor not restarted"
-                                );
-                            }
-                            crate::links::NoRestartReason::NeverPolicy => {
-                                tracing::debug!(
-                                    %id,
-                                    name = A::name(),
-                                    ?reason,
-                                    decision = %no_restart_reason,
-                                    "actor not restarted"
-                                );
-                            }
-                        }
-                        // Notify the dead child's own peer links
-                        if let Some(sibblings) = dead_actor_sibblings {
-                            let mut notify_futs: FuturesUnordered<_> = sibblings
-                                .into_iter()
-                                .map(|(sibbling_actor_id, link)| {
-                                    link.notify(sibbling_actor_id, id, reason.clone(), None, None)
-                                        .boxed()
-                                })
-                                .collect();
-                            tokio::spawn(async move {
-                                while let Some(()) = notify_futs.next().await {}
-                            });
-                        }
-                    }
+                    ControlFlow::Break(no_restart_reason) => links
+                        .children
+                        .remove(&id)
+                        .map(|terminal_child_spec| (terminal_child_spec, no_restart_reason)),
                 }
+            } else {
+                None
+            }
+        };
+
+        if let Some((terminal_child_spec, no_restart_reason)) = terminal_child {
+            // `LinkDied` is serialized by the parent's actor loop. Removing from the table is
+            // the terminal-child linearization point; dropping after the guard releases makes
+            // user-provided destructors unable to re-enter the parent Links mutex while held.
+            drop(terminal_child_spec);
+
+            #[cfg(feature = "tracing")]
+            match no_restart_reason {
+                crate::links::NoRestartReason::NormalExitUnderTransientPolicy => {
+                    tracing::debug!(
+                        %id,
+                        name = A::name(),
+                        ?reason,
+                        decision = %no_restart_reason,
+                        "actor not restarted"
+                    );
+                }
+                crate::links::NoRestartReason::MaxRestartsExceeded { .. } => {
+                    tracing::warn!(
+                        %id,
+                        name = A::name(),
+                        ?reason,
+                        decision = %no_restart_reason,
+                        "actor not restarted"
+                    );
+                }
+                crate::links::NoRestartReason::NeverPolicy => {
+                    tracing::debug!(
+                        %id,
+                        name = A::name(),
+                        ?reason,
+                        decision = %no_restart_reason,
+                        "actor not restarted"
+                    );
+                }
+            }
+            // Notify the dead child's own peer links only after its spec is fully released.
+            if let Some(sibblings) = dead_actor_sibblings {
+                let mut notify_futs: FuturesUnordered<_> = sibblings
+                    .into_iter()
+                    .map(|(sibbling_actor_id, link)| {
+                        link.notify(sibbling_actor_id, id, reason.clone(), None, None)
+                            .boxed()
+                    })
+                    .collect();
+                tokio::spawn(async move { while let Some(()) = notify_futs.next().await {} });
             }
         }
 
@@ -462,5 +472,140 @@ where
     #[inline]
     pub(crate) async fn shutdown(self) -> A {
         self.state
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Arc, time::Duration};
+
+    use tokio::sync::mpsc;
+
+    use crate::{
+        actor::{Actor, ActorRef, Spawn, WeakActorRef},
+        error::{ActorStopReason, Infallible},
+        links::Links,
+        supervision::RestartPolicy,
+    };
+
+    const EVENT_TIMEOUT: Duration = Duration::from_secs(2);
+
+    struct LockScopeSupervisor;
+
+    impl Actor for LockScopeSupervisor {
+        type Args = Self;
+        type Error = Infallible;
+
+        async fn on_start(this: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            Ok(this)
+        }
+    }
+
+    struct ParentLinksDropProbe {
+        parent_links: Links,
+        lock_was_free_tx: mpsc::UnboundedSender<bool>,
+    }
+
+    impl Drop for ParentLinksDropProbe {
+        fn drop(&mut self) {
+            let _ = self
+                .lock_was_free_tx
+                .send(self.parent_links.try_lock().is_ok());
+        }
+    }
+
+    #[derive(Clone)]
+    struct LockScopeChildArgs {
+        ready_tx: mpsc::UnboundedSender<()>,
+        stopped_tx: mpsc::UnboundedSender<()>,
+        drop_probe: Arc<ParentLinksDropProbe>,
+    }
+
+    struct LockScopeChild {
+        stopped_tx: mpsc::UnboundedSender<()>,
+    }
+
+    impl Actor for LockScopeChild {
+        type Args = LockScopeChildArgs;
+        type Error = Infallible;
+
+        async fn on_start(args: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            let LockScopeChildArgs {
+                ready_tx,
+                stopped_tx,
+                drop_probe,
+            } = args;
+
+            // Readiness is sent after the initial cloned args release its probe reference. The
+            // factory-captured original args is now the only probe owner.
+            drop(drop_probe);
+            let _ = ready_tx.send(());
+            Ok(Self { stopped_tx })
+        }
+
+        async fn on_stop(
+            &mut self,
+            _: WeakActorRef<Self>,
+            _: ActorStopReason,
+        ) -> Result<(), Self::Error> {
+            let _ = self.stopped_tx.send(());
+            Ok(())
+        }
+    }
+
+    async fn recv<T>(receiver: &mut mpsc::UnboundedReceiver<T>, waiting_for: &str) -> T {
+        tokio::time::timeout(EVENT_TIMEOUT, receiver.recv())
+            .await
+            .unwrap_or_else(|_| panic!("timed out waiting for {waiting_for}"))
+            .unwrap_or_else(|| panic!("channel closed while waiting for {waiting_for}"))
+    }
+
+    async fn shutdown_supervisor(
+        supervisor: &ActorRef<LockScopeSupervisor>,
+    ) -> Result<(), &'static str> {
+        supervisor.kill();
+        tokio::time::timeout(EVENT_TIMEOUT, supervisor.wait_for_shutdown())
+            .await
+            .map_err(|_| "timed out waiting for supervisor shutdown")
+    }
+
+    #[tokio::test]
+    async fn terminal_child_spec_drops_after_parent_links_unlock() {
+        let supervisor = LockScopeSupervisor::spawn(LockScopeSupervisor);
+        let (ready_tx, mut ready_rx) = mpsc::unbounded_channel();
+        let (stopped_tx, mut stopped_rx) = mpsc::unbounded_channel();
+        let (lock_was_free_tx, mut lock_was_free_rx) = mpsc::unbounded_channel();
+        let args = LockScopeChildArgs {
+            ready_tx,
+            stopped_tx,
+            drop_probe: Arc::new(ParentLinksDropProbe {
+                parent_links: supervisor.downgrade().links.clone(),
+                lock_was_free_tx,
+            }),
+        };
+        let child = LockScopeChild::supervise(&supervisor, args)
+            .restart_policy(RestartPolicy::Transient)
+            .spawn()
+            .await;
+
+        recv(&mut ready_rx, "child startup").await;
+        child
+            .stop_gracefully()
+            .await
+            .expect("terminal transient child accepts graceful stop");
+        recv(&mut stopped_rx, "child terminal stop").await;
+        tokio::time::timeout(EVENT_TIMEOUT, child.wait_for_shutdown())
+            .await
+            .expect("timed out waiting for child shutdown");
+
+        let lock_was_free_during_drop =
+            recv(&mut lock_was_free_rx, "factory-captured drop probe").await;
+        let cleanup = shutdown_supervisor(&supervisor).await;
+
+        assert!(
+            lock_was_free_during_drop,
+            "terminal child spec Drop ran while the parent Links mutex was still held"
+        );
+        assert!(cleanup.is_ok(), "supervisor cleanup must finish");
     }
 }
