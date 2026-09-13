@@ -56,7 +56,7 @@ dyn-clone = "1.0"
 either = { version = "1.15.0", optional = true }
 futures.workspace = true
 hotpath = { version = "0.21", optional = true, features = ["tokio"] }
-libp2p = { version = "0.56.0", features = [
+libp2p = { version = "0.57.0", features = [
   "cbor",
   "kad",
   "noise",
@@ -79,7 +79,7 @@ tracing-opentelemetry = { version = "0.32", optional = true }
 [dev-dependencies]
 criterion = { version = "0.8", features = ["async_tokio"] }
 kameo_actors = { path = "actors" }
-libp2p = { version = "0.56.0", features = ["serde"] }
+libp2p = { version = "0.57.0", features = ["serde"] }
 metrics-exporter-prometheus = "0.18"
 tokio = { version = "1", features = [
   "macros",
