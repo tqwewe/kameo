@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.3](https://github.com/tqwewe/kameo/compare/v0.22.2...v0.22.3) - 2026-09-13
+
+### <!-- 1 -->Changed
+
+- Update libp2p to 0.57.0 ([#403](https://github.com/tqwewe/kameo/pull/403)) [</>](https://github.com/tqwewe/kameo/commit/90751f0f982331fba97ca8ef343d99f0cc60d07b)
+
+### <!-- 3 -->Fixed
+
+- Serialize supervised restarts ([#387](https://github.com/tqwewe/kameo/pull/387)) [</>](https://github.com/tqwewe/kameo/commit/1b6bffb6d0fdc05492349c08cd3727621a810ed7)
+
+### <!-- 5 -->Misc
+
+- Update syn requirement from 2.0.52 to 3.0.2 ([#383](https://github.com/tqwewe/kameo/pull/383)) [</>](https://github.com/tqwewe/kameo/commit/b4aaee797cc3fd12e8194db406d9d73a6bc021ce)
+
+
 ## [0.22.2](https://github.com/tqwewe/kameo/compare/v0.22.1...v0.22.2) - 2026-07-17
 
 ### <!-- 3 -->Fixed
