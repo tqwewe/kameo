@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "actors", "console", "macros"]
+members = [".", "actors", "console", "macros", "remote"]
 
 [workspace.dependencies]
 kameo = { path = ".", version = "0.22.2" }
