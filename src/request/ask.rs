@@ -639,7 +639,7 @@ where
 /// A request to send a message to a typed actor with reply.
 #[allow(missing_debug_implementations)]
 #[must_use = "request won't be sent without awaiting, or calling a send method"]
-pub struct ReplyRecipientAskRequest<'a, M, Ok, Err, Tm>
+pub struct ReplyRecipientAskRequest<'a, M, Ok, Err, Tm, Tr>
 where
     M: Send + 'static,
     Ok: Send + 'static,
@@ -648,11 +648,12 @@ where
     actor_ref: &'a ReplyRecipient<M, Ok, Err>,
     msg: M,
     mailbox_timeout: Tm,
+    reply_timeout: Tr,
     #[cfg(all(debug_assertions, feature = "tracing"))]
     called_at: &'static std::panic::Location<'static>,
 }
 
-impl<'a, M, Ok, Err, Tm> ReplyRecipientAskRequest<'a, M, Ok, Err, Tm>
+impl<'a, M, Ok, Err, Tm, Tr> ReplyRecipientAskRequest<'a, M, Ok, Err, Tm, Tr>
 where
     M: Send + 'static,
     Ok: Send + 'static,
@@ -667,11 +668,13 @@ where
     ) -> Self
     where
         Tm: Default,
+        Tr: Default,
     {
         ReplyRecipientAskRequest {
             actor_ref,
             msg,
             mailbox_timeout: Tm::default(),
+            reply_timeout: Tr::default(),
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at,
         }
@@ -681,18 +684,41 @@ where
     pub fn mailbox_timeout(
         self,
         duration: Duration,
-    ) -> ReplyRecipientAskRequest<'a, M, Ok, Err, WithRequestTimeout> {
+    ) -> ReplyRecipientAskRequest<'a, M, Ok, Err, WithRequestTimeout, Tr> {
         self.mailbox_timeout_opt(Some(duration))
     }
 
     pub(crate) fn mailbox_timeout_opt(
         self,
         duration: Option<Duration>,
-    ) -> ReplyRecipientAskRequest<'a, M, Ok, Err, WithRequestTimeout> {
+    ) -> ReplyRecipientAskRequest<'a, M, Ok, Err, WithRequestTimeout, Tr> {
         ReplyRecipientAskRequest {
             actor_ref: self.actor_ref,
             msg: self.msg,
             mailbox_timeout: WithRequestTimeout(duration),
+            reply_timeout: self.reply_timeout,
+            #[cfg(all(debug_assertions, feature = "tracing"))]
+            called_at: self.called_at,
+        }
+    }
+
+    /// Sets the timeout for waiting for a reply from the actor.
+    pub fn reply_timeout(
+        self,
+        duration: Duration,
+    ) -> ReplyRecipientAskRequest<'a, M, Ok, Err, Tm, WithRequestTimeout> {
+        self.reply_timeout_opt(Some(duration))
+    }
+
+    pub(crate) fn reply_timeout_opt(
+        self,
+        duration: Option<Duration>,
+    ) -> ReplyRecipientAskRequest<'a, M, Ok, Err, Tm, WithRequestTimeout> {
+        ReplyRecipientAskRequest {
+            actor_ref: self.actor_ref,
+            msg: self.msg,
+            mailbox_timeout: self.mailbox_timeout,
+            reply_timeout: WithRequestTimeout(duration),
             #[cfg(all(debug_assertions, feature = "tracing"))]
             called_at: self.called_at,
         }
@@ -702,15 +728,21 @@ where
     pub async fn send(self) -> Result<Ok, SendError<M, Err>>
     where
         Tm: Into<Option<Duration>>,
+        Tr: Into<Option<Duration>>,
     {
         self.actor_ref
             .handler
-            .ask(self.msg, self.mailbox_timeout.into())
+            .ask(
+                self.msg,
+                self.mailbox_timeout.into(),
+                self.reply_timeout.into(),
+            )
             .await
     }
 }
 
-impl<M, Ok, Err> ReplyRecipientAskRequest<'_, M, Ok, Err, WithoutRequestTimeout>
+impl<M, Ok, Err>
+    ReplyRecipientAskRequest<'_, M, Ok, Err, WithoutRequestTimeout, WithoutRequestTimeout>
 where
     M: Send + 'static,
     Ok: Send + 'static,
@@ -727,20 +759,23 @@ where
     }
 }
 
-impl<'a, M, Ok, Err, Tm> IntoFuture for ReplyRecipientAskRequest<'a, M, Ok, Err, Tm>
+impl<'a, M, Ok, Err, Tm, Tr> IntoFuture for ReplyRecipientAskRequest<'a, M, Ok, Err, Tm, Tr>
 where
     M: Send + 'static,
     Ok: Send + 'static,
     Err: ReplyError,
     Tm: Into<Option<Duration>> + Send + 'static,
+    Tr: Into<Option<Duration>> + Send + 'static,
 {
     type Output = Result<Ok, SendError<M, Err>>;
     type IntoFuture = BoxFuture<'a, Self::Output>;
 
     fn into_future(self) -> Self::IntoFuture {
-        self.actor_ref
-            .handler
-            .ask(self.msg, self.mailbox_timeout.into())
+        self.actor_ref.handler.ask(
+            self.msg,
+            self.mailbox_timeout.into(),
+            self.reply_timeout.into(),
+        )
     }
 }
 
@@ -1591,7 +1626,7 @@ mod tests {
         let actor_ref = prepared.actor_ref().clone();
         prepared.spawn(SleepActor);
 
-        // The default carries through to a reply recipient, which has no call-site override.
+        // The default carries through to a reply recipient
         let recipient = actor_ref.clone().reply_recipient::<Sleep>();
         assert_eq!(
             recipient.ask(Sleep(Duration::from_millis(20))).await,
@@ -1600,6 +1635,34 @@ mod tests {
         assert_eq!(
             recipient.ask(Sleep(Duration::from_millis(400))).await,
             Err(SendError::Timeout(None))
+        );
+
+        actor_ref.kill();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reply_recipient_can_override_default_reply_timeout()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let prepared = SleepActor::prepare_with_mailbox(mailbox::bounded(100))
+            .reply_timeout(Duration::from_millis(100));
+        let actor_ref = prepared.actor_ref().clone();
+        prepared.spawn(SleepActor);
+
+        let recipient = actor_ref.clone().reply_recipient::<Sleep>();
+
+        // Override with a longer timeout
+        assert_eq!(
+            recipient
+                .ask(Sleep(Duration::from_millis(200)))
+                .reply_timeout(Duration::from_millis(500))
+                .await,
+            Ok(true),
+        );
+        // Without override, the default applies
+        assert_eq!(
+            recipient.ask(Sleep(Duration::from_millis(400))).await,
+            Err(SendError::Timeout(None)),
         );
 
         actor_ref.kill();
