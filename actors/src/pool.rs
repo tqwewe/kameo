@@ -104,10 +104,7 @@ where
                 let worker = Worker {
                     actor_ref: factory(),
                 };
-                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
-                    Some(capacity) => mailbox::bounded(capacity),
-                    None => mailbox::unbounded(),
-                };
+                let mailbox = worker_mailbox(&worker.actor_ref);
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             })
             .collect();
@@ -133,10 +130,7 @@ where
         let workers = join_all((0..size).map(|_| {
             FutureExt::map(factory(), |actor_ref| {
                 let worker = Worker { actor_ref };
-                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
-                    Some(capacity) => mailbox::bounded(capacity),
-                    None => mailbox::unbounded(),
-                };
+                let mailbox = worker_mailbox(&worker.actor_ref);
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             })
         }))
@@ -201,26 +195,38 @@ where
         self.workers[i] = match &mut self.factory {
             Factory::Sync(f) => {
                 let worker = Worker { actor_ref: f() };
-                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
-                    Some(capacity) => mailbox::bounded(capacity),
-                    None => mailbox::unbounded(),
-                };
+                let mailbox = worker_mailbox(&worker.actor_ref);
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             }
             Factory::Async(f) => {
                 let worker = Worker {
                     actor_ref: f().await,
                 };
-                let mailbox = match worker.actor_ref.mailbox_sender().capacity() {
-                    Some(capacity) => mailbox::bounded(capacity),
-                    None => mailbox::unbounded(),
-                };
+                let mailbox = worker_mailbox(&worker.actor_ref);
                 (Worker::spawn_with_mailbox(worker, mailbox), Arc::new(()))
             }
         };
         self.workers[i].0.link(&actor_ref).await;
 
         Ok(ControlFlow::Continue(()))
+    }
+}
+
+/// Builds the mailbox for the [`Worker`] wrapper that fronts `actor_ref`, mirroring the worker's
+/// own mailbox kind and size.
+///
+/// Note this reads [`MailboxSender::max_capacity`], the channel's total size, and not
+/// [`MailboxSender::capacity`], which reports the slots *currently free*. Sizing from the free
+/// count would shrink the wrapper's mailbox by however many messages happened to be queued at
+/// this instant, and a freshly spawned actor transiently holds a startup signal in its mailbox —
+/// so a worker with a bounded mailbox of one could yield a capacity of zero here, which
+/// `mailbox::bounded` panics on.
+fn worker_mailbox<A: Actor>(
+    actor_ref: &ActorRef<A>,
+) -> (MailboxSender<Worker<A>>, MailboxReceiver<Worker<A>>) {
+    match actor_ref.mailbox_sender().max_capacity() {
+        Some(max_capacity) => mailbox::bounded(max_capacity),
+        None => mailbox::unbounded(),
     }
 }
 
@@ -416,5 +422,75 @@ impl<A: Actor> fmt::Debug for ActorPool<A> {
             .field("workers", &self.workers)
             .field("size", &self.size)
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An actor that never finishes starting, so its mailbox loop never runs and nothing it is
+    /// sent is ever drained. That makes "how many slots are free" a value the test controls
+    /// exactly, rather than something that depends on scheduling.
+    struct NeverStarts;
+
+    struct Ping;
+
+    impl Actor for NeverStarts {
+        type Args = Self;
+        type Error = Infallible;
+
+        async fn on_start(state: Self::Args, _: ActorRef<Self>) -> Result<Self, Self::Error> {
+            std::future::pending::<()>().await;
+            Ok(state)
+        }
+    }
+
+    impl Message<Ping> for NeverStarts {
+        type Reply = ();
+
+        async fn handle(&mut self, _: Ping, _: &mut Context<Self, Self::Reply>) -> Self::Reply {}
+    }
+
+    /// Spawns a stalled actor with a bounded mailbox of `size` and fills every free slot.
+    fn saturated_worker(size: usize) -> ActorRef<NeverStarts> {
+        let actor_ref = NeverStarts::spawn_with_mailbox(NeverStarts, mailbox::bounded(size));
+        while actor_ref.tell(Ping).try_send().is_ok() {}
+        actor_ref
+    }
+
+    #[tokio::test]
+    async fn worker_mailbox_mirrors_max_capacity_not_free_slots() {
+        let actor_ref = saturated_worker(4);
+        assert_eq!(
+            actor_ref.mailbox_sender().capacity(),
+            Some(0),
+            "test setup: the worker's mailbox should be full"
+        );
+
+        let (tx, _rx) = worker_mailbox(&actor_ref);
+        assert_eq!(
+            tx.max_capacity(),
+            Some(4),
+            "the wrapper mailbox must mirror the worker's size, not its free-slot count"
+        );
+    }
+
+    #[tokio::test]
+    async fn worker_mailbox_stays_unbounded_for_an_unbounded_worker() {
+        let actor_ref = NeverStarts::spawn_with_mailbox(NeverStarts, mailbox::unbounded());
+        let (tx, _rx) = worker_mailbox(&actor_ref);
+        assert_eq!(tx.max_capacity(), None);
+    }
+
+    /// A bounded mailbox of one is the case where sizing from the free-slot count stops being
+    /// merely wrong and starts panicking: `mailbox::bounded(0)` is not a legal channel.
+    #[tokio::test]
+    async fn worker_mailbox_of_one_does_not_collapse_to_zero() {
+        let actor_ref = saturated_worker(1);
+        assert_eq!(actor_ref.mailbox_sender().capacity(), Some(0));
+
+        let (tx, _rx) = worker_mailbox(&actor_ref);
+        assert_eq!(tx.max_capacity(), Some(1));
     }
 }
