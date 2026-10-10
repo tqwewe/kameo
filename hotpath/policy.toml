@@ -1,0 +1,22 @@
+# hotpath Cloud performance regression and budgets config.
+#
+# Docs: https://hotpath.rs/cloud
+
+# Post a `hotpath / <benchmark>` check on pull requests. Only a finding from a
+# block with `fail_check = true` fails it: a broken budget rule by default.
+pr_check = "fail"
+
+[functions]
+min_percent_total = 2
+
+[functions.alloc]
+judged = true
+min_percent_change = 2
+metrics = ["avg", "total"]
+min_calls = 1
+
+[functions.timing]
+judged = false
+min_percent_change = 50
+metrics = ["avg", "total"]
+min_calls = 1
