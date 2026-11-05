@@ -136,7 +136,7 @@ impl Behaviour {
             }
             SwarmCommand::LookupLocal { name, reply } => {
                 let _ = reply.send(self.registry.lookup_local(&name));
-                false // Local lookups don't need to be polled again
+                true
             }
             SwarmCommand::Register {
                 name,
@@ -156,7 +156,7 @@ impl Behaviour {
             SwarmCommand::Unregister { name, reply } => {
                 self.registry.unregister(&name);
                 let _ = reply.send(());
-                false // We only delete the actor from our local registry
+                true
             }
             SwarmCommand::Ask {
                 actor_id,
