@@ -4,7 +4,7 @@ use std::{
     pin, task,
     time::Duration,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "remote")]
 use crate::{actor, remote};
@@ -211,10 +211,17 @@ where
         let tx = self.actor_ref.mailbox_sender();
         match self.mailbox_timeout.into() {
             Some(timeout) => {
-                tx.send_timeout(signal, timeout).await?;
+                tx.send_timeout(signal, timeout)
+                    .await
+                    .map_err(|err| match err {
+                        mpsc::error::SendTimeoutError::Timeout(_) => SendError::Timeout(None),
+                        mpsc::error::SendTimeoutError::Closed(_) => SendError::ActorNotRunning(()),
+                    })?;
             }
             None => {
-                tx.send(signal).await?;
+                tx.send(signal)
+                    .await
+                    .map_err(|_| SendError::ActorNotRunning(()))?;
             }
         }
 
@@ -402,7 +409,10 @@ where
         };
 
         let tx = self.actor_ref.mailbox_sender();
-        tx.try_send(signal)?;
+        tx.try_send(signal).map_err(|err| match err {
+            mpsc::error::TrySendError::Full(_) => SendError::MailboxFull(()),
+            mpsc::error::TrySendError::Closed(_) => SendError::ActorNotRunning(()),
+        })?;
 
         let reply_timeout = self
             .reply_timeout
@@ -534,7 +544,8 @@ where
         };
 
         let tx = self.actor_ref.mailbox_sender();
-        tx.blocking_send(signal)?;
+        tx.blocking_send(signal)
+            .map_err(|_| SendError::ActorNotRunning(()))?;
 
         let f = Box::new(move || match rx.blocking_recv()? {
             Ok(val) => Ok(<A::Reply as Reply>::downcast_ok(val)),
@@ -1603,6 +1614,173 @@ mod tests {
         );
 
         actor_ref.kill();
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_enqueue_requests_actor_not_running() -> Result<(), Box<dyn std::error::Error>>
+    {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Args = Self;
+            type Error = Infallible;
+
+            async fn on_start(
+                state: Self::Args,
+                _actor_ref: ActorRef<Self>,
+            ) -> Result<Self, Self::Error> {
+                Ok(state)
+            }
+        }
+
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: &mut Context<Self, Self::Reply>,
+            ) -> Self::Reply {
+                true
+            }
+        }
+
+        let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(100));
+        actor_ref.stop_gracefully().await?;
+        actor_ref.wait_for_shutdown().await;
+
+        assert!(matches!(
+            actor_ref.ask(Msg).enqueue().await,
+            Err(SendError::ActorNotRunning(()))
+        ));
+        tokio::task::spawn_blocking({
+            let actor_ref = actor_ref.clone();
+            move || {
+                assert!(matches!(
+                    actor_ref.ask(Msg).blocking_enqueue(),
+                    Err(SendError::ActorNotRunning(()))
+                ));
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_try_enqueue_mailbox_full() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Args = Self;
+            type Error = Infallible;
+
+            async fn on_start(
+                state: Self::Args,
+                _actor_ref: ActorRef<Self>,
+            ) -> Result<Self, Self::Error> {
+                Ok(state)
+            }
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Msg;
+
+        impl Message<Msg> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                _msg: Msg,
+                _ctx: &mut Context<Self, Self::Reply>,
+            ) -> Self::Reply {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                true
+            }
+        }
+
+        tokio::time::pause();
+        let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
+        actor_ref.wait_for_startup().await;
+        for _ in 0..2 {
+            assert_eq!(actor_ref.tell(Msg).try_send(), Ok(()));
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(
+            actor_ref.ask(Msg).try_enqueue(),
+            Err(SendError::MailboxFull(()))
+        ));
+        actor_ref.kill();
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn bounded_enqueue_mailbox_timeout() -> Result<(), Box<dyn std::error::Error>> {
+        struct MyActor;
+
+        impl Actor for MyActor {
+            type Args = Self;
+            type Error = Infallible;
+
+            async fn on_start(
+                state: Self::Args,
+                _actor_ref: ActorRef<Self>,
+            ) -> Result<Self, Self::Error> {
+                Ok(state)
+            }
+        }
+
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        struct Sleep(Duration);
+
+        impl Message<Sleep> for MyActor {
+            type Reply = bool;
+
+            async fn handle(
+                &mut self,
+                Sleep(duration): Sleep,
+                _ctx: &mut Context<Self, Self::Reply>,
+            ) -> Self::Reply {
+                tokio::time::sleep(duration).await;
+                true
+            }
+        }
+
+        let actor_ref = MyActor::spawn_with_mailbox(MyActor, mailbox::bounded(1));
+        // Mailbox empty, this will succeed
+        assert_eq!(
+            actor_ref
+                .tell(Sleep(Duration::from_millis(100)))
+                .mailbox_timeout(Duration::from_millis(10))
+                .send()
+                .await,
+            Ok(())
+        );
+        // Mailbox is empty, this will make there be one item in the mailbox
+        assert_eq!(
+            actor_ref
+                .tell(Sleep(Duration::from_millis(100)))
+                .mailbox_timeout(Duration::from_millis(10))
+                .send()
+                .await,
+            Ok(())
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Mailbox has one item, this will fail
+        assert!(matches!(
+            actor_ref
+                .ask(Sleep(Duration::from_millis(100)))
+                .mailbox_timeout(Duration::from_millis(50))
+                .enqueue()
+                .await,
+            Err(SendError::Timeout(None))
+        ));
+        actor_ref.kill();
+
         Ok(())
     }
 }
