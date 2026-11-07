@@ -78,7 +78,7 @@
 use std::{
     any::Any,
     sync::{
-        Arc,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::Duration,
@@ -87,7 +87,7 @@ use std::{
 use futures::{FutureExt, future::BoxFuture};
 
 use crate::{
-    actor::{Actor, ActorId, ActorRef, DEFAULT_MAILBOX_CAPACITY, PreparedActor},
+    actor::{Actor, ActorId, ActorRef, DEFAULT_MAILBOX_CAPACITY, PreparedActor, WeakActorRef},
     links::{BoxActorRef, ErasedChildSpec, Links, RestartTracker, ShutdownFn, SpawnFactory},
     mailbox::{self, MailboxReceiver, MailboxSender, Signal},
 };
@@ -686,11 +686,16 @@ fn new_factory<C: Actor>(
     args_factory: SupervisorFactory<C::Args>,
     in_thread: bool,
 ) -> SpawnFactory {
+    // The logical actor every incarnation runs as. Weak, so the supervisor's spec does not
+    // keep the child's handles alive: when none is left, the next incarnation gets a new ref
+    // (on the same lifecycle, so old weak refs still reach it).
+    let logical: Arc<Mutex<Option<WeakActorRef<C>>>> = Arc::default();
     Box::new(move |rx: Box<dyn Any + Send>| {
         let mailbox_rx = *rx.downcast::<MailboxReceiver<C>>().unwrap();
         let mailbox_tx = mailbox_tx.clone();
         let links = links.clone();
         let args = args_factory.get();
+        let logical = logical.clone();
 
         Box::pin(async move {
             {
@@ -703,8 +708,16 @@ fn new_factory<C: Actor>(
                 // left by a previous supervisor shutdown.
                 inner.parent_shutdown.store(false, Ordering::Release);
             }
-            let prepared = PreparedActor::new_with(actor_id, (mailbox_tx, mailbox_rx), links);
+            let mut logical = logical.lock().unwrap_or_else(PoisonError::into_inner);
+            let prepared = match logical.as_ref() {
+                Some(logical) => {
+                    PreparedActor::next_incarnation(logical, (mailbox_tx, mailbox_rx), links)
+                }
+                None => PreparedActor::new_with(actor_id, (mailbox_tx, mailbox_rx), links),
+            };
             let actor_ref = prepared.actor_ref().clone();
+            *logical = Some(actor_ref.downgrade());
+            drop(logical);
             if in_thread {
                 prepared.spawn_in_thread(args);
             } else {

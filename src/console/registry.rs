@@ -381,7 +381,8 @@ pub(crate) fn register_or_get<A: Actor>(actor_ref: &ActorRef<A>) -> Arc<ActorMon
         // handler here — otherwise the restarted actor would show as forever handling the old
         // message (an ever-growing "Stuck" elapsed).
         *monitor.current_handler.lock().unwrap() = None;
-        // The new incarnation is a new allocation; repoint the probe so handle counts track it.
+        // The new incarnation may be on a new allocation (when no strong handle survived the
+        // restart); repoint the probe so handle counts track the one in use.
         *monitor.probe.lock().unwrap() = Box::new(actor_ref.downgrade());
         monitor.status.store(RESTARTING, Ordering::Relaxed);
         return Arc::clone(monitor);

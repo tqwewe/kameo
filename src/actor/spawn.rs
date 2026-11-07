@@ -5,7 +5,7 @@ use std::{
 
 use futures::{
     FutureExt,
-    stream::{AbortHandle, AbortRegistration, Abortable},
+    stream::{AbortRegistration, Abortable},
 };
 use tokio::{
     runtime::{Handle, RuntimeFlavor},
@@ -19,7 +19,11 @@ use tracing::{Instrument, error, trace};
 use crate::remote;
 
 use crate::{
-    actor::{Actor, ActorRef, CURRENT_ACTOR_ID, kind::ActorBehaviour},
+    actor::{
+        Actor, ActorRef, CURRENT_ACTOR_ID, WeakActorRef,
+        actor_ref::{Incarnation, Lifecycle},
+        kind::ActorBehaviour,
+    },
     error::{ActorStopReason, PanicError, PanicReason, SendError, invoke_actor_error_hook},
     links::Links,
     mailbox::{MailboxReceiver, MailboxSender, Signal},
@@ -39,6 +43,7 @@ use super::ActorId;
 pub struct PreparedActor<A: Actor> {
     actor_ref: ActorRef<A>,
     mailbox_rx: MailboxReceiver<A>,
+    incarnation: Incarnation,
     abort_registration: AbortRegistration,
     #[cfg(feature = "console")]
     monitor: Arc<crate::console::registry::ActorMonitor>,
@@ -64,24 +69,51 @@ impl<A: Actor> PreparedActor<A> {
         (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
         links: Links,
     ) -> Self {
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        let startup_result = Arc::new(SetOnce::new());
-        let shutdown_result = Arc::new(SetOnce::new());
-        let actor_ref = ActorRef::new(
-            actor_id,
-            mailbox_tx,
-            abort_handle,
-            links,
-            startup_result,
-            shutdown_result,
-        );
+        let (incarnation, abort_registration) = Incarnation::new();
+        let lifecycle = Arc::new(Lifecycle::new(incarnation.clone()));
+        let actor_ref = ActorRef::new(actor_id, mailbox_tx, links, lifecycle);
+        Self::prepared(actor_ref, mailbox_rx, incarnation, abort_registration)
+    }
 
+    /// Prepares the next incarnation of a supervised actor, so every handle taken before the
+    /// restart names the incarnation that runs now.
+    ///
+    /// The new incarnation's controls are published to the logical actor's lifecycle before its
+    /// task is spawned. The next incarnation runs on the logical actor's existing ref while any
+    /// strong handle to it is alive. When none is, it gets a new ref (an old [`WeakActorRef`]
+    /// does not upgrade to it), but on the same lifecycle, so old weak refs still see and kill
+    /// the incarnation that is running.
+    pub(crate) fn next_incarnation(
+        logical: &WeakActorRef<A>,
+        (mailbox_tx, mailbox_rx): (MailboxSender<A>, MailboxReceiver<A>),
+        links: Links,
+    ) -> Self {
+        let (incarnation, abort_registration) = Incarnation::new();
+        logical.lifecycle().replace(incarnation.clone());
+        let actor_ref = logical.upgrade().unwrap_or_else(|| {
+            ActorRef::new(
+                logical.id(),
+                mailbox_tx,
+                links,
+                Arc::clone(logical.lifecycle()),
+            )
+        });
+        Self::prepared(actor_ref, mailbox_rx, incarnation, abort_registration)
+    }
+
+    fn prepared(
+        actor_ref: ActorRef<A>,
+        mailbox_rx: MailboxReceiver<A>,
+        incarnation: Incarnation,
+        abort_registration: AbortRegistration,
+    ) -> Self {
         #[cfg(feature = "console")]
         let monitor = crate::console::registry::register_or_get(&actor_ref);
 
         PreparedActor {
             actor_ref,
             mailbox_rx,
+            incarnation,
             abort_registration,
             #[cfg(feature = "console")]
             monitor,
@@ -149,6 +181,7 @@ impl<A: Actor> PreparedActor<A> {
             args,
             self.actor_ref,
             self.mailbox_rx,
+            self.incarnation,
             self.abort_registration,
             #[cfg(feature = "console")]
             self.monitor,
@@ -200,6 +233,7 @@ async fn run_actor_lifecycle<A>(
     args: A::Args,
     actor_ref: ActorRef<A>,
     mut mailbox_rx: MailboxReceiver<A>,
+    incarnation: Incarnation,
     abort_registration: AbortRegistration,
     #[cfg(feature = "console")] monitor: Arc<crate::console::registry::ActorMonitor>,
 ) -> Result<(A, ActorStopReason), PanicError>
@@ -241,7 +275,7 @@ where
                     abortable_actor_loop(
                         &mut state,
                         &mut mailbox_rx,
-                        &actor_ref.startup_result,
+                        &incarnation.startup_result,
                         startup_finished,
                         #[cfg(feature = "console")]
                         &monitor,
@@ -303,7 +337,7 @@ where
 
                 match on_stop_res {
                     Ok(()) => {
-                        actor_ref
+                        incarnation
                             .shutdown_result
                             .set(Ok(reason.clone()))
                             .expect("nothing else should set the shutdown result");
@@ -311,7 +345,7 @@ where
                     Err(err) => {
                         invoke_actor_error_hook(&err);
 
-                        actor_ref
+                        incarnation
                             .shutdown_result
                             .set(Err(err))
                             .expect("nothing else should set the shutdown result");
@@ -327,7 +361,7 @@ where
                 Ok((actor, reason))
             }
             Err(err) => {
-                actor_ref
+                incarnation
                     .startup_result
                     .set(Err(err.clone()))
                     .expect("nothing should set the startup result");
@@ -346,7 +380,7 @@ where
 
                 unregister_actor(&id).await;
 
-                actor_ref
+                incarnation
                     .shutdown_result
                     .set(Err(err.clone()))
                     .expect("nothing should set the startup result");
