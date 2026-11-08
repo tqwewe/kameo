@@ -35,11 +35,11 @@ impl ToTokens for DeriveActor {
                     #name
                 }
 
-                async fn on_start(
+                fn on_start(
                     state: Self::Args,
                     _actor_ref: ::kameo::actor::ActorRef<Self>,
-                ) -> ::std::result::Result<Self, Self::Error> {
-                    ::std::result::Result::Ok(state)
+                ) -> impl Future<Output = ::std::result::Result<Self, Self::Error>> {
+                    ::std::future::ready(::std::result::Result::Ok(state))
                 }
             }
         });
